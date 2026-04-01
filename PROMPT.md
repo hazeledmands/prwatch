@@ -105,6 +105,7 @@ mouse behavior:
 - when text is not wrapped, it should be possible to scroll left/right, too
 - hovering the mouse over clickable elements should cause them to highlight
 - dragging the mouse over text should highlight the text, and finishing a drag should cause a copy to the system's paste buffer
+  selecting should stay within the boundaries of the pane that we're selecting in. that is, if the user drags in the main pane, and drags across multiple lines, the select should copy multiple lines from that pane but not include TUI glyphs or characters from the gutter, or other ANSI codes
 
 help mode:
 [?] should open a "help" page which should show all the keybindings,
