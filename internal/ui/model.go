@@ -601,6 +601,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, keys.Refresh):
+		if m.git == nil {
+			return m, m.loadNonGitFiles
+		}
+		return m, m.loadGitData
+
 	case key.Matches(msg, keys.ToggleSidebar):
 		m.sidebarHidden = !m.sidebarHidden
 		m.updateLayout()

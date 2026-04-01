@@ -34,6 +34,7 @@ type keyMap struct {
 	ToggleRemoved  key.Binding
 	NextDiff       key.Binding
 	PrevDiff       key.Binding
+	Refresh        key.Binding
 	ToggleTree     key.Binding
 }
 
@@ -133,5 +134,8 @@ var keys = keyMap{
 	),
 	ToggleTree: key.NewBinding(
 		key.WithKeys("t"),
+	),
+	Refresh: key.NewBinding(
+		key.WithKeys("r"),
 	),
 }
