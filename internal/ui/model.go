@@ -508,6 +508,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, keys.FocusSidebar):
+		m.focus = SidebarFocus
+		return m, nil
+
+	case key.Matches(msg, keys.FocusMain):
+		m.focus = MainFocus
+		return m, nil
+
 	case key.Matches(msg, keys.FocusToggle):
 		if m.focus == SidebarFocus {
 			m.focus = MainFocus
@@ -1495,6 +1503,8 @@ func (m *Model) helpContentLines() []string {
 		"",
 		"  [h] [left]   Scroll left (when wrap off)",
 		"  [l] [right]  Scroll right (when wrap off)",
+		"  [,]          Focus sidebar",
+		"  [.]          Focus main pane",
 		"  [tab]        Toggle focus (sidebar / main pane)",
 		"",
 		"  [j] [down]   Move down / scroll down",

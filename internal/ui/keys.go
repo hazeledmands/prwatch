@@ -11,6 +11,8 @@ type keyMap struct {
 	CommitMode     key.Binding
 	FocusLeft      key.Binding
 	FocusRight     key.Binding
+	FocusSidebar   key.Binding
+	FocusMain      key.Binding
 	FocusToggle    key.Binding
 	Up             key.Binding
 	Down           key.Binding
@@ -58,6 +60,12 @@ var keys = keyMap{
 	),
 	FocusRight: key.NewBinding(
 		key.WithKeys("l", "right"),
+	),
+	FocusSidebar: key.NewBinding(
+		key.WithKeys(","),
+	),
+	FocusMain: key.NewBinding(
+		key.WithKeys("."),
 	),
 	FocusToggle: key.NewBinding(
 		key.WithKeys("tab"),
