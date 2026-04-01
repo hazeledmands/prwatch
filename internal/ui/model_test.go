@@ -207,6 +207,8 @@ func TestArrowKeysScrollHorizontally(t *testing.T) {
 	m.wordWrap = false
 	m.focus = MainFocus
 	m.updateLayout()
+	// Set content wider than viewport to allow scrolling
+	m.mainPane.SetContent(strings.Repeat("x", 200))
 
 	// Press l (right) should scroll right, not switch focus
 	result, _ := m.Update(tea.KeyPressMsg{Text: "l", Code: 'l'})

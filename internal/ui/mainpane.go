@@ -499,9 +499,29 @@ func (m *mainPane) ScrollLeft(n int) {
 }
 
 // ScrollRight scrolls the viewport right by n columns.
+// Caps at the max content width minus viewport width.
 func (m *mainPane) ScrollRight(n int) {
 	m.xOffset += n
+	// Cap at max content width
+	maxWidth := m.maxContentWidth()
+	if maxWidth > m.width && m.xOffset > maxWidth-m.width {
+		m.xOffset = maxWidth - m.width
+	} else if maxWidth <= m.width {
+		m.xOffset = 0
+	}
 	m.refreshViewport()
+}
+
+// maxContentWidth returns the display width of the widest line in content.
+func (m *mainPane) maxContentWidth() int {
+	maxW := 0
+	for _, line := range strings.Split(m.content, "\n") {
+		w := runewidth.StringWidth(stripANSIForWidth(line))
+		if w > maxW {
+			maxW = w
+		}
+	}
+	return maxW
 }
 
 // truncateLinesWithOffset applies a horizontal scroll offset, then truncates.
