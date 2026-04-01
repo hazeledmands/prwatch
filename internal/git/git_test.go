@@ -1,6 +1,7 @@
 package git_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,24 @@ import (
 
 	"github.com/hazeledmands/prwatch/internal/git"
 )
+
+// mockGHRunner returns a CmdRunner that intercepts "gh" calls with mock responses
+// and delegates everything else to the real exec.Command.
+func mockGHRunner(ghResponse string, ghErr error) git.CmdRunner {
+	return func(dir string, name string, args ...string) (string, error) {
+		if name == "gh" {
+			return ghResponse, ghErr
+		}
+		// Fall back to real execution for non-gh commands
+		cmd := exec.Command(name, args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+}
 
 // helper to create a temp git repo with a main branch, a feature branch, and a commit on each.
 func setupTestRepo(t *testing.T) string {
@@ -646,5 +665,188 @@ func TestRepoInfo_Worktree(t *testing.T) {
 	}
 	if info.Branch != "hazel/test/feature" {
 		t.Errorf("branch = %q, want %q", info.Branch, "hazel/test/feature")
+	}
+}
+
+func TestPRInfo_WithMockGH(t *testing.T) {
+	dir := setupTestRepo(t)
+	jsonResp := `{"number":42,"title":"Test PR","url":"https://github.com/test/repo/pull/42","state":"OPEN","baseRefName":"main"}`
+	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
+
+	info, err := g.PRInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Number != 42 {
+		t.Errorf("expected PR #42, got #%d", info.Number)
+	}
+	if info.Title != "Test PR" {
+		t.Errorf("title = %q, want 'Test PR'", info.Title)
+	}
+	if info.URL != "https://github.com/test/repo/pull/42" {
+		t.Errorf("url = %q", info.URL)
+	}
+	if info.BaseRef != "main" {
+		t.Errorf("baseRef = %q, want 'main'", info.BaseRef)
+	}
+}
+
+func TestPRInfo_InvalidJSON(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("not json", nil))
+
+	info, err := g.PRInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should gracefully return empty result
+	if info.Number != 0 {
+		t.Errorf("expected 0, got #%d", info.Number)
+	}
+}
+
+func TestPRInfo_GHError(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("gh not found")))
+
+	info, err := g.PRInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Number != 0 {
+		t.Errorf("expected 0, got #%d", info.Number)
+	}
+}
+
+func TestDetectBase_WithGHPRBase(t *testing.T) {
+	dir := setupTestRepo(t)
+	// Mock gh to return "main" as PR base
+	g := git.NewWithRunner(dir, mockGHRunner("main", nil))
+
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base == "" {
+		t.Error("should detect base via gh PR base")
+	}
+}
+
+func TestDetectBase_GHReturnsNonExistentBranch(t *testing.T) {
+	dir := setupTestRepo(t)
+	// Mock gh to return a branch that doesn't exist as origin ref or local ref
+	runner := func(d string, name string, args ...string) (string, error) {
+		if name == "gh" {
+			return "nonexistent-branch-xyz", nil
+		}
+		cmd := exec.Command(name, args...)
+		cmd.Dir = d
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	g := git.NewWithRunner(dir, runner)
+
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should fall through to main/master/HEAD~1 fallback
+	if base == "" {
+		t.Error("should still find a base via fallback")
+	}
+}
+
+func TestDefaultCmdRunner_Error(t *testing.T) {
+	// Using New() which uses the default runner — run a command that fails
+	g := git.New(t.TempDir()) // not a git repo
+	// IsRepo uses g.run which is git-specific, but PRInfo uses runCmd
+	info, err := g.PRInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// gh will fail in a non-git temp dir, defaultCmdRunner error path exercised
+	if info.Number != 0 {
+		t.Error("expected empty PR info")
+	}
+}
+
+func TestRepoInfo_NonGitDir(t *testing.T) {
+	g := git.New(t.TempDir())
+	_, err := g.RepoInfo()
+	if err == nil {
+		t.Error("expected error for non-git dir")
+	}
+}
+
+func TestFileDiffUncommitted_NonExistentFile(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+	_, err := g.FileDiffUncommitted("nonexistent_file.xyz")
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
+
+func TestCommits_Error(t *testing.T) {
+	g := git.New(t.TempDir()) // not a git repo
+	_, err := g.Commits("fakebase")
+	if err == nil {
+		t.Error("expected error for non-git dir")
+	}
+}
+
+func TestDetectBase_GHWithOriginRef(t *testing.T) {
+	// Create a repo with an origin remote so origin/<base> works
+	originDir := t.TempDir()
+	cmds := [][]string{
+		{"git", "init", "--initial-branch=main", "--bare"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = originDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup origin %v: %s %v", args, out, err)
+		}
+	}
+	cloneDir := t.TempDir()
+	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
+	if out, err := cloneCmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %s %v", out, err)
+	}
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+	writeFile(t, cloneDir, "README.md", "# hello\n")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "initial")
+	runGit(t, cloneDir, "push", "origin", "main")
+	runGit(t, cloneDir, "checkout", "-b", "feature")
+	writeFile(t, cloneDir, "feature.go", "package f\n")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "feature")
+
+	// Mock gh to return "main" — origin/main exists in this repo
+	g := git.NewWithRunner(cloneDir, mockGHRunner("main", nil))
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base == "" {
+		t.Error("should detect base via origin/main from gh PR base")
+	}
+}
+
+func TestDetectBase_GHReturnsEmpty(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("", nil))
+
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base == "" {
+		t.Error("should fall through to main when gh returns empty")
 	}
 }

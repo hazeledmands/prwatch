@@ -11,13 +11,34 @@ import (
 	"strings"
 )
 
+// CmdRunner executes an external command and returns its stdout.
+// The default implementation uses exec.Command.
+type CmdRunner func(dir string, name string, args ...string) (string, error)
+
 // Git wraps git CLI operations for a specific working directory.
 type Git struct {
-	dir string
+	dir    string
+	runCmd CmdRunner // for running non-git commands (e.g. gh)
 }
 
 func New(dir string) *Git {
-	return &Git{dir: dir}
+	return &Git{dir: dir, runCmd: defaultCmdRunner}
+}
+
+// NewWithRunner creates a Git instance with a custom command runner for testing.
+func NewWithRunner(dir string, runner CmdRunner) *Git {
+	return &Git{dir: dir, runCmd: runner}
+}
+
+func defaultCmdRunner(dir string, name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 type RepoInfoResult struct {
@@ -131,14 +152,7 @@ func (g *Git) DetectBase() (string, error) {
 }
 
 func (g *Git) ghPRBase() (string, error) {
-	cmd := exec.Command("gh", "pr", "view", "--json", "baseRefName", "-q", ".baseRefName")
-	cmd.Dir = g.dir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(stdout.String()), nil
+	return g.runCmd(g.dir, "gh", "pr", "view", "--json", "baseRefName", "-q", ".baseRefName")
 }
 
 // ChangedFilesResult separates committed and uncommitted file changes.
@@ -288,16 +302,13 @@ func (g *Git) FileContent(file string) (string, error) {
 
 // PRInfo fetches PR info via gh CLI. Returns zero-value PRInfoResult if no PR exists.
 func (g *Git) PRInfo() (PRInfoResult, error) {
-	cmd := exec.Command("gh", "pr", "view", "--json", "number,title,url,state,baseRefName")
-	cmd.Dir = g.dir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
+	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName")
+	if err != nil {
 		// No PR exists or gh not available
 		return PRInfoResult{}, nil
 	}
 	var result PRInfoResult
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		return PRInfoResult{}, nil
 	}
 	return result, nil

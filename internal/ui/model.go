@@ -434,23 +434,29 @@ func (m *Model) openEditor() tea.Cmd {
 		return nil
 	}
 
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vi"
-	}
-
-	line := m.currentLineNumber()
-	args := []string{}
-	if line > 0 {
-		args = append(args, fmt.Sprintf("+%d", line))
-	}
-	args = append(args, file)
-
+	editor, args := m.buildEditorCmd(file)
 	cmd := exec.Command(editor, args...)
 	cmd.Dir = m.dir
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return RefreshMsg{}
 	})
+}
+
+// buildEditorCmd returns the editor command and arguments for opening a file.
+// Exported for testing.
+func (m *Model) buildEditorCmd(file string) (string, []string) {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+
+	var args []string
+	line := m.currentLineNumber()
+	if line > 0 {
+		args = append(args, fmt.Sprintf("+%d", line))
+	}
+	args = append(args, file)
+	return editor, args
 }
 
 // currentLineNumber finds the source line at the viewport top.

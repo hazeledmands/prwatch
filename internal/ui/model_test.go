@@ -985,6 +985,57 @@ func TestView_MouseModeEnabled(t *testing.T) {
 	}
 }
 
+func TestBuildEditorCmd_WithEDITOR(t *testing.T) {
+	t.Setenv("EDITOR", "nvim")
+	m := NewModel("/tmp", testGit())
+	m.mode = FileViewMode
+	m.mainPane.SetSize(80, 24)
+	m.mainPane.content = "line1\nline2\nline3"
+
+	editor, args := m.buildEditorCmd("test.go")
+	if editor != "nvim" {
+		t.Errorf("editor = %q, want nvim", editor)
+	}
+	// Last arg should be the file
+	if args[len(args)-1] != "test.go" {
+		t.Errorf("last arg = %q, want test.go", args[len(args)-1])
+	}
+	// In file-view mode, line is scroll offset + 1 = 1
+	if args[0] != "+1" {
+		t.Errorf("first arg = %q, want +1", args[0])
+	}
+}
+
+func TestBuildEditorCmd_DefaultEditor(t *testing.T) {
+	t.Setenv("EDITOR", "")
+	m := NewModel("/tmp", testGit())
+	m.mode = FileViewMode
+
+	editor, _ := m.buildEditorCmd("test.go")
+	if editor != "vi" {
+		t.Errorf("default editor = %q, want vi", editor)
+	}
+}
+
+func TestBuildEditorCmd_DiffModeLineNumber(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.mode = FileDiffMode
+	m.mainPane.SetSize(80, 24)
+	m.mainPane.content = "@@ -1,3 +10,3 @@\n context\n+added"
+
+	_, args := m.buildEditorCmd("test.go")
+	// Should include +N for the line number
+	found := false
+	for _, a := range args {
+		if strings.HasPrefix(a, "+") && a != "+0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected +N arg for diff mode, got %v", args)
+	}
+}
+
 func TestHandleEnter_MainFocus_FileMode_NoFile(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.focus = MainFocus
