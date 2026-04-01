@@ -532,12 +532,26 @@ func (m *Model) sidebarPixelWidth() int {
 
 func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 	if y == 0 && m.git != nil {
-		// Line 0: check if click is on the right side (git status summary area)
-		// Right third of the bar roughly corresponds to the status summary
+		// Check if click is on the mode indicator (center region of the bar)
+		leftThird := m.width / 3
 		rightThird := m.width * 2 / 3
+		if x >= leftThird && x < rightThird {
+			// Cycle mode like space bar
+			switch m.mode {
+			case FileDiffMode:
+				m.mode = FileViewMode
+			case FileViewMode:
+				m.mode = CommitMode
+			case CommitMode:
+				m.mode = FileDiffMode
+			}
+			m.updateSidebarItems()
+			m.updateMainContent()
+			return m, nil
+		}
+
+		// Right third: git status summary area
 		if x >= rightThird {
-			// Determine if clicking "uncommitted" or "commits" based on position
-			// Simple heuristic: uncommitted info comes before commits info
 			midRight := rightThird + (m.width-rightThird)/2
 			if x < midRight && len(m.uncommittedFiles) > 0 {
 				m.mode = FileDiffMode

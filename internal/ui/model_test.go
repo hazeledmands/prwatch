@@ -2231,6 +2231,48 @@ func TestCommitMode_UnpushedCommitsDimmedWithSeparator(t *testing.T) {
 	}
 }
 
+func TestClickModeIndicator_CyclesModes(t *testing.T) {
+	// Spec: "current mode (clicking this should switch modes, like the space bar)"
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:   "+new",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Mode starts as FileDiff
+	if m.mode != FileDiffMode {
+		t.Fatalf("expected FileDiffMode, got %d", m.mode)
+	}
+
+	// Click on the center of line 0 (where the mode indicator is)
+	centerX := m.width / 2
+	clickMsg := tea.MouseClickMsg{X: centerX, Y: 0, Button: tea.MouseLeft}
+	result, _ := m.Update(clickMsg)
+	m = result.(*Model)
+
+	if m.mode != FileViewMode {
+		t.Errorf("clicking mode indicator should cycle to FileViewMode, got %d", m.mode)
+	}
+
+	// Click again to cycle to CommitMode
+	result, _ = m.Update(clickMsg)
+	m = result.(*Model)
+	if m.mode != CommitMode {
+		t.Errorf("clicking mode indicator again should cycle to CommitMode, got %d", m.mode)
+	}
+}
+
 // === Enhanced search tests ===
 
 func TestSearch_IncrementalMatchAsYouType(t *testing.T) {
