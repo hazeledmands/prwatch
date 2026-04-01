@@ -364,8 +364,13 @@ func (g *Git) CommitPatch(sha string) (string, error) {
 // FileContent returns the full content of a file from the working tree.
 // Falls back to HEAD version if the working tree read fails.
 func (g *Git) FileContent(file string) (string, error) {
+	fullPath := filepath.Join(g.dir, file)
+	// Check if path is a directory
+	if info, err := os.Stat(fullPath); err == nil && info.IsDir() {
+		return "", fmt.Errorf("%s is a directory", file)
+	}
 	// Read from working tree directly (handles uncommitted/untracked files)
-	content, err := os.ReadFile(filepath.Join(g.dir, file))
+	content, err := os.ReadFile(fullPath)
 	if err != nil {
 		// Fall back to HEAD version
 		return g.run("show", "HEAD:"+file)
