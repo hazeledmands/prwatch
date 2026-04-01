@@ -65,7 +65,9 @@ switching between file-diff and file-view should retain the selected file.
 
 [tab] should switch focus between the sidebar and the main panel
 [,] should focus the sidebar and [.] should focus the main panel
-if the sidebar has focus, the up/down/j/k keys should control which item in the sidebar is selected. if the main pane has focus, the up/down/j/k/page-up/page-down keys should scroll the view.
+if the sidebar has focus, the up/down/j/k keys should control which item in the sidebar is selected. if the main pane has focus, the up/down/j/k keys should scroll the view.
+[pgdn]/[space] should scroll the currently focused view down
+[pgup]/[shift]+space should scroll the currently focused view up
 the left/right arrow keys and h/l keys (vim style) should scroll the view that is currently in focus left/right if any content is truncated.
 if the sidebar has focus, pressing [enter] should switch to the main pane.
 if the main pane has focus, pressing [enter] should do a contextually-relevant thing: in file mode it should open $EDITOR to the given file, to whatever line is currently in view. in "commit" mode it should.... maybe do nothing for now.
@@ -107,6 +109,9 @@ other keybindings:
 [+] and [-] should change the size of the sidebar
 [f] should hide/show the sidebar
 [w] should toggle on/off word wrapping in the main pane (defaulting to on)
+
+startup sequence:
+while still loading, the display should say "loading..." rather than displaying inaccurate information
 
 ---
 
