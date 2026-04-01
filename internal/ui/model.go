@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,9 @@ import (
 	"charm.land/lipgloss/v2"
 	gitpkg "github.com/hazeledmands/prwatch/internal/git"
 )
+
+// ansiStripRE matches ANSI escape sequences (SGR and OSC 8 hyperlinks).
+var ansiStripRE = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\]8;;[^\x1b]*\x1b\\`)
 
 const prRefreshInterval = 1 * time.Minute
 
@@ -788,24 +792,77 @@ func (m *Model) View() tea.View {
 		uncommitCount: len(m.uncommittedFiles),
 		commitCount:   len(m.commits),
 	})
-	sidebarView := m.sidebar.View(m.focus == SidebarFocus)
-	mainView := m.mainPane.View(m.focus == MainFocus)
 
-	content := lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, mainView)
-
-	result := bar + "\n" + content
-
-	if m.searching {
-		searchBar := fmt.Sprintf("/%s_", m.searchQuery)
-		result += "\n" + searchBar
-	}
-
+	var result string
 	if m.showHelp {
 		result = bar + "\n" + m.renderHelp()
+	} else {
+		sidebarView := m.sidebar.View(m.focus == SidebarFocus)
+		mainView := m.mainPane.View(m.focus == MainFocus)
+		content := lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, mainView)
+		result = bar + "\n" + content
 	}
 
-	v.SetContent(result)
+	padded := padToHeight(result, m.width, m.height)
+
+	// Replace the last line with the search bar when searching
+	if m.searching {
+		searchBar := fmt.Sprintf("/%s_", m.searchQuery)
+		lines := strings.Split(padded, "\n")
+		if len(lines) > 0 {
+			lines[len(lines)-1] = searchBar
+			padded = strings.Join(lines, "\n")
+			padded = padToHeight(padded, m.width, m.height)
+		}
+	}
+
+	v.SetContent(padded)
 	return v
+}
+
+// padToHeight ensures the output has exactly the target number of lines,
+// padding with empty lines or truncating as needed. Each line is also padded
+// to the target width.
+func padToHeight(content string, width, height int) string {
+	if height <= 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+
+	// Truncate if too many lines
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+
+	// Pad short lines to width and add missing lines
+	emptyLine := strings.Repeat(" ", width)
+	for i := range lines {
+		stripped := stripANSIForWidth(lines[i])
+		w := displayWidthOf(stripped)
+		if w < width {
+			lines[i] += strings.Repeat(" ", width-w)
+		}
+	}
+	for len(lines) < height {
+		lines = append(lines, emptyLine)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// stripANSIForWidth removes ANSI escape sequences for width calculation.
+func stripANSIForWidth(s string) string {
+	return ansiStripRE.ReplaceAllString(s, "")
+}
+
+// displayWidthOf returns the display width of a string.
+func displayWidthOf(s string) int {
+	n := 0
+	for _, r := range s {
+		n++
+		_ = r
+	}
+	return n
 }
 
 func (m *Model) renderHelp() string {

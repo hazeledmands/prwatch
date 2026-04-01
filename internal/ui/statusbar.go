@@ -91,9 +91,34 @@ func renderLine1(width int, data statusBarData) string {
 		right += " "
 	}
 
-	// Calculate padding
+	// contentWidth accounts for lipgloss padding (0,1) on each side
 	contentWidth := width - 2
-	padding := contentWidth - lipgloss.Width(left) - lipgloss.Width(modeStr) - lipgloss.Width(right)
+
+	// Progressively truncate sections to fit within contentWidth.
+	// Priority: keep mode visible, then right status, then truncate left.
+	modeW := lipgloss.Width(modeStr)
+	rightW := lipgloss.Width(right)
+	leftW := lipgloss.Width(left)
+
+	available := contentWidth - modeW
+	if available < 0 {
+		available = 0
+	}
+
+	// Truncate right if it doesn't fit alongside mode
+	if rightW > available/2 {
+		right = truncateToWidth(right, available/2)
+		rightW = lipgloss.Width(right)
+	}
+
+	// Truncate left to whatever remains
+	leftMax := available - rightW
+	if leftW > leftMax {
+		left = truncateToWidth(left, leftMax)
+		leftW = lipgloss.Width(left)
+	}
+
+	padding := contentWidth - leftW - modeW - rightW
 	if padding < 0 {
 		padding = 0
 	}
@@ -208,6 +233,33 @@ func renderReviews(reviews []git.PRReview, decision string) string {
 		return ""
 	}
 	return strings.Join(parts, "/")
+}
+
+// truncateToWidth truncates a string to the given display width, appending "…"
+// if truncation occurs. Uses lipgloss.Width for accurate display width.
+func truncateToWidth(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+	// Reserve space for ellipsis
+	target := maxWidth - 1
+	if target < 0 {
+		target = 0
+	}
+	runes := []rune(s)
+	for end := len(runes); end > 0; end-- {
+		candidate := string(runes[:end])
+		if lipgloss.Width(candidate) <= target {
+			return candidate + "…"
+		}
+	}
+	if maxWidth >= 1 {
+		return "…"
+	}
+	return ""
 }
 
 // makeHyperlink creates an OSC 8 terminal hyperlink.
