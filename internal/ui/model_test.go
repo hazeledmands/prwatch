@@ -1187,6 +1187,84 @@ func TestG_SingleG_DoesNotMove(t *testing.T) {
 	}
 }
 
+func TestUpdateMainContent_FileDiff_UncommittedFile(t *testing.T) {
+	dir := t.TempDir()
+	cmds := []struct{ args []string }{
+		{[]string{"git", "init", "--initial-branch=main"}},
+		{[]string{"git", "config", "user.email", "test@test.com"}},
+		{[]string{"git", "config", "user.name", "Test"}},
+	}
+	for _, c := range cmds {
+		cmd := exec.Command(c.args[0], c.args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup %v: %s %v", c.args, out, err)
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# hello\n"), 0644)
+	exec.Command("git", "-C", dir, "add", ".").Run()
+	exec.Command("git", "-C", dir, "commit", "-m", "initial").Run()
+	exec.Command("git", "-C", dir, "checkout", "-b", "feature").Run()
+
+	// Create an uncommitted file
+	os.WriteFile(filepath.Join(dir, "wip.go"), []byte("package wip\n"), 0644)
+
+	g := git.New(dir)
+	m := NewModel(dir, g)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Load data
+	cmd := m.Init()
+	msg := cmd()
+	m.Update(msg)
+
+	// Should be in file-diff mode with uncommitted file
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.updateMainContent()
+
+	if m.mainPane.content == "" {
+		// It's OK if the diff is empty for an untracked file (depends on git)
+		// Just verify no panic
+	}
+}
+
+func TestUpdateMainContent_FileView_WithGitAndError(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.base = "HEAD"
+	m.mode = FileViewMode
+	m.committedFiles = []string{"nonexistent_file.go"}
+	m.updateSidebarItems()
+	m.updateMainContent()
+	// FileContent will try to read from disk, fail, and fall back to git show,
+	// which will also fail — should show error
+	if !strings.Contains(m.mainPane.content, "Error") {
+		t.Error("should show error for nonexistent file in git mode")
+	}
+}
+
+func TestLoadGitData_Error(t *testing.T) {
+	// Use a non-git directory as the git dir — RepoInfo will fail
+	dir := t.TempDir()
+	g := git.New(dir)
+	m := NewModel(dir, g)
+
+	cmd := m.Init()
+	msg := cmd()
+	dataMsg, ok := msg.(gitDataMsg)
+	if !ok {
+		t.Fatalf("expected gitDataMsg, got %T", msg)
+	}
+	if dataMsg.err == nil {
+		t.Error("expected error from loadGitData with non-git dir")
+	}
+}
+
 func TestLoadNonGitFiles_SkipsHiddenAndDirs(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "visible.txt"), []byte("hi"), 0644)

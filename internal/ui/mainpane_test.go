@@ -115,6 +115,28 @@ func TestMainPane_SearchAndHighlight_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestMainPane_SearchAndHighlight_WrapAround(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 3)
+	mp.SetContent("target line\nline2\nline3\nline4\nline5")
+
+	// Scroll past the target
+	mp.viewport.SetYOffset(3)
+
+	mp.SearchAndHighlight("target")
+	if mp.ScrollTop() != 0 {
+		t.Errorf("wrap-around search should find target at 0, got %d", mp.ScrollTop())
+	}
+}
+
+func TestMainPane_SearchAndHighlight_EmptyContent(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 3)
+	mp.SetContent("")
+
+	mp.SearchAndHighlight("something") // should not panic
+}
+
 func TestMainPane_SearchAndHighlight_NotFound(t *testing.T) {
 	mp := newMainPane()
 	mp.SetSize(80, 3)
