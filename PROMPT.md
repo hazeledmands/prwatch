@@ -32,6 +32,7 @@ in the "file-view" mode, the left pane should be a list of the files that have b
 in both file modes, the sidebar separates committed files from uncommitted files with a horizontal line. uncommitted files are rendered in a dimmer style. uncommitted files should be first. secondary order should be alphabetical.
 
 in the "commit" mode, the left pane should be a list of commmits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
+commits that have not yet been pushed to the origin should be a dimmed color. there should be a dividiing horizontal line between these commits and the pushed ones.
 
 [d] should jump right to file-diff mode.
 [f] or [v] should jump right to file-view mode
@@ -50,6 +51,15 @@ when running in a non-git directory, file-view mode should be the only mode.
 running in a branch without a base branch (i.e. directly in main, or a detached head): file modes should show uncommitted changes, and commit mode should list the full commit history.
 
 detached HEAD works normally, status bar shows `detached @ <short sha>` instead of a branch name.
+
+searching:
+the [/] key should open a search input at the bottom of the screen.
+cancel the active search with [esc].
+searching should match against the content in either pane, even content that is scrolled offscreen.
+searching should match as you type, and scroll to put the results of the search in view.
+the number of matches, and the index of the current match, should display at the bottom of the screen.
+results should be highlighted (text background should be a contrasting color).
+pressing [enter] during a search allows [n] to jump to next result and [p] to jump to previous result. jumping between results should wrap around, so the next result after the last one should be the first one.
 
 mouse behavior: the user should be able to click on files or commits in the sidebar to open them in the main view. scrolling should independently scroll the view but keep the selections the same, kind of like a scroll box in a windowed GUI.
 
@@ -76,7 +86,9 @@ DEVELOPING:
 - check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then remove the bug report.
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress.
 - use test-driven development.
-- make small, iterative commits to keep your work trackable. push and re-build the binary after every commit.
+- make small, iterative commits to keep your work trackable.
+- re-build the binary after every commit.
+- push to github after every commit.
 - there should be continuous integration with GHA
 - after each commit, run `PRWATCH_RENDER_ONCE=1 go run .` to see the current state of the TUI rendered as text. review the output yourself to verify the UI looks correct before moving on.
 
