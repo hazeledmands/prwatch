@@ -201,6 +201,7 @@ func (g *Git) ghPRBase() (string, error) {
 type ChangedFilesResult struct {
 	Committed   []string // files changed in base..HEAD only
 	Uncommitted []string // files with working tree changes
+	Deleted     []string // files deleted in base..HEAD (subset of Committed)
 }
 
 // ChangedFiles returns files changed between base and HEAD, separated by commit status.
@@ -254,12 +255,33 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 		uncommitted = append(uncommitted, f)
 	}
 
+	// Detect deleted files (in base..HEAD)
+	deletedSet := make(map[string]bool)
+	out, err = g.run("diff", "--name-only", "--diff-filter=D", base+"..HEAD")
+	if err == nil {
+		for _, f := range strings.Split(out, "\n") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				deletedSet[f] = true
+			}
+		}
+	}
+
+	var deleted []string
+	for _, f := range committed {
+		if deletedSet[f] {
+			deleted = append(deleted, f)
+		}
+	}
+
 	sort.Strings(committed)
 	sort.Strings(uncommitted)
+	sort.Strings(deleted)
 
 	return ChangedFilesResult{
 		Committed:   committed,
 		Uncommitted: uncommitted,
+		Deleted:     deleted,
 	}, nil
 }
 
