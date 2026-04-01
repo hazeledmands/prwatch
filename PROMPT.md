@@ -114,6 +114,7 @@ other keybindings:
 [+] and [-] should change the size of the sidebar
 [f] should hide/show the sidebar
 [w] should toggle on/off word wrapping in the main pane (defaulting to on)
+[r] should refresh the whole app, to deal with cases where something fell behind from the filesystem or git or etc
 
 startup sequence:
 while still loading, the display should say "loading..." rather than displaying inaccurate information
