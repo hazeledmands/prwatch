@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -61,10 +62,14 @@ type gitDataMsg struct {
 type RefreshMsg struct{}
 
 func NewModel(dir string, g *gitpkg.Git) *Model {
+	mode := FileDiffMode
+	if g == nil {
+		mode = FileViewMode
+	}
 	return &Model{
 		git:      g,
 		dir:      dir,
-		mode:     FileDiffMode,
+		mode:     mode,
 		focus:    SidebarFocus,
 		sidebar:  newSidebar(),
 		mainPane: newMainPane(),
@@ -72,12 +77,31 @@ func NewModel(dir string, g *gitpkg.Git) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
+	if m.git == nil {
+		return m.loadNonGitFiles
+	}
 	return m.loadGitData
+}
+
+func (m *Model) loadNonGitFiles() tea.Msg {
+	entries, err := os.ReadDir(m.dir)
+	if err != nil {
+		return gitDataMsg{err: err}
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			files = append(files, e.Name())
+		}
+	}
+	return gitDataMsg{
+		uncommittedFiles: files,
+	}
 }
 
 func (m *Model) loadGitData() tea.Msg {
 	if m.git == nil {
-		return gitDataMsg{err: fmt.Errorf("no git instance")}
+		return m.loadNonGitFiles()
 	}
 
 	info, err := m.git.RepoInfo()
@@ -136,6 +160,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case RefreshMsg:
+		if m.git == nil {
+			return m, m.loadNonGitFiles
+		}
 		return m, m.loadGitData
 
 	case tea.KeyPressMsg:
@@ -164,6 +191,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.ToggleMode):
+		if m.git == nil {
+			return m, nil // non-git: file-view only
+		}
 		switch m.mode {
 		case FileDiffMode:
 			m.mode = FileViewMode
@@ -177,6 +207,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.FileDiffMode):
+		if m.git == nil {
+			return m, nil
+		}
 		m.mode = FileDiffMode
 		m.updateSidebarItems()
 		m.updateMainContent()
@@ -189,6 +222,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.CommitMode):
+		if m.git == nil {
+			return m, nil
+		}
 		m.mode = CommitMode
 		m.updateSidebarItems()
 		m.updateMainContent()
@@ -341,7 +377,24 @@ func (m *Model) updateSidebarItems() {
 }
 
 func (m *Model) updateMainContent() {
-	if m.git == nil || m.base == "" {
+	if m.git == nil {
+		// Non-git: file-view only, read from disk
+		if m.mode == FileViewMode {
+			file := m.sidebar.SelectedItem()
+			if file == "" {
+				m.mainPane.SetPlainContent("")
+				return
+			}
+			content, err := os.ReadFile(filepath.Join(m.dir, file))
+			if err != nil {
+				m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
+				return
+			}
+			m.mainPane.SetPlainContent(string(content))
+		}
+		return
+	}
+	if m.base == "" {
 		return
 	}
 

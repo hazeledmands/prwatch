@@ -4,10 +4,16 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hazeledmands/prwatch/internal/git"
 )
 
+// testGit returns a dummy git instance so the model operates in git mode.
+func testGit() *git.Git {
+	return git.New("/tmp")
+}
+
 func TestModeSwitching(t *testing.T) {
-	m := NewModel("/tmp", nil)
+	m := NewModel("/tmp", testGit())
 
 	if m.mode != FileDiffMode {
 		t.Error("initial mode should be FileDiffMode")
@@ -59,7 +65,7 @@ func TestModeSwitching(t *testing.T) {
 }
 
 func TestFocusSwitching(t *testing.T) {
-	m := NewModel("/tmp", nil)
+	m := NewModel("/tmp", testGit())
 
 	if m.focus != SidebarFocus {
 		t.Error("initial focus should be SidebarFocus")
@@ -79,7 +85,7 @@ func TestFocusSwitching(t *testing.T) {
 }
 
 func TestQuitConfirm_qEntersConfirming(t *testing.T) {
-	m := NewModel("/tmp", nil)
+	m := NewModel("/tmp", testGit())
 
 	result, cmd := m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	m = result.(*Model)
@@ -92,7 +98,7 @@ func TestQuitConfirm_qEntersConfirming(t *testing.T) {
 }
 
 func TestQuitConfirm_qThenqQuits(t *testing.T) {
-	m := NewModel("/tmp", nil)
+	m := NewModel("/tmp", testGit())
 
 	result, _ := m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	m = result.(*Model)
@@ -104,7 +110,7 @@ func TestQuitConfirm_qThenqQuits(t *testing.T) {
 }
 
 func TestQuitConfirm_qThenOtherKeyCancels(t *testing.T) {
-	m := NewModel("/tmp", nil)
+	m := NewModel("/tmp", testGit())
 
 	result, _ := m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	m = result.(*Model)
@@ -120,10 +126,49 @@ func TestQuitConfirm_qThenOtherKeyCancels(t *testing.T) {
 }
 
 func TestQuitImmediate_QQuitsDirectly(t *testing.T) {
-	m := NewModel("/tmp", nil)
+	m := NewModel("/tmp", testGit())
 
 	_, cmd := m.Update(tea.KeyPressMsg{Text: "Q", Code: 'Q'})
 	if cmd == nil {
 		t.Error("Q should produce a quit command immediately")
+	}
+}
+
+func TestNonGitMode_StartsInFileView(t *testing.T) {
+	m := NewModel("/tmp", nil)
+	if m.mode != FileViewMode {
+		t.Error("non-git model should start in FileViewMode")
+	}
+}
+
+func TestNonGitMode_BlocksModeSwitching(t *testing.T) {
+	m := NewModel("/tmp", nil)
+
+	// Space should not change mode
+	result, _ := m.Update(tea.KeyPressMsg{Text: " ", Code: tea.KeySpace})
+	m = result.(*Model)
+	if m.mode != FileViewMode {
+		t.Error("space should not change mode in non-git")
+	}
+
+	// 'd' should not change mode
+	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	m = result.(*Model)
+	if m.mode != FileViewMode {
+		t.Error("d should not change mode in non-git")
+	}
+
+	// 'c' should not change mode
+	result, _ = m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
+	m = result.(*Model)
+	if m.mode != FileViewMode {
+		t.Error("c should not change mode in non-git")
+	}
+
+	// 'f' should stay in file-view (already there)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
+	m = result.(*Model)
+	if m.mode != FileViewMode {
+		t.Error("f should keep FileViewMode in non-git")
 	}
 }

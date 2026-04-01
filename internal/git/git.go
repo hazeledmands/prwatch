@@ -204,11 +204,25 @@ func (g *Git) FileDiff(base, file string) (string, error) {
 }
 
 // Commits returns the list of commits between base and HEAD, newest first.
+// If no commits exist in the range (e.g. on main), falls back to last 10 commits.
 func (g *Git) Commits(base string) ([]Commit, error) {
 	out, err := g.run("log", "--format=%H %s", base+"..HEAD")
 	if err != nil {
 		return nil, err
 	}
+	commits := parseCommitLog(out)
+	if len(commits) == 0 {
+		// On the base branch itself — show recent history
+		out, err = g.run("log", "--format=%H %s", "-10", "HEAD")
+		if err != nil {
+			return nil, err
+		}
+		commits = parseCommitLog(out)
+	}
+	return commits, nil
+}
+
+func parseCommitLog(out string) []Commit {
 	var commits []Commit
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
@@ -222,7 +236,7 @@ func (g *Git) Commits(base string) ([]Commit, error) {
 		}
 		commits = append(commits, Commit{SHA: parts[0], Subject: subject})
 	}
-	return commits, nil
+	return commits
 }
 
 // CommitPatch returns the full patch for a single commit.
