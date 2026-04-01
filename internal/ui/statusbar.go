@@ -55,7 +55,11 @@ func renderLine1(width int, data statusBarData) string {
 	// Left: branch @ repo (dir)
 	left := " " + branchDisplay
 	if info.RepoName != "" {
-		left = fmt.Sprintf(" %s @ %s", branchDisplay, info.RepoName)
+		repoDisplay := info.RepoName
+		if info.RepoURL != "" {
+			repoDisplay = makeHyperlink(info.RepoURL, info.RepoName)
+		}
+		left = fmt.Sprintf(" %s @ %s", branchDisplay, repoDisplay)
 	}
 	if info.DirName != "" && info.DirName != info.RepoName {
 		left += fmt.Sprintf(" (%s)", info.DirName)

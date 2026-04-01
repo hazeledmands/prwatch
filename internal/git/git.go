@@ -45,6 +45,7 @@ type RepoInfoResult struct {
 	Branch         string
 	Upstream       string // e.g. "origin/main"
 	RepoName       string
+	RepoURL        string // HTTPS URL of the repo (from origin remote)
 	DirName        string // basename of the working directory
 	Worktree       string // empty if not in a worktree
 	HeadSHA        string
@@ -132,10 +133,17 @@ func (g *Git) RepoInfo() (RepoInfoResult, error) {
 		}
 	}
 
+	// Get repo URL from origin remote
+	var repoURL string
+	if remoteURL, err := g.run("remote", "get-url", "origin"); err == nil {
+		repoURL = gitRemoteToHTTPS(remoteURL)
+	}
+
 	return RepoInfoResult{
 		Branch:         branch,
 		Upstream:       upstream,
 		RepoName:       repoName,
+		RepoURL:        repoURL,
 		DirName:        filepath.Base(g.dir),
 		Worktree:       worktree,
 		HeadSHA:        headSHA,
@@ -416,6 +424,27 @@ func (g *Git) PRReviews() ([]PRReview, error) {
 		reviews = append(reviews, r)
 	}
 	return reviews, nil
+}
+
+// gitRemoteToHTTPS converts a git remote URL to an HTTPS URL.
+// Handles SSH (git@github.com:user/repo.git) and HTTPS formats.
+func gitRemoteToHTTPS(remote string) string {
+	remote = strings.TrimSpace(remote)
+	remote = strings.TrimSuffix(remote, ".git")
+
+	// SSH format: git@github.com:user/repo
+	if strings.HasPrefix(remote, "git@") {
+		remote = strings.TrimPrefix(remote, "git@")
+		remote = strings.Replace(remote, ":", "/", 1)
+		return "https://" + remote
+	}
+
+	// Already HTTPS
+	if strings.HasPrefix(remote, "https://") || strings.HasPrefix(remote, "http://") {
+		return remote
+	}
+
+	return ""
 }
 
 // PRCommentCount fetches the number of comments on the current PR.
