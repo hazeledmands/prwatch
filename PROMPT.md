@@ -36,14 +36,14 @@ in the "file-diff" mode, the left pane should be a list of the files that have b
 
 in the "file-view" mode, the left pane should be a list of all files in the directory, and the right pane should be the full file, that highlights the diff for the current changeset.
 this mode should have a "gutter":
-  - [n] should toggle on/off line numbers when displaying full files (defaulting to on)
-  - if there is a diff for the current file, there should be a "diff gutter" that flags new lines (+), removed lines (-), and changed lines (~). if the file being viewed was COMPLETELY removed or is totally new, then the gutter should indicate that too.
-  - wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line
-- any new content (via the diff) should show as "green" in file view mode, and removed content should show as red
-- [shift]+[d] should show/hide removed content from the diff, in its own line (defaulting to showing)
-- [shift]+[j]/[k]/[up]/[down] should jump directly to the next or previous diff. this should wrap around, just like search results.
-- entering into this view should jump immediately to the first diff
-- both modes should not attempt to show binary content -- instead it should just say [binary content]
+  [n] should toggle on/off line numbers when displaying full files (defaulting to on)
+  if there is a diff for the current file, there should be a "diff gutter" that flags new lines (+), removed lines (-), and changed lines (~). if the file being viewed was COMPLETELY removed or is totally new, then the gutter should indicate that too.
+  wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line
+any new content (via the diff) should show as "green" in file view mode, and removed content should show as red
+[shift]+[d] should show/hide removed content from the diff, in its own line (defaulting to showing)
+[shift]+[j]/[k]/[up]/[down] should jump directly to the next or previous diff. this should wrap around, just like search results.
+entering into this view should jump immediately to the first diff
+both modes should not attempt to show binary content -- instead it should just say [binary content]
 
 in both file modes, the sidebar should be separated into categories, with a horizontal line between each:
   1. uncommitted files (rendered in a dimmer style)
@@ -51,7 +51,7 @@ in both file modes, the sidebar should be separated into categories, with a hori
   3. all files (file-view mode only)
 order within these categories should be alphabetical.
 deleted files should still show up in this view, but they should be red.
-[i] should toggle on/off view of gitignored files in all files mode. it should be on by default.
+[i] should toggle on/off view of gitignored files in all files mode. it should be on by default. ignored files should show up in a dimmed color.
 tree view (enabled by default): files should be grouped under directories, and subsequently indented.
   - directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
   - [t] should toggle this mode on/off
