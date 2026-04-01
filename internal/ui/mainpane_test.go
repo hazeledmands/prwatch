@@ -383,3 +383,35 @@ func TestMainPane_LineNumbersPreserveContent(t *testing.T) {
 		t.Errorf("last visible line should contain '27', got %q", lastVisible)
 	}
 }
+
+// Regression: wrapped text should not wrap into the gutter.
+// Continuation lines should be indented to align with content, not gutter.
+func TestMainPane_WrapDoesNotEnterGutter(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(40, 20)
+	mp.SetWordWrap(true)
+
+	// Set diff annotations so there's a gutter
+	mp.SetDiffAnnotations(map[int]diffAnnotation{
+		1: {kind: diffLineAdded},
+	})
+
+	// Line 1 is long enough to wrap: with line number "1" (1 char) + " + " (3 chars) = 4 chars gutter
+	// Plus content of 50 chars = 54 total, at width 40 this wraps
+	content := "this line is way too long to fit in forty characters so it wraps"
+	mp.SetPlainContent(content)
+
+	rendered := mp.viewport.View()
+	lines := strings.Split(rendered, "\n")
+
+	// The first line should have the gutter marker
+	if len(lines) < 2 {
+		t.Fatal("expected at least 2 lines after wrapping")
+	}
+
+	// Continuation line (line 2) should start with spaces (indent), not content at column 0
+	stripped := stripANSIForWidth(lines[1])
+	if len(stripped) > 0 && stripped[0] != ' ' {
+		t.Errorf("continuation line should start with spaces (gutter indent), got %q", stripped[:min(20, len(stripped))])
+	}
+}

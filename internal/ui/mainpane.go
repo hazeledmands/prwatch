@@ -208,17 +208,18 @@ func (m *mainPane) SetSearchQuery(query string) {
 
 func (m *mainPane) refreshViewport() {
 	content := m.content
+	gutterWidth := 0
 	if m.isDiff {
 		content = colorDiff(content)
 	} else {
-		content = m.applyFileViewFormatting(content)
+		content, gutterWidth = m.applyFileViewFormatting(content)
 	}
 	if m.searchQuery != "" {
 		content = highlightSearch(content, m.searchQuery)
 	}
 	if m.width > 0 {
 		if m.wordWrap {
-			content = wrapLines(content, m.width)
+			content = wrapLinesWithIndent(content, m.width, gutterWidth)
 		} else {
 			content = truncateLines(content, m.width)
 		}
@@ -227,9 +228,14 @@ func (m *mainPane) refreshViewport() {
 }
 
 // applyFileViewFormatting adds line numbers and diff gutter to plain content.
-func (m *mainPane) applyFileViewFormatting(content string) string {
+// Returns the formatted content and the gutter width (for wrapping indentation).
+func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 	lines := strings.Split(content, "\n")
 	numWidth := len(fmt.Sprintf("%d", len(lines)))
+	gutterWidth := 3 // " + " or "   "
+	if m.lineNumbers {
+		gutterWidth = numWidth + 3 // "  N + " or "  N   "
+	}
 
 	var result []string
 	for i, line := range lines {
@@ -269,7 +275,7 @@ func (m *mainPane) applyFileViewFormatting(content string) string {
 			}
 		}
 	}
-	return strings.Join(result, "\n")
+	return strings.Join(result, "\n"), gutterWidth
 }
 
 func (m *mainPane) Update(msg tea.Msg) tea.Cmd {
@@ -419,6 +425,47 @@ func wrapLines(content string, width int) string {
 				current.Reset()
 				w = 0
 			}
+			current.WriteRune(r)
+			w += dw
+		})
+		if current.Len() > 0 {
+			result = append(result, current.String())
+		}
+	}
+	return strings.Join(result, "\n")
+}
+
+// wrapLinesWithIndent wraps lines like wrapLines but indents continuation lines
+// by the given indent width (for gutter alignment).
+func wrapLinesWithIndent(content string, width, indent int) string {
+	if indent <= 0 {
+		return wrapLines(content, width)
+	}
+	if width <= indent {
+		return wrapLines(content, width)
+	}
+	lines := strings.Split(content, "\n")
+	var result []string
+	indentStr := strings.Repeat(" ", indent)
+	for _, line := range lines {
+		lineW := ansiAwareIterate(line, func(r rune, w int) {})
+		if lineW <= width {
+			result = append(result, line)
+			continue
+		}
+		// First segment: full width
+		var current strings.Builder
+		w := 0
+		first := true
+		ansiAwareIterate(line, func(r rune, dw int) {
+			if dw > 0 && w+dw > width {
+				result = append(result, current.String())
+				current.Reset()
+				current.WriteString(indentStr)
+				w = indent
+				first = false
+			}
+			_ = first
 			current.WriteRune(r)
 			w += dw
 		})
