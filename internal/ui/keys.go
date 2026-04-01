@@ -44,7 +44,7 @@ var keys = keyMap{
 		key.WithKeys("Q", "ctrl+c"),
 	),
 	ToggleMode: key.NewBinding(
-		key.WithKeys("space"),
+		key.WithKeys("m"),
 	),
 	FileDiffMode: key.NewBinding(
 		key.WithKeys("d", "1"),

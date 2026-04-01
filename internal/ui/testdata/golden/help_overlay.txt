@@ -2,10 +2,10 @@
   PR #42: Add authentication                                                                        
 Keybindings:                                                                                        
                                                                                                     
-  [space]      Cycle mode (diff -> file -> commit)                                                  
-  [d]          File diff mode                                                                       
-  [v]          File view mode                                                                       
-  [c]          Commit mode                                                                          
+  [m]          Cycle mode (diff -> file -> commit)                                                  
+  [d] [1]      File diff mode                                                                       
+  [v] [2]      File view mode                                                                       
+  [c] [3]      Commit mode                                                                          
                                                                                                     
   [h] [left]   Scroll left (when wrap off)                                                          
   [l] [right]  Scroll right (when wrap off)                                                         

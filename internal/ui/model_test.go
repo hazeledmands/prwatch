@@ -85,19 +85,19 @@ func TestModeSwitching(t *testing.T) {
 	}
 
 	// Press space to cycle: FileDiff → FileView → Commit → FileDiff
-	result, _ := m.Update(tea.KeyPressMsg{Text: " ", Code: tea.KeySpace})
+	result, _ := m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
 	if m.mode != FileViewMode {
 		t.Error("after space, mode should be FileViewMode")
 	}
 
-	result, _ = m.Update(tea.KeyPressMsg{Text: " ", Code: tea.KeySpace})
+	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
 	if m.mode != CommitMode {
 		t.Error("after second space, mode should be CommitMode")
 	}
 
-	result, _ = m.Update(tea.KeyPressMsg{Text: " ", Code: tea.KeySpace})
+	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
 	if m.mode != FileDiffMode {
 		t.Error("after third space, mode should be FileDiffMode")
@@ -2054,7 +2054,7 @@ func TestNonGitMode_BlocksModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", nil)
 
 	// Space should not change mode
-	result, _ := m.Update(tea.KeyPressMsg{Text: " ", Code: tea.KeySpace})
+	result, _ := m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
 	if m.mode != FileViewMode {
 		t.Error("space should not change mode in non-git")

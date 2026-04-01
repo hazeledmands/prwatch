@@ -848,7 +848,7 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 		leftThird := m.width / 3
 		rightThird := m.width * 2 / 3
 		if x >= leftThird && x < rightThird {
-			// Cycle mode like space bar
+			// Cycle mode like [m] key
 			switch m.mode {
 			case FileDiffMode:
 				m.mode = FileViewMode
@@ -1553,10 +1553,10 @@ func (m *Model) helpContentLines() []string {
 	return []string{
 		"Keybindings:",
 		"",
-		"  [space]      Cycle mode (diff -> file -> commit)",
-		"  [d]          File diff mode",
-		"  [v]          File view mode",
-		"  [c]          Commit mode",
+		"  [m]          Cycle mode (diff -> file -> commit)",
+		"  [d] [1]      File diff mode",
+		"  [v] [2]      File view mode",
+		"  [c] [3]      Commit mode",
 		"",
 		"  [h] [left]   Scroll left (when wrap off)",
 		"  [l] [right]  Scroll right (when wrap off)",
