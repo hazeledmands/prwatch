@@ -21,6 +21,8 @@ type keyMap struct {
 	GoBottom      key.Binding
 	Search        key.Binding
 	Help          key.Binding
+	SidebarGrow   key.Binding
+	SidebarShrink key.Binding
 }
 
 var keys = keyMap{
@@ -77,5 +79,11 @@ var keys = keyMap{
 	),
 	Help: key.NewBinding(
 		key.WithKeys("?"),
+	),
+	SidebarGrow: key.NewBinding(
+		key.WithKeys("+", "="),
+	),
+	SidebarShrink: key.NewBinding(
+		key.WithKeys("-"),
 	),
 }

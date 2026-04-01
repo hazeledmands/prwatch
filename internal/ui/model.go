@@ -66,6 +66,7 @@ type Model struct {
 	commits          []gitpkg.Commit
 	sidebar          *sidebar
 	mainPane         *mainPane
+	sidebarPct       int // sidebar width as percentage of total width (10-50)
 	dir              string
 	confirming       bool
 	lastKeyG         bool // tracks whether last key was 'g' for gg binding
@@ -106,12 +107,13 @@ func NewModel(dir string, g GitDataSource) *Model {
 		mode = FileViewMode
 	}
 	return &Model{
-		git:      g,
-		dir:      dir,
-		mode:     mode,
-		focus:    SidebarFocus,
-		sidebar:  newSidebar(),
-		mainPane: newMainPane(),
+		git:        g,
+		dir:        dir,
+		mode:       mode,
+		focus:      SidebarFocus,
+		sidebar:    newSidebar(),
+		mainPane:   newMainPane(),
+		sidebarPct: 30, // default 30% of width
 	}
 }
 
@@ -388,6 +390,20 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.updateMainContent()
 		} else {
 			m.mainPane.GoToBottom()
+		}
+		return m, nil
+
+	case key.Matches(msg, keys.SidebarGrow):
+		if m.sidebarPct < 50 {
+			m.sidebarPct += 5
+			m.updateLayout()
+		}
+		return m, nil
+
+	case key.Matches(msg, keys.SidebarShrink):
+		if m.sidebarPct > 10 {
+			m.sidebarPct -= 5
+			m.updateLayout()
 		}
 		return m, nil
 
@@ -723,7 +739,7 @@ func (m *Model) updateMainContent() {
 func (m *Model) updateLayout() {
 	statusBarHeight := 2                                // line 1: branch/mode/status, line 2: PR info
 	contentHeight := max(0, m.height-statusBarHeight-2) // borders
-	sidebarWidth := max(0, m.width*3/10)
+	sidebarWidth := max(0, m.width*m.sidebarPct/100)
 	mainWidth := max(0, m.width-sidebarWidth-4) // borders
 
 	m.sidebar.SetSize(sidebarWidth, contentHeight)
@@ -810,6 +826,9 @@ func (m *Model) renderHelp() string {
 		"  [pgup/pgdn]  Page up / page down",
 		"  [gg]         Go to top",
 		"  [G]          Go to bottom",
+		"",
+		"  [+] [=]     Grow sidebar",
+		"  [-]          Shrink sidebar",
 		"",
 		"  [enter]      Open file in $EDITOR / switch to main pane",
 		"  [/]          Search",

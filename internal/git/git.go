@@ -290,8 +290,8 @@ func (g *Git) Commits(base string) ([]Commit, error) {
 	}
 	commits := parseCommitLog(out)
 	if len(commits) == 0 {
-		// On the base branch itself — show recent history
-		out, err = g.run("log", "--format=%H %s", "-10", "HEAD")
+		// On the base branch itself — show full commit history
+		out, err = g.run("log", "--format=%H %s", "HEAD")
 		if err != nil {
 			return nil, err
 		}

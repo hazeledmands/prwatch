@@ -696,6 +696,69 @@ func TestSidebarFocus_UnmatchedKey(t *testing.T) {
 	}
 }
 
+func TestSidebarGrow(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 100
+	m.height = 24
+	m.updateLayout()
+	initial := m.sidebarPct
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "+", Code: '+'})
+	m = result.(*Model)
+	if m.sidebarPct != initial+5 {
+		t.Errorf("expected %d, got %d", initial+5, m.sidebarPct)
+	}
+
+	// Also test '=' which should do the same
+	result, _ = m.Update(tea.KeyPressMsg{Text: "=", Code: '='})
+	m = result.(*Model)
+	if m.sidebarPct != initial+10 {
+		t.Errorf("expected %d, got %d", initial+10, m.sidebarPct)
+	}
+}
+
+func TestSidebarShrink(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 100
+	m.height = 24
+	m.updateLayout()
+	initial := m.sidebarPct
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "-", Code: '-'})
+	m = result.(*Model)
+	if m.sidebarPct != initial-5 {
+		t.Errorf("expected %d, got %d", initial-5, m.sidebarPct)
+	}
+}
+
+func TestSidebarGrow_MaxClamp(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.sidebarPct = 50
+	m.width = 100
+	m.height = 24
+	m.updateLayout()
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "+", Code: '+'})
+	m = result.(*Model)
+	if m.sidebarPct != 50 {
+		t.Errorf("should clamp at 50, got %d", m.sidebarPct)
+	}
+}
+
+func TestSidebarShrink_MinClamp(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.sidebarPct = 10
+	m.width = 100
+	m.height = 24
+	m.updateLayout()
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "-", Code: '-'})
+	m = result.(*Model)
+	if m.sidebarPct != 10 {
+		t.Errorf("should clamp at 10, got %d", m.sidebarPct)
+	}
+}
+
 func TestMainPane_ForwardKeys(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
