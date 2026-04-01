@@ -21,10 +21,10 @@ Keybindings:
   [-]          Shrink sidebar                                                                       
                                                                                                     
   [enter]      Open file in $EDITOR / switch to main pane                                           
-  [/]          Search                                                                               
+  [/]          Search (type to match, enter to confirm)                                             
+  [n]          Next search result                                                                   
+  [p]          Previous search result                                                               
   [?]          Show this help                                                                       
                                                                                                     
   [q] [esc]    Quit (confirm)                                                                       
   [Q] [ctrl-c] Quit immediately                                                                     
-                                                                                                    
-Press any key to dismiss.                                                                           

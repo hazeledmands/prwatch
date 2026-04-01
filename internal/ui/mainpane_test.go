@@ -65,7 +65,7 @@ func TestMainPane_GoToTop(t *testing.T) {
 	mp.SetSize(80, 3)
 
 	var lines []string
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		lines = append(lines, "line")
 	}
 	mp.SetContent(strings.Join(lines, "\n"))
@@ -82,7 +82,7 @@ func TestMainPane_GoToBottom(t *testing.T) {
 	mp.SetSize(80, 3)
 
 	var lines []string
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		lines = append(lines, "line")
 	}
 	mp.SetContent(strings.Join(lines, "\n"))
@@ -93,90 +93,65 @@ func TestMainPane_GoToBottom(t *testing.T) {
 	}
 }
 
-func TestMainPane_SearchAndHighlight(t *testing.T) {
+// === Search tests (per new spec: search all content, not just visible) ===
+
+func TestMainPane_FindMatches(t *testing.T) {
 	mp := newMainPane()
 	mp.SetSize(80, 3)
-	mp.SetContent("line1\nline2\ntarget line\nline4\nline5")
+	mp.SetContent("line1\ntarget here\nline3\nanother target\nline5")
 
-	mp.SearchAndHighlight("target")
-	if mp.ScrollTop() != 2 {
-		t.Errorf("search should scroll to line 2, got %d", mp.ScrollTop())
+	matches := mp.FindMatches("target")
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 matches, got %d", len(matches))
+	}
+	if matches[0] != 1 || matches[1] != 3 {
+		t.Errorf("expected matches at lines [1, 3], got %v", matches)
 	}
 }
 
-func TestMainPane_SearchAndHighlight_CaseInsensitive(t *testing.T) {
+func TestMainPane_FindMatches_CaseInsensitive(t *testing.T) {
 	mp := newMainPane()
 	mp.SetSize(80, 3)
-	mp.SetContent("line1\nline2\nTARGET line\nline4\nline5")
+	mp.SetContent("line1\nTARGET here\nline3")
 
-	mp.SearchAndHighlight("target")
-	if mp.ScrollTop() != 2 {
-		t.Errorf("case-insensitive search should find TARGET, got offset %d", mp.ScrollTop())
+	matches := mp.FindMatches("target")
+	if len(matches) != 1 || matches[0] != 1 {
+		t.Errorf("case-insensitive: expected [1], got %v", matches)
 	}
 }
 
-func TestMainPane_SearchAndHighlight_NoWrapAround(t *testing.T) {
-	// Search only searches visible content, so it should NOT wrap around
-	mp := newMainPane()
-	mp.SetSize(80, 3)
-	// Need enough content for scrolling: viewport=3, so 6+ lines needed
-	mp.SetContent("target line\nline2\nline3\nline4\nline5\nline6\nline7\nline8")
-
-	// Scroll past the target — target at line 0 is no longer visible (showing lines 4-6)
-	mp.viewport.SetYOffset(4)
-
-	mp.SearchAndHighlight("target")
-	// Should stay at offset 4 since "target" is at line 0, not in visible range (4-6)
-	if mp.ScrollTop() != 4 {
-		t.Errorf("search should not wrap around, expected offset 4, got %d", mp.ScrollTop())
-	}
-}
-
-func TestMainPane_SearchAndHighlight_EmptyContent(t *testing.T) {
-	mp := newMainPane()
-	mp.SetSize(80, 3)
-	mp.SetContent("")
-
-	mp.SearchAndHighlight("something") // should not panic
-}
-
-func TestMainPane_SearchAndHighlight_NotFound(t *testing.T) {
+func TestMainPane_FindMatches_NotFound(t *testing.T) {
 	mp := newMainPane()
 	mp.SetSize(80, 3)
 	mp.SetContent("line1\nline2\nline3")
 
-	mp.SearchAndHighlight("nonexistent")
-	// Should not panic, offset stays at 0
-	if mp.ScrollTop() != 0 {
-		t.Errorf("search miss should not change offset, got %d", mp.ScrollTop())
+	matches := mp.FindMatches("nonexistent")
+	if len(matches) != 0 {
+		t.Errorf("expected 0 matches, got %d", len(matches))
 	}
 }
 
-func TestMainPane_SearchOnlySearchesVisible(t *testing.T) {
-	// Spec: "[/] to open a search (only searches what is currently visible)"
+func TestMainPane_FindMatches_SearchesAllContent(t *testing.T) {
+	// New spec: "searching should match against the content in either pane,
+	// even content that is scrolled offscreen"
 	mp := newMainPane()
-	mp.SetSize(80, 3) // viewport shows 3 lines at a time
-	mp.SetContent("line1\nline2\nline3\ntarget_hidden\nline5\nline6\nline7")
+	mp.SetSize(80, 3) // only 3 lines visible
+	mp.SetContent("line1\nline2\nline3\ntarget_offscreen\nline5\nline6\nline7")
 
-	// Viewport starts at 0, showing lines 0-2. "target_hidden" is at line 3, NOT visible.
-	mp.SearchAndHighlight("target_hidden")
-
-	// Search should NOT find it because it's not in the visible viewport
-	if mp.ScrollTop() != 0 {
-		t.Errorf("search should not find non-visible content, but scrolled to %d", mp.ScrollTop())
+	matches := mp.FindMatches("target_offscreen")
+	if len(matches) != 1 || matches[0] != 3 {
+		t.Errorf("should find offscreen content, got matches %v", matches)
 	}
 }
 
-func TestMainPane_SearchFindsVisibleContent(t *testing.T) {
+func TestMainPane_ScrollToLine(t *testing.T) {
 	mp := newMainPane()
-	mp.SetSize(80, 5) // viewport shows 5 lines
-	mp.SetContent("line1\nline2\ntarget_visible\nline4\nline5\nline6\nline7")
+	mp.SetSize(80, 3)
+	mp.SetContent("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8")
 
-	// "target_visible" is at line 2, which IS visible (viewport shows lines 0-4)
-	mp.SearchAndHighlight("target_visible")
-
-	if mp.ScrollTop() != 2 {
-		t.Errorf("search should scroll to visible target at line 2, got %d", mp.ScrollTop())
+	mp.ScrollToLine(4)
+	if mp.ScrollTop() != 4 {
+		t.Errorf("expected scroll to line 4, got %d", mp.ScrollTop())
 	}
 }
 

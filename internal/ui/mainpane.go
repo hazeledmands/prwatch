@@ -67,23 +67,26 @@ func (m *mainPane) GoToBottom() {
 	m.viewport.GotoBottom()
 }
 
-// SearchAndHighlight searches for query within the currently visible viewport.
-// Per spec: "[/] to open a search (only searches what is currently visible)"
-func (m *mainPane) SearchAndHighlight(query string) {
-	lines := strings.Split(m.content, "\n")
-	start := m.viewport.YOffset()
-	end := start + m.height
-	if end > len(lines) {
-		end = len(lines)
+// FindMatches returns line indices where query appears (case-insensitive).
+// Searches all content, not just the visible viewport.
+func (m *mainPane) FindMatches(query string) []int {
+	if query == "" {
+		return nil
 	}
+	lines := strings.Split(m.content, "\n")
 	q := strings.ToLower(query)
-
-	for i := start; i < end; i++ {
-		if strings.Contains(strings.ToLower(lines[i]), q) {
-			m.viewport.SetYOffset(i)
-			return
+	var matches []int
+	for i, line := range lines {
+		if strings.Contains(strings.ToLower(line), q) {
+			matches = append(matches, i)
 		}
 	}
+	return matches
+}
+
+// ScrollToLine scrolls the viewport to show the given line.
+func (m *mainPane) ScrollToLine(line int) {
+	m.viewport.SetYOffset(line)
 }
 
 // colorDiff applies syntax coloring to unified diff output.

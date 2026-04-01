@@ -1438,10 +1438,13 @@ func TestHandleEnter_MainFocus_CommitMode(t *testing.T) {
 	}
 }
 
-func TestExecuteSearch_EmptyQuery(t *testing.T) {
+func TestUpdateSearchMatches_EmptyQuery(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.searchQuery = ""
-	m.executeSearch() // should not panic
+	m.updateSearchMatches() // should not panic
+	if len(m.searchMatches) != 0 {
+		t.Error("empty query should produce no matches")
+	}
 }
 
 func TestUpdateMainContent_EmptyBase(t *testing.T) {
@@ -2225,5 +2228,141 @@ func TestCommitMode_UnpushedCommitsDimmedWithSeparator(t *testing.T) {
 	}
 	if items[4].kind != itemNormal {
 		t.Errorf("item 4 should be normal (pushed), got kind %d", items[4].kind)
+	}
+}
+
+// === Enhanced search tests ===
+
+func TestSearch_IncrementalMatchAsYouType(t *testing.T) {
+	// Spec: "searching should match as you type, and scroll to put the results
+	// of the search in view"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 10
+	m.updateLayout()
+	m.mainPane.SetContent("line1\nline2\ntarget line\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12")
+
+	// Start search
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+
+	// Type "tar" — should already find "target line" at line 2
+	for _, ch := range "tar" {
+		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
+		m = result.(*Model)
+	}
+
+	// Should have found matches and scrolled
+	if len(m.searchMatches) == 0 {
+		t.Error("incremental search should find matches while typing")
+	}
+	if m.mainPane.ScrollTop() != 2 {
+		t.Errorf("should scroll to first match at line 2, got %d", m.mainPane.ScrollTop())
+	}
+}
+
+func TestSearch_MatchCountDisplayed(t *testing.T) {
+	// Spec: "the number of matches, and the index of the current match,
+	// should display at the bottom of the screen"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mainPane.SetContent("foo\nbar\nfoo again\nbaz\nfoo third")
+
+	// Start search and type "foo"
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	for _, ch := range "foo" {
+		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
+		m = result.(*Model)
+	}
+
+	v := m.View()
+	// Should show match count in the search bar like "/foo  1/3"
+	if !strings.Contains(v.Content, "1/3") {
+		t.Errorf("search bar should show match count 1/3, got view content containing search bar")
+	}
+}
+
+func TestSearch_NextPrevNavigation(t *testing.T) {
+	// Spec: "pressing [enter] during a search allows [n] to jump to next result
+	// and [p] to jump to previous result. jumping between results should wrap around"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 10
+	m.updateLayout()
+	m.mainPane.SetContent("match1\nline2\nmatch2\nline4\nmatch3\nline6\nline7\nline8\nline9\nline10\nline11\nline12")
+
+	// Search for "match"
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	for _, ch := range "match" {
+		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
+		m = result.(*Model)
+	}
+
+	// Press enter to confirm
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+
+	if m.searching {
+		t.Error("enter should exit search input mode")
+	}
+
+	// Press n to go to next match
+	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
+	m = result.(*Model)
+	if m.searchMatchIdx != 1 {
+		t.Errorf("n should advance to match index 1, got %d", m.searchMatchIdx)
+	}
+
+	// Press n again
+	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
+	m = result.(*Model)
+	if m.searchMatchIdx != 2 {
+		t.Errorf("n should advance to match index 2, got %d", m.searchMatchIdx)
+	}
+
+	// Press n again — should wrap to 0
+	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
+	m = result.(*Model)
+	if m.searchMatchIdx != 0 {
+		t.Errorf("n should wrap to match index 0, got %d", m.searchMatchIdx)
+	}
+
+	// Press p to go to previous — should wrap to last
+	result, _ = m.Update(tea.KeyPressMsg{Text: "p", Code: 'p'})
+	m = result.(*Model)
+	if m.searchMatchIdx != 2 {
+		t.Errorf("p should wrap to match index 2, got %d", m.searchMatchIdx)
+	}
+}
+
+func TestSearch_EscClearsSearchState(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mainPane.SetContent("match\nline2\nmatch")
+
+	// Search, confirm, then esc should clear
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	for _, ch := range "match" {
+		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
+		m = result.(*Model)
+	}
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+
+	// Now in n/p mode — esc should clear search
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = result.(*Model)
+	if len(m.searchMatches) != 0 {
+		t.Error("esc should clear search matches")
+	}
+	if m.searchQuery != "" {
+		t.Error("esc should clear search query")
 	}
 }

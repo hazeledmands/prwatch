@@ -76,8 +76,11 @@ type Model struct {
 	confirming       bool
 	lastKeyG         bool // tracks whether last key was 'g' for gg binding
 	showHelp         bool
-	searching        bool
+	searching        bool // search input is active
+	searchConfirmed  bool // enter pressed, n/p navigation active
 	searchQuery      string
+	searchMatches    []int // line indices of matches
+	searchMatchIdx   int   // current match index
 	err              error
 }
 
@@ -285,6 +288,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSearchKey(msg)
 	}
 
+	// Search confirmed mode (n/p navigation)
+	if m.searchConfirmed {
+		return m.handleSearchNavKey(msg)
+	}
+
 	// Help overlay — any key dismisses
 	if m.showHelp {
 		if key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.Help) {
@@ -448,35 +456,71 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.QuitImmediate):
-		m.searching = false
-		m.searchQuery = ""
+		m.clearSearch()
 		return m, nil
 	case msg.Code == tea.KeyEscape:
-		m.searching = false
-		m.searchQuery = ""
+		m.clearSearch()
 		return m, nil
 	case msg.Code == tea.KeyEnter:
 		m.searching = false
-		m.executeSearch()
+		if len(m.searchMatches) > 0 {
+			m.searchConfirmed = true
+		}
 		return m, nil
 	case msg.Code == tea.KeyBackspace:
 		if len(m.searchQuery) > 0 {
 			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
 		}
+		m.updateSearchMatches()
 		return m, nil
 	default:
 		if msg.Text != "" {
 			m.searchQuery += msg.Text
 		}
+		m.updateSearchMatches()
 		return m, nil
 	}
 }
 
-func (m *Model) executeSearch() {
-	if m.searchQuery == "" {
-		return
+func (m *Model) handleSearchNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, keys.SearchNext):
+		if len(m.searchMatches) > 0 {
+			m.searchMatchIdx = (m.searchMatchIdx + 1) % len(m.searchMatches)
+			m.mainPane.ScrollToLine(m.searchMatches[m.searchMatchIdx])
+		}
+		return m, nil
+	case key.Matches(msg, keys.SearchPrev):
+		if len(m.searchMatches) > 0 {
+			m.searchMatchIdx = (m.searchMatchIdx - 1 + len(m.searchMatches)) % len(m.searchMatches)
+			m.mainPane.ScrollToLine(m.searchMatches[m.searchMatchIdx])
+		}
+		return m, nil
+	case msg.Code == tea.KeyEscape, key.Matches(msg, keys.QuitConfirm):
+		// Esc/q just exits search mode, doesn't trigger quit
+		m.clearSearch()
+		return m, nil
+	default:
+		// Any other key exits search navigation mode and re-processes
+		m.clearSearch()
+		return m.handleKey(msg)
 	}
-	m.mainPane.SearchAndHighlight(m.searchQuery)
+}
+
+func (m *Model) updateSearchMatches() {
+	m.searchMatches = m.mainPane.FindMatches(m.searchQuery)
+	m.searchMatchIdx = 0
+	if len(m.searchMatches) > 0 {
+		m.mainPane.ScrollToLine(m.searchMatches[0])
+	}
+}
+
+func (m *Model) clearSearch() {
+	m.searching = false
+	m.searchConfirmed = false
+	m.searchQuery = ""
+	m.searchMatches = nil
+	m.searchMatchIdx = 0
 }
 
 func (m *Model) sidebarPixelWidth() int {
@@ -820,9 +864,19 @@ func (m *Model) View() tea.View {
 
 	padded := padToHeight(result, m.width, m.height)
 
-	// Replace the last line with the search bar when searching
-	if m.searching {
-		searchBar := fmt.Sprintf("/%s_", m.searchQuery)
+	// Replace the last line with the search bar when searching or in nav mode
+	if m.searching || m.searchConfirmed {
+		var searchBar string
+		if m.searching {
+			searchBar = fmt.Sprintf("/%s_", m.searchQuery)
+		} else {
+			searchBar = fmt.Sprintf("/%s", m.searchQuery)
+		}
+		if len(m.searchMatches) > 0 {
+			searchBar += fmt.Sprintf("  %d/%d", m.searchMatchIdx+1, len(m.searchMatches))
+		} else if m.searchQuery != "" {
+			searchBar += "  0/0"
+		}
 		lines := strings.Split(padded, "\n")
 		if len(lines) > 0 {
 			lines[len(lines)-1] = searchBar
@@ -903,7 +957,9 @@ func (m *Model) renderHelp() string {
 		"  [-]          Shrink sidebar",
 		"",
 		"  [enter]      Open file in $EDITOR / switch to main pane",
-		"  [/]          Search",
+		"  [/]          Search (type to match, enter to confirm)",
+		"  [n]          Next search result",
+		"  [p]          Previous search result",
 		"  [?]          Show this help",
 		"",
 		"  [q] [esc]    Quit (confirm)",
