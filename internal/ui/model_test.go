@@ -2864,3 +2864,82 @@ func TestIsRateLimited(t *testing.T) {
 		})
 	}
 }
+
+func TestHelpScrolling(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 10 // small so help needs scrolling
+	m.updateLayout()
+
+	// Open help
+	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+	if !m.showHelp {
+		t.Fatal("help should be showing")
+	}
+	if m.helpScrollOffset != 0 {
+		t.Error("help scroll offset should start at 0")
+	}
+
+	// Scroll down
+	result, _ = m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
+	m = result.(*Model)
+	if m.helpScrollOffset != 1 {
+		t.Errorf("expected scroll offset 1, got %d", m.helpScrollOffset)
+	}
+
+	// Scroll up
+	result, _ = m.Update(tea.KeyPressMsg{Text: "k", Code: 'k'})
+	m = result.(*Model)
+	if m.helpScrollOffset != 0 {
+		t.Errorf("expected scroll offset 0 after up, got %d", m.helpScrollOffset)
+	}
+
+	// Mouse scroll
+	result, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	m = result.(*Model)
+	if m.helpScrollOffset != 1 {
+		t.Errorf("expected scroll offset 1 after mouse wheel, got %d", m.helpScrollOffset)
+	}
+}
+
+func TestHelpSearch(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Open help, then search
+	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+
+	result, _ = m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	if !m.helpSearching {
+		t.Fatal("help search should be active")
+	}
+
+	// Type search query
+	for _, ch := range "quit" {
+		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
+		m = result.(*Model)
+	}
+	if m.helpSearchQuery != "quit" {
+		t.Errorf("expected search query 'quit', got %q", m.helpSearchQuery)
+	}
+
+	// Esc cancels search
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = result.(*Model)
+	if m.helpSearching {
+		t.Error("esc should cancel help search")
+	}
+	if m.helpSearchQuery != "" {
+		t.Error("esc should clear help search query")
+	}
+
+	// Help should still be showing
+	if !m.showHelp {
+		t.Error("help should still be showing after search cancel")
+	}
+}

@@ -87,12 +87,15 @@ type Model struct {
 	confirming       bool
 	lastKeyG         bool // tracks whether last key was 'g' for gg binding
 	showHelp         bool
-	showIgnored      bool // whether to show gitignored files in all-files section
-	sidebarHidden    bool // [f] toggles sidebar visibility
-	wordWrap         bool // [w] toggles word wrapping in main pane
-	lineNumbers      bool // [n] toggles line numbers in file-view mode
-	searching        bool // search input is active
-	searchConfirmed  bool // enter pressed, n/p navigation active
+	helpScrollOffset int    // scroll offset within help overlay
+	helpSearching    bool   // search active within help
+	helpSearchQuery  string // search query within help
+	showIgnored      bool   // whether to show gitignored files in all-files section
+	sidebarHidden    bool   // [f] toggles sidebar visibility
+	wordWrap         bool   // [w] toggles word wrapping in main pane
+	lineNumbers      bool   // [n] toggles line numbers in file-view mode
+	searching        bool   // search input is active
+	searchConfirmed  bool   // enter pressed, n/p navigation active
 	searchQuery      string
 	searchMatches    []searchMatch // matches across both panes
 	searchMatchIdx   int           // current match index
@@ -345,6 +348,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouseClick(msg)
 
 	case tea.MouseWheelMsg:
+		if m.showHelp {
+			helpLines := m.helpContentLines()
+			visibleHeight := max(1, m.height-4)
+			if msg.Button == tea.MouseWheelUp && m.helpScrollOffset > 0 {
+				m.helpScrollOffset--
+			} else if msg.Button == tea.MouseWheelDown && m.helpScrollOffset < len(helpLines)-visibleHeight {
+				m.helpScrollOffset++
+			}
+			return m, nil
+		}
 		return m.handleMouseWheel(msg)
 
 	case tea.MouseMotionMsg:
@@ -389,14 +402,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSearchNavKey(msg)
 	}
 
-	// Help overlay — any key dismisses
+	// Help overlay — supports scrolling and search
 	if m.showHelp {
-		if key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.Help) {
-			m.showHelp = false
-			return m, nil
-		}
-		m.showHelp = false
-		return m, nil
+		return m.handleHelpKey(msg)
 	}
 
 	// Quit confirmation handling
@@ -569,6 +577,63 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.helpSearching {
+		switch {
+		case msg.Code == tea.KeyEscape:
+			m.helpSearching = false
+			m.helpSearchQuery = ""
+			return m, nil
+		case msg.Code == tea.KeyEnter:
+			m.helpSearching = false
+			return m, nil
+		case msg.Code == tea.KeyBackspace:
+			if len(m.helpSearchQuery) > 0 {
+				m.helpSearchQuery = m.helpSearchQuery[:len(m.helpSearchQuery)-1]
+			}
+			return m, nil
+		default:
+			if msg.Text != "" {
+				m.helpSearchQuery += msg.Text
+			}
+			return m, nil
+		}
+	}
+
+	helpLines := m.helpContentLines()
+	visibleHeight := max(1, m.height-4) // status bar + borders
+
+	switch {
+	case key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.Help):
+		m.showHelp = false
+		m.helpScrollOffset = 0
+		m.helpSearchQuery = ""
+		return m, nil
+	case key.Matches(msg, keys.Search):
+		m.helpSearching = true
+		m.helpSearchQuery = ""
+		return m, nil
+	case key.Matches(msg, keys.Down):
+		if m.helpScrollOffset < len(helpLines)-visibleHeight {
+			m.helpScrollOffset++
+		}
+		return m, nil
+	case key.Matches(msg, keys.Up):
+		if m.helpScrollOffset > 0 {
+			m.helpScrollOffset--
+		}
+		return m, nil
+	case key.Matches(msg, keys.QuitImmediate):
+		return m, tea.Quit
+	default:
+		// Any other key dismisses help
+		m.showHelp = false
+		m.helpScrollOffset = 0
+		m.helpSearchQuery = ""
+		return m, nil
+	}
 }
 
 func (m *Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1251,8 +1316,8 @@ func (m *Model) copySelection() {
 	cmd.Run() //nolint: ignore clipboard errors
 }
 
-func (m *Model) renderHelp() string {
-	help := []string{
+func (m *Model) helpContentLines() []string {
+	return []string{
 		"Keybindings:",
 		"",
 		"  [space]      Cycle mode (diff -> file -> commit)",
@@ -1275,19 +1340,50 @@ func (m *Model) renderHelp() string {
 		"  [f]          Toggle sidebar visibility",
 		"",
 		"  [w]          Toggle word wrap",
-		"  [n]          Toggle line numbers (file view) / next search result",
+		"  [n]          Toggle line numbers (file view)",
 		"  [i]          Toggle gitignored files (file view)",
 		"",
 		"  [enter]      Open file in $EDITOR / switch to main pane",
 		"  [/]          Search (type to match, enter to confirm)",
 		"  [n]          Next search result (after search)",
 		"  [p]          Previous search result (after search)",
-		"  [?]          Show this help",
+		"  [?]          Show this help (scroll with j/k/mouse)",
 		"",
 		"  [q] [esc]    Quit (confirm)",
 		"  [Q] [ctrl-c] Quit immediately",
 		"",
-		"Press any key to dismiss.",
+		"Press q/esc to dismiss. Use j/k or mouse to scroll. / to search.",
 	}
-	return strings.Join(help, "\n")
+}
+
+func (m *Model) renderHelp() string {
+	lines := m.helpContentLines()
+	visibleHeight := max(1, m.height-4) // status bar + borders
+
+	// Apply search highlighting
+	if m.helpSearchQuery != "" {
+		for i, line := range lines {
+			lines[i] = highlightMatchInLine(line, m.helpSearchQuery)
+		}
+	}
+
+	// Apply scroll offset
+	end := m.helpScrollOffset + visibleHeight
+	if end > len(lines) {
+		end = len(lines)
+	}
+	start := m.helpScrollOffset
+	if start > len(lines) {
+		start = len(lines)
+	}
+	visible := lines[start:end]
+
+	result := strings.Join(visible, "\n")
+
+	// Add search bar at bottom if searching
+	if m.helpSearching {
+		result += "\n/" + m.helpSearchQuery + "_"
+	}
+
+	return result
 }
