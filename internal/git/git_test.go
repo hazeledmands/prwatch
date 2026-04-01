@@ -850,3 +850,208 @@ func TestDetectBase_GHReturnsEmpty(t *testing.T) {
 		t.Error("should fall through to main when gh returns empty")
 	}
 }
+
+func TestPRChecks_Success(t *testing.T) {
+	dir := setupTestRepo(t)
+	checksJSON := `[{"name":"build","state":"COMPLETED","conclusion":"success","detailsUrl":"https://ci.example.com/1"}]`
+	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
+
+	ci, err := g.PRChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ci.State != "SUCCESS" {
+		t.Errorf("expected SUCCESS, got %q", ci.State)
+	}
+}
+
+func TestPRChecks_Failure(t *testing.T) {
+	dir := setupTestRepo(t)
+	checksJSON := `[{"name":"build","state":"COMPLETED","conclusion":"failure","detailsUrl":"https://ci.example.com/2"},{"name":"lint","state":"COMPLETED","conclusion":"success","detailsUrl":""}]`
+	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
+
+	ci, err := g.PRChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ci.State != "FAILURE" {
+		t.Errorf("expected FAILURE, got %q", ci.State)
+	}
+	if ci.URL != "https://ci.example.com/2" {
+		t.Errorf("expected failure URL, got %q", ci.URL)
+	}
+}
+
+func TestPRChecks_Pending(t *testing.T) {
+	dir := setupTestRepo(t)
+	checksJSON := `[{"name":"build","state":"PENDING","conclusion":"","detailsUrl":"https://ci.example.com/3"}]`
+	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
+
+	ci, err := g.PRChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ci.State != "PENDING" {
+		t.Errorf("expected PENDING, got %q", ci.State)
+	}
+}
+
+func TestPRChecks_Error(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no PR")))
+
+	ci, err := g.PRChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ci.State != "" {
+		t.Errorf("expected empty state, got %q", ci.State)
+	}
+}
+
+func TestPRChecks_InvalidJSON(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("not json", nil))
+
+	ci, err := g.PRChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ci.State != "" {
+		t.Errorf("expected empty state for invalid json, got %q", ci.State)
+	}
+}
+
+func TestPRChecks_EmptyArray(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("[]", nil))
+
+	ci, err := g.PRChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ci.State != "SUCCESS" {
+		t.Errorf("empty checks should be SUCCESS, got %q", ci.State)
+	}
+}
+
+func TestPRReviews_Success(t *testing.T) {
+	dir := setupTestRepo(t)
+	reviewJSON := "{\"author\":\"alice\",\"state\":\"APPROVED\"}\n{\"author\":\"bob\",\"state\":\"CHANGES_REQUESTED\"}"
+	g := git.NewWithRunner(dir, mockGHRunner(reviewJSON, nil))
+
+	reviews, err := g.PRReviews()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 2 {
+		t.Fatalf("expected 2 reviews, got %d", len(reviews))
+	}
+	if reviews[0].Author != "alice" {
+		t.Errorf("expected alice, got %q", reviews[0].Author)
+	}
+}
+
+func TestPRReviews_Error(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no PR")))
+
+	reviews, err := g.PRReviews()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviews != nil {
+		t.Error("expected nil reviews on error")
+	}
+}
+
+func TestPRReviews_InvalidJSON(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("not json\nalso not json", nil))
+
+	reviews, err := g.PRReviews()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 0 {
+		t.Errorf("expected 0 reviews for invalid json, got %d", len(reviews))
+	}
+}
+
+func TestPRCommentCount_Success(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("5", nil))
+
+	count, err := g.PRCommentCount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 5 {
+		t.Errorf("expected 5 comments, got %d", count)
+	}
+}
+
+func TestPRCommentCount_Error(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no PR")))
+
+	count, err := g.PRCommentCount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 comments on error, got %d", count)
+	}
+}
+
+func TestRepoInfo_WithUpstream(t *testing.T) {
+	// Create a repo with an origin so upstream tracking works
+	originDir := t.TempDir()
+	cmds := [][]string{
+		{"git", "init", "--initial-branch=main", "--bare"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = originDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup origin %v: %s %v", args, out, err)
+		}
+	}
+	cloneDir := t.TempDir()
+	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
+	if out, err := cloneCmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %s %v", out, err)
+	}
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+	writeFile(t, cloneDir, "README.md", "# hello\n")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "initial")
+	runGit(t, cloneDir, "push", "origin", "main")
+
+	g := git.New(cloneDir)
+	info, err := g.RepoInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Upstream != "origin/main" {
+		t.Errorf("upstream = %q, want origin/main", info.Upstream)
+	}
+	if info.DirName == "" {
+		t.Error("DirName should not be empty")
+	}
+}
+
+func TestPRChecks_ActionRequired(t *testing.T) {
+	dir := setupTestRepo(t)
+	checksJSON := `[{"name":"deploy","state":"COMPLETED","conclusion":"action_required","detailsUrl":"https://ci.example.com/4"}]`
+	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
+
+	ci, err := g.PRChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ci.State != "FAILURE" {
+		t.Errorf("action_required should be FAILURE, got %q", ci.State)
+	}
+}
