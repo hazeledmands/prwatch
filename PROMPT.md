@@ -39,6 +39,7 @@ detached HEAD works normally, status bar shows `detached @ <short sha>` instead 
 mouse behavior: the user should be able to click on files or commits in the sidebar to open them in the main view. scrolling should independently scroll the view but keep the selections the same, kind of like a scroll box in a windowed GUI.
 
 other keybindings:
+[tab] should switch focus between the sidebar and the main panel
 [gg] and [G] to go to the beginning and end
 [/] to open a search (only searches what is currently visible)
 [?] to show all the keybindings, which goes away when you hit [esc] or [q]
@@ -46,6 +47,7 @@ other keybindings:
 ---
 
 DEVELOPING:
+- when starting, run git status; if there are any changes to the PROMPT.md commit those first
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress.
 - use test-driven development.
 - aim for 99% code coverage.
