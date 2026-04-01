@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -214,14 +215,21 @@ func TestProperty_ClickSidebarSelectsItem(t *testing.T) {
 		sidebarContentRow := statusBarHeight + 1 // first row inside sidebar border
 		sidebarContentCol := 1                   // first col inside sidebar border
 
-		// Build expected file list
+		// Build expected file list (tree mode sorts alphabetically)
+		uncommittedSorted := make([]string, len(mock.changedFiles.Uncommitted))
+		copy(uncommittedSorted, mock.changedFiles.Uncommitted)
+		sort.Strings(uncommittedSorted)
+		committedSorted := make([]string, len(mock.changedFiles.Committed))
+		copy(committedSorted, mock.changedFiles.Committed)
+		sort.Strings(committedSorted)
+
 		var expectedFiles []string
-		hasSeparator := len(mock.changedFiles.Uncommitted) > 0 && len(mock.changedFiles.Committed) > 0
-		expectedFiles = append(expectedFiles, mock.changedFiles.Uncommitted...)
+		hasSeparator := len(uncommittedSorted) > 0 && len(committedSorted) > 0
+		expectedFiles = append(expectedFiles, uncommittedSorted...)
 		if hasSeparator {
 			expectedFiles = append(expectedFiles, "") // placeholder for separator
 		}
-		expectedFiles = append(expectedFiles, mock.changedFiles.Committed...)
+		expectedFiles = append(expectedFiles, committedSorted...)
 
 		// Click on each visible file
 		visibleCount := min(len(expectedFiles), height-statusBarHeight-2) // minus borders

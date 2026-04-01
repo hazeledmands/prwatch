@@ -647,14 +647,15 @@ func TestUpdateSidebarItems_FileMode(t *testing.T) {
 	if len(items) != 4 { // 1 uncommitted + separator + 2 committed
 		t.Fatalf("expected 4 items, got %d", len(items))
 	}
-	if items[0].label != "z.go" || items[0].kind != itemDim {
-		t.Error("first item should be uncommitted z.go")
+	if items[0].filePath != "z.go" || items[0].kind != itemDim {
+		t.Errorf("first item should be uncommitted z.go, got filePath=%q kind=%v", items[0].filePath, items[0].kind)
 	}
 	if items[1].kind != itemSeparator {
 		t.Error("second item should be separator")
 	}
-	if items[2].label != "b.go" || items[2].kind != itemNormal {
-		t.Error("third item should be committed b.go")
+	// Tree mode sorts alphabetically, so a.go comes before b.go
+	if items[2].filePath != "a.go" || items[2].kind != itemNormal {
+		t.Errorf("third item should be committed a.go (sorted), got filePath=%q", items[2].filePath)
 	}
 }
 
@@ -2560,26 +2561,26 @@ func TestFileViewMode_ThreeCategories(t *testing.T) {
 	if len(items) != 7 {
 		t.Fatalf("expected 7 sidebar items, got %d: %v", len(items), items)
 	}
-	if items[0].label != "wip.go" || items[0].kind != itemDim {
-		t.Errorf("item 0: expected dim wip.go, got %v", items[0])
+	if items[0].filePath != "wip.go" || items[0].kind != itemDim {
+		t.Errorf("item 0: expected dim wip.go, got filePath=%q kind=%v", items[0].filePath, items[0].kind)
 	}
 	if items[1].kind != itemSeparator {
 		t.Errorf("item 1: expected separator, got %v", items[1])
 	}
-	if items[2].label != "alpha.go" || items[2].kind != itemNormal {
-		t.Errorf("item 2: expected alpha.go, got %v", items[2])
+	if items[2].filePath != "alpha.go" || items[2].kind != itemNormal {
+		t.Errorf("item 2: expected alpha.go, got filePath=%q", items[2].filePath)
 	}
-	if items[3].label != "beta.go" || items[3].kind != itemNormal {
-		t.Errorf("item 3: expected beta.go, got %v", items[3])
+	if items[3].filePath != "beta.go" {
+		t.Errorf("item 3: expected beta.go, got filePath=%q", items[3].filePath)
 	}
 	if items[4].kind != itemSeparator {
 		t.Errorf("item 4: expected separator, got %v", items[4])
 	}
-	if items[5].label != "main.go" {
-		t.Errorf("item 5: expected main.go, got %v", items[5])
+	if items[5].filePath != "main.go" {
+		t.Errorf("item 5: expected main.go, got filePath=%q", items[5].filePath)
 	}
-	if items[6].label != "readme.md" {
-		t.Errorf("item 6: expected readme.md, got %v", items[6])
+	if items[6].filePath != "readme.md" {
+		t.Errorf("item 6: expected readme.md, got filePath=%q", items[6].filePath)
 	}
 }
 
@@ -3169,5 +3170,94 @@ func TestShiftD_ToggleRemoved(t *testing.T) {
 	v = m.View()
 	if strings.Contains(v.Content, " - ") {
 		t.Error("with showRemoved off, view should NOT contain ' - '")
+	}
+}
+
+func TestTreeMode(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"internal/ui/model.go", "internal/ui/keys.go", "main.go"},
+		},
+		allFiles:   []string{"internal/ui/model.go", "internal/ui/keys.go", "main.go"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:   "+new",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Tree mode is on by default
+	if !m.treeMode {
+		t.Fatal("tree mode should be on by default")
+	}
+
+	// In tree mode, sidebar should have directory entries
+	hasDir := false
+	for _, item := range m.sidebar.items {
+		if item.isDir {
+			hasDir = true
+			break
+		}
+	}
+	if !hasDir {
+		t.Error("tree mode should create directory entries for nested files")
+	}
+
+	// Toggle tree mode off
+	result, _ := m.Update(tea.KeyPressMsg{Text: "t", Code: 't'})
+	m = result.(*Model)
+	if m.treeMode {
+		t.Error("tree mode should be off after t")
+	}
+
+	// In flat mode, no directory entries
+	for _, item := range m.sidebar.items {
+		if item.isDir {
+			t.Error("flat mode should not have directory entries")
+			break
+		}
+	}
+}
+
+func TestBuildTreeItems(t *testing.T) {
+	files := []string{
+		"internal/ui/model.go",
+		"internal/ui/keys.go",
+		"internal/git/git.go",
+		"main.go",
+	}
+	collapsed := make(map[string]bool)
+	items := buildTreeItems(files, itemNormal, collapsed)
+
+	// Should have: internal/ dir, git/ dir, git.go file, ui/ dir, keys.go, model.go, main.go
+	// Dirs first, sorted
+	if len(items) < 4 {
+		t.Fatalf("expected at least 4 items, got %d", len(items))
+	}
+
+	// First item should be "internal/" directory
+	if !items[0].isDir || items[0].filePath != "internal" {
+		t.Errorf("first item should be internal/ dir, got %v", items[0])
+	}
+
+	// Collapse internal/
+	collapsed["internal"] = true
+	items = buildTreeItems(files, itemNormal, collapsed)
+
+	// After collapse, should only have internal/ (collapsed) and main.go
+	nonSepCount := 0
+	for _, item := range items {
+		if item.kind != itemSeparator {
+			nonSepCount++
+		}
+	}
+	if nonSepCount != 2 {
+		t.Errorf("after collapsing internal/, expected 2 items, got %d", nonSepCount)
 	}
 }

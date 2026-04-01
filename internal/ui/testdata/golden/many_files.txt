@@ -1,30 +1,30 @@
   feature/add-auth → origin/main @ myapp             [diff]              1 uncommitted · 2 commits  
   PR #42: Add authentication                                                                        
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
-│README.md                     ││diff --git a/README.md b/README.md                                │
+│  README.md                   ││diff --git a/README.md b/README.md                                │
 │──────────────────────────────││--- a/README.md                                                   │
-│aaaa.go                       ││+++ b/README.md                                                   │
-│aaab.go                       ││@@ -1,3 +1,4 @@                                                   │
-│aaac.go                       ││ # My App                                                         │
-│aaad.go                       ││+Authentication docs                                              │
-│aaae.go                       ││                                                                  │
-│aaaf.go                       ││                                                                  │
-│aaag.go                       ││                                                                  │
-│aaah.go                       ││                                                                  │
-│aaai.go                       ││                                                                  │
-│aaaj.go                       ││                                                                  │
-│aaak.go                       ││                                                                  │
-│aaal.go                       ││                                                                  │
-│aaam.go                       ││                                                                  │
-│aaan.go                       ││                                                                  │
-│aaao.go                       ││                                                                  │
-│aaap.go                       ││                                                                  │
-│aaaq.go                       ││                                                                  │
-│aaar.go                       ││                                                                  │
-│aaas.go                       ││                                                                  │
-│aaat.go                       ││                                                                  │
-│aaau.go                       ││                                                                  │
-│aaav.go                       ││                                                                  │
-│aaaw.go                       ││                                                                  │
-│aaax.go                       ││                                                                  │
+│  aaaa.go                     ││+++ b/README.md                                                   │
+│  aaab.go                     ││@@ -1,3 +1,4 @@                                                   │
+│  aaac.go                     ││ # My App                                                         │
+│  aaad.go                     ││+Authentication docs                                              │
+│  aaae.go                     ││                                                                  │
+│  aaaf.go                     ││                                                                  │
+│  aaag.go                     ││                                                                  │
+│  aaah.go                     ││                                                                  │
+│  aaai.go                     ││                                                                  │
+│  aaaj.go                     ││                                                                  │
+│  aaak.go                     ││                                                                  │
+│  aaal.go                     ││                                                                  │
+│  aaam.go                     ││                                                                  │
+│  aaan.go                     ││                                                                  │
+│  aaao.go                     ││                                                                  │
+│  aaap.go                     ││                                                                  │
+│  aaaq.go                     ││                                                                  │
+│  aaar.go                     ││                                                                  │
+│  aaas.go                     ││                                                                  │
+│  aaat.go                     ││                                                                  │
+│  aaau.go                     ││                                                                  │
+│  aaav.go                     ││                                                                  │
+│  aaaw.go                     ││                                                                  │
+│  aaax.go                     ││                                                                  │
 ╰──────────────────────────────╯╰──────────────────────────────────────────────────────────────────╯

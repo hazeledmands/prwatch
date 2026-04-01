@@ -87,18 +87,20 @@ type Model struct {
 	confirming          bool
 	lastKeyG            bool // tracks whether last key was 'g' for gg binding
 	showHelp            bool
-	helpScrollOffset    int    // scroll offset within help overlay
-	helpSearching       bool   // search active within help
-	helpSearchConfirmed bool   // help search confirmed, n/p navigation
-	helpSearchQuery     string // search query within help
-	helpSearchMatches   []int  // line indices of matches in help
-	helpSearchIdx       int    // current match index
-	showIgnored         bool   // whether to show gitignored files in all-files section
-	sidebarHidden       bool   // [f] toggles sidebar visibility
-	wordWrap            bool   // [w] toggles word wrapping in main pane
-	lineNumbers         bool   // [n] toggles line numbers in file-view mode
-	searching           bool   // search input is active
-	searchConfirmed     bool   // enter pressed, n/p navigation active
+	helpScrollOffset    int             // scroll offset within help overlay
+	helpSearching       bool            // search active within help
+	helpSearchConfirmed bool            // help search confirmed, n/p navigation
+	helpSearchQuery     string          // search query within help
+	helpSearchMatches   []int           // line indices of matches in help
+	helpSearchIdx       int             // current match index
+	showIgnored         bool            // whether to show gitignored files in all-files section
+	treeMode            bool            // [t] toggles tree view in file modes
+	collapsedDirs       map[string]bool // tracks collapsed directory paths
+	sidebarHidden       bool            // [f] toggles sidebar visibility
+	wordWrap            bool            // [w] toggles word wrapping in main pane
+	lineNumbers         bool            // [n] toggles line numbers in file-view mode
+	searching           bool            // search input is active
+	searchConfirmed     bool            // enter pressed, n/p navigation active
 	searchQuery         string
 	searchMatches       []searchMatch // matches across both panes
 	searchMatchIdx      int           // current match index
@@ -146,20 +148,22 @@ func NewModel(dir string, g GitDataSource) *Model {
 		mode = FileViewMode
 	}
 	return &Model{
-		git:         g,
-		dir:         dir,
-		mode:        mode,
-		focus:       SidebarFocus,
-		sidebar:     newSidebar(),
-		mainPane:    newMainPane(),
-		sidebarPct:  30, // default 30% of width
-		showIgnored: true,
-		wordWrap:    true,
-		lineNumbers: true,
-		prInterval:  prRefreshDefault,
-		loading:     g != nil,
-		dragStartX:  -1,
-		dragStartY:  -1,
+		git:           g,
+		dir:           dir,
+		mode:          mode,
+		focus:         SidebarFocus,
+		sidebar:       newSidebar(),
+		mainPane:      newMainPane(),
+		sidebarPct:    30, // default 30% of width
+		showIgnored:   true,
+		treeMode:      true,
+		collapsedDirs: make(map[string]bool),
+		wordWrap:      true,
+		lineNumbers:   true,
+		prInterval:    prRefreshDefault,
+		loading:       g != nil,
+		dragStartX:    -1,
+		dragStartY:    -1,
 	}
 }
 
@@ -565,6 +569,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, keys.ToggleTree):
+		if m.mode == FileDiffMode || m.mode == FileViewMode {
+			m.treeMode = !m.treeMode
+			m.updateSidebarItems()
+		}
+		return m, nil
+
 	case key.Matches(msg, keys.ToggleSidebar):
 		m.sidebarHidden = !m.sidebarHidden
 		m.updateLayout()
@@ -926,6 +937,13 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// Content starts after status bar (2 lines) + top border (1 line) = row 3
 		itemIdx := contentY - 1 + m.sidebar.offset
 		m.sidebar.SelectIndex(itemIdx)
+		// If a directory was clicked in tree mode, toggle collapse
+		if m.treeMode && m.sidebar.SelectedIsDir() {
+			dir := m.sidebar.SelectedItem()
+			m.collapsedDirs[dir] = !m.collapsedDirs[dir]
+			m.updateSidebarItems()
+			return m, nil
+		}
 		m.updateMainContent()
 	} else {
 		m.focus = MainFocus
@@ -963,6 +981,13 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.focus == SidebarFocus {
+		// If a directory is selected in tree mode, toggle its collapsed state
+		if m.treeMode && m.sidebar.SelectedIsDir() {
+			dir := m.sidebar.SelectedItem()
+			m.collapsedDirs[dir] = !m.collapsedDirs[dir]
+			m.updateSidebarItems()
+			return m, nil
+		}
 		m.focus = MainFocus
 		return m, nil
 	}
@@ -1157,32 +1182,28 @@ func (m *Model) updateSidebarItems() {
 	switch m.mode {
 	case FileDiffMode:
 		var items []sidebarItem
-		// Uncommitted files first (dimmed), then separator, then committed
-		for _, f := range m.uncommittedFiles {
-			items = append(items, sidebarItem{label: f, kind: itemDim})
-		}
-		if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
-			items = append(items, sidebarItem{kind: itemSeparator})
-		}
-		for _, f := range m.committedFiles {
-			items = append(items, sidebarItem{label: f, kind: itemNormal})
+		if m.treeMode {
+			items = append(items, buildTreeItems(m.uncommittedFiles, itemDim, m.collapsedDirs)...)
+			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs)...)
+		} else {
+			for _, f := range m.uncommittedFiles {
+				items = append(items, sidebarItem{label: f, filePath: f, kind: itemDim})
+			}
+			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			for _, f := range m.committedFiles {
+				items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
+			}
 		}
 		m.sidebar.SetItems(items)
 
 	case FileViewMode:
 		var items []sidebarItem
-		// Category 1: Uncommitted files (dimmed)
-		for _, f := range m.uncommittedFiles {
-			items = append(items, sidebarItem{label: f, kind: itemDim})
-		}
-		// Category 2: Committed files
-		if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
-			items = append(items, sidebarItem{kind: itemSeparator})
-		}
-		for _, f := range m.committedFiles {
-			items = append(items, sidebarItem{label: f, kind: itemNormal})
-		}
-		// Category 3: All files (excluding those already shown)
+		// Compute other files (not in committed or uncommitted)
 		changedSet := make(map[string]bool)
 		for _, f := range m.uncommittedFiles {
 			changedSet[f] = true
@@ -1196,11 +1217,33 @@ func (m *Model) updateSidebarItems() {
 				otherFiles = append(otherFiles, f)
 			}
 		}
-		if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
-			items = append(items, sidebarItem{kind: itemSeparator})
-		}
-		for _, f := range otherFiles {
-			items = append(items, sidebarItem{label: f, kind: itemNormal})
+
+		if m.treeMode {
+			items = append(items, buildTreeItems(m.uncommittedFiles, itemDim, m.collapsedDirs)...)
+			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs)...)
+			if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs)...)
+		} else {
+			for _, f := range m.uncommittedFiles {
+				items = append(items, sidebarItem{label: f, filePath: f, kind: itemDim})
+			}
+			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			for _, f := range m.committedFiles {
+				items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
+			}
+			if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			for _, f := range otherFiles {
+				items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
+			}
 		}
 		m.sidebar.SetItems(items)
 	case CommitMode:
@@ -1605,6 +1648,7 @@ func (m *Model) helpContentLines() []string {
 		"  [w]          Toggle word wrap",
 		"  [n]          Toggle line numbers (file view)",
 		"  [i]          Toggle gitignored files (file view)",
+		"  [t]          Toggle tree mode (file modes, default: on)",
 		"  [D]          Toggle removed lines in diff gutter (file view)",
 		"  [J]          Jump to next diff hunk (file view)",
 		"  [K]          Jump to previous diff hunk (file view)",

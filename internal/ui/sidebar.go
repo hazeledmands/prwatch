@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -14,8 +16,107 @@ const (
 )
 
 type sidebarItem struct {
-	label string
-	kind  sidebarItemKind
+	label    string
+	kind     sidebarItemKind
+	filePath string // actual file path (for file items)
+	isDir    bool   // true for directory entries in tree mode
+	indent   int    // indentation level in tree mode
+}
+
+// buildTreeItems converts a flat list of file paths into a tree-structured list
+// of sidebar items with directories and indentation. Directories start expanded.
+// The collapsed map tracks which directory paths are collapsed.
+func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]bool) []sidebarItem {
+	if len(files) == 0 {
+		return nil
+	}
+
+	// Build a tree structure
+	type treeNode struct {
+		name     string
+		path     string // full path
+		children map[string]*treeNode
+		isFile   bool
+		kind     sidebarItemKind
+	}
+
+	root := &treeNode{children: make(map[string]*treeNode)}
+
+	for _, f := range files {
+		parts := strings.Split(f, string(filepath.Separator))
+		node := root
+		for i, part := range parts {
+			isLast := i == len(parts)-1
+			child, ok := node.children[part]
+			if !ok {
+				path := strings.Join(parts[:i+1], string(filepath.Separator))
+				child = &treeNode{
+					name:     part,
+					path:     path,
+					children: make(map[string]*treeNode),
+					isFile:   isLast,
+					kind:     kind,
+				}
+				node.children[part] = child
+			}
+			if isLast {
+				child.isFile = true
+				child.kind = kind
+			}
+			node = child
+		}
+	}
+
+	// Flatten tree into items
+	var items []sidebarItem
+	var flatten func(node *treeNode, indent int)
+	flatten = func(node *treeNode, indent int) {
+		// Sort children: directories first, then files, alphabetically
+		var dirNames, fileNames []string
+		for name, child := range node.children {
+			if child.isFile && len(child.children) == 0 {
+				fileNames = append(fileNames, name)
+			} else {
+				dirNames = append(dirNames, name)
+			}
+		}
+		sort.Strings(dirNames)
+		sort.Strings(fileNames)
+
+		for _, name := range dirNames {
+			child := node.children[name]
+			prefix := ""
+			if collapsed[child.path] {
+				prefix = "+"
+			} else {
+				prefix = "-"
+			}
+			label := strings.Repeat("  ", indent) + prefix + " " + name + "/"
+			items = append(items, sidebarItem{
+				label:    label,
+				kind:     kind,
+				filePath: child.path,
+				isDir:    true,
+				indent:   indent,
+			})
+			if !collapsed[child.path] {
+				flatten(child, indent+1)
+			}
+		}
+		for _, name := range fileNames {
+			child := node.children[name]
+			label := strings.Repeat("  ", indent) + "  " + name
+			items = append(items, sidebarItem{
+				label:    label,
+				kind:     child.kind,
+				filePath: child.path,
+				indent:   indent,
+			})
+		}
+	}
+
+	flatten(root, 0)
+	return items
 }
 
 type sidebar struct {
@@ -60,7 +161,19 @@ func (s *sidebar) SelectedItem() string {
 	if len(s.items) == 0 {
 		return ""
 	}
-	return s.items[s.selected].label
+	item := s.items[s.selected]
+	if item.filePath != "" {
+		return item.filePath
+	}
+	return item.label
+}
+
+// SelectedIsDir returns true if the selected item is a directory.
+func (s *sidebar) SelectedIsDir() bool {
+	if len(s.items) == 0 || s.selected >= len(s.items) {
+		return false
+	}
+	return s.items[s.selected].isDir
 }
 
 func (s *sidebar) SelectNext() {

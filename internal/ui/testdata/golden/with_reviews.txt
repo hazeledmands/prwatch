@@ -1,10 +1,10 @@
   feature/add-auth → origin/main @ myapp             [diff]              1 uncommitted · 2 commits  
   PR #42: Add authentication · 1✓/1✗                                                                
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
-│README.md                     ││diff --git a/README.md b/README.md                                │
+│  README.md                   ││diff --git a/README.md b/README.md                                │
 │──────────────────────────────││--- a/README.md                                                   │
-│auth.go                       ││+++ b/README.md                                                   │
-│config.go                     ││@@ -1,3 +1,4 @@                                                   │
+│  auth.go                     ││+++ b/README.md                                                   │
+│  config.go                   ││@@ -1,3 +1,4 @@                                                   │
 │                              ││ # My App                                                         │
 │                              ││+Authentication docs                                              │
 │                              ││                                                                  │

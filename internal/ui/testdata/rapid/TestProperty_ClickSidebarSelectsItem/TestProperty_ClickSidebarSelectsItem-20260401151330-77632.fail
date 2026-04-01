@@ -1,0 +1,35 @@
+# 2026/04/01 15:13:30.873358 [TestProperty_ClickSidebarSelectsItem] [rapid] draw width: 60
+# 2026/04/01 15:13:30.873373 [TestProperty_ClickSidebarSelectsItem] [rapid] draw height: 15
+# 2026/04/01 15:13:30.873383 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nCommitted: 11
+# 2026/04/01 15:13:30.873393 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nUncommitted: 0
+# 2026/04/01 15:13:30.873401 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nCommits: 0
+# 2026/04/01 15:13:30.873425 [TestProperty_ClickSidebarSelectsItem] [rapid] draw branch: "main"
+# 2026/04/01 15:13:30.873433 [TestProperty_ClickSidebarSelectsItem] [rapid] draw detached: false
+# 2026/04/01 15:13:30.873440 [TestProperty_ClickSidebarSelectsItem] [rapid] draw prNum: 0
+# 2026/04/01 15:13:30.873448 [TestProperty_ClickSidebarSelectsItem] [rapid] draw aheadCount: 0
+# 2026/04/01 15:13:30.873692 [TestProperty_ClickSidebarSelectsItem] clicked row 5 (item 2), expected "file2.go", got "file10.go"
+# 
+v0.4.8#7037318030937001939
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x9867f1f40f739
+0xb
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
