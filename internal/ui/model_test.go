@@ -166,6 +166,40 @@ func TestQuitConfirm_qThenOtherKeyCancels(t *testing.T) {
 	}
 }
 
+func TestQuitConfirm_qThenShiftQQuits(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	m = result.(*Model)
+
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "Q", Code: 'Q'})
+	if cmd == nil {
+		t.Error("Shift-Q during confirm should produce quit command")
+	}
+}
+
+func TestQuitConfirm_escEntersConfirming(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = result.(*Model)
+	if !m.confirming {
+		t.Error("esc should enter confirming")
+	}
+	if cmd != nil {
+		t.Error("should not quit yet")
+	}
+}
+
+func TestQuitImmediate_CtrlCQuits(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Error("ctrl-c should quit immediately")
+	}
+}
+
 func TestQuitImmediate_QQuitsDirectly(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 
@@ -1398,6 +1432,19 @@ func TestUpdateMainContent_FileView_WithGitAndError(t *testing.T) {
 	// which will also fail — should show error
 	if !strings.Contains(m.mainPane.content, "Error") {
 		t.Error("should show error for nonexistent file in git mode")
+	}
+}
+
+func TestLoadGitData_RepoInfoError(t *testing.T) {
+	mg := &mockGit{
+		repoInfoErr: fmt.Errorf("repo info error"),
+	}
+	m := NewModel("/tmp", mg)
+	cmd := m.Init()
+	msg := cmd()
+	dataMsg := msg.(gitDataMsg)
+	if dataMsg.err == nil {
+		t.Error("expected error from RepoInfo")
 	}
 }
 

@@ -118,10 +118,6 @@ func (m *Model) loadNonGitFiles() tea.Msg {
 }
 
 func (m *Model) loadGitData() tea.Msg {
-	if m.git == nil {
-		return m.loadNonGitFiles()
-	}
-
 	info, err := m.git.RepoInfo()
 	if err != nil {
 		return gitDataMsg{err: err}
