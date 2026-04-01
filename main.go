@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hazeledmands/prwatch/internal/git"
@@ -24,6 +25,25 @@ func main() {
 		m = ui.NewModel(dir, g)
 	} else {
 		m = ui.NewModel(dir, nil)
+	}
+
+	// Non-interactive render mode: print the TUI as text and exit.
+	// Useful for automated review loops that can't drive an interactive terminal.
+	// Set PRWATCH_RENDER_ONCE=1 to enable. Optionally set COLUMNS and LINES.
+	if os.Getenv("PRWATCH_RENDER_ONCE") != "" {
+		width, height := 120, 40
+		if cols := os.Getenv("COLUMNS"); cols != "" {
+			if n, err := strconv.Atoi(cols); err == nil {
+				width = n
+			}
+		}
+		if lines := os.Getenv("LINES"); lines != "" {
+			if n, err := strconv.Atoi(lines); err == nil {
+				height = n
+			}
+		}
+		fmt.Print(m.RenderOnce(width, height))
+		return
 	}
 
 	p := tea.NewProgram(m)
