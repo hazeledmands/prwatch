@@ -69,3 +69,4 @@ DEVELOPING:
 - aim for 99% code coverage. use --race in your tests to avoid race conditions.
 - make small, iterative commits to keep your work trackable. push and re-build the binary after every commit.
 - there should be continuous integration with GHA
+- after each commit, run `PRWATCH_RENDER_ONCE=1 go run .` to see the current state of the TUI rendered as text. review the output to verify the UI looks correct before moving on.

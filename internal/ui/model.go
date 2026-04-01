@@ -705,6 +705,27 @@ func (m *Model) updateLayout() {
 	m.mainPane.SetSize(mainWidth, contentHeight)
 }
 
+// RenderOnce synchronously loads data, applies the given terminal size,
+// and returns the rendered view as a plain string. Useful for non-interactive
+// inspection (e.g. CI, automated review loops).
+func (m *Model) RenderOnce(width, height int) string {
+	m.width = width
+	m.height = height
+	m.updateLayout()
+
+	// Synchronously load data and apply it via Update
+	var msg tea.Msg
+	if m.git != nil {
+		msg = m.loadGitData()
+	} else {
+		msg = m.loadNonGitFiles()
+	}
+	m.Update(msg)
+
+	v := m.View()
+	return v.Content
+}
+
 func (m *Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
