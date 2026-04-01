@@ -71,8 +71,12 @@ func (m *mainPane) refreshViewport() {
 	if m.searchQuery != "" {
 		content = highlightSearch(content, m.searchQuery)
 	}
-	if m.wordWrap && m.width > 0 {
-		content = wrapLines(content, m.width)
+	if m.width > 0 {
+		if m.wordWrap {
+			content = wrapLines(content, m.width)
+		} else {
+			content = truncateLines(content, m.width)
+		}
 	}
 	m.viewport.SetContent(content)
 }
@@ -180,8 +184,38 @@ func addLineNumbers(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-// wrapLines wraps each line at the given width, respecting ANSI codes.
-// This is a simple character-based wrap (not word-aware).
+// ansiAwareIterate calls fn for each rune in line, passing the rune and its
+// display width (0 for characters inside ANSI escape sequences, 1 for normal
+// printable characters, and the tab width for '\t').
+// It returns the total display width.
+func ansiAwareIterate(line string, fn func(r rune, displayW int)) int {
+	totalW := 0
+	inEscape := false
+	for _, r := range line {
+		if inEscape {
+			fn(r, 0)
+			// SGR sequences end with a letter; OSC 8 sequences end with ST (\x1b\\)
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			fn(r, 0)
+			inEscape = true
+			continue
+		}
+		w := 1
+		if r == '\t' {
+			w = 8 - (totalW % 8) // tab stop every 8 columns
+		}
+		fn(r, w)
+		totalW += w
+	}
+	return totalW
+}
+
+// wrapLines wraps each line at the given width, respecting ANSI escape codes.
 func wrapLines(content string, width int) string {
 	if width <= 0 {
 		return content
@@ -189,31 +223,55 @@ func wrapLines(content string, width int) string {
 	lines := strings.Split(content, "\n")
 	var result []string
 	for _, line := range lines {
-		stripped := stripANSIForWidth(line)
-		if displayWidthOf(stripped) <= width {
+		// Check if line fits
+		lineW := ansiAwareIterate(line, func(r rune, w int) {})
+		if lineW <= width {
 			result = append(result, line)
 			continue
 		}
-		// Simple wrap: break at width boundaries
+		// Wrap at width boundaries
 		var current strings.Builder
 		w := 0
-		for _, r := range line {
-			current.WriteRune(r)
-			// Don't count ANSI escape characters toward width
-			if r != '\x1b' {
-				w++
-			}
-			if w >= width {
+		ansiAwareIterate(line, func(r rune, dw int) {
+			if dw > 0 && w+dw > width {
 				result = append(result, current.String())
 				current.Reset()
 				w = 0
 			}
-		}
+			current.WriteRune(r)
+			w += dw
+		})
 		if current.Len() > 0 {
 			result = append(result, current.String())
 		}
 	}
 	return strings.Join(result, "\n")
+}
+
+// truncateLines cuts each line at the given width, respecting ANSI codes.
+// Lines shorter than width are left as-is.
+func truncateLines(content string, width int) string {
+	if width <= 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		lineW := ansiAwareIterate(line, func(r rune, w int) {})
+		if lineW <= width {
+			continue
+		}
+		var b strings.Builder
+		w := 0
+		ansiAwareIterate(line, func(r rune, dw int) {
+			if dw > 0 && w+dw > width {
+				return
+			}
+			b.WriteRune(r)
+			w += dw
+		})
+		lines[i] = b.String()
+	}
+	return strings.Join(lines, "\n")
 }
 
 // colorDiff applies syntax coloring to unified diff output.

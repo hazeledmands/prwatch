@@ -2943,3 +2943,66 @@ func TestHelpSearch(t *testing.T) {
 		t.Error("help should still be showing after search cancel")
 	}
 }
+
+// Regression: BUG_REPORTS.md says go.mod has 27 lines but file-view only scrolls to 25
+func TestFileView_ScrollToLastLine(t *testing.T) {
+	// Create a 27-line file content
+	var fileLines []string
+	for i := 1; i <= 27; i++ {
+		fileLines = append(fileLines, fmt.Sprintf("line %d content", i))
+	}
+	fileContent := strings.Join(fileLines, "\n")
+
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"go.mod"},
+		},
+		allFiles:    []string{"go.mod"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: fileContent,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Switch to file-view mode
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	// Switch to main pane focus, then press G to go to bottom
+	m.focus = MainFocus
+	result, _ = m.Update(tea.KeyPressMsg{Text: "G", Code: 'G'})
+	m = result.(*Model)
+
+	// The view should contain line 27
+	v := m.View()
+	if !strings.Contains(v.Content, "line 27 content") {
+		t.Errorf("after GoToBottom, view should contain 'line 27 content' but it doesn't")
+		// Find what's visible
+		for i := 20; i <= 27; i++ {
+			marker := fmt.Sprintf("line %d content", i)
+			if strings.Contains(v.Content, marker) {
+				t.Logf("  found: %s", marker)
+			} else {
+				t.Logf("  MISSING: %s", marker)
+			}
+		}
+	}
+
+	// Also test scrolling via repeated down-arrow
+	m.mainPane.GoToTop()
+	// Press down enough times to reach the end
+	for range 50 {
+		m.mainPane.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
+	}
+	v = m.View()
+	if !strings.Contains(v.Content, "line 27 content") {
+		t.Errorf("after scrolling down many times, view should contain 'line 27 content'")
+	}
+}
