@@ -27,9 +27,14 @@ details in the status bar:
 
 in the "file-diff" mode, the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
 
-in the "file-view" mode, the left pane should be a list of the files that have been changed, and the right pane should be the full file.
+in the "file-view" mode, the left pane should be a list of all files in the directory, and the right pane should be the full file.
 
-in both file modes, the sidebar separates committed files from uncommitted files with a horizontal line. uncommitted files are rendered in a dimmer style. uncommitted files should be first. secondary order should be alphabetical.
+in both file modes, the sidebar should be separated into categories, with a horizontal line between each:
+  1. uncommitted files (rendered in a dimmer style)
+  2. committed files
+  3. all files (file-view mode only)
+order within these categories should be alphabetical.
+[i] should toggle on/off view of gitignored files in all files mode. it should be on by default.
 
 in the "commit" mode, the left pane should be a list of commmits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
 commits that have not yet been pushed to the origin should be a dimmed color. there should be a dividiing horizontal line between these commits and the pushed ones.
@@ -48,7 +53,9 @@ if the main pane has focus, pressing [enter] should do a contextually-relevant t
 
 when running in a non-git directory, file-view mode should be the only mode.
 
-running in a branch without a base branch (i.e. directly in main, or a detached head): file modes should show uncommitted changes, and commit mode should list the full commit history.
+running in a branch without a base branch (i.e. directly in main, or a detached head):
+- file modes should show uncommitted changes
+- commit mode should list the full commit history
 
 detached HEAD works normally, status bar shows `detached @ <short sha>` instead of a branch name.
 
@@ -61,7 +68,11 @@ the number of matches, and the index of the current match, should display at the
 results should be highlighted (text background should be a contrasting color).
 pressing [enter] during a search allows [n] to jump to next result and [p] to jump to previous result. jumping between results should wrap around, so the next result after the last one should be the first one.
 
-mouse behavior: the user should be able to click on files or commits in the sidebar to open them in the main view. scrolling should independently scroll the view but keep the selections the same, kind of like a scroll box in a windowed GUI.
+mouse behavior:
+- the user should be able to click on files or commits in the sidebar to open them in the main view.
+- scrolling should independently scroll the view but keep the selections the same, kind of like a scroll box in a windowed GUI.
+- hovering the mouse over clickable elements should cause them to highlight
+- dragging the mouse over text should highlight the text, and finishing a drag should cause a copy to the system's paste buffer
 
 other keybindings:
 [tab] should switch focus between the sidebar and the main panel
@@ -69,6 +80,9 @@ other keybindings:
 [/] to open a search (only searches what is currently visible)
 [?] to show all the keybindings, which goes away when you hit [esc] or [q]
 [+] and [-] should change the size of the sidebar
+[f] should hide/show the sidebar
+[w] should toggle on/off word wrapping in the main pane (defaulting to on)
+[n] should toggle on/off line numbers when displaying full files (defaulting to on)
 
 ---
 
@@ -87,6 +101,7 @@ DEVELOPING:
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress.
 - use test-driven development.
 - make small, iterative commits to keep your work trackable.
+- before starting work on any new feature or bug fix, create a new git branch. when work is complete on that branch, merge it back into main.
 - re-build the binary after every commit.
 - push to github after every commit.
 - there should be continuous integration with GHA
