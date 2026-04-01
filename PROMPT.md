@@ -4,7 +4,7 @@ the UI should show the delta between the merge-base of the current branch and th
 
 the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
 
-there should be three modes: a "file-diff" mode, a "file-view" mode, and a "commit" mode. the [space bar] should switch between the three modes.
+there should be three modes: a "file-diff" mode, a "file-view" mode, and a "commit" mode. [m] should switch between the three modes.
 [d] or [1] should jump to file-diff mode
 [v] or [2] should jump to file-view mode
 [c] or [3] should jump to commit mode
@@ -61,13 +61,10 @@ the list of commits should be separated into categories, separated by a dividing
 - commits in the current branch / PR that have been pushed to the origin
 - commits after the stuff that's already in the base branch
 
-[d] should jump right to file-diff mode.
-[f] or [v] should jump right to file-view mode
-[c] should jump right to commit mode
 switching between file-diff and file-view should retain the selected file.
 
 [tab] should switch focus between the sidebar and the main panel
-[,] should focus the sidebar and [.] shoudl focus the main panel
+[,] should focus the sidebar and [.] should focus the main panel
 if the sidebar has focus, the up/down/j/k keys should control which item in the sidebar is selected. if the main pane has focus, the up/down/j/k/page-up/page-down keys should scroll the view.
 the left/right arrow keys and h/l keys (vim style) should scroll the view that is currently in focus left/right if any content is truncated.
 if the sidebar has focus, pressing [enter] should switch to the main pane.
