@@ -19,15 +19,26 @@ details in the status bar:
   - ahead of upstream by ? commits (? unpushed commits)
   - number uncommitted files (clicking this should switch to "file diff" mode)
   - number of commits in branch (clicking this should switch to "commit" mode)
-- high level overview of "github PR status": (check this every minute)
+- high level overview of "github PR status":
   - draft mode?
   - CI status (with link)
   - review requests and approvals / rejections
   - number of comments
 
+checking against the github server:
+- we should do this often enough to get fresh data, but not so often that we run into rate limits.
+- respond to rate limits appropriately, backing off as needed
+
 in the "file-diff" mode, the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
 
 in the "file-view" mode, the left pane should be a list of all files in the directory, and the right pane should be the full file.
+- [n] should toggle on/off line numbers when displaying full files (defaulting to on)
+- if there is a diff for the current file, there should be a "diff gutter" that flags new lines, removed lines, and changed lines
+- any new content (via the diff) should show as "green" in file view mode, and removed content should show as red
+- [shift]+[d] should show/hide removed content from the diff, in its own line (defaulting to on)
+- [shift]+[j]/[k]/[up]/[down] should jump directly to the next or previous diff. this should wrap around, just like search results.
+- entering into this view should jump immediately to the first diff
+- both modes should not attempt to show binary content -- instead it should just say [binary content]
 
 in both file modes, the sidebar should be separated into categories, with a horizontal line between each:
   1. uncommitted files (rendered in a dimmer style)
@@ -35,6 +46,7 @@ in both file modes, the sidebar should be separated into categories, with a hori
   3. all files (file-view mode only)
 order within these categories should be alphabetical.
 [i] should toggle on/off view of gitignored files in all files mode. it should be on by default.
+[t] should toggle on/off "tree" mode, where files are grouped under directories, which can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter]. tree mode should be on by default.
 
 in the "commit" mode, the left pane should be a list of commmits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
 commits that have not yet been pushed to the origin should be a dimmed color. there should be a dividiing horizontal line between these commits and the pushed ones.
@@ -71,18 +83,22 @@ pressing [enter] during a search allows [n] to jump to next result and [p] to ju
 mouse behavior:
 - the user should be able to click on files or commits in the sidebar to open them in the main view.
 - scrolling should independently scroll the view but keep the selections the same, kind of like a scroll box in a windowed GUI.
+- when text is not wrapped, it should be possible to scroll left/right, too
 - hovering the mouse over clickable elements should cause them to highlight
 - dragging the mouse over text should highlight the text, and finishing a drag should cause a copy to the system's paste buffer
+
+help mode:
+[?] should open a "help" page which should show all the keybindings,
+help should goe away when you hit [esc] or [q]
+[/] within help should open a search that applies only to the content in the help mode.
+help should be scrollable by mouse.
 
 other keybindings:
 [tab] should switch focus between the sidebar and the main panel
 [gg] and [G] to go to the beginning and end
-[/] to open a search (only searches what is currently visible)
-[?] to show all the keybindings, which goes away when you hit [esc] or [q]
 [+] and [-] should change the size of the sidebar
 [f] should hide/show the sidebar
 [w] should toggle on/off word wrapping in the main pane (defaulting to on)
-[n] should toggle on/off line numbers when displaying full files (defaulting to on)
 
 ---
 
