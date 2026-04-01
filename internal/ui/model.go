@@ -485,7 +485,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.git == nil {
 			return m, nil // non-git: file-view only
 		}
-		prevMode := m.mode
 		switch m.mode {
 		case FileDiffMode:
 			m.mode = FileViewMode
@@ -496,9 +495,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.updateSidebarItems()
 		m.updateMainContent()
-		if m.mode == FileViewMode && prevMode != FileViewMode {
-			m.jumpToFirstDiff()
-		}
 		return m, nil
 
 	case key.Matches(msg, keys.FileDiffMode):
@@ -511,13 +507,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.FileViewMode):
-		prevMode := m.mode
 		m.mode = FileViewMode
 		m.updateSidebarItems()
 		m.updateMainContent()
-		if prevMode != FileViewMode {
-			m.jumpToFirstDiff()
-		}
 		return m, nil
 
 	case key.Matches(msg, keys.CommitMode):
@@ -1460,7 +1452,7 @@ func (m *Model) updateMainContent() {
 	switch m.mode {
 	case FileDiffMode:
 		file := m.sidebar.SelectedItem()
-		if file == "" {
+		if file == "" || m.sidebar.SelectedIsDir() {
 			m.mainPane.SetContent("")
 			return
 		}
@@ -1483,7 +1475,7 @@ func (m *Model) updateMainContent() {
 
 	case FileViewMode:
 		file := m.sidebar.SelectedItem()
-		if file == "" {
+		if file == "" || m.sidebar.SelectedIsDir() {
 			m.mainPane.SetPlainContent("")
 			m.mainPane.ClearDiffAnnotations()
 			return
@@ -1512,6 +1504,8 @@ func (m *Model) updateMainContent() {
 			m.mainPane.ClearDiffAnnotations()
 		}
 		m.mainPane.SetPlainContent(content)
+		// Auto-jump to first diff when viewing a file
+		m.jumpToFirstDiff()
 
 	case CommitMode:
 		selected := m.sidebar.SelectedItem()
