@@ -37,8 +37,10 @@ func renderStatusBar(width int, info git.RepoInfoResult, pr git.PRInfoResult, mo
 	// Middle: mode indicator
 	var modeStr string
 	switch mode {
-	case FileMode:
-		modeStr = modeFileStyle.Render("[files]")
+	case FileDiffMode:
+		modeStr = modeFileStyle.Render("[diff]")
+	case FileViewMode:
+		modeStr = modeFileStyle.Render("[file]")
 	case CommitMode:
 		modeStr = modeCommitStyle.Render("[commits]")
 	}

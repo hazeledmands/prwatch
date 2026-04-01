@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -183,6 +185,9 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 		uncommitted = append(uncommitted, f)
 	}
 
+	sort.Strings(committed)
+	sort.Strings(uncommitted)
+
 	return ChangedFilesResult{
 		Committed:   committed,
 		Uncommitted: uncommitted,
@@ -223,6 +228,18 @@ func (g *Git) Commits(base string) ([]Commit, error) {
 // CommitPatch returns the full patch for a single commit.
 func (g *Git) CommitPatch(sha string) (string, error) {
 	return g.run("show", sha)
+}
+
+// FileContent returns the full content of a file from the working tree.
+// Falls back to HEAD version if the working tree read fails.
+func (g *Git) FileContent(file string) (string, error) {
+	// Read from working tree directly (handles uncommitted/untracked files)
+	content, err := os.ReadFile(filepath.Join(g.dir, file))
+	if err != nil {
+		// Fall back to HEAD version
+		return g.run("show", "HEAD:"+file)
+	}
+	return string(content), nil
 }
 
 // PRInfo fetches PR info via gh CLI. Returns zero-value PRInfoResult if no PR exists.

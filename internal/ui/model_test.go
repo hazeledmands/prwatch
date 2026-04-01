@@ -9,21 +9,27 @@ import (
 func TestModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", nil)
 
-	if m.mode != FileMode {
-		t.Error("initial mode should be FileMode")
+	if m.mode != FileDiffMode {
+		t.Error("initial mode should be FileDiffMode")
 	}
 
-	// Press space to toggle
+	// Press space to cycle: FileDiff → FileView → Commit → FileDiff
 	result, _ := m.Update(tea.KeyPressMsg{Text: " ", Code: tea.KeySpace})
 	m = result.(*Model)
-	if m.mode != CommitMode {
-		t.Error("after space, mode should be CommitMode")
+	if m.mode != FileViewMode {
+		t.Error("after space, mode should be FileViewMode")
 	}
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: " ", Code: tea.KeySpace})
 	m = result.(*Model)
-	if m.mode != FileMode {
-		t.Error("after space again, mode should be FileMode")
+	if m.mode != CommitMode {
+		t.Error("after second space, mode should be CommitMode")
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Text: " ", Code: tea.KeySpace})
+	m = result.(*Model)
+	if m.mode != FileDiffMode {
+		t.Error("after third space, mode should be FileDiffMode")
 	}
 
 	// Direct mode keys
@@ -35,8 +41,20 @@ func TestModeSwitching(t *testing.T) {
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
 	m = result.(*Model)
-	if m.mode != FileMode {
-		t.Error("after f, mode should be FileMode")
+	if m.mode != FileViewMode {
+		t.Error("after f, mode should be FileViewMode")
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	m = result.(*Model)
+	if m.mode != FileDiffMode {
+		t.Error("after d, mode should be FileDiffMode")
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+	if m.mode != FileViewMode {
+		t.Error("after v, mode should be FileViewMode")
 	}
 }
 

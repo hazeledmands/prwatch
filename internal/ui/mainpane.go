@@ -31,6 +31,11 @@ func (m *mainPane) SetContent(content string) {
 	m.viewport.SetContent(colorDiff(content))
 }
 
+func (m *mainPane) SetPlainContent(content string) {
+	m.content = content
+	m.viewport.SetContent(content)
+}
+
 func (m *mainPane) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)

@@ -16,7 +16,8 @@ import (
 type Mode int
 
 const (
-	FileMode Mode = iota
+	FileDiffMode Mode = iota
+	FileViewMode
 	CommitMode
 )
 
@@ -63,7 +64,7 @@ func NewModel(dir string, g *gitpkg.Git) *Model {
 	return &Model{
 		git:      g,
 		dir:      dir,
-		mode:     FileMode,
+		mode:     FileDiffMode,
 		focus:    SidebarFocus,
 		sidebar:  newSidebar(),
 		mainPane: newMainPane(),
@@ -163,17 +164,26 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.ToggleMode):
-		if m.mode == FileMode {
+		switch m.mode {
+		case FileDiffMode:
+			m.mode = FileViewMode
+		case FileViewMode:
 			m.mode = CommitMode
-		} else {
-			m.mode = FileMode
+		case CommitMode:
+			m.mode = FileDiffMode
 		}
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
 
-	case key.Matches(msg, keys.FileMode):
-		m.mode = FileMode
+	case key.Matches(msg, keys.FileDiffMode):
+		m.mode = FileDiffMode
+		m.updateSidebarItems()
+		m.updateMainContent()
+		return m, nil
+
+	case key.Matches(msg, keys.FileViewMode):
+		m.mode = FileViewMode
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
@@ -226,7 +236,7 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 
 	// Main pane focused
-	if m.mode == FileMode {
+	if m.mode == FileDiffMode || m.mode == FileViewMode {
 		return m, m.openEditor()
 	}
 	return m, nil
@@ -257,8 +267,14 @@ func (m *Model) openEditor() tea.Cmd {
 	})
 }
 
-// currentLineNumber parses the diff to find the source line at the viewport top.
+// currentLineNumber finds the source line at the viewport top.
+// In file-view mode, it's just the scroll offset + 1.
+// In file-diff mode, it parses diff hunks to find the real line number.
 func (m *Model) currentLineNumber() int {
+	if m.mode == FileViewMode {
+		return m.mainPane.ScrollTop() + 1
+	}
+
 	lines := strings.Split(m.mainPane.content, "\n")
 	scrollTop := m.mainPane.ScrollTop()
 
@@ -299,16 +315,17 @@ func parseHunkNewStart(hunkLine string) int {
 
 func (m *Model) updateSidebarItems() {
 	switch m.mode {
-	case FileMode:
+	case FileDiffMode, FileViewMode:
 		var items []sidebarItem
-		for _, f := range m.committedFiles {
-			items = append(items, sidebarItem{label: f, kind: itemNormal})
-		}
-		if len(m.committedFiles) > 0 && len(m.uncommittedFiles) > 0 {
-			items = append(items, sidebarItem{kind: itemSeparator})
-		}
+		// Uncommitted files first (dimmed), then separator, then committed
 		for _, f := range m.uncommittedFiles {
 			items = append(items, sidebarItem{label: f, kind: itemDim})
+		}
+		if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
+			items = append(items, sidebarItem{kind: itemSeparator})
+		}
+		for _, f := range m.committedFiles {
+			items = append(items, sidebarItem{label: f, kind: itemNormal})
 		}
 		m.sidebar.SetItems(items)
 	case CommitMode:
@@ -329,7 +346,7 @@ func (m *Model) updateMainContent() {
 	}
 
 	switch m.mode {
-	case FileMode:
+	case FileDiffMode:
 		file := m.sidebar.SelectedItem()
 		if file == "" {
 			m.mainPane.SetContent("")
@@ -341,6 +358,19 @@ func (m *Model) updateMainContent() {
 			return
 		}
 		m.mainPane.SetContent(diff)
+
+	case FileViewMode:
+		file := m.sidebar.SelectedItem()
+		if file == "" {
+			m.mainPane.SetPlainContent("")
+			return
+		}
+		content, err := m.git.FileContent(file)
+		if err != nil {
+			m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
+			return
+		}
+		m.mainPane.SetPlainContent(content)
 
 	case CommitMode:
 		idx := m.sidebar.SelectedIndex()
