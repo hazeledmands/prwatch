@@ -32,8 +32,10 @@ checking against the github server:
 in the "file-diff" mode, the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
 
 in the "file-view" mode, the left pane should be a list of all files in the directory, and the right pane should be the full file.
-- [n] should toggle on/off line numbers when displaying full files (defaulting to on)
-- if there is a diff for the current file, there should be a "diff gutter" that flags new lines, removed lines, and changed lines
+this mode should have a "gutter":
+  - [n] should toggle on/off line numbers when displaying full files (defaulting to on)
+  - if there is a diff for the current file, there should be a "diff gutter" that flags new lines, removed lines, and changed lines
+  - wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line
 - any new content (via the diff) should show as "green" in file view mode, and removed content should show as red
 - [shift]+[d] should show/hide removed content from the diff, in its own line (defaulting to on)
 - [shift]+[j]/[k]/[up]/[down] should jump directly to the next or previous diff. this should wrap around, just like search results.
