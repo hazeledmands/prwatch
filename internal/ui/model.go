@@ -533,8 +533,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.focus == SidebarFocus {
 			return m.handleSidebarLeft()
 		}
-		if !m.wordWrap {
+		// Main pane: scroll left, or switch to sidebar if already at left edge
+		if !m.wordWrap && m.mainPane.xOffset > 0 {
 			m.mainPane.ScrollLeft(4)
+		} else {
+			m.focus = SidebarFocus
 		}
 		return m, nil
 
