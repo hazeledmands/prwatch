@@ -20,7 +20,10 @@ import (
 // ansiStripRE matches ANSI escape sequences (SGR and OSC 8 hyperlinks).
 var ansiStripRE = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\]8;;[^\x1b]*\x1b\\`)
 
-const prRefreshInterval = 1 * time.Minute
+const (
+	prRefreshDefault = 1 * time.Minute
+	prRefreshMax     = 10 * time.Minute
+)
 
 type searchMatch struct {
 	pane string // "sidebar" or "main"
@@ -94,6 +97,7 @@ type Model struct {
 	searchMatches    []searchMatch // matches across both panes
 	searchMatchIdx   int           // current match index
 	hoverX, hoverY   int           // last mouse position for hover highlighting
+	prInterval       time.Duration // adaptive PR refresh interval
 	dragStartX       int           // drag start position (-1 = not dragging)
 	dragStartY       int
 	dragEndX         int
@@ -124,6 +128,7 @@ type prRefreshMsg struct {
 	ciStatus     gitpkg.CIStatusResult
 	reviews      []gitpkg.PRReview
 	commentCount int
+	rateLimited  bool
 }
 
 type prTickMsg struct{}
@@ -144,6 +149,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		showIgnored: true,
 		wordWrap:    true,
 		lineNumbers: true,
+		prInterval:  prRefreshDefault,
 		dragStartX:  -1,
 		dragStartY:  -1,
 	}
@@ -153,11 +159,11 @@ func (m *Model) Init() tea.Cmd {
 	if m.git == nil {
 		return m.loadNonGitFiles
 	}
-	return tea.Batch(m.loadGitData, schedulePRTick())
+	return tea.Batch(m.loadGitData, schedulePRTick(m.prInterval))
 }
 
-func schedulePRTick() tea.Cmd {
-	return tea.Tick(prRefreshInterval, func(t time.Time) tea.Msg {
+func schedulePRTick(interval time.Duration) tea.Cmd {
+	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return prTickMsg{}
 	})
 }
@@ -179,7 +185,10 @@ func (m *Model) loadNonGitFiles() tea.Msg {
 }
 
 func (m *Model) loadPRStatus() tea.Msg {
-	prInfo, _ := m.git.PRInfo()
+	prInfo, err := m.git.PRInfo()
+	if err != nil && isRateLimited(err) {
+		return prRefreshMsg{rateLimited: true}
+	}
 	var ciStatus gitpkg.CIStatusResult
 	var reviews []gitpkg.PRReview
 	var commentCount int
@@ -194,6 +203,15 @@ func (m *Model) loadPRStatus() tea.Msg {
 		reviews:      reviews,
 		commentCount: commentCount,
 	}
+}
+
+// isRateLimited checks if an error from the gh CLI indicates rate limiting.
+func isRateLimited(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "rate limit") || strings.Contains(msg, "403") || strings.Contains(msg, "secondary rate")
 }
 
 type allFilesMsg struct {
@@ -295,6 +313,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prRefreshMsg:
+		if msg.rateLimited {
+			// Double the interval on rate limit, up to max
+			m.prInterval = min(m.prInterval*2, prRefreshMax)
+			return m, nil
+		}
+		// Successful fetch — reset to default interval
+		m.prInterval = prRefreshDefault
 		m.prInfo = msg.prInfo
 		m.ciStatus = msg.ciStatus
 		m.prReviews = msg.reviews
@@ -303,9 +328,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prTickMsg:
 		if m.git == nil {
-			return m, schedulePRTick()
+			return m, schedulePRTick(m.prInterval)
 		}
-		return m, tea.Batch(m.loadPRStatus, schedulePRTick())
+		return m, tea.Batch(m.loadPRStatus, schedulePRTick(m.prInterval))
 
 	case RefreshMsg:
 		if m.git == nil {
@@ -829,6 +854,30 @@ func parseHunkNewStart(hunkLine string) int {
 	return n
 }
 
+// isBinaryContent checks if content appears to be binary by looking for null bytes
+// or a high ratio of non-printable characters.
+func isBinaryContent(content string) bool {
+	if len(content) == 0 {
+		return false
+	}
+	// Check first 8KB for null bytes or high ratio of non-text characters
+	sample := content
+	if len(sample) > 8192 {
+		sample = sample[:8192]
+	}
+	nonPrintable := 0
+	for _, b := range []byte(sample) {
+		if b == 0 {
+			return true
+		}
+		if b < 0x20 && b != '\n' && b != '\r' && b != '\t' {
+			nonPrintable++
+		}
+	}
+	// If more than 10% non-printable, consider it binary
+	return len(sample) > 0 && nonPrintable*10 > len(sample)
+}
+
 func (m *Model) isUncommittedFile(file string) bool {
 	for _, f := range m.uncommittedFiles {
 		if f == file {
@@ -923,6 +972,10 @@ func (m *Model) updateMainContent() {
 				m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
 				return
 			}
+			if isBinaryContent(string(content)) {
+				m.mainPane.SetPlainContent("[binary content]")
+				return
+			}
 			m.mainPane.SetPlainContent(string(content))
 		}
 		return
@@ -949,6 +1002,10 @@ func (m *Model) updateMainContent() {
 			m.mainPane.SetContent(fmt.Sprintf("Error: %v", err))
 			return
 		}
+		if isBinaryContent(diff) {
+			m.mainPane.SetPlainContent("[binary content]")
+			return
+		}
 		m.mainPane.SetContent(diff)
 
 	case FileViewMode:
@@ -962,6 +1019,10 @@ func (m *Model) updateMainContent() {
 			m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
 			return
 		}
+		if isBinaryContent(content) {
+			m.mainPane.SetPlainContent("[binary content]")
+			return
+		}
 		m.mainPane.SetPlainContent(content)
 
 	case CommitMode:
@@ -973,6 +1034,10 @@ func (m *Model) updateMainContent() {
 		patch, err := m.git.CommitPatch(m.commits[idx].SHA)
 		if err != nil {
 			m.mainPane.SetContent(fmt.Sprintf("Error: %v", err))
+			return
+		}
+		if isBinaryContent(patch) {
+			m.mainPane.SetPlainContent("[binary content]")
 			return
 		}
 		m.mainPane.SetContent(patch)

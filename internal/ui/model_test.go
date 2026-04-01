@@ -2750,3 +2750,117 @@ func TestMouseDrag_SetsCoordinates(t *testing.T) {
 		t.Error("should not be dragging after release")
 	}
 }
+
+func TestIsBinaryContent(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		binary bool
+	}{
+		{"empty", "", false},
+		{"normal text", "hello world\nline 2\n", false},
+		{"null byte", "hello\x00world", true},
+		{"Go source", "package main\n\nfunc main() {\n}\n", false},
+		{"diff output", "+added\n-removed\n context\n", false},
+		{"binary with many control chars", string([]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x0e, 0x0f}), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isBinaryContent(tt.input)
+			if got != tt.binary {
+				t.Errorf("isBinaryContent(%q) = %v, want %v", tt.input, got, tt.binary)
+			}
+		})
+	}
+}
+
+func TestBinaryContentDisplay(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"image.png"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "hello\x00binary\x00content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Switch to file-view to see the binary content
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	// The main pane should show "[binary content]"
+	if m.mainPane.content != "[binary content]" {
+		t.Errorf("expected [binary content], got %q", m.mainPane.content)
+	}
+}
+
+func TestRateLimitBackoff(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"alpha.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	initial := m.prInterval
+	if initial != prRefreshDefault {
+		t.Fatalf("expected default interval %v, got %v", prRefreshDefault, initial)
+	}
+
+	// Simulate rate limit
+	result, _ := m.Update(prRefreshMsg{rateLimited: true})
+	m = result.(*Model)
+	if m.prInterval != prRefreshDefault*2 {
+		t.Errorf("expected interval to double to %v, got %v", prRefreshDefault*2, m.prInterval)
+	}
+
+	// Second rate limit
+	result, _ = m.Update(prRefreshMsg{rateLimited: true})
+	m = result.(*Model)
+	if m.prInterval != prRefreshDefault*4 {
+		t.Errorf("expected interval to quadruple to %v, got %v", prRefreshDefault*4, m.prInterval)
+	}
+
+	// Successful response resets
+	result, _ = m.Update(prRefreshMsg{})
+	m = result.(*Model)
+	if m.prInterval != prRefreshDefault {
+		t.Errorf("expected interval reset to %v, got %v", prRefreshDefault, m.prInterval)
+	}
+}
+
+func TestIsRateLimited(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"normal error", fmt.Errorf("connection refused"), false},
+		{"rate limit", fmt.Errorf("API rate limit exceeded"), true},
+		{"403", fmt.Errorf("HTTP 403: forbidden"), true},
+		{"secondary rate", fmt.Errorf("secondary rate limit"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isRateLimited(tt.err); got != tt.want {
+				t.Errorf("isRateLimited(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
