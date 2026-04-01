@@ -7,6 +7,7 @@ the UI should stay up-to-date as the git status changes, ideally refreshing its 
 there should be three modes: a "file-diff" mode, a "file-view" mode, and a "commit" mode. the [space bar] should switch between the three modes.
 
 the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar -- smaller than the "main" pane on the right. the sidebar should display a list (of either files or commits) and the main pane should display content.
+[tab] should switch focus between the sidebar and the main panel
 
 the "status bar" should show the name of the branch and the repo and the worktree, as well as details and a link to the github PR (if there is one).
 details in the status bar:
@@ -63,7 +64,8 @@ the list of commits should be separated into categories, separated by a dividing
 [c] should jump right to commit mode
 switching between file-diff and file-view should retain the selected file.
 
-the left/right arrow keys and h/l keys (vim style) should control whether the sidebar or the main pane have focus. if the sidebar has focus, the up/down/j/k keys should control which item in the sidebar is selected. if the main pane has focus, the up/down/j/k/page-up/page-down keys should scroll the view.
+if the sidebar has focus, the up/down/j/k keys should control which item in the sidebar is selected. if the main pane has focus, the up/down/j/k/page-up/page-down keys should scroll the view.
+the left/right arrow keys and h/l keys (vim style) should scroll the view that is currently in focus left/right if any content is truncated.
 
 if the sidebar has focus, pressing [enter] should switch to the main pane.
 if the main pane has focus, pressing [enter] should do a contextually-relevant thing: in file mode it should open $EDITOR to the given file, to whatever line is currently in view. in "commit" mode it should.... maybe do nothing for now.
@@ -101,7 +103,6 @@ help should goe away when you hit [esc] or [q]
 help should be scrollable by mouse.
 
 other keybindings:
-[tab] should switch focus between the sidebar and the main panel
 [gg] and [G] to go to the beginning and end
 [+] and [-] should change the size of the sidebar
 [f] should hide/show the sidebar
