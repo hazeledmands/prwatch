@@ -95,9 +95,9 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 			child := node.children[name]
 			prefix := ""
 			if collapsed[child.path] {
-				prefix = "+"
+				prefix = "▶"
 			} else {
-				prefix = "-"
+				prefix = "▼"
 			}
 			label := strings.Repeat("  ", indent) + prefix + " " + name + "/"
 			items = append(items, sidebarItem{

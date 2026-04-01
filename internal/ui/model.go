@@ -78,8 +78,9 @@ type Model struct {
 	prCommentCount      int
 	committedFiles      []string
 	uncommittedFiles    []string
-	deletedFiles        []string // files deleted in base..HEAD
-	allFiles            []string // all files in the repo (for file-view mode)
+	deletedFiles        []string        // files deleted in base..HEAD
+	allFiles            []string        // all files in the repo (for file-view mode)
+	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
 	commits             []gitpkg.Commit
 	sidebar             *sidebar
 	mainPane            *mainPane
@@ -128,6 +129,7 @@ type gitDataMsg struct {
 	uncommittedFiles []string
 	deletedFiles     []string
 	allFiles         []string
+	ignoredFiles     map[string]bool
 	commits          []gitpkg.Commit
 	err              error
 }
@@ -279,6 +281,22 @@ func (m *Model) loadGitData() tea.Msg {
 	// Fetch all files for file-view mode sidebar
 	allFiles, _ := m.git.AllFiles(m.showIgnored)
 
+	// Compute ignored files set
+	var ignoredSet map[string]bool
+	if m.showIgnored {
+		nonIgnored, _ := m.git.AllFiles(false)
+		nonIgnoredSet := make(map[string]bool, len(nonIgnored))
+		for _, f := range nonIgnored {
+			nonIgnoredSet[f] = true
+		}
+		ignoredSet = make(map[string]bool)
+		for _, f := range allFiles {
+			if !nonIgnoredSet[f] {
+				ignoredSet[f] = true
+			}
+		}
+	}
+
 	return gitDataMsg{
 		repoInfo:         info,
 		prInfo:           prInfo,
@@ -290,6 +308,7 @@ func (m *Model) loadGitData() tea.Msg {
 		uncommittedFiles: files.Uncommitted,
 		deletedFiles:     files.Deleted,
 		allFiles:         allFiles,
+		ignoredFiles:     ignoredSet,
 		commits:          commits,
 	}
 }
@@ -318,6 +337,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.uncommittedFiles = msg.uncommittedFiles
 		m.deletedFiles = msg.deletedFiles
 		m.allFiles = msg.allFiles
+		m.ignoredFiles = msg.ignoredFiles
 		m.commits = msg.commits
 		m.updateSidebarItems()
 		m.updateMainContent()
@@ -1247,7 +1267,12 @@ func (m *Model) updateSidebarItems() {
 			if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
-			items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs)...)
+			items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind {
+				if m.ignoredFiles[f] {
+					return itemDim
+				}
+				return itemNormal
+			})...)
 		} else {
 			for _, f := range m.uncommittedFiles {
 				items = append(items, sidebarItem{label: f, filePath: f, kind: itemDim})
@@ -1262,7 +1287,11 @@ func (m *Model) updateSidebarItems() {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 			for _, f := range otherFiles {
-				items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
+				kind := m.fileItemKind(f, itemNormal)
+				if kind == itemNormal && m.ignoredFiles[f] {
+					kind = itemDim
+				}
+				items = append(items, sidebarItem{label: f, filePath: f, kind: kind})
 			}
 		}
 		m.sidebar.SetItems(items)
