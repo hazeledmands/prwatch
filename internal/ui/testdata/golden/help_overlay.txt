@@ -24,7 +24,7 @@ Keybindings:
   [w]          Toggle word wrap                                                                     
   [n]          Toggle line numbers (file view)                                                      
   [i]          Toggle gitignored files (file view)                                                  
-                                                                                                    
-  [enter]      Open file in $EDITOR / switch to main pane                                           
+  [D]          Toggle removed lines in diff gutter (file view)                                      
+  [J]          Jump to next diff hunk (file view)                                                   
                                                                                                     
                                                                                                     

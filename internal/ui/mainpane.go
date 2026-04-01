@@ -8,20 +8,165 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// diffLineKind describes how a source line relates to a diff.
+type diffLineKind int
+
+const (
+	diffLineUnchanged diffLineKind = iota
+	diffLineAdded
+	diffLineRemoved // a removed line (not present in the file, shown inline when Shift+D is on)
+)
+
+// diffAnnotation maps a file line number (1-indexed) to its change kind.
+type diffAnnotation struct {
+	kind         diffLineKind
+	removedLines []string // removed lines before this line (for Shift+D display)
+}
+
 type mainPane struct {
-	viewport    viewport.Model
-	content     string
-	isDiff      bool // whether content was set via SetContent (diff coloring)
-	searchQuery string
-	width       int
-	height      int
-	wordWrap    bool // whether to wrap long lines
-	lineNumbers bool // whether to show line numbers (plain content only)
+	viewport        viewport.Model
+	content         string
+	isDiff          bool // whether content was set via SetContent (diff coloring)
+	searchQuery     string
+	width           int
+	height          int
+	wordWrap        bool                   // whether to wrap long lines
+	lineNumbers     bool                   // whether to show line numbers (plain content only)
+	diffAnnotations map[int]diffAnnotation // line number -> annotation (for file-view gutter)
+	showRemoved     bool                   // Shift+D: show removed lines inline
 }
 
 func newMainPane() *mainPane {
 	vp := viewport.New()
-	return &mainPane{viewport: vp, wordWrap: true, lineNumbers: true}
+	return &mainPane{viewport: vp, wordWrap: true, lineNumbers: true, showRemoved: true}
+}
+
+// SetDiffAnnotations sets diff annotations for file-view mode gutter rendering.
+func (m *mainPane) SetDiffAnnotations(annotations map[int]diffAnnotation) {
+	m.diffAnnotations = annotations
+	m.refreshViewport()
+}
+
+// ClearDiffAnnotations removes diff annotations.
+func (m *mainPane) ClearDiffAnnotations() {
+	m.diffAnnotations = nil
+	m.refreshViewport()
+}
+
+// ToggleShowRemoved toggles display of removed lines.
+func (m *mainPane) ToggleShowRemoved() {
+	m.showRemoved = !m.showRemoved
+	m.refreshViewport()
+}
+
+// DiffLineNumbers returns the sorted list of file line numbers that have diff annotations.
+func (m *mainPane) DiffLineNumbers() []int {
+	if len(m.diffAnnotations) == 0 {
+		return nil
+	}
+	var lines []int
+	for lineNo, ann := range m.diffAnnotations {
+		if ann.kind == diffLineAdded {
+			lines = append(lines, lineNo)
+		}
+	}
+	// Sort
+	for i := 0; i < len(lines); i++ {
+		for j := i + 1; j < len(lines); j++ {
+			if lines[j] < lines[i] {
+				lines[i], lines[j] = lines[j], lines[i]
+			}
+		}
+	}
+	return lines
+}
+
+// parseDiffAnnotations parses a unified diff and returns annotations keyed by
+// new-file line number. Removed lines are attached to the next added/context line.
+func parseDiffAnnotations(unifiedDiff string) map[int]diffAnnotation {
+	annotations := make(map[int]diffAnnotation)
+	if unifiedDiff == "" {
+		return annotations
+	}
+
+	lines := strings.Split(unifiedDiff, "\n")
+	var pendingRemoved []string
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			// Parse hunk header: @@ -old,count +new,count @@
+			newStart := parseHunkNewStart(line)
+			if newStart > 0 {
+				// Flush any pending removed lines to the start of this hunk
+				if len(pendingRemoved) > 0 {
+					ann := annotations[newStart]
+					ann.removedLines = append(ann.removedLines, pendingRemoved...)
+					annotations[newStart] = ann
+					pendingRemoved = nil
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "diff ") || strings.HasPrefix(line, "index ") ||
+			strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
+			continue
+		}
+		// We need to track the current new-file line number
+		// This simplified parser re-scans from hunk headers
+	}
+
+	// Better approach: iterate through hunks tracking line numbers
+	annotations = make(map[int]diffAnnotation)
+	newLineNo := 0
+	pendingRemoved = nil
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			newLineNo = parseHunkNewStart(line)
+			if newLineNo < 1 {
+				newLineNo = 1
+			}
+			// Attach pending removed to the first line of the new hunk
+			if len(pendingRemoved) > 0 {
+				ann := annotations[newLineNo]
+				ann.removedLines = append(ann.removedLines, pendingRemoved...)
+				annotations[newLineNo] = ann
+				pendingRemoved = nil
+			}
+			continue
+		}
+		if newLineNo == 0 {
+			continue // before first hunk
+		}
+		if strings.HasPrefix(line, "diff ") || strings.HasPrefix(line, "index ") ||
+			strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") ||
+			strings.HasPrefix(line, "\\") {
+			continue
+		}
+		if strings.HasPrefix(line, "+") {
+			ann := annotations[newLineNo]
+			ann.kind = diffLineAdded
+			if len(pendingRemoved) > 0 {
+				ann.removedLines = append(ann.removedLines, pendingRemoved...)
+				pendingRemoved = nil
+			}
+			annotations[newLineNo] = ann
+			newLineNo++
+		} else if strings.HasPrefix(line, "-") {
+			pendingRemoved = append(pendingRemoved, line[1:]) // strip the "-"
+		} else {
+			// Context line
+			if len(pendingRemoved) > 0 {
+				ann := annotations[newLineNo]
+				ann.removedLines = append(ann.removedLines, pendingRemoved...)
+				annotations[newLineNo] = ann
+				pendingRemoved = nil
+			}
+			newLineNo++
+		}
+	}
+
+	return annotations
 }
 
 // SetWordWrap enables or disables word wrapping.
@@ -65,8 +210,8 @@ func (m *mainPane) refreshViewport() {
 	content := m.content
 	if m.isDiff {
 		content = colorDiff(content)
-	} else if m.lineNumbers {
-		content = addLineNumbers(content)
+	} else {
+		content = m.applyFileViewFormatting(content)
 	}
 	if m.searchQuery != "" {
 		content = highlightSearch(content, m.searchQuery)
@@ -79,6 +224,52 @@ func (m *mainPane) refreshViewport() {
 		}
 	}
 	m.viewport.SetContent(content)
+}
+
+// applyFileViewFormatting adds line numbers and diff gutter to plain content.
+func (m *mainPane) applyFileViewFormatting(content string) string {
+	lines := strings.Split(content, "\n")
+	numWidth := len(fmt.Sprintf("%d", len(lines)))
+
+	var result []string
+	for i, line := range lines {
+		lineNo := i + 1
+		var prefix string
+
+		if m.lineNumbers {
+			prefix = fmt.Sprintf("%*d", numWidth, lineNo)
+		}
+
+		ann, hasAnn := m.diffAnnotations[lineNo]
+		if hasAnn && m.showRemoved && len(ann.removedLines) > 0 {
+			// Insert removed lines before this line
+			for _, removed := range ann.removedLines {
+				gutterMark := " - "
+				if m.lineNumbers {
+					gutterMark = strings.Repeat(" ", numWidth) + " - "
+				}
+				result = append(result, diffRemoveStyle.Render(gutterMark+removed))
+			}
+		}
+
+		if hasAnn && ann.kind == diffLineAdded {
+			gutter := " + "
+			if m.lineNumbers {
+				formatted := prefix + gutter + line
+				result = append(result, diffAddStyle.Render(formatted))
+			} else {
+				result = append(result, diffAddStyle.Render(gutter+line))
+			}
+		} else {
+			gutter := "   "
+			if m.lineNumbers {
+				result = append(result, prefix+gutter+line)
+			} else {
+				result = append(result, gutter+line)
+			}
+		}
+	}
+	return strings.Join(result, "\n")
 }
 
 func (m *mainPane) Update(msg tea.Msg) tea.Cmd {
@@ -172,16 +363,6 @@ func highlightMatchInLine(line, query string) string {
 	}
 	_ = lower // used in ToLower above
 	return result.String()
-}
-
-// addLineNumbers prepends line numbers to each line of content.
-func addLineNumbers(content string) string {
-	lines := strings.Split(content, "\n")
-	width := len(fmt.Sprintf("%d", len(lines)))
-	for i, line := range lines {
-		lines[i] = fmt.Sprintf("%*d  %s", width, i+1, line)
-	}
-	return strings.Join(lines, "\n")
 }
 
 // ansiAwareIterate calls fn for each rune in line, passing the rune and its

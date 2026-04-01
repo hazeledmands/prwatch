@@ -3006,3 +3006,128 @@ func TestFileView_ScrollToLastLine(t *testing.T) {
 		t.Errorf("after scrolling down many times, view should contain 'line 27 content'")
 	}
 }
+
+func TestParseDiffAnnotations(t *testing.T) {
+	diff := `diff --git a/file.go b/file.go
+index abc..def 100644
+--- a/file.go
++++ b/file.go
+@@ -1,5 +1,6 @@
+ line1
+ line2
++added line
+ line3
+-removed line
+ line4
+`
+	annotations := parseDiffAnnotations(diff)
+
+	// Line 3 should be added
+	ann, ok := annotations[3]
+	if !ok {
+		t.Fatal("expected annotation for line 3")
+	}
+	if ann.kind != diffLineAdded {
+		t.Errorf("line 3 should be added, got %v", ann.kind)
+	}
+
+	// Line 5 (line4 in new file) should have removed lines attached
+	ann5, ok5 := annotations[5]
+	if !ok5 {
+		t.Fatal("expected annotation for line 5")
+	}
+	if len(ann5.removedLines) != 1 || ann5.removedLines[0] != "removed line" {
+		t.Errorf("line 5 should have 'removed line' attached, got %v", ann5.removedLines)
+	}
+}
+
+func TestDiffGutterInFileView(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		allFiles:    []string{"file.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "line1\nline2\nadded\nline3\nline4",
+		fileDiff: `@@ -1,4 +1,5 @@
+ line1
+ line2
++added
+ line3
+ line4
+`,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Switch to file-view mode
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	// The main pane should have diff annotations
+	if m.mainPane.diffAnnotations == nil {
+		t.Fatal("expected diff annotations to be set")
+	}
+
+	// Line 3 should be annotated as added
+	ann, ok := m.mainPane.diffAnnotations[3]
+	if !ok || ann.kind != diffLineAdded {
+		t.Error("line 3 should be annotated as added")
+	}
+
+	// The rendered view should contain the "+" gutter marker
+	v := m.View()
+	if !strings.Contains(v.Content, " + ") {
+		t.Error("view should contain ' + ' gutter marker for added lines")
+	}
+}
+
+func TestShiftD_ToggleRemoved(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		allFiles:    []string{"file.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "line1\nline2",
+		fileDiff: `@@ -1,3 +1,2 @@
+ line1
+-removed
+ line2
+`,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Switch to file-view mode
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	// By default, showRemoved is on — view should contain removed line marker
+	v := m.View()
+	if !strings.Contains(v.Content, " - ") {
+		t.Error("with showRemoved on, view should contain ' - ' for removed lines")
+	}
+
+	// Press Shift+D to toggle off
+	result, _ = m.Update(tea.KeyPressMsg{Text: "D", Code: 'D'})
+	m = result.(*Model)
+	v = m.View()
+	if strings.Contains(v.Content, " - ") {
+		t.Error("with showRemoved off, view should NOT contain ' - '")
+	}
+}

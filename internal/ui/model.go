@@ -450,6 +450,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.git == nil {
 			return m, nil // non-git: file-view only
 		}
+		prevMode := m.mode
 		switch m.mode {
 		case FileDiffMode:
 			m.mode = FileViewMode
@@ -460,6 +461,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.updateSidebarItems()
 		m.updateMainContent()
+		if m.mode == FileViewMode && prevMode != FileViewMode {
+			m.jumpToFirstDiff()
+		}
 		return m, nil
 
 	case key.Matches(msg, keys.FileDiffMode):
@@ -472,9 +476,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.FileViewMode):
+		prevMode := m.mode
 		m.mode = FileViewMode
 		m.updateSidebarItems()
 		m.updateMainContent()
+		if prevMode != FileViewMode {
+			m.jumpToFirstDiff()
+		}
 		return m, nil
 
 	case key.Matches(msg, keys.CommitMode):
@@ -550,6 +558,24 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.ToggleLineNums):
 		m.lineNumbers = !m.lineNumbers
 		m.mainPane.SetLineNumbers(m.lineNumbers)
+		return m, nil
+
+	case key.Matches(msg, keys.ToggleRemoved):
+		if m.mode == FileViewMode {
+			m.mainPane.ToggleShowRemoved()
+		}
+		return m, nil
+
+	case key.Matches(msg, keys.NextDiff):
+		if m.mode == FileViewMode {
+			m.jumpToNextDiff(1)
+		}
+		return m, nil
+
+	case key.Matches(msg, keys.PrevDiff):
+		if m.mode == FileViewMode {
+			m.jumpToNextDiff(-1)
+		}
 		return m, nil
 
 	case key.Matches(msg, keys.Enter):
@@ -952,6 +978,55 @@ func (m *Model) isUncommittedFile(file string) bool {
 	return false
 }
 
+// jumpToFirstDiff scrolls to the first diff line in the current file.
+func (m *Model) jumpToFirstDiff() {
+	diffLines := m.mainPane.DiffLineNumbers()
+	if len(diffLines) > 0 {
+		m.mainPane.ScrollToLine(diffLines[0] - 1)
+	}
+}
+
+// jumpToNextDiff scrolls the main pane to the next (direction=1) or previous
+// (direction=-1) diff hunk. Wraps around.
+func (m *Model) jumpToNextDiff(direction int) {
+	diffLines := m.mainPane.DiffLineNumbers()
+	if len(diffLines) == 0 {
+		return
+	}
+
+	currentLine := m.mainPane.ScrollTop() + 1
+	if direction > 0 {
+		// Find next diff line after current
+		for _, l := range diffLines {
+			if l > currentLine {
+				m.mainPane.ScrollToLine(l - 1) // 0-indexed
+				return
+			}
+		}
+		// Wrap around to first
+		m.mainPane.ScrollToLine(diffLines[0] - 1)
+	} else {
+		// Find previous diff line before current
+		for i := len(diffLines) - 1; i >= 0; i-- {
+			if diffLines[i] < currentLine {
+				m.mainPane.ScrollToLine(diffLines[i] - 1)
+				return
+			}
+		}
+		// Wrap around to last
+		m.mainPane.ScrollToLine(diffLines[len(diffLines)-1] - 1)
+	}
+}
+
+func (m *Model) isCommittedFile(file string) bool {
+	for _, f := range m.committedFiles {
+		if f == file {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Model) updateSidebarItems() {
 	switch m.mode {
 	case FileDiffMode:
@@ -1077,16 +1152,31 @@ func (m *Model) updateMainContent() {
 		file := m.sidebar.SelectedItem()
 		if file == "" {
 			m.mainPane.SetPlainContent("")
+			m.mainPane.ClearDiffAnnotations()
 			return
 		}
 		content, err := m.git.FileContent(file)
 		if err != nil {
 			m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
+			m.mainPane.ClearDiffAnnotations()
 			return
 		}
 		if isBinaryContent(content) {
 			m.mainPane.SetPlainContent("[binary content]")
+			m.mainPane.ClearDiffAnnotations()
 			return
+		}
+		// Compute diff annotations for the gutter
+		var diff string
+		if m.isUncommittedFile(file) {
+			diff, _ = m.git.FileDiffUncommitted(file)
+		} else if m.isCommittedFile(file) {
+			diff, _ = m.git.FileDiffCommitted(m.base, file)
+		}
+		if diff != "" {
+			m.mainPane.SetDiffAnnotations(parseDiffAnnotations(diff))
+		} else {
+			m.mainPane.ClearDiffAnnotations()
 		}
 		m.mainPane.SetPlainContent(content)
 
@@ -1342,6 +1432,9 @@ func (m *Model) helpContentLines() []string {
 		"  [w]          Toggle word wrap",
 		"  [n]          Toggle line numbers (file view)",
 		"  [i]          Toggle gitignored files (file view)",
+		"  [D]          Toggle removed lines in diff gutter (file view)",
+		"  [J]          Jump to next diff hunk (file view)",
+		"  [K]          Jump to previous diff hunk (file view)",
 		"",
 		"  [enter]      Open file in $EDITOR / switch to main pane",
 		"  [/]          Search (type to match, enter to confirm)",

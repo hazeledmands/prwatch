@@ -29,6 +29,9 @@ type keyMap struct {
 	ToggleSidebar  key.Binding
 	ToggleWrap     key.Binding
 	ToggleLineNums key.Binding
+	ToggleRemoved  key.Binding
+	NextDiff       key.Binding
+	PrevDiff       key.Binding
 }
 
 var keys = keyMap{
@@ -109,5 +112,14 @@ var keys = keyMap{
 	),
 	ToggleLineNums: key.NewBinding(
 		key.WithKeys("n"),
+	),
+	ToggleRemoved: key.NewBinding(
+		key.WithKeys("D"),
+	),
+	NextDiff: key.NewBinding(
+		key.WithKeys("J"),
+	),
+	PrevDiff: key.NewBinding(
+		key.WithKeys("K"),
 	),
 }
