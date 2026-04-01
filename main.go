@@ -3,32 +3,46 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hazeledmands/prwatch/internal/git"
+	"github.com/hazeledmands/prwatch/internal/ui"
+	"github.com/hazeledmands/prwatch/internal/watcher"
 )
 
-type model struct{}
+func main() {
+	dir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 
-func (m model) Init() tea.Cmd {
-	return nil
-}
+	g := git.New(dir)
+	m := ui.NewModel(dir, g)
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		if msg.String() == "q" || msg.String() == "ctrl+c" {
-			return m, tea.Quit
+	p := tea.NewProgram(m)
+
+	// Start file watcher
+	w, err := watcher.New(dir, func() {
+		p.Send(ui.RefreshMsg{})
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: file watcher failed: %v\n", err)
+	} else {
+		defer w.Close()
+		// Also watch .git dir for ref changes
+		gitDir := filepath.Join(dir, ".git")
+		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+			wGit, err := watcher.New(gitDir, func() {
+				p.Send(ui.RefreshMsg{})
+			})
+			if err == nil {
+				defer wGit.Close()
+			}
 		}
 	}
-	return m, nil
-}
 
-func (m model) View() tea.View {
-	return tea.NewView("prwatch - press q to quit\n")
-}
-
-func main() {
-	p := tea.NewProgram(model{})
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

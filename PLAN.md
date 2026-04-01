@@ -1950,12 +1950,12 @@ git commit -m "Polish: fixes from smoke testing"
 ## Status
 
 - [x] Task 1: Project Scaffold
-- [ ] Task 2: Git Data Layer ← **NEXT**
-- [ ] Task 3: Styles and Key Bindings
-- [ ] Task 4: Sidebar Component
-- [ ] Task 5: Main Pane
-- [ ] Task 6: Status Bar
-- [ ] Task 7: Root Model
-- [ ] Task 8: File Watcher
-- [ ] Task 9: Integrate Watcher
-- [ ] Task 10: Smoke Test and Polish
+- [x] Task 2: Git Data Layer
+- [x] Task 3: Styles and Key Bindings
+- [x] Task 4: Sidebar Component
+- [x] Task 5: Main Pane
+- [x] Task 6: Status Bar
+- [x] Task 7: Root Model
+- [x] Task 8: File Watcher
+- [x] Task 9: Integrate Watcher
+- [x] Task 10: Smoke Test and Polish
