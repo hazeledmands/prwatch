@@ -275,11 +275,13 @@ func TestRenderCIStatus(t *testing.T) {
 }
 
 func TestRenderCIStatus_WithURL(t *testing.T) {
-	ci := git.CIStatusResult{State: "SUCCESS", URL: "https://ci.example.com"}
-	result := renderCIStatus(ci)
-	// Should contain OSC 8 hyperlink
-	if !strings.Contains(result, "\033]8;;") {
-		t.Error("should contain hyperlink escape")
+	states := []string{"SUCCESS", "FAILURE", "PENDING"}
+	for _, state := range states {
+		ci := git.CIStatusResult{State: state, URL: "https://ci.example.com"}
+		result := renderCIStatus(ci)
+		if !strings.Contains(result, "\033]8;;") {
+			t.Errorf("state %s: should contain hyperlink escape", state)
+		}
 	}
 }
 
@@ -296,12 +298,22 @@ func TestRenderReviews(t *testing.T) {
 	if !strings.Contains(result, "1✗") {
 		t.Error("should show rejected count")
 	}
+	if !strings.Contains(result, "1 pending") {
+		t.Error("should show pending count")
+	}
 }
 
 func TestRenderReviews_Empty(t *testing.T) {
 	result := renderReviews(nil, "")
 	if result != "" {
 		t.Errorf("empty reviews should return empty, got %q", result)
+	}
+}
+
+func TestRenderReviews_UnknownDecision(t *testing.T) {
+	result := renderReviews(nil, "UNKNOWN_STATE")
+	if result != "" {
+		t.Errorf("unknown decision should return empty, got %q", result)
 	}
 }
 

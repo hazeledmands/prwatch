@@ -33,12 +33,8 @@ func renderStatusBar(width int, data statusBarData) string {
 
 	// Line 1: branch info, mode, git status summary
 	line1 := renderLine1(width, data)
-	// Line 2: PR info (if any)
+	// Line 2: PR info
 	line2 := renderLine2(width, data)
-
-	if line2 == "" {
-		return line1
-	}
 	return line1 + "\n" + line2
 }
 
