@@ -2767,28 +2767,35 @@ func TestMouseDrag_SetsCoordinates(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 
-	// Click to start drag
-	result, _ := m.Update(tea.MouseClickMsg{X: 10, Y: 5, Button: tea.MouseLeft})
+	// Click in main pane area (x=50 is past sidebar) to start drag
+	result, _ := m.Update(tea.MouseClickMsg{X: 50, Y: 5, Button: tea.MouseLeft})
 	m = result.(*Model)
 	if !m.dragging {
-		t.Error("should be dragging after click")
+		t.Error("should be dragging after click in main pane")
 	}
-	if m.dragStartX != 10 || m.dragStartY != 5 {
-		t.Errorf("drag start should be (10,5), got (%d,%d)", m.dragStartX, m.dragStartY)
+	if m.dragStartX != 50 || m.dragStartY != 5 {
+		t.Errorf("drag start should be (50,5), got (%d,%d)", m.dragStartX, m.dragStartY)
 	}
 
 	// Motion while dragging
-	result, _ = m.Update(tea.MouseMotionMsg{X: 20, Y: 5})
+	result, _ = m.Update(tea.MouseMotionMsg{X: 70, Y: 5})
 	m = result.(*Model)
-	if m.dragEndX != 20 || m.dragEndY != 5 {
-		t.Errorf("drag end should be (20,5), got (%d,%d)", m.dragEndX, m.dragEndY)
+	if m.dragEndX != 70 || m.dragEndY != 5 {
+		t.Errorf("drag end should be (70,5), got (%d,%d)", m.dragEndX, m.dragEndY)
 	}
 
 	// Release
-	result, _ = m.Update(tea.MouseReleaseMsg{X: 20, Y: 5})
+	result, _ = m.Update(tea.MouseReleaseMsg{X: 70, Y: 5})
 	m = result.(*Model)
 	if m.dragging {
 		t.Error("should not be dragging after release")
+	}
+
+	// Clicking in sidebar should NOT start dragging
+	result, _ = m.Update(tea.MouseClickMsg{X: 5, Y: 5, Button: tea.MouseLeft})
+	m = result.(*Model)
+	if m.dragging {
+		t.Error("clicking in sidebar should not start drag")
 	}
 }
 

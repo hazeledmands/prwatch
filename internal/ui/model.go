@@ -951,15 +951,9 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	x, y := msg.X, msg.Y
 
-	// Start drag tracking
-	m.dragging = true
-	m.dragStartX = x
-	m.dragStartY = y
-	m.dragEndX = x
-	m.dragEndY = y
-
 	// Status bar is rows 0-1
 	if y <= 1 {
+		m.dragging = false
 		return m.handleStatusBarClick(x, y)
 	}
 
@@ -967,7 +961,8 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	contentY := y - 2
 	sidebarW := m.sidebarPixelWidth()
 	if !m.sidebarHidden && x < sidebarW {
-		// Clicked in sidebar
+		// Clicked in sidebar — no drag tracking
+		m.dragging = false
 		m.focus = SidebarFocus
 		// Content starts after status bar (2 lines) + top border (1 line) = row 3
 		itemIdx := contentY - 1 + m.sidebar.offset
@@ -981,7 +976,13 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		m.updateMainContent()
 	} else {
+		// Clicked in main pane — start drag tracking for copy
 		m.focus = MainFocus
+		m.dragging = true
+		m.dragStartX = x
+		m.dragStartY = y
+		m.dragEndX = x
+		m.dragEndY = y
 	}
 	return m, nil
 }
