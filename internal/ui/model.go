@@ -83,6 +83,7 @@ type Model struct {
 	allFiles            []string        // all files in the repo (for file-view mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
 	commits             []gitpkg.Commit
+	lastViewedFile      string // track the last file shown in file-view for auto-jump
 	sidebar             *sidebar
 	mainPane            *mainPane
 	sidebarPct          int // sidebar width as percentage of total width (10-50)
@@ -1504,8 +1505,11 @@ func (m *Model) updateMainContent() {
 			m.mainPane.ClearDiffAnnotations()
 		}
 		m.mainPane.SetPlainContent(content)
-		// Auto-jump to first diff when viewing a file
-		m.jumpToFirstDiff()
+		// Auto-jump to first diff only when the file changes
+		if file != m.lastViewedFile {
+			m.lastViewedFile = file
+			m.jumpToFirstDiff()
+		}
 
 	case CommitMode:
 		selected := m.sidebar.SelectedItem()
