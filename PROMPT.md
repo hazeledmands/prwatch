@@ -72,8 +72,8 @@ switching between file-diff and file-view should retain the selected file.
 [,] should focus the sidebar and [.] should focus the main panel
 if the sidebar has focus, the up/down/j/k keys should control which item in the sidebar is selected. if the main pane has focus, the up/down/j/k keys should scroll the view.
 [pgdn]/[space] should scroll the currently focused view down
-[pgup]/[shift]+space should scroll the currently focused view up
-if the main pane is in focus, the left/right arrow keys and h/l keys (vim style) should scroll the view left/right if any content is truncated. if the view is already scrolled all the way to the left, focus should switch to the sidebar.
+[pgup]/[shift]+[space] should scroll the currently focused view up
+if the main pane is in focus, the left/right arrow keys and h/l keys (vim style) should scroll the view left/right if any content is truncated. if the view is already scrolled all the way to the left, focus should switch to the sidebar. it should not be possible to scroll farther to the right than the last character that would be visible in the file.
 if the sidebar has focus on a file tree, [left]/[right]/[h]/[l] should act in a standard file-tree way:
 - left should close the branch if the cursor is currently at a branch. otherwise, it should go to the nearest parent
 - right, or [enter], should open the branch if the cursor is at a branch, otherwise it should go to the nearest child. if at a leaf node, it should switch to the main pane.
