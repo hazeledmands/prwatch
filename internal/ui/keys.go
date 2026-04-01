@@ -3,22 +3,26 @@ package ui
 import "charm.land/bubbles/v2/key"
 
 type keyMap struct {
-	Quit       key.Binding
-	ToggleMode key.Binding
-	FileMode   key.Binding
-	CommitMode key.Binding
-	FocusLeft  key.Binding
-	FocusRight key.Binding
-	Up         key.Binding
-	Down       key.Binding
-	PageUp     key.Binding
-	PageDown   key.Binding
-	Enter      key.Binding
+	QuitConfirm   key.Binding
+	QuitImmediate key.Binding
+	ToggleMode    key.Binding
+	FileMode      key.Binding
+	CommitMode    key.Binding
+	FocusLeft     key.Binding
+	FocusRight    key.Binding
+	Up            key.Binding
+	Down          key.Binding
+	PageUp        key.Binding
+	PageDown      key.Binding
+	Enter         key.Binding
 }
 
 var keys = keyMap{
-	Quit: key.NewBinding(
-		key.WithKeys("q", "ctrl+c"),
+	QuitConfirm: key.NewBinding(
+		key.WithKeys("q", "esc"),
+	),
+	QuitImmediate: key.NewBinding(
+		key.WithKeys("Q", "ctrl+c"),
 	),
 	ToggleMode: key.NewBinding(
 		key.WithKeys("space"),

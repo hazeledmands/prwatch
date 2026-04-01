@@ -19,6 +19,10 @@ func main() {
 	}
 
 	g := git.New(dir)
+	if !g.IsRepo() {
+		fmt.Fprintf(os.Stderr, "Error: not a git repository (or any of the parent directories): %s\n", dir)
+		os.Exit(1)
+	}
 	m := ui.NewModel(dir, g)
 
 	p := tea.NewProgram(m)

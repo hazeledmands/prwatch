@@ -2,16 +2,33 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/hazeledmands/prwatch/internal/git"
 )
 
-func renderStatusBar(width int, info git.RepoInfoResult, pr git.PRInfoResult, mode Mode) string {
+func renderStatusBar(width int, info git.RepoInfoResult, pr git.PRInfoResult, mode Mode, confirming bool) string {
+	if confirming {
+		msg := " Quit? Press q/Q to confirm, any other key to cancel"
+		pad := width - lipgloss.Width(msg)
+		if pad > 0 {
+			msg += strings.Repeat(" ", pad)
+		}
+		return statusBarConfirmStyle.Width(width).Render(msg)
+	}
+
 	// Left: branch and repo info
-	left := fmt.Sprintf(" %s", info.Branch)
+	var branchDisplay string
+	if info.IsDetachedHead {
+		branchDisplay = fmt.Sprintf("detached @ %s", info.HeadSHA)
+	} else {
+		branchDisplay = info.Branch
+	}
+
+	left := fmt.Sprintf(" %s", branchDisplay)
 	if info.RepoName != "" {
-		left = fmt.Sprintf(" %s @ %s", info.Branch, info.RepoName)
+		left = fmt.Sprintf(" %s @ %s", branchDisplay, info.RepoName)
 	}
 	if info.Worktree != "" {
 		left += " (worktree)"

@@ -5,8 +5,21 @@ import (
 	"strings"
 )
 
+type sidebarItemKind int
+
+const (
+	itemNormal    sidebarItemKind = iota
+	itemDim                       // uncommitted files — rendered dimmer
+	itemSeparator                 // horizontal line, not selectable
+)
+
+type sidebarItem struct {
+	label string
+	kind  sidebarItemKind
+}
+
 type sidebar struct {
-	items    []string
+	items    []sidebarItem
 	selected int
 	width    int
 	height   int
@@ -17,11 +30,13 @@ func newSidebar() *sidebar {
 	return &sidebar{}
 }
 
-func (s *sidebar) SetItems(items []string) {
+func (s *sidebar) SetItems(items []sidebarItem) {
 	s.items = items
 	if s.selected >= len(items) {
 		s.selected = max(0, len(items)-1)
 	}
+	// Ensure selection isn't on a separator
+	s.skipToSelectable()
 	s.clampOffset()
 }
 
@@ -39,20 +54,52 @@ func (s *sidebar) SelectedItem() string {
 	if len(s.items) == 0 {
 		return ""
 	}
-	return s.items[s.selected]
+	return s.items[s.selected].label
 }
 
 func (s *sidebar) SelectNext() {
-	if s.selected < len(s.items)-1 {
-		s.selected++
-		s.clampOffset()
+	for i := s.selected + 1; i < len(s.items); i++ {
+		if s.items[i].kind != itemSeparator {
+			s.selected = i
+			s.clampOffset()
+			return
+		}
 	}
 }
 
 func (s *sidebar) SelectPrev() {
-	if s.selected > 0 {
-		s.selected--
-		s.clampOffset()
+	for i := s.selected - 1; i >= 0; i-- {
+		if s.items[i].kind != itemSeparator {
+			s.selected = i
+			s.clampOffset()
+			return
+		}
+	}
+}
+
+// skipToSelectable moves selection to the nearest selectable item.
+func (s *sidebar) skipToSelectable() {
+	if len(s.items) == 0 {
+		return
+	}
+	if s.selected >= len(s.items) {
+		s.selected = len(s.items) - 1
+	}
+	if s.items[s.selected].kind != itemSeparator {
+		return
+	}
+	// Try forward then backward
+	for i := s.selected; i < len(s.items); i++ {
+		if s.items[i].kind != itemSeparator {
+			s.selected = i
+			return
+		}
+	}
+	for i := s.selected; i >= 0; i-- {
+		if s.items[i].kind != itemSeparator {
+			s.selected = i
+			return
+		}
 	}
 }
 
@@ -92,17 +139,36 @@ func (s *sidebar) View(focused bool) string {
 		if i > s.offset {
 			b.WriteString("\n")
 		}
-		label := s.items[i]
+		item := s.items[i]
+
+		if item.kind == itemSeparator {
+			sep := strings.Repeat("─", s.width)
+			b.WriteString(sidebarSeparatorStyle.Render(sep))
+			continue
+		}
+
+		label := item.label
 		if s.width > 0 && len(label) > s.width {
 			label = label[:s.width]
 		}
 		if s.width > 0 {
 			label = fmt.Sprintf("%-*s", s.width, label)
 		}
+
 		if i == s.selected {
-			b.WriteString(sidebarSelectedItemStyle.Render(label))
+			switch item.kind {
+			case itemDim:
+				b.WriteString(sidebarUncommittedSelectedStyle.Render(label))
+			default:
+				b.WriteString(sidebarSelectedItemStyle.Render(label))
+			}
 		} else {
-			b.WriteString(sidebarItemStyle.Render(label))
+			switch item.kind {
+			case itemDim:
+				b.WriteString(sidebarUncommittedStyle.Render(label))
+			default:
+				b.WriteString(sidebarItemStyle.Render(label))
+			}
 		}
 	}
 

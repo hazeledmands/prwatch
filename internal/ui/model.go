@@ -28,30 +28,33 @@ const (
 )
 
 type Model struct {
-	git      *gitpkg.Git
-	mode     Mode
-	focus    Focus
-	width    int
-	height   int
-	base     string
-	repoInfo gitpkg.RepoInfoResult
-	prInfo   gitpkg.PRInfoResult
-	files    []string
-	commits  []gitpkg.Commit
-	sidebar  *sidebar
-	mainPane *mainPane
-	dir      string
-	err      error
+	git              *gitpkg.Git
+	mode             Mode
+	focus            Focus
+	width            int
+	height           int
+	base             string
+	repoInfo         gitpkg.RepoInfoResult
+	prInfo           gitpkg.PRInfoResult
+	committedFiles   []string
+	uncommittedFiles []string
+	commits          []gitpkg.Commit
+	sidebar          *sidebar
+	mainPane         *mainPane
+	dir              string
+	confirming       bool
+	err              error
 }
 
 // Messages
 type gitDataMsg struct {
-	repoInfo gitpkg.RepoInfoResult
-	prInfo   gitpkg.PRInfoResult
-	base     string
-	files    []string
-	commits  []gitpkg.Commit
-	err      error
+	repoInfo         gitpkg.RepoInfoResult
+	prInfo           gitpkg.PRInfoResult
+	base             string
+	committedFiles   []string
+	uncommittedFiles []string
+	commits          []gitpkg.Commit
+	err              error
 }
 
 type RefreshMsg struct{}
@@ -99,11 +102,12 @@ func (m *Model) loadGitData() tea.Msg {
 	}
 
 	return gitDataMsg{
-		repoInfo: info,
-		prInfo:   prInfo,
-		base:     base,
-		files:    files,
-		commits:  commits,
+		repoInfo:         info,
+		prInfo:           prInfo,
+		base:             base,
+		committedFiles:   files.Committed,
+		uncommittedFiles: files.Uncommitted,
+		commits:          commits,
 	}
 }
 
@@ -123,7 +127,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.repoInfo = msg.repoInfo
 		m.prInfo = msg.prInfo
 		m.base = msg.base
-		m.files = msg.files
+		m.committedFiles = msg.committedFiles
+		m.uncommittedFiles = msg.uncommittedFiles
 		m.commits = msg.commits
 		m.updateSidebarItems()
 		m.updateMainContent()
@@ -140,9 +145,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Quit confirmation handling
+	if m.confirming {
+		if key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.QuitImmediate) {
+			return m, tea.Quit
+		}
+		m.confirming = false
+		return m, nil
+	}
+
 	switch {
-	case key.Matches(msg, keys.Quit):
+	case key.Matches(msg, keys.QuitImmediate):
 		return m, tea.Quit
+
+	case key.Matches(msg, keys.QuitConfirm):
+		m.confirming = true
+		return m, nil
 
 	case key.Matches(msg, keys.ToggleMode):
 		if m.mode == FileMode {
@@ -282,13 +300,26 @@ func parseHunkNewStart(hunkLine string) int {
 func (m *Model) updateSidebarItems() {
 	switch m.mode {
 	case FileMode:
-		m.sidebar.SetItems(m.files)
-	case CommitMode:
-		labels := make([]string, len(m.commits))
-		for i, c := range m.commits {
-			labels[i] = fmt.Sprintf("%.7s %s", c.SHA, c.Subject)
+		var items []sidebarItem
+		for _, f := range m.committedFiles {
+			items = append(items, sidebarItem{label: f, kind: itemNormal})
 		}
-		m.sidebar.SetItems(labels)
+		if len(m.committedFiles) > 0 && len(m.uncommittedFiles) > 0 {
+			items = append(items, sidebarItem{kind: itemSeparator})
+		}
+		for _, f := range m.uncommittedFiles {
+			items = append(items, sidebarItem{label: f, kind: itemDim})
+		}
+		m.sidebar.SetItems(items)
+	case CommitMode:
+		items := make([]sidebarItem, len(m.commits))
+		for i, c := range m.commits {
+			items[i] = sidebarItem{
+				label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
+				kind:  itemNormal,
+			}
+		}
+		m.sidebar.SetItems(items)
 	}
 }
 
@@ -345,7 +376,7 @@ func (m *Model) View() tea.View {
 		return v
 	}
 
-	bar := renderStatusBar(m.width, m.repoInfo, m.prInfo, m.mode)
+	bar := renderStatusBar(m.width, m.repoInfo, m.prInfo, m.mode, m.confirming)
 	sidebarView := m.sidebar.View(m.focus == SidebarFocus)
 	mainView := m.mainPane.View(m.focus == MainFocus)
 

@@ -19,9 +19,11 @@ func New(dir string) *Git {
 }
 
 type RepoInfoResult struct {
-	Branch   string
-	RepoName string
-	Worktree string // empty if not in a worktree
+	Branch         string
+	RepoName       string
+	Worktree       string // empty if not in a worktree
+	HeadSHA        string
+	IsDetachedHead bool
 }
 
 type Commit struct {
@@ -49,6 +51,12 @@ func (g *Git) run(args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// IsRepo returns true if the directory is inside a git repository.
+func (g *Git) IsRepo() bool {
+	_, err := g.run("rev-parse", "--git-dir")
+	return err == nil
+}
+
 func (g *Git) RepoInfo() (RepoInfoResult, error) {
 	branch, err := g.run("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
@@ -68,10 +76,14 @@ func (g *Git) RepoInfo() (RepoInfoResult, error) {
 		worktree = toplevel
 	}
 
+	headSHA, _ := g.run("rev-parse", "--short", "HEAD")
+
 	return RepoInfoResult{
-		Branch:   branch,
-		RepoName: repoName,
-		Worktree: worktree,
+		Branch:         branch,
+		RepoName:       repoName,
+		Worktree:       worktree,
+		HeadSHA:        headSHA,
+		IsDetachedHead: branch == "HEAD",
 	}, nil
 }
 
@@ -114,37 +126,67 @@ func (g *Git) ghPRBase() (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// ChangedFiles returns files changed between base and HEAD, plus uncommitted changes.
-func (g *Git) ChangedFiles(base string) ([]string, error) {
-	// Committed changes
+// ChangedFilesResult separates committed and uncommitted file changes.
+type ChangedFilesResult struct {
+	Committed   []string // files changed in base..HEAD only
+	Uncommitted []string // files with working tree changes
+}
+
+// ChangedFiles returns files changed between base and HEAD, separated by commit status.
+// Files that appear in both committed and uncommitted go to Uncommitted only.
+func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
+	// Get committed changes (base..HEAD)
 	out, err := g.run("diff", "--name-only", base+"..HEAD")
 	if err != nil {
-		return nil, err
+		return ChangedFilesResult{}, err
 	}
 
-	seen := make(map[string]bool)
-	var files []string
+	committedSet := make(map[string]bool)
 	for _, f := range strings.Split(out, "\n") {
 		f = strings.TrimSpace(f)
-		if f != "" && !seen[f] {
-			seen[f] = true
-			files = append(files, f)
+		if f != "" {
+			committedSet[f] = true
 		}
 	}
 
-	// Uncommitted changes (staged + unstaged)
+	// Get uncommitted changes (staged + unstaged + untracked)
+	uncommittedSet := make(map[string]bool)
 	out, err = g.run("diff", "--name-only", "HEAD")
 	if err == nil {
 		for _, f := range strings.Split(out, "\n") {
 			f = strings.TrimSpace(f)
-			if f != "" && !seen[f] {
-				seen[f] = true
-				files = append(files, f)
+			if f != "" {
+				uncommittedSet[f] = true
+			}
+		}
+	}
+	// Also include untracked files
+	out, err = g.run("ls-files", "--others", "--exclude-standard")
+	if err == nil {
+		for _, f := range strings.Split(out, "\n") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				uncommittedSet[f] = true
 			}
 		}
 	}
 
-	return files, nil
+	// Files in both go to uncommitted only
+	var committed, uncommitted []string
+	for f := range committedSet {
+		if uncommittedSet[f] {
+			continue // will be in uncommitted list
+		}
+		committed = append(committed, f)
+	}
+	for f := range uncommittedSet {
+		uncommitted = append(uncommitted, f)
+	}
+
+	return ChangedFilesResult{
+		Committed:   committed,
+		Uncommitted: uncommitted,
+	}, nil
 }
 
 // FileDiff returns the diff for a single file between base and HEAD (including uncommitted).

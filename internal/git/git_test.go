@@ -91,7 +91,7 @@ func TestDetectBase(t *testing.T) {
 	}
 }
 
-func TestChangedFiles(t *testing.T) {
+func TestChangedFiles_CommittedOnly(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.New(dir)
 
@@ -100,15 +100,78 @@ func TestChangedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files, err := g.ChangedFiles(base)
+	result, err := g.ChangedFiles(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 1 {
-		t.Fatalf("expected 1 changed file, got %d: %v", len(files), files)
+	if len(result.Committed) != 1 {
+		t.Fatalf("expected 1 committed file, got %d: %v", len(result.Committed), result.Committed)
 	}
-	if files[0] != "feature.go" {
-		t.Errorf("expected feature.go, got %q", files[0])
+	if result.Committed[0] != "feature.go" {
+		t.Errorf("expected feature.go, got %q", result.Committed[0])
+	}
+	if len(result.Uncommitted) != 0 {
+		t.Errorf("expected 0 uncommitted files, got %d: %v", len(result.Uncommitted), result.Uncommitted)
+	}
+}
+
+func TestChangedFiles_UncommittedOnly(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add an uncommitted file
+	writeFile(t, dir, "wip.go", "package wip\n")
+
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Committed) != 1 {
+		t.Fatalf("expected 1 committed file, got %d: %v", len(result.Committed), result.Committed)
+	}
+	if len(result.Uncommitted) != 1 {
+		t.Fatalf("expected 1 uncommitted file, got %d: %v", len(result.Uncommitted), result.Uncommitted)
+	}
+	if result.Uncommitted[0] != "wip.go" {
+		t.Errorf("expected wip.go, got %q", result.Uncommitted[0])
+	}
+}
+
+func TestChangedFiles_FileInBothGoesToUncommitted(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Modify the already-committed feature.go in the working tree
+	writeFile(t, dir, "feature.go", "package feature\n\nvar x = 1\n")
+
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// feature.go should be in uncommitted only, not committed
+	for _, f := range result.Committed {
+		if f == "feature.go" {
+			t.Error("feature.go should not be in committed list when also modified in working tree")
+		}
+	}
+	found := false
+	for _, f := range result.Uncommitted {
+		if f == "feature.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("feature.go should be in uncommitted list")
 	}
 }
 
@@ -174,6 +237,37 @@ func TestCommitPatch(t *testing.T) {
 	}
 	if !strings.Contains(patch, "feature") {
 		t.Errorf("patch should mention feature, got:\n%s", patch)
+	}
+}
+
+func TestIsRepo(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+	if !g.IsRepo() {
+		t.Error("expected IsRepo=true for git repo")
+	}
+
+	nonGitDir := t.TempDir()
+	g2 := git.New(nonGitDir)
+	if g2.IsRepo() {
+		t.Error("expected IsRepo=false for non-git dir")
+	}
+}
+
+func TestRepoInfo_DetachedHead(t *testing.T) {
+	dir := setupTestRepo(t)
+	runGit(t, dir, "checkout", "--detach")
+	g := git.New(dir)
+
+	info, err := g.RepoInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDetachedHead {
+		t.Error("expected IsDetachedHead=true")
+	}
+	if info.HeadSHA == "" {
+		t.Error("HeadSHA should be populated")
 	}
 }
 

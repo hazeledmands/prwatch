@@ -2,9 +2,17 @@ package ui
 
 import "testing"
 
+func items(labels ...string) []sidebarItem {
+	result := make([]sidebarItem, len(labels))
+	for i, l := range labels {
+		result[i] = sidebarItem{label: l, kind: itemNormal}
+	}
+	return result
+}
+
 func TestSidebar_SelectNext(t *testing.T) {
 	s := newSidebar()
-	s.SetItems([]string{"file1.go", "file2.go", "file3.go"})
+	s.SetItems(items("file1.go", "file2.go", "file3.go"))
 
 	if s.SelectedIndex() != 0 {
 		t.Errorf("initial selection = %d, want 0", s.SelectedIndex())
@@ -24,7 +32,7 @@ func TestSidebar_SelectNext(t *testing.T) {
 
 func TestSidebar_SelectPrev(t *testing.T) {
 	s := newSidebar()
-	s.SetItems([]string{"file1.go", "file2.go"})
+	s.SetItems(items("file1.go", "file2.go"))
 
 	s.SelectPrev() // should stay at 0
 	if s.SelectedIndex() != 0 {
@@ -40,7 +48,7 @@ func TestSidebar_SelectPrev(t *testing.T) {
 
 func TestSidebar_SelectedItem(t *testing.T) {
 	s := newSidebar()
-	s.SetItems([]string{"a", "b", "c"})
+	s.SetItems(items("a", "b", "c"))
 
 	if s.SelectedItem() != "a" {
 		t.Errorf("selected = %q, want %q", s.SelectedItem(), "a")
@@ -61,12 +69,51 @@ func TestSidebar_EmptyItems(t *testing.T) {
 
 func TestSidebar_SetItems_ClampsSelection(t *testing.T) {
 	s := newSidebar()
-	s.SetItems([]string{"a", "b", "c"})
+	s.SetItems(items("a", "b", "c"))
 	s.SelectNext()
 	s.SelectNext() // index = 2
 
-	s.SetItems([]string{"x"}) // shrink list
+	s.SetItems(items("x")) // shrink list
 	if s.SelectedIndex() != 0 {
 		t.Errorf("selection should clamp to 0, got %d", s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SkipsSeparators(t *testing.T) {
+	s := newSidebar()
+	s.SetItems([]sidebarItem{
+		{label: "committed.go", kind: itemNormal},
+		{label: "", kind: itemSeparator},
+		{label: "wip.go", kind: itemDim},
+	})
+
+	if s.SelectedIndex() != 0 {
+		t.Errorf("initial selection = %d, want 0", s.SelectedIndex())
+	}
+
+	s.SelectNext() // should skip separator, land on index 2
+	if s.SelectedIndex() != 2 {
+		t.Errorf("after next, selection = %d, want 2 (should skip separator)", s.SelectedIndex())
+	}
+	if s.SelectedItem() != "wip.go" {
+		t.Errorf("selected = %q, want %q", s.SelectedItem(), "wip.go")
+	}
+
+	s.SelectPrev() // should skip separator, land on index 0
+	if s.SelectedIndex() != 0 {
+		t.Errorf("after prev, selection = %d, want 0 (should skip separator)", s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SetItems_SkipsSeparatorOnClamp(t *testing.T) {
+	s := newSidebar()
+	// If all items are separators, selected should still be 0
+	// but in practice this shouldn't happen
+	s.SetItems([]sidebarItem{
+		{label: "", kind: itemSeparator},
+		{label: "a.go", kind: itemNormal},
+	})
+	if s.SelectedIndex() != 1 {
+		t.Errorf("selection should skip separator, got %d", s.SelectedIndex())
 	}
 }

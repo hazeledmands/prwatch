@@ -6,13 +6,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func pressKey(m tea.Model, k string) tea.Model {
-	// Construct a KeyPressMsg that key.Matches will recognize
-	msg := tea.KeyPressMsg{Text: k, Code: []rune(k)[0]}
-	updated, _ := m.Update(msg)
-	return updated
-}
-
 func TestModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", nil)
 
@@ -64,5 +57,55 @@ func TestFocusSwitching(t *testing.T) {
 	m = result.(*Model)
 	if m.focus != SidebarFocus {
 		t.Error("after h, focus should be SidebarFocus")
+	}
+}
+
+func TestQuitConfirm_qEntersConfirming(t *testing.T) {
+	m := NewModel("/tmp", nil)
+
+	result, cmd := m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	m = result.(*Model)
+	if !m.confirming {
+		t.Error("after q, should be confirming")
+	}
+	if cmd != nil {
+		t.Error("should not quit yet")
+	}
+}
+
+func TestQuitConfirm_qThenqQuits(t *testing.T) {
+	m := NewModel("/tmp", nil)
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	m = result.(*Model)
+
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	if cmd == nil {
+		t.Error("second q should produce a quit command")
+	}
+}
+
+func TestQuitConfirm_qThenOtherKeyCancels(t *testing.T) {
+	m := NewModel("/tmp", nil)
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	m = result.(*Model)
+
+	result, cmd := m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
+	m = result.(*Model)
+	if m.confirming {
+		t.Error("after j, should not be confirming")
+	}
+	if cmd != nil {
+		t.Error("should not quit")
+	}
+}
+
+func TestQuitImmediate_QQuitsDirectly(t *testing.T) {
+	m := NewModel("/tmp", nil)
+
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "Q", Code: 'Q'})
+	if cmd == nil {
+		t.Error("Q should produce a quit command immediately")
 	}
 }

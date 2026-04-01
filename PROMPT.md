@@ -15,3 +15,10 @@ the left/right arrow keys and h/l keys (vim style) should control whether the si
 
 if the sidebar has focus, pressing [enter] should switch to the main pane.
 if the main pane has focus, pressing [enter] should do a contextually-relevant thing: in file mode it should open $EDITOR to the given file, to whatever line is currently in view. in "commit" mode it should.... maybe do nothing for now.
+
+## Additional behaviors
+
+- **quit confirmation**: [q] and [esc] show a confirmation prompt in the status bar. press [q] again to confirm, or any other key to cancel. [shift-Q] and [ctrl-c] quit immediately.
+- **non-git directory**: exits with a clear error message before launching the TUI.
+- **detached HEAD**: works normally, status bar shows `detached @ <short sha>` instead of a branch name.
+- **uncommitted vs committed files**: in file mode, the sidebar separates committed files from uncommitted files with a horizontal line. uncommitted files are rendered in a dimmer style.
