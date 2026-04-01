@@ -268,3 +268,34 @@ func TestSidebar_SelectLast_Empty(t *testing.T) {
 	s := newSidebar()
 	s.SelectLast() // should not panic
 }
+
+func TestSidebar_ClampOffset_SelectedBeforeOffset(t *testing.T) {
+	s := newSidebar()
+	s.SetSize(20, 3) // 3 visible lines
+
+	items := make([]sidebarItem, 10)
+	for i := range items {
+		items[i] = sidebarItem{label: "item", kind: itemNormal}
+	}
+	s.SetItems(items)
+
+	// Scroll down to the end
+	for i := 0; i < 9; i++ {
+		s.SelectNext()
+	}
+	// Now offset > 0 and selected = 9
+
+	// Jump to first — offset should clamp down
+	s.SelectFirst()
+	if s.offset != 0 {
+		t.Errorf("offset should be 0 after SelectFirst, got %d", s.offset)
+	}
+}
+
+func TestSidebar_ClampOffset_ZeroVisible(t *testing.T) {
+	s := newSidebar()
+	// Don't set size, so height=0 -> visibleLines returns len(items)
+	s.SetItems(items("a", "b"))
+	s.SelectNext()
+	// Should not panic with zero height
+}

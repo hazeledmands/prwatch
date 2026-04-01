@@ -58,6 +58,56 @@ func TestWatcher_MultipleChanges_Debounced(t *testing.T) {
 	}
 }
 
+func TestWatcher_FileDeletion(t *testing.T) {
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "delete_me.txt")
+	os.WriteFile(testFile, []byte("delete"), 0644)
+
+	ch := make(chan struct{}, 10)
+	w, err := watcher.New(dir, func() {
+		ch <- struct{}{}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	time.Sleep(50 * time.Millisecond)
+	os.Remove(testFile)
+
+	select {
+	case <-ch:
+		// success
+	case <-time.After(1 * time.Second):
+		t.Error("timed out waiting for file deletion notification")
+	}
+}
+
+func TestWatcher_FileRename(t *testing.T) {
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "rename_me.txt")
+	os.WriteFile(testFile, []byte("rename"), 0644)
+
+	ch := make(chan struct{}, 10)
+	w, err := watcher.New(dir, func() {
+		ch <- struct{}{}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	time.Sleep(50 * time.Millisecond)
+	os.Rename(testFile, filepath.Join(dir, "renamed.txt"))
+
+	select {
+	case <-ch:
+		// success
+	case <-time.After(1 * time.Second):
+		t.Error("timed out waiting for rename notification")
+	}
+}
+
 func TestWatcher_FileCreation(t *testing.T) {
 	dir := t.TempDir()
 

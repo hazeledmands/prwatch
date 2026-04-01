@@ -95,6 +95,31 @@ func TestRenderStatusBar_Worktree(t *testing.T) {
 	}
 }
 
+func TestRenderStatusBar_NarrowWidth(t *testing.T) {
+	info := git.RepoInfoResult{
+		Branch:   "hazel/very-long-feature-branch-name/with-lots-of-detail",
+		RepoName: "my-really-long-repository-name",
+	}
+	pr := git.PRInfoResult{
+		Number: 999,
+		Title:  "Very long PR title that overflows",
+		URL:    "https://github.com/org/repo/pull/999",
+	}
+	// Narrow width forces padding < 0
+	bar := renderStatusBar(20, info, pr, FileDiffMode, false)
+	if bar == "" {
+		t.Error("should still render even when narrow")
+	}
+}
+
+func TestRenderStatusBar_ConfirmNarrow(t *testing.T) {
+	info := git.RepoInfoResult{}
+	bar := renderStatusBar(10, info, git.PRInfoResult{}, FileDiffMode, true)
+	if !strings.Contains(bar, "Quit?") {
+		t.Error("confirming bar should show quit prompt even when narrow")
+	}
+}
+
 func TestRenderStatusBar_NoPR(t *testing.T) {
 	info := git.RepoInfoResult{Branch: "main", RepoName: "repo"}
 	// Use a wide bar so "No PR" isn't wrapped

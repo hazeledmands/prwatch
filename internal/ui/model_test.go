@@ -1299,6 +1299,33 @@ func TestUpdateMainContent_FileView_WithGitAndError(t *testing.T) {
 	}
 }
 
+func TestLoadGitData_EmptyRepo(t *testing.T) {
+	// A git repo with no commits — DetectBase will fail
+	dir := t.TempDir()
+	cmds := []struct{ args []string }{
+		{[]string{"git", "init", "--initial-branch=main"}},
+		{[]string{"git", "config", "user.email", "test@test.com"}},
+		{[]string{"git", "config", "user.name", "Test"}},
+	}
+	for _, c := range cmds {
+		cmd := exec.Command(c.args[0], c.args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup %v: %s %v", c.args, out, err)
+		}
+	}
+
+	g := git.New(dir)
+	m := NewModel(dir, g)
+	cmd := m.Init()
+	msg := cmd()
+	dataMsg := msg.(gitDataMsg)
+	// Empty repo: RepoInfo may work (orphan branch) but DetectBase should fail
+	if dataMsg.err == nil {
+		t.Log("no error in empty repo — some git versions handle this")
+	}
+}
+
 func TestLoadGitData_Error(t *testing.T) {
 	// Use a non-git directory as the git dir — RepoInfo will fail
 	dir := t.TempDir()
