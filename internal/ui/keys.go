@@ -47,13 +47,13 @@ var keys = keyMap{
 		key.WithKeys("space"),
 	),
 	FileDiffMode: key.NewBinding(
-		key.WithKeys("d"),
+		key.WithKeys("d", "1"),
 	),
 	FileViewMode: key.NewBinding(
-		key.WithKeys("v"),
+		key.WithKeys("v", "2"),
 	),
 	CommitMode: key.NewBinding(
-		key.WithKeys("c"),
+		key.WithKeys("c", "3"),
 	),
 	FocusLeft: key.NewBinding(
 		key.WithKeys("h", "left"),

@@ -65,48 +65,51 @@ type GitDataSource interface {
 }
 
 type Model struct {
-	git              GitDataSource
-	mode             Mode
-	focus            Focus
-	width            int
-	height           int
-	base             string
-	repoInfo         gitpkg.RepoInfoResult
-	prInfo           gitpkg.PRInfoResult
-	ciStatus         gitpkg.CIStatusResult
-	prReviews        []gitpkg.PRReview
-	prCommentCount   int
-	committedFiles   []string
-	uncommittedFiles []string
-	allFiles         []string // all files in the repo (for file-view mode)
-	commits          []gitpkg.Commit
-	sidebar          *sidebar
-	mainPane         *mainPane
-	sidebarPct       int // sidebar width as percentage of total width (10-50)
-	dir              string
-	confirming       bool
-	lastKeyG         bool // tracks whether last key was 'g' for gg binding
-	showHelp         bool
-	helpScrollOffset int    // scroll offset within help overlay
-	helpSearching    bool   // search active within help
-	helpSearchQuery  string // search query within help
-	showIgnored      bool   // whether to show gitignored files in all-files section
-	sidebarHidden    bool   // [f] toggles sidebar visibility
-	wordWrap         bool   // [w] toggles word wrapping in main pane
-	lineNumbers      bool   // [n] toggles line numbers in file-view mode
-	searching        bool   // search input is active
-	searchConfirmed  bool   // enter pressed, n/p navigation active
-	searchQuery      string
-	searchMatches    []searchMatch // matches across both panes
-	searchMatchIdx   int           // current match index
-	hoverX, hoverY   int           // last mouse position for hover highlighting
-	prInterval       time.Duration // adaptive PR refresh interval
-	dragStartX       int           // drag start position (-1 = not dragging)
-	dragStartY       int
-	dragEndX         int
-	dragEndY         int
-	dragging         bool
-	err              error
+	git                 GitDataSource
+	mode                Mode
+	focus               Focus
+	width               int
+	height              int
+	base                string
+	repoInfo            gitpkg.RepoInfoResult
+	prInfo              gitpkg.PRInfoResult
+	ciStatus            gitpkg.CIStatusResult
+	prReviews           []gitpkg.PRReview
+	prCommentCount      int
+	committedFiles      []string
+	uncommittedFiles    []string
+	allFiles            []string // all files in the repo (for file-view mode)
+	commits             []gitpkg.Commit
+	sidebar             *sidebar
+	mainPane            *mainPane
+	sidebarPct          int // sidebar width as percentage of total width (10-50)
+	dir                 string
+	confirming          bool
+	lastKeyG            bool // tracks whether last key was 'g' for gg binding
+	showHelp            bool
+	helpScrollOffset    int    // scroll offset within help overlay
+	helpSearching       bool   // search active within help
+	helpSearchConfirmed bool   // help search confirmed, n/p navigation
+	helpSearchQuery     string // search query within help
+	helpSearchMatches   []int  // line indices of matches in help
+	helpSearchIdx       int    // current match index
+	showIgnored         bool   // whether to show gitignored files in all-files section
+	sidebarHidden       bool   // [f] toggles sidebar visibility
+	wordWrap            bool   // [w] toggles word wrapping in main pane
+	lineNumbers         bool   // [n] toggles line numbers in file-view mode
+	searching           bool   // search input is active
+	searchConfirmed     bool   // enter pressed, n/p navigation active
+	searchQuery         string
+	searchMatches       []searchMatch // matches across both panes
+	searchMatchIdx      int           // current match index
+	hoverX, hoverY      int           // last mouse position for hover highlighting
+	prInterval          time.Duration // adaptive PR refresh interval
+	dragStartX          int           // drag start position (-1 = not dragging)
+	dragStartY          int
+	dragEndX            int
+	dragEndY            int
+	dragging            bool
+	err                 error
 }
 
 // Messages
@@ -622,26 +625,77 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) updateHelpSearchMatches() {
+	m.helpSearchMatches = nil
+	if m.helpSearchQuery == "" {
+		return
+	}
+	q := strings.ToLower(m.helpSearchQuery)
+	for i, line := range m.helpContentLines() {
+		if strings.Contains(strings.ToLower(line), q) {
+			m.helpSearchMatches = append(m.helpSearchMatches, i)
+		}
+	}
+	m.helpSearchIdx = 0
+	if len(m.helpSearchMatches) > 0 {
+		m.helpScrollOffset = m.helpSearchMatches[0]
+	}
+}
+
 func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.helpSearching {
 		switch {
 		case msg.Code == tea.KeyEscape:
 			m.helpSearching = false
 			m.helpSearchQuery = ""
+			m.helpSearchMatches = nil
 			return m, nil
 		case msg.Code == tea.KeyEnter:
 			m.helpSearching = false
+			if len(m.helpSearchMatches) > 0 {
+				m.helpSearchConfirmed = true
+			}
 			return m, nil
 		case msg.Code == tea.KeyBackspace:
 			if len(m.helpSearchQuery) > 0 {
 				m.helpSearchQuery = m.helpSearchQuery[:len(m.helpSearchQuery)-1]
 			}
+			m.updateHelpSearchMatches()
 			return m, nil
 		default:
 			if msg.Text != "" {
 				m.helpSearchQuery += msg.Text
 			}
+			m.updateHelpSearchMatches()
 			return m, nil
+		}
+	}
+
+	// n/p navigation in help search confirmed mode
+	if m.helpSearchConfirmed {
+		switch {
+		case key.Matches(msg, keys.SearchNext):
+			if len(m.helpSearchMatches) > 0 {
+				m.helpSearchIdx = (m.helpSearchIdx + 1) % len(m.helpSearchMatches)
+				m.helpScrollOffset = m.helpSearchMatches[m.helpSearchIdx]
+			}
+			return m, nil
+		case key.Matches(msg, keys.SearchPrev):
+			if len(m.helpSearchMatches) > 0 {
+				m.helpSearchIdx = (m.helpSearchIdx - 1 + len(m.helpSearchMatches)) % len(m.helpSearchMatches)
+				m.helpScrollOffset = m.helpSearchMatches[m.helpSearchIdx]
+			}
+			return m, nil
+		case msg.Code == tea.KeyEscape, key.Matches(msg, keys.QuitConfirm):
+			m.helpSearchConfirmed = false
+			m.helpSearchQuery = ""
+			m.helpSearchMatches = nil
+			return m, nil
+		default:
+			m.helpSearchConfirmed = false
+			m.helpSearchQuery = ""
+			m.helpSearchMatches = nil
+			return m.handleHelpKey(msg)
 		}
 	}
 
@@ -653,10 +707,12 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.showHelp = false
 		m.helpScrollOffset = 0
 		m.helpSearchQuery = ""
+		m.helpSearchMatches = nil
 		return m, nil
 	case key.Matches(msg, keys.Search):
 		m.helpSearching = true
 		m.helpSearchQuery = ""
+		m.helpSearchMatches = nil
 		return m, nil
 	case key.Matches(msg, keys.Down):
 		if m.helpScrollOffset < len(helpLines)-visibleHeight {
@@ -675,6 +731,7 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.showHelp = false
 		m.helpScrollOffset = 0
 		m.helpSearchQuery = ""
+		m.helpSearchMatches = nil
 		return m, nil
 	}
 }
@@ -1561,9 +1618,18 @@ func (m *Model) renderHelp() string {
 
 	result := strings.Join(visible, "\n")
 
-	// Add search bar at bottom if searching
+	// Add search bar at bottom if searching or in nav mode
 	if m.helpSearching {
-		result += "\n/" + m.helpSearchQuery + "_"
+		searchBar := "/" + m.helpSearchQuery + "_"
+		if len(m.helpSearchMatches) > 0 {
+			searchBar += fmt.Sprintf("  %d/%d", m.helpSearchIdx+1, len(m.helpSearchMatches))
+		} else if m.helpSearchQuery != "" {
+			searchBar += "  0/0"
+		}
+		result += "\n" + searchBar
+	} else if m.helpSearchConfirmed {
+		searchBar := fmt.Sprintf("/%s  %d/%d", m.helpSearchQuery, m.helpSearchIdx+1, len(m.helpSearchMatches))
+		result += "\n" + searchBar
 	}
 
 	return result
