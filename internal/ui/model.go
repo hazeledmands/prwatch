@@ -1564,8 +1564,53 @@ func (m *Model) View() tea.View {
 		}
 	}
 
+	// Apply drag selection highlighting
+	if m.dragging && (m.dragStartX != m.dragEndX || m.dragStartY != m.dragEndY) {
+		padded = m.applyDragHighlight(padded)
+	}
+
 	v.SetContent(padded)
 	return v
+}
+
+// applyDragHighlight applies reverse-video highlighting to the drag-selected region.
+func (m *Model) applyDragHighlight(content string) string {
+	startY, endY := m.dragStartY, m.dragEndY
+	startX, endX := m.dragStartX, m.dragEndX
+	if startY > endY || (startY == endY && startX > endX) {
+		startY, endY = endY, startY
+		startX, endX = endX, startX
+	}
+
+	lines := strings.Split(content, "\n")
+	selectStyle := lipgloss.NewStyle().Reverse(true)
+
+	for y := startY; y <= endY && y < len(lines); y++ {
+		stripped := stripANSIForWidth(lines[y])
+		fromX := 0
+		toX := len(stripped)
+		if y == startY {
+			fromX = startX
+		}
+		if y == endY {
+			toX = endX + 1
+		}
+		if fromX >= len(stripped) {
+			continue
+		}
+		if toX > len(stripped) {
+			toX = len(stripped)
+		}
+		if fromX >= toX {
+			continue
+		}
+		// Replace the line with highlighted version
+		before := stripped[:fromX]
+		selected := stripped[fromX:toX]
+		after := stripped[toX:]
+		lines[y] = before + selectStyle.Render(selected) + after
+	}
+	return strings.Join(lines, "\n")
 }
 
 // padToHeight ensures the output has exactly the target number of lines,
