@@ -297,6 +297,38 @@ func TestView_Normal(t *testing.T) {
 	}
 }
 
+func TestRenderOnce_WithMockGit(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc123",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"main.go"},
+		},
+		commits:     []git.Commit{{SHA: "def", Subject: "test"}},
+		fileContent: "package main\n",
+		fileDiff:    "+new line",
+	}
+	m := NewModel("/tmp", mg)
+	output := m.RenderOnce(80, 24)
+	if output == "" {
+		t.Error("RenderOnce should produce output")
+	}
+	if !strings.Contains(output, "feature") {
+		t.Error("should contain branch name")
+	}
+}
+
+func TestRenderOnce_NonGit(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello"), 0644)
+
+	m := NewModel(dir, nil)
+	output := m.RenderOnce(80, 24)
+	if output == "" {
+		t.Error("RenderOnce should produce output for non-git")
+	}
+}
+
 func TestUpdateLayout(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 100
