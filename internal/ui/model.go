@@ -1260,6 +1260,22 @@ func (m *Model) commitIndexFromSidebarItem(label string) int {
 	return -1
 }
 
+// extractDirs returns the unique directory paths from a list of file paths.
+func extractDirs(files []string) []string {
+	dirs := make(map[string]bool)
+	for _, f := range files {
+		parts := strings.Split(f, "/")
+		for i := 1; i < len(parts); i++ {
+			dirs[strings.Join(parts[:i], "/")] = true
+		}
+	}
+	var result []string
+	for d := range dirs {
+		result = append(result, d)
+	}
+	return result
+}
+
 func (m *Model) isDeletedFile(file string) bool {
 	for _, f := range m.deletedFiles {
 		if f == file {
@@ -1333,6 +1349,14 @@ func (m *Model) updateSidebarItems() {
 			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
 			if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
 				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			// All-files trees default to collapsed (spec: "trees should start out closed")
+			// Use collapsedDirs but auto-collapse dirs not already tracked
+			allFilesDirs := extractDirs(otherFiles)
+			for _, d := range allFilesDirs {
+				if _, exists := m.collapsedDirs[d]; !exists {
+					m.collapsedDirs[d] = true // default closed for all-files
+				}
 			}
 			items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind {
 				if m.ignoredFiles[f] {
@@ -1634,6 +1658,7 @@ func (m *Model) View() tea.View {
 }
 
 // applyDragHighlight applies reverse-video highlighting to the drag-selected region.
+// Constrains highlighting to the main pane area only.
 func (m *Model) applyDragHighlight(content string) string {
 	startY, endY := m.dragStartY, m.dragEndY
 	startX, endX := m.dragStartX, m.dragEndX
@@ -1642,12 +1667,24 @@ func (m *Model) applyDragHighlight(content string) string {
 		startX, endX = endX, startX
 	}
 
+	// Clamp to main pane area
+	sidebarW := 0
+	if !m.sidebarHidden {
+		sidebarW = m.sidebarPixelWidth()
+	}
+	if startX < sidebarW {
+		startX = sidebarW
+	}
+	if endX >= m.width {
+		endX = m.width - 1
+	}
+
 	lines := strings.Split(content, "\n")
 	selectStyle := lipgloss.NewStyle().Reverse(true)
 
 	for y := startY; y <= endY && y < len(lines); y++ {
 		stripped := stripANSIForWidth(lines[y])
-		fromX := 0
+		fromX := sidebarW
 		toX := len(stripped)
 		if y == startY {
 			fromX = startX
@@ -1664,7 +1701,6 @@ func (m *Model) applyDragHighlight(content string) string {
 		if fromX >= toX {
 			continue
 		}
-		// Replace the line with highlighted version
 		before := stripped[:fromX]
 		selected := stripped[fromX:toX]
 		after := stripped[toX:]
@@ -1714,18 +1750,34 @@ func displayWidthOf(s string) int {
 	return runewidth.StringWidth(s)
 }
 
-// copySelection extracts text between drag start/end coordinates from the rendered
-// view and copies it to the system clipboard.
+// copySelection extracts text from the main pane's content (stripping ANSI,
+// gutter, and TUI glyphs) and copies to the system clipboard.
+// Coordinates are screen-relative; we convert to main-pane-content-relative.
 func (m *Model) copySelection() {
 	if m.dragStartX == m.dragEndX && m.dragStartY == m.dragEndY {
 		return // No actual drag
 	}
 
-	// Get the rendered content
-	v := m.View()
-	lines := strings.Split(v.Content, "\n")
+	// Main pane content area starts after:
+	// - 2 rows of status bar
+	// - 1 row of top border
+	// And the x offset is sidebarPixelWidth() + 1 (left border of main pane)
+	statusRows := 2
+	topBorder := 1
+	sidebarW := 0
+	if !m.sidebarHidden {
+		sidebarW = m.sidebarPixelWidth()
+	}
+	mainLeftBorder := 1
+	contentStartY := statusRows + topBorder
+	contentStartX := sidebarW + mainLeftBorder
 
-	// Normalize start/end so start is before end
+	// Get the main pane's raw content (pre-rendered, with ANSI)
+	// Use the viewport's content which is what's displayed
+	viewportContent := m.mainPane.viewport.View()
+	contentLines := strings.Split(viewportContent, "\n")
+
+	// Normalize drag coordinates
 	startY, endY := m.dragStartY, m.dragEndY
 	startX, endX := m.dragStartX, m.dragEndX
 	if startY > endY || (startY == endY && startX > endX) {
@@ -1733,9 +1785,29 @@ func (m *Model) copySelection() {
 		startX, endX = endX, startX
 	}
 
+	// Convert screen coordinates to content-relative
+	startY -= contentStartY
+	endY -= contentStartY
+	startX -= contentStartX
+	endX -= contentStartX
+
+	if startY < 0 {
+		startY = 0
+		startX = 0
+	}
+	if startX < 0 {
+		startX = 0
+	}
+	if endX < 0 {
+		endX = 0
+	}
+
 	var selected strings.Builder
-	for y := startY; y <= endY && y < len(lines); y++ {
-		line := stripANSIForWidth(lines[y])
+	for y := startY; y <= endY && y < len(contentLines); y++ {
+		// Strip ANSI codes to get clean text
+		line := stripANSIForWidth(contentLines[y])
+		line = strings.TrimRight(line, " ") // remove trailing padding
+
 		fromX := 0
 		toX := len(line)
 		if y == startY {
