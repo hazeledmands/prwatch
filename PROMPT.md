@@ -73,6 +73,7 @@ TESTS:
 
 DEVELOPING:
 - when starting, run git status; if there are any changes to the PROMPT.md commit those first
+- check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then remove the bug report.
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress.
 - use test-driven development.
 - make small, iterative commits to keep your work trackable. push and re-build the binary after every commit.
