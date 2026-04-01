@@ -136,3 +136,5 @@ DEVELOPING:
 - there should be continuous integration with GHA
 - after each commit, run `PRWATCH_RENDER_ONCE=1 go run .` to see the current state of the TUI rendered as text. review the output yourself to verify the UI looks correct before moving on.
 
+DOCUMENTATION:
+- the readme file should be up-to-date and provide a relatively concise overview of what this tool is meant to do.
