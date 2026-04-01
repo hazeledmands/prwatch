@@ -36,6 +36,8 @@ running in a branch without a base branch (i.e. directly in main, or a detached 
 
 detached HEAD works normally, status bar shows `detached @ <short sha>` instead of a branch name.
 
+mouse behavior: the user should be able to click on files or commits in the sidebar to open them in the main view. scrolling should independently scroll the view but keep the selections the same, kind of like a scroll box in a windowed GUI.
+
 ---
 
 DEVELOPING:

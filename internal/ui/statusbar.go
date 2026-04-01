@@ -53,8 +53,9 @@ func renderStatusBar(width int, info git.RepoInfoResult, pr git.PRInfoResult, mo
 		right = "No PR "
 	}
 
-	// Calculate padding
-	padding := width - lipgloss.Width(left) - lipgloss.Width(modeStr) - lipgloss.Width(right)
+	// Calculate padding (subtract 2 for the style's horizontal padding)
+	contentWidth := width - 2
+	padding := contentWidth - lipgloss.Width(left) - lipgloss.Width(modeStr) - lipgloss.Width(right)
 	if padding < 0 {
 		padding = 0
 	}

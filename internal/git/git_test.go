@@ -284,3 +284,211 @@ func TestPRInfo_NoPR(t *testing.T) {
 		t.Errorf("expected no PR, got #%d", info.Number)
 	}
 }
+
+func TestFileContent(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	// Read an existing committed file
+	content, err := g.FileContent("feature.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, "package feature") {
+		t.Errorf("expected file content, got: %q", content)
+	}
+}
+
+func TestFileContent_WorkingTreeChanges(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	// Modify the file in the working tree
+	writeFile(t, dir, "feature.go", "package feature\n\nvar modified = true\n")
+
+	content, err := g.FileContent("feature.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should read from working tree, not HEAD
+	if !strings.Contains(content, "modified") {
+		t.Errorf("expected working tree content, got: %q", content)
+	}
+}
+
+func TestFileContent_UntrackedFile(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	writeFile(t, dir, "newfile.go", "package newfile\n")
+
+	content, err := g.FileContent("newfile.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, "package newfile") {
+		t.Errorf("expected new file content, got: %q", content)
+	}
+}
+
+func TestCommits_OnMainBranch(t *testing.T) {
+	dir := setupTestRepo(t)
+	runGit(t, dir, "checkout", "main")
+	g := git.New(dir)
+
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// On main, range is empty so should fallback to last 10 commits
+	commits, err := g.Commits(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) == 0 {
+		t.Error("should have fallback commits when on main branch")
+	}
+}
+
+func TestDetectBase_OnMainBranch(t *testing.T) {
+	dir := setupTestRepo(t)
+	runGit(t, dir, "checkout", "main")
+	g := git.New(dir)
+
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base == "" {
+		t.Error("should still find a base even on main")
+	}
+}
+
+func TestDetectBase_DetachedHead(t *testing.T) {
+	dir := setupTestRepo(t)
+	runGit(t, dir, "checkout", "--detach")
+	g := git.New(dir)
+
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base == "" {
+		t.Error("should find a base in detached HEAD")
+	}
+}
+
+func TestChangedFiles_Sorted(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	// Add multiple files out of order
+	writeFile(t, dir, "zebra.go", "package z\n")
+	writeFile(t, dir, "alpha.go", "package a\n")
+	writeFile(t, dir, "middle.go", "package m\n")
+
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Uncommitted files should be sorted
+	for i := 1; i < len(result.Uncommitted); i++ {
+		if result.Uncommitted[i] < result.Uncommitted[i-1] {
+			t.Errorf("uncommitted files not sorted: %v", result.Uncommitted)
+			break
+		}
+	}
+}
+
+func TestDetectBase_NoMainBranch(t *testing.T) {
+	// Create a repo with "master" instead of "main"
+	dir := t.TempDir()
+	cmds := [][]string{
+		{"git", "init", "--initial-branch=master"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup %v: %s %v", args, out, err)
+		}
+	}
+	writeFile(t, dir, "README.md", "# hello\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "initial")
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, dir, "file.go", "package f\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "feature commit")
+
+	g := git.New(dir)
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base == "" {
+		t.Error("should find master as base when main doesn't exist")
+	}
+}
+
+func TestDetectBase_FallbackToHEAD(t *testing.T) {
+	// Create a repo with only one branch and no remote
+	dir := t.TempDir()
+	cmds := [][]string{
+		{"git", "init", "--initial-branch=only"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup %v: %s %v", args, out, err)
+		}
+	}
+	writeFile(t, dir, "README.md", "# hello\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "initial")
+	writeFile(t, dir, "second.go", "package s\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "second")
+
+	g := git.New(dir)
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base == "" {
+		t.Error("should fall back to HEAD~1")
+	}
+}
+
+func TestRepoInfo_Worktree(t *testing.T) {
+	dir := setupTestRepo(t)
+	runGit(t, dir, "checkout", "main")
+
+	// Create a worktree
+	wtDir := filepath.Join(t.TempDir(), "wt")
+	runGit(t, dir, "worktree", "add", wtDir, "hazel/test/feature")
+
+	g := git.New(wtDir)
+	info, err := g.RepoInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Worktree == "" {
+		t.Error("expected Worktree to be set in a worktree")
+	}
+	if info.Branch != "hazel/test/feature" {
+		t.Errorf("branch = %q, want %q", info.Branch, "hazel/test/feature")
+	}
+}
