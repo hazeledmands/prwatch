@@ -69,9 +69,6 @@ func (m *mainPane) GoToBottom() {
 // Searches forward from the current scroll position, wrapping around if needed.
 func (m *mainPane) SearchAndHighlight(query string) {
 	lines := strings.Split(m.content, "\n")
-	if len(lines) == 0 {
-		return
-	}
 	start := m.viewport.YOffset()
 	q := strings.ToLower(query)
 

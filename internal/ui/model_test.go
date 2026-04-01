@@ -1195,6 +1195,18 @@ func TestParseHunkNewStart_NoCommaOrSpace(t *testing.T) {
 	}
 }
 
+func TestCurrentLineNumber_VariousDiffPrefixes(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.mode = FileDiffMode
+	m.mainPane.SetSize(80, 24)
+	// Include all diff prefix types for full line coverage
+	m.mainPane.content = "diff --git a/f b/f\nindex abc..def 100644\n--- a/f\n+++ b/f\n@@ -1,5 +1,5 @@\n context\n-old\n+new\n\\ No newline at end of file\n context2"
+	line := m.currentLineNumber()
+	if line < 1 {
+		t.Errorf("expected line >= 1, got %d", line)
+	}
+}
+
 func TestCurrentLineNumber_EmptyContent(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.mode = FileDiffMode
