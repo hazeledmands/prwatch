@@ -1,10 +1,10 @@
-  feature/add-auth → origin/main @ myapp             [diff]              1 uncommitted · 2 commits  
+  feature/add-auth → origin/main @ myapp             [file]              1 uncommitted · 2 commits  
   PR #42: Add authentication                                                                        
 Keybindings:                                                                                        
                                                                                                     
-  [m]          Cycle mode (diff -> file -> commit)                                                  
-  [d] [1]      File diff mode                                                                       
-  [v] [2]      File view mode                                                                       
+  [m]          Cycle mode (file -> diff -> commit)                                                  
+  [v] [1]      File view mode                                                                       
+  [d] [2]      File diff mode                                                                       
   [c] [3]      Commit mode                                                                          
                                                                                                     
   [h] [left]   Scroll left (when wrap off)                                                          

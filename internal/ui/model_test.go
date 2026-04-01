@@ -80,27 +80,27 @@ func (m *mockGit) AllFiles(includeIgnored bool) ([]string, error) {
 func TestModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 
-	if m.mode != FileDiffMode {
-		t.Error("initial mode should be FileDiffMode")
+	if m.mode != FileViewMode {
+		t.Error("initial mode should be FileViewMode")
 	}
 
-	// Press space to cycle: FileDiff → FileView → Commit → FileDiff
+	// Press m to cycle: FileView → FileDiff → Commit → FileView
 	result, _ := m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
-	if m.mode != FileViewMode {
-		t.Error("after space, mode should be FileViewMode")
+	if m.mode != FileDiffMode {
+		t.Error("after m, mode should be FileDiffMode")
 	}
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
 	if m.mode != CommitMode {
-		t.Error("after second space, mode should be CommitMode")
+		t.Error("after second m, mode should be CommitMode")
 	}
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
-	if m.mode != FileDiffMode {
-		t.Error("after third space, mode should be FileDiffMode")
+	if m.mode != FileViewMode {
+		t.Error("after third m, mode should be FileViewMode")
 	}
 
 	// Direct mode keys
@@ -2337,9 +2337,9 @@ func TestClickModeIndicator_CyclesModes(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Mode starts as FileDiff
-	if m.mode != FileDiffMode {
-		t.Fatalf("expected FileDiffMode, got %d", m.mode)
+	// Mode starts as FileView
+	if m.mode != FileViewMode {
+		t.Fatalf("expected FileViewMode, got %d", m.mode)
 	}
 
 	// Click on the center of line 0 (where the mode indicator is)
@@ -2348,8 +2348,8 @@ func TestClickModeIndicator_CyclesModes(t *testing.T) {
 	result, _ := m.Update(clickMsg)
 	m = result.(*Model)
 
-	if m.mode != FileViewMode {
-		t.Errorf("clicking mode indicator should cycle to FileViewMode, got %d", m.mode)
+	if m.mode != FileDiffMode {
+		t.Errorf("clicking mode indicator should cycle to FileDiffMode, got %d", m.mode)
 	}
 
 	// Click again to cycle to CommitMode
@@ -2602,6 +2602,7 @@ func TestFileDiffMode_NoAllFilesCategory(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width = 80
 	m.height = 24
+	m.mode = FileDiffMode // explicitly set since default changed to FileViewMode
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)

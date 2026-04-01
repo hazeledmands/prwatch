@@ -34,8 +34,8 @@ type searchMatch struct {
 type Mode int
 
 const (
-	FileDiffMode Mode = iota
-	FileViewMode
+	FileViewMode Mode = iota
+	FileDiffMode
 	CommitMode
 )
 
@@ -149,7 +149,7 @@ type prRefreshMsg struct {
 type prTickMsg struct{}
 
 func NewModel(dir string, g GitDataSource) *Model {
-	mode := FileDiffMode
+	mode := FileViewMode
 	if g == nil {
 		mode = FileViewMode
 	}
@@ -487,12 +487,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil // non-git: file-view only
 		}
 		switch m.mode {
-		case FileDiffMode:
-			m.mode = FileViewMode
 		case FileViewMode:
+			m.mode = FileDiffMode
+		case FileDiffMode:
 			m.mode = CommitMode
 		case CommitMode:
-			m.mode = FileDiffMode
+			m.mode = FileViewMode
 		}
 		m.updateSidebarItems()
 		m.updateMainContent()
@@ -915,12 +915,12 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 		if x >= leftThird && x < rightThird {
 			// Cycle mode like [m] key
 			switch m.mode {
-			case FileDiffMode:
-				m.mode = FileViewMode
 			case FileViewMode:
+				m.mode = FileDiffMode
+			case FileDiffMode:
 				m.mode = CommitMode
 			case CommitMode:
-				m.mode = FileDiffMode
+				m.mode = FileViewMode
 			}
 			m.updateSidebarItems()
 			m.updateMainContent()
@@ -1854,9 +1854,9 @@ func (m *Model) helpContentLines() []string {
 	return []string{
 		"Keybindings:",
 		"",
-		"  [m]          Cycle mode (diff -> file -> commit)",
-		"  [d] [1]      File diff mode",
-		"  [v] [2]      File view mode",
+		"  [m]          Cycle mode (file -> diff -> commit)",
+		"  [v] [1]      File view mode",
+		"  [d] [2]      File diff mode",
 		"  [c] [3]      Commit mode",
 		"",
 		"  [h] [left]   Scroll left (when wrap off)",

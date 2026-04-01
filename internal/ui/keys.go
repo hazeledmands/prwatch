@@ -48,11 +48,11 @@ var keys = keyMap{
 	ToggleMode: key.NewBinding(
 		key.WithKeys("m"),
 	),
-	FileDiffMode: key.NewBinding(
-		key.WithKeys("d", "1"),
-	),
 	FileViewMode: key.NewBinding(
-		key.WithKeys("v", "2"),
+		key.WithKeys("v", "1"),
+	),
+	FileDiffMode: key.NewBinding(
+		key.WithKeys("d", "2"),
 	),
 	CommitMode: key.NewBinding(
 		key.WithKeys("c", "3"),
