@@ -19,15 +19,21 @@ type sidebarItem struct {
 }
 
 type sidebar struct {
-	items    []sidebarItem
-	selected int
-	width    int
-	height   int
-	offset   int // scroll offset for long lists
+	items      []sidebarItem
+	selected   int
+	width      int
+	height     int
+	offset     int // scroll offset for long lists
+	hoverIndex int // item under mouse cursor (-1 = none)
 }
 
 func newSidebar() *sidebar {
-	return &sidebar{}
+	return &sidebar{hoverIndex: -1}
+}
+
+// SetHoverIndex sets which item is being hovered by the mouse.
+func (s *sidebar) SetHoverIndex(idx int) {
+	s.hoverIndex = idx
 }
 
 func (s *sidebar) SetItems(items []sidebarItem) {
@@ -210,6 +216,13 @@ func (s *sidebar) View(focused bool) string {
 				b.WriteString(sidebarUncommittedSelectedStyle.Render(label))
 			default:
 				b.WriteString(sidebarSelectedItemStyle.Render(label))
+			}
+		} else if i == s.hoverIndex {
+			switch item.kind {
+			case itemDim:
+				b.WriteString(sidebarUncommittedHoverStyle.Render(label))
+			default:
+				b.WriteString(sidebarHoverStyle.Render(label))
 			}
 		} else {
 			switch item.kind {

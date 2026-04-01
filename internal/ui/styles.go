@@ -78,4 +78,12 @@ var (
 	searchHighlightStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("#F9E2AF")).
 				Foreground(lipgloss.Color("#1E1E2E"))
+
+	// Hover styles
+	sidebarHoverStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#2A2A2A")).
+				Foreground(lipgloss.Color("#FAFAFA"))
+	sidebarUncommittedHoverStyle = lipgloss.NewStyle().
+					Background(lipgloss.Color("#2A2A2A")).
+					Foreground(lipgloss.Color("#AAA"))
 )

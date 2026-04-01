@@ -4,7 +4,7 @@ Keybindings:
                                                                                                     
   [space]      Cycle mode (diff -> file -> commit)                                                  
   [d]          File diff mode                                                                       
-  [f] [v]      File view mode                                                                       
+  [v]          File view mode                                                                       
   [c]          Commit mode                                                                          
                                                                                                     
   [h] [left]   Focus sidebar                                                                        
@@ -17,14 +17,14 @@ Keybindings:
   [gg]         Go to top                                                                            
   [G]          Go to bottom                                                                         
                                                                                                     
-  [+] [=]     Grow sidebar                                                                          
+  [+] [=]      Grow sidebar                                                                         
   [-]          Shrink sidebar                                                                       
+  [f]          Toggle sidebar visibility                                                            
+                                                                                                    
+  [w]          Toggle word wrap                                                                     
+  [n]          Toggle line numbers (file view) / next search result                                 
+  [i]          Toggle gitignored files (file view)                                                  
                                                                                                     
   [enter]      Open file in $EDITOR / switch to main pane                                           
   [/]          Search (type to match, enter to confirm)                                             
-  [n]          Next search result                                                                   
-  [p]          Previous search result                                                               
-  [?]          Show this help                                                                       
-                                                                                                    
-  [q] [esc]    Quit (confirm)                                                                       
-  [Q] [ctrl-c] Quit immediately                                                                     
+  [n]          Next search result (after search)                                                    

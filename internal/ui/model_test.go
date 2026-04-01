@@ -1400,8 +1400,8 @@ func TestView_MouseModeEnabled(t *testing.T) {
 	m.updateLayout()
 
 	v := m.View()
-	if v.MouseMode != tea.MouseModeCellMotion {
-		t.Error("view should enable mouse cell motion")
+	if v.MouseMode != tea.MouseModeAllMotion {
+		t.Error("view should enable mouse all motion for hover support")
 	}
 }
 
@@ -2682,5 +2682,71 @@ func TestToggleIgnored(t *testing.T) {
 	m = result.(*Model)
 	if m.showIgnored {
 		t.Error("i in diff mode should not toggle showIgnored")
+	}
+}
+
+func TestMouseHover_SidebarHighlight(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"alpha.go", "beta.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:   "+new",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Hover over sidebar item at row 3 (status bar is 2 rows, border is 1)
+	result, _ := m.Update(tea.MouseMotionMsg{X: 5, Y: 3})
+	m = result.(*Model)
+
+	// hoverIndex should be set to the first item
+	if m.sidebar.hoverIndex != 0 {
+		t.Errorf("expected hover index 0, got %d", m.sidebar.hoverIndex)
+	}
+
+	// Move outside sidebar
+	result, _ = m.Update(tea.MouseMotionMsg{X: 60, Y: 5})
+	m = result.(*Model)
+	if m.sidebar.hoverIndex != -1 {
+		t.Errorf("expected hover index -1 outside sidebar, got %d", m.sidebar.hoverIndex)
+	}
+}
+
+func TestMouseDrag_SetsCoordinates(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Click to start drag
+	result, _ := m.Update(tea.MouseClickMsg{X: 10, Y: 5, Button: tea.MouseLeft})
+	m = result.(*Model)
+	if !m.dragging {
+		t.Error("should be dragging after click")
+	}
+	if m.dragStartX != 10 || m.dragStartY != 5 {
+		t.Errorf("drag start should be (10,5), got (%d,%d)", m.dragStartX, m.dragStartY)
+	}
+
+	// Motion while dragging
+	result, _ = m.Update(tea.MouseMotionMsg{X: 20, Y: 5})
+	m = result.(*Model)
+	if m.dragEndX != 20 || m.dragEndY != 5 {
+		t.Errorf("drag end should be (20,5), got (%d,%d)", m.dragEndX, m.dragEndY)
+	}
+
+	// Release
+	result, _ = m.Update(tea.MouseReleaseMsg{X: 20, Y: 5})
+	m = result.(*Model)
+	if m.dragging {
+		t.Error("should not be dragging after release")
 	}
 }

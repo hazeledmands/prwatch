@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -92,6 +93,12 @@ type Model struct {
 	searchQuery      string
 	searchMatches    []searchMatch // matches across both panes
 	searchMatchIdx   int           // current match index
+	hoverX, hoverY   int           // last mouse position for hover highlighting
+	dragStartX       int           // drag start position (-1 = not dragging)
+	dragStartY       int
+	dragEndX         int
+	dragEndY         int
+	dragging         bool
 	err              error
 }
 
@@ -137,6 +144,8 @@ func NewModel(dir string, g GitDataSource) *Model {
 		showIgnored: true,
 		wordWrap:    true,
 		lineNumbers: true,
+		dragStartX:  -1,
+		dragStartY:  -1,
 	}
 }
 
@@ -312,6 +321,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		return m.handleMouseWheel(msg)
+
+	case tea.MouseMotionMsg:
+		m.hoverX = msg.X
+		m.hoverY = msg.Y
+		if m.dragging {
+			m.dragEndX = msg.X
+			m.dragEndY = msg.Y
+		}
+		// Update sidebar hover index
+		sidebarW := m.sidebarPixelWidth()
+		if !m.sidebarHidden && msg.X < sidebarW && msg.Y >= 2 {
+			contentY := msg.Y - 2
+			itemIdx := contentY - 1 + m.sidebar.offset
+			m.sidebar.SetHoverIndex(itemIdx)
+		} else {
+			m.sidebar.SetHoverIndex(-1)
+		}
+		return m, nil
+
+	case tea.MouseReleaseMsg:
+		if m.dragging {
+			m.dragging = false
+			m.dragEndX = msg.X
+			m.dragEndY = msg.Y
+			m.copySelection()
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -656,6 +692,13 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	x, y := msg.X, msg.Y
 
+	// Start drag tracking
+	m.dragging = true
+	m.dragStartX = x
+	m.dragStartY = y
+	m.dragEndX = x
+	m.dragEndY = y
+
 	// Status bar is rows 0-1
 	if y <= 1 {
 		return m.handleStatusBarClick(x, y)
@@ -664,7 +707,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// Adjust y for the 2-line status bar
 	contentY := y - 2
 	sidebarW := m.sidebarPixelWidth()
-	if x < sidebarW {
+	if !m.sidebarHidden && x < sidebarW {
 		// Clicked in sidebar
 		m.focus = SidebarFocus
 		// Content starts after status bar (2 lines) + top border (1 line) = row 3
@@ -976,7 +1019,7 @@ func (m *Model) RenderOnce(width, height int) string {
 func (m *Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeAllMotion
 
 	if m.err != nil {
 		v.SetContent(fmt.Sprintf("Error: %v\nPress q to quit.\n", m.err))
@@ -1078,6 +1121,69 @@ func displayWidthOf(s string) int {
 		_ = r
 	}
 	return n
+}
+
+// copySelection extracts text between drag start/end coordinates from the rendered
+// view and copies it to the system clipboard.
+func (m *Model) copySelection() {
+	if m.dragStartX == m.dragEndX && m.dragStartY == m.dragEndY {
+		return // No actual drag
+	}
+
+	// Get the rendered content
+	v := m.View()
+	lines := strings.Split(v.Content, "\n")
+
+	// Normalize start/end so start is before end
+	startY, endY := m.dragStartY, m.dragEndY
+	startX, endX := m.dragStartX, m.dragEndX
+	if startY > endY || (startY == endY && startX > endX) {
+		startY, endY = endY, startY
+		startX, endX = endX, startX
+	}
+
+	var selected strings.Builder
+	for y := startY; y <= endY && y < len(lines); y++ {
+		line := stripANSIForWidth(lines[y])
+		fromX := 0
+		toX := len(line)
+		if y == startY {
+			fromX = startX
+		}
+		if y == endY {
+			toX = endX + 1
+		}
+		if fromX > len(line) {
+			fromX = len(line)
+		}
+		if toX > len(line) {
+			toX = len(line)
+		}
+		if fromX < toX {
+			selected.WriteString(line[fromX:toX])
+		}
+		if y < endY {
+			selected.WriteString("\n")
+		}
+	}
+
+	text := selected.String()
+	if text == "" {
+		return
+	}
+
+	// Copy to system clipboard
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		cmd = exec.Command("xclip", "-selection", "clipboard")
+	default:
+		return
+	}
+	cmd.Stdin = strings.NewReader(text)
+	cmd.Run() //nolint: ignore clipboard errors
 }
 
 func (m *Model) renderHelp() string {
