@@ -34,6 +34,9 @@ const (
 type GitDataSource interface {
 	RepoInfo() (gitpkg.RepoInfoResult, error)
 	PRInfo() (gitpkg.PRInfoResult, error)
+	PRChecks() (gitpkg.CIStatusResult, error)
+	PRReviews() ([]gitpkg.PRReview, error)
+	PRCommentCount() (int, error)
 	DetectBase() (string, error)
 	ChangedFiles(base string) (gitpkg.ChangedFilesResult, error)
 	Commits(base string) ([]gitpkg.Commit, error)
@@ -52,6 +55,9 @@ type Model struct {
 	base             string
 	repoInfo         gitpkg.RepoInfoResult
 	prInfo           gitpkg.PRInfoResult
+	ciStatus         gitpkg.CIStatusResult
+	prReviews        []gitpkg.PRReview
+	prCommentCount   int
 	committedFiles   []string
 	uncommittedFiles []string
 	commits          []gitpkg.Commit
@@ -70,6 +76,9 @@ type Model struct {
 type gitDataMsg struct {
 	repoInfo         gitpkg.RepoInfoResult
 	prInfo           gitpkg.PRInfoResult
+	ciStatus         gitpkg.CIStatusResult
+	prReviews        []gitpkg.PRReview
+	prCommentCount   int
 	base             string
 	committedFiles   []string
 	uncommittedFiles []string
@@ -125,6 +134,16 @@ func (m *Model) loadGitData() tea.Msg {
 
 	prInfo, _ := m.git.PRInfo()
 
+	// Fetch PR details if a PR exists
+	var ciStatus gitpkg.CIStatusResult
+	var reviews []gitpkg.PRReview
+	var commentCount int
+	if prInfo.Number > 0 {
+		ciStatus, _ = m.git.PRChecks()
+		reviews, _ = m.git.PRReviews()
+		commentCount, _ = m.git.PRCommentCount()
+	}
+
 	base, err := m.git.DetectBase()
 	if err != nil {
 		return gitDataMsg{err: err}
@@ -143,6 +162,9 @@ func (m *Model) loadGitData() tea.Msg {
 	return gitDataMsg{
 		repoInfo:         info,
 		prInfo:           prInfo,
+		ciStatus:         ciStatus,
+		prReviews:        reviews,
+		prCommentCount:   commentCount,
 		base:             base,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
@@ -165,6 +187,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.repoInfo = msg.repoInfo
 		m.prInfo = msg.prInfo
+		m.ciStatus = msg.ciStatus
+		m.prReviews = msg.prReviews
+		m.prCommentCount = msg.prCommentCount
 		m.base = msg.base
 		m.committedFiles = msg.committedFiles
 		m.uncommittedFiles = msg.uncommittedFiles
@@ -622,7 +647,7 @@ func (m *Model) updateMainContent() {
 }
 
 func (m *Model) updateLayout() {
-	statusBarHeight := 1
+	statusBarHeight := 2                                // line 1: branch/mode/status, line 2: PR info
 	contentHeight := max(0, m.height-statusBarHeight-2) // borders
 	sidebarWidth := max(0, m.width*3/10)
 	mainWidth := max(0, m.width-sidebarWidth-4) // borders
@@ -641,7 +666,17 @@ func (m *Model) View() tea.View {
 		return v
 	}
 
-	bar := renderStatusBar(m.width, m.repoInfo, m.prInfo, m.mode, m.confirming)
+	bar := renderStatusBar(m.width, statusBarData{
+		info:          m.repoInfo,
+		pr:            m.prInfo,
+		ciStatus:      m.ciStatus,
+		reviews:       m.prReviews,
+		commentCount:  m.prCommentCount,
+		mode:          m.mode,
+		confirming:    m.confirming,
+		uncommitCount: len(m.uncommittedFiles),
+		commitCount:   len(m.commits),
+	})
 	sidebarView := m.sidebar.View(m.focus == SidebarFocus)
 	mainView := m.mainPane.View(m.focus == MainFocus)
 

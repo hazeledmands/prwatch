@@ -8,11 +8,14 @@ import (
 )
 
 func TestRenderStatusBar_Basic(t *testing.T) {
-	info := git.RepoInfoResult{
-		Branch:   "main",
-		RepoName: "prwatch",
+	data := statusBarData{
+		info: git.RepoInfoResult{
+			Branch:   "main",
+			RepoName: "prwatch",
+		},
+		mode: FileDiffMode,
 	}
-	bar := renderStatusBar(80, info, git.PRInfoResult{}, FileDiffMode, false)
+	bar := renderStatusBar(80, data)
 
 	if !strings.Contains(bar, "main") {
 		t.Error("status bar should contain branch name")
@@ -26,8 +29,11 @@ func TestRenderStatusBar_Basic(t *testing.T) {
 }
 
 func TestRenderStatusBar_FileViewMode(t *testing.T) {
-	info := git.RepoInfoResult{Branch: "main", RepoName: "test"}
-	bar := renderStatusBar(80, info, git.PRInfoResult{}, FileViewMode, false)
+	data := statusBarData{
+		info: git.RepoInfoResult{Branch: "main", RepoName: "test"},
+		mode: FileViewMode,
+	}
+	bar := renderStatusBar(80, data)
 
 	if !strings.Contains(bar, "[file]") {
 		t.Error("status bar should show file mode indicator")
@@ -35,8 +41,11 @@ func TestRenderStatusBar_FileViewMode(t *testing.T) {
 }
 
 func TestRenderStatusBar_CommitMode(t *testing.T) {
-	info := git.RepoInfoResult{Branch: "main", RepoName: "test"}
-	bar := renderStatusBar(80, info, git.PRInfoResult{}, CommitMode, false)
+	data := statusBarData{
+		info: git.RepoInfoResult{Branch: "main", RepoName: "test"},
+		mode: CommitMode,
+	}
+	bar := renderStatusBar(80, data)
 
 	if !strings.Contains(bar, "[commits]") {
 		t.Error("status bar should show commit mode indicator")
@@ -44,8 +53,12 @@ func TestRenderStatusBar_CommitMode(t *testing.T) {
 }
 
 func TestRenderStatusBar_Confirming(t *testing.T) {
-	info := git.RepoInfoResult{Branch: "main"}
-	bar := renderStatusBar(80, info, git.PRInfoResult{}, FileDiffMode, true)
+	data := statusBarData{
+		info:       git.RepoInfoResult{Branch: "main"},
+		mode:       FileDiffMode,
+		confirming: true,
+	}
+	bar := renderStatusBar(80, data)
 
 	if !strings.Contains(bar, "Quit?") {
 		t.Error("confirming status bar should show quit prompt")
@@ -53,13 +66,16 @@ func TestRenderStatusBar_Confirming(t *testing.T) {
 }
 
 func TestRenderStatusBar_WithPR(t *testing.T) {
-	info := git.RepoInfoResult{Branch: "feature", RepoName: "repo"}
-	pr := git.PRInfoResult{
-		Number: 42,
-		Title:  "My PR",
-		URL:    "https://github.com/org/repo/pull/42",
+	data := statusBarData{
+		info: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		pr: git.PRInfoResult{
+			Number: 42,
+			Title:  "My PR",
+			URL:    "https://github.com/org/repo/pull/42",
+		},
+		mode: FileDiffMode,
 	}
-	bar := renderStatusBar(120, info, pr, FileDiffMode, false)
+	bar := renderStatusBar(120, data)
 
 	if !strings.Contains(bar, "PR #42") {
 		t.Error("should show PR number")
@@ -70,12 +86,15 @@ func TestRenderStatusBar_WithPR(t *testing.T) {
 }
 
 func TestRenderStatusBar_DetachedHead(t *testing.T) {
-	info := git.RepoInfoResult{
-		Branch:         "HEAD",
-		IsDetachedHead: true,
-		HeadSHA:        "abc1234",
+	data := statusBarData{
+		info: git.RepoInfoResult{
+			Branch:         "HEAD",
+			IsDetachedHead: true,
+			HeadSHA:        "abc1234",
+		},
+		mode: FileDiffMode,
 	}
-	bar := renderStatusBar(80, info, git.PRInfoResult{}, FileDiffMode, false)
+	bar := renderStatusBar(80, data)
 
 	if !strings.Contains(bar, "detached @ abc1234") {
 		t.Error("should show detached HEAD with SHA")
@@ -83,49 +102,249 @@ func TestRenderStatusBar_DetachedHead(t *testing.T) {
 }
 
 func TestRenderStatusBar_Worktree(t *testing.T) {
-	info := git.RepoInfoResult{
-		Branch:   "feature",
-		RepoName: "repo",
-		Worktree: "/some/path",
+	data := statusBarData{
+		info: git.RepoInfoResult{
+			Branch:   "feature",
+			RepoName: "repo",
+			Worktree: "/some/path",
+		},
+		mode: FileDiffMode,
 	}
-	bar := renderStatusBar(80, info, git.PRInfoResult{}, FileDiffMode, false)
+	bar := renderStatusBar(80, data)
 
-	if !strings.Contains(bar, "(worktree)") {
+	if !strings.Contains(bar, "[wt]") {
 		t.Error("should indicate worktree")
 	}
 }
 
+func TestRenderStatusBar_NoPR(t *testing.T) {
+	data := statusBarData{
+		info: git.RepoInfoResult{Branch: "main", RepoName: "repo"},
+		mode: FileDiffMode,
+	}
+	bar := renderStatusBar(200, data)
+
+	if !strings.Contains(bar, "No PR") {
+		t.Errorf("should show 'No PR' when no PR exists, got: %q", bar)
+	}
+}
+
 func TestRenderStatusBar_NarrowWidth(t *testing.T) {
-	info := git.RepoInfoResult{
-		Branch:   "hazel/very-long-feature-branch-name/with-lots-of-detail",
-		RepoName: "my-really-long-repository-name",
+	data := statusBarData{
+		info: git.RepoInfoResult{
+			Branch:   "hazel/very-long-feature-branch-name/with-lots-of-detail",
+			RepoName: "my-really-long-repository-name",
+		},
+		pr: git.PRInfoResult{
+			Number: 999,
+			Title:  "Very long PR title that overflows",
+			URL:    "https://github.com/org/repo/pull/999",
+		},
+		mode: FileDiffMode,
 	}
-	pr := git.PRInfoResult{
-		Number: 999,
-		Title:  "Very long PR title that overflows",
-		URL:    "https://github.com/org/repo/pull/999",
-	}
-	// Narrow width forces padding < 0
-	bar := renderStatusBar(20, info, pr, FileDiffMode, false)
+	bar := renderStatusBar(20, data)
 	if bar == "" {
 		t.Error("should still render even when narrow")
 	}
 }
 
 func TestRenderStatusBar_ConfirmNarrow(t *testing.T) {
-	info := git.RepoInfoResult{}
-	bar := renderStatusBar(10, info, git.PRInfoResult{}, FileDiffMode, true)
+	data := statusBarData{confirming: true}
+	bar := renderStatusBar(10, data)
 	if !strings.Contains(bar, "Quit?") {
 		t.Error("confirming bar should show quit prompt even when narrow")
 	}
 }
 
-func TestRenderStatusBar_NoPR(t *testing.T) {
-	info := git.RepoInfoResult{Branch: "main", RepoName: "repo"}
-	// Use a wide bar so "No PR" isn't wrapped
-	bar := renderStatusBar(200, info, git.PRInfoResult{}, FileDiffMode, false)
+func TestRenderStatusBar_WithUpstream(t *testing.T) {
+	data := statusBarData{
+		info: git.RepoInfoResult{
+			Branch:   "feature",
+			Upstream: "origin/feature",
+			RepoName: "repo",
+		},
+		mode: FileDiffMode,
+	}
+	bar := renderStatusBar(120, data)
+	if !strings.Contains(bar, "origin/feature") {
+		t.Error("should show upstream")
+	}
+}
 
-	if !strings.Contains(bar, "No PR") {
-		t.Errorf("should show 'No PR' when no PR exists, got: %q", bar)
+func TestRenderStatusBar_AheadCount(t *testing.T) {
+	data := statusBarData{
+		info: git.RepoInfoResult{
+			Branch:     "feature",
+			RepoName:   "repo",
+			AheadCount: 3,
+		},
+		mode: FileDiffMode,
+	}
+	bar := renderStatusBar(120, data)
+	if !strings.Contains(bar, "↑3") {
+		t.Error("should show ahead count")
+	}
+}
+
+func TestRenderStatusBar_GitStatusSummary(t *testing.T) {
+	data := statusBarData{
+		info:          git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		mode:          FileDiffMode,
+		uncommitCount: 2,
+		commitCount:   5,
+	}
+	bar := renderStatusBar(120, data)
+	if !strings.Contains(bar, "2 uncommitted") {
+		t.Error("should show uncommitted count")
+	}
+	if !strings.Contains(bar, "5 commits") {
+		t.Error("should show commit count")
+	}
+}
+
+func TestRenderStatusBar_DirName(t *testing.T) {
+	data := statusBarData{
+		info: git.RepoInfoResult{
+			Branch:   "feature",
+			RepoName: "repo",
+			DirName:  "worktree-dir",
+		},
+		mode: FileDiffMode,
+	}
+	bar := renderStatusBar(120, data)
+	if !strings.Contains(bar, "worktree-dir") {
+		t.Error("should show dir name when different from repo name")
+	}
+}
+
+func TestRenderStatusBar_DirNameSameAsRepo(t *testing.T) {
+	data := statusBarData{
+		info: git.RepoInfoResult{
+			Branch:   "feature",
+			RepoName: "repo",
+			DirName:  "repo",
+		},
+		mode: FileDiffMode,
+	}
+	bar := renderStatusBar(120, data)
+	// Should NOT show dir name in parens when same as repo
+	if strings.Contains(bar, "(repo)") {
+		t.Error("should not show dir name when same as repo name")
+	}
+}
+
+func TestRenderStatusBar_PRWithDraft(t *testing.T) {
+	data := statusBarData{
+		info: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		pr: git.PRInfoResult{
+			Number:  1,
+			Title:   "WIP",
+			IsDraft: true,
+		},
+		mode: FileDiffMode,
+	}
+	bar := renderStatusBar(120, data)
+	if !strings.Contains(bar, "draft") {
+		t.Error("should show draft indicator")
+	}
+}
+
+func TestRenderCIStatus(t *testing.T) {
+	tests := []struct {
+		name     string
+		ci       git.CIStatusResult
+		contains string
+	}{
+		{"success", git.CIStatusResult{State: "SUCCESS"}, "CI ✓"},
+		{"failure", git.CIStatusResult{State: "FAILURE"}, "CI ✗"},
+		{"pending", git.CIStatusResult{State: "PENDING"}, "CI ⟳"},
+		{"empty", git.CIStatusResult{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderCIStatus(tt.ci)
+			if tt.contains == "" {
+				if result != "" {
+					t.Errorf("expected empty, got %q", result)
+				}
+			} else if !strings.Contains(result, tt.contains) {
+				t.Errorf("expected %q in %q", tt.contains, result)
+			}
+		})
+	}
+}
+
+func TestRenderCIStatus_WithURL(t *testing.T) {
+	ci := git.CIStatusResult{State: "SUCCESS", URL: "https://ci.example.com"}
+	result := renderCIStatus(ci)
+	// Should contain OSC 8 hyperlink
+	if !strings.Contains(result, "\033]8;;") {
+		t.Error("should contain hyperlink escape")
+	}
+}
+
+func TestRenderReviews(t *testing.T) {
+	reviews := []git.PRReview{
+		{Author: "alice", State: "APPROVED"},
+		{Author: "bob", State: "CHANGES_REQUESTED"},
+		{Author: "charlie", State: "COMMENTED"},
+	}
+	result := renderReviews(reviews, "")
+	if !strings.Contains(result, "1✓") {
+		t.Error("should show approved count")
+	}
+	if !strings.Contains(result, "1✗") {
+		t.Error("should show rejected count")
+	}
+}
+
+func TestRenderReviews_Empty(t *testing.T) {
+	result := renderReviews(nil, "")
+	if result != "" {
+		t.Errorf("empty reviews should return empty, got %q", result)
+	}
+}
+
+func TestRenderReviews_DecisionOnly(t *testing.T) {
+	tests := []struct {
+		decision string
+		expected string
+	}{
+		{"APPROVED", "approved"},
+		{"CHANGES_REQUESTED", "changes requested"},
+		{"REVIEW_REQUIRED", "review required"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		result := renderReviews(nil, tt.decision)
+		if result != tt.expected {
+			t.Errorf("decision %q: got %q, want %q", tt.decision, result, tt.expected)
+		}
+	}
+}
+
+func TestRenderStatusBar_WithComments(t *testing.T) {
+	data := statusBarData{
+		info:         git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		pr:           git.PRInfoResult{Number: 1, Title: "test"},
+		mode:         FileDiffMode,
+		commentCount: 5,
+	}
+	bar := renderStatusBar(120, data)
+	if !strings.Contains(bar, "5 comments") {
+		t.Error("should show comment count")
+	}
+}
+
+func TestMakeHyperlink(t *testing.T) {
+	link := makeHyperlink("https://example.com", "click me")
+	if !strings.Contains(link, "\033]8;;https://example.com\033\\") {
+		t.Error("should contain OSC 8 open sequence")
+	}
+	if !strings.Contains(link, "click me") {
+		t.Error("should contain link text")
+	}
+	if !strings.HasSuffix(link, "\033]8;;\033\\") {
+		t.Error("should end with OSC 8 close sequence")
 	}
 }

@@ -8,8 +8,21 @@ import (
 	"github.com/hazeledmands/prwatch/internal/git"
 )
 
-func renderStatusBar(width int, info git.RepoInfoResult, pr git.PRInfoResult, mode Mode, confirming bool) string {
-	if confirming {
+// statusBarData holds all the data needed to render the status bar.
+type statusBarData struct {
+	info          git.RepoInfoResult
+	pr            git.PRInfoResult
+	ciStatus      git.CIStatusResult
+	reviews       []git.PRReview
+	commentCount  int
+	mode          Mode
+	confirming    bool
+	uncommitCount int
+	commitCount   int
+}
+
+func renderStatusBar(width int, data statusBarData) string {
+	if data.confirming {
 		msg := " Quit? Press q/Q to confirm, any other key to cancel"
 		pad := width - lipgloss.Width(msg)
 		if pad > 0 {
@@ -18,25 +31,46 @@ func renderStatusBar(width int, info git.RepoInfoResult, pr git.PRInfoResult, mo
 		return statusBarConfirmStyle.Width(width).Render(msg)
 	}
 
-	// Left: branch and repo info
+	// Line 1: branch info, mode, git status summary
+	line1 := renderLine1(width, data)
+	// Line 2: PR info (if any)
+	line2 := renderLine2(width, data)
+
+	if line2 == "" {
+		return line1
+	}
+	return line1 + "\n" + line2
+}
+
+func renderLine1(width int, data statusBarData) string {
+	info := data.info
+
+	// Branch display
 	var branchDisplay string
 	if info.IsDetachedHead {
 		branchDisplay = fmt.Sprintf("detached @ %s", info.HeadSHA)
 	} else {
 		branchDisplay = info.Branch
 	}
+	if info.Upstream != "" {
+		branchDisplay += " → " + info.Upstream
+	}
 
-	left := fmt.Sprintf(" %s", branchDisplay)
+	// Left: branch @ repo (dir)
+	left := " " + branchDisplay
 	if info.RepoName != "" {
 		left = fmt.Sprintf(" %s @ %s", branchDisplay, info.RepoName)
 	}
+	if info.DirName != "" && info.DirName != info.RepoName {
+		left += fmt.Sprintf(" (%s)", info.DirName)
+	}
 	if info.Worktree != "" {
-		left += " (worktree)"
+		left += " [wt]"
 	}
 
-	// Middle: mode indicator
+	// Mode indicator
 	var modeStr string
-	switch mode {
+	switch data.mode {
 	case FileDiffMode:
 		modeStr = modeFileStyle.Render("[diff]")
 	case FileViewMode:
@@ -45,15 +79,23 @@ func renderStatusBar(width int, info git.RepoInfoResult, pr git.PRInfoResult, mo
 		modeStr = modeCommitStyle.Render("[commits]")
 	}
 
-	// Right: PR info
-	var right string
-	if pr.Number > 0 {
-		right = fmt.Sprintf("PR #%d: %s %s ", pr.Number, pr.Title, pr.URL)
-	} else {
-		right = "No PR "
+	// Right: git status summary
+	var statusParts []string
+	if info.AheadCount > 0 {
+		statusParts = append(statusParts, fmt.Sprintf("↑%d", info.AheadCount))
+	}
+	if data.uncommitCount > 0 {
+		statusParts = append(statusParts, fmt.Sprintf("%d uncommitted", data.uncommitCount))
+	}
+	if data.commitCount > 0 {
+		statusParts = append(statusParts, fmt.Sprintf("%d commits", data.commitCount))
+	}
+	right := strings.Join(statusParts, " · ")
+	if right != "" {
+		right += " "
 	}
 
-	// Calculate padding (subtract 2 for the style's horizontal padding)
+	// Calculate padding
 	contentWidth := width - 2
 	padding := contentWidth - lipgloss.Width(left) - lipgloss.Width(modeStr) - lipgloss.Width(right)
 	if padding < 0 {
@@ -62,15 +104,117 @@ func renderStatusBar(width int, info git.RepoInfoResult, pr git.PRInfoResult, mo
 	leftPad := padding / 2
 	rightPad := padding - leftPad
 
-	bar := left
-	for i := 0; i < leftPad; i++ {
-		bar += " "
-	}
-	bar += modeStr
-	for i := 0; i < rightPad; i++ {
-		bar += " "
-	}
-	bar += right
-
+	bar := left + strings.Repeat(" ", leftPad) + modeStr + strings.Repeat(" ", rightPad) + right
 	return statusBarStyle.Width(width).Render(bar)
+}
+
+func renderLine2(width int, data statusBarData) string {
+	if data.pr.Number == 0 {
+		return statusBarDimStyle.Width(width).Render(" No PR")
+	}
+
+	// PR link with OSC 8 hyperlink
+	prLink := fmt.Sprintf("PR #%d: %s", data.pr.Number, data.pr.Title)
+	if data.pr.URL != "" {
+		prLink = makeHyperlink(data.pr.URL, prLink)
+	}
+
+	var parts []string
+	parts = append(parts, " "+prLink)
+
+	// Draft indicator
+	if data.pr.IsDraft {
+		parts = append(parts, "draft")
+	}
+
+	// CI status
+	ciStr := renderCIStatus(data.ciStatus)
+	if ciStr != "" {
+		parts = append(parts, ciStr)
+	}
+
+	// Reviews
+	reviewStr := renderReviews(data.reviews, data.pr.ReviewDecision)
+	if reviewStr != "" {
+		parts = append(parts, reviewStr)
+	}
+
+	// Comments
+	if data.commentCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d comments", data.commentCount))
+	}
+
+	bar := strings.Join(parts, " · ")
+	return statusBarPRStyle.Width(width).Render(bar)
+}
+
+func renderCIStatus(ci git.CIStatusResult) string {
+	switch ci.State {
+	case "SUCCESS":
+		text := "CI ✓"
+		if ci.URL != "" {
+			text = makeHyperlink(ci.URL, text)
+		}
+		return ciPassStyle.Render(text)
+	case "FAILURE":
+		text := "CI ✗"
+		if ci.URL != "" {
+			text = makeHyperlink(ci.URL, text)
+		}
+		return ciFailStyle.Render(text)
+	case "PENDING":
+		text := "CI ⟳"
+		if ci.URL != "" {
+			text = makeHyperlink(ci.URL, text)
+		}
+		return ciPendingStyle.Render(text)
+	}
+	return ""
+}
+
+func renderReviews(reviews []git.PRReview, decision string) string {
+	if len(reviews) == 0 && decision == "" {
+		return ""
+	}
+
+	var approved, rejected, pending int
+	for _, r := range reviews {
+		switch r.State {
+		case "APPROVED":
+			approved++
+		case "CHANGES_REQUESTED":
+			rejected++
+		default:
+			pending++
+		}
+	}
+
+	var parts []string
+	if approved > 0 {
+		parts = append(parts, fmt.Sprintf("%d✓", approved))
+	}
+	if rejected > 0 {
+		parts = append(parts, fmt.Sprintf("%d✗", rejected))
+	}
+	if pending > 0 {
+		parts = append(parts, fmt.Sprintf("%d pending", pending))
+	}
+
+	if len(parts) == 0 {
+		switch decision {
+		case "APPROVED":
+			return "approved"
+		case "CHANGES_REQUESTED":
+			return "changes requested"
+		case "REVIEW_REQUIRED":
+			return "review required"
+		}
+		return ""
+	}
+	return strings.Join(parts, "/")
+}
+
+// makeHyperlink creates an OSC 8 terminal hyperlink.
+func makeHyperlink(url, text string) string {
+	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
 }

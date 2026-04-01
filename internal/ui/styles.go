@@ -57,4 +57,20 @@ var (
 	// Mode indicator
 	modeFileStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A6E3A1"))
 	modeCommitStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#89DCEB"))
+
+	// Status bar PR line
+	statusBarPRStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#45475A")).
+				Foreground(lipgloss.Color("#CDD6F4")).
+				Padding(0, 1)
+
+	statusBarDimStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#45475A")).
+				Foreground(lipgloss.Color("#888")).
+				Padding(0, 1)
+
+	// CI status
+	ciPassStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
+	ciFailStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
+	ciPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF"))
 )

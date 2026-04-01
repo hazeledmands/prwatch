@@ -43,10 +43,13 @@ func defaultCmdRunner(dir string, name string, args ...string) (string, error) {
 
 type RepoInfoResult struct {
 	Branch         string
+	Upstream       string // e.g. "origin/main"
 	RepoName       string
+	DirName        string // basename of the working directory
 	Worktree       string // empty if not in a worktree
 	HeadSHA        string
 	IsDetachedHead bool
+	AheadCount     int // commits ahead of upstream
 }
 
 type Commit struct {
@@ -55,11 +58,25 @@ type Commit struct {
 }
 
 type PRInfoResult struct {
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	URL     string `json:"url"`
-	State   string `json:"state"`
-	BaseRef string `json:"baseRefName"`
+	Number         int    `json:"number"`
+	Title          string `json:"title"`
+	URL            string `json:"url"`
+	State          string `json:"state"`
+	BaseRef        string `json:"baseRefName"`
+	IsDraft        bool   `json:"isDraft"`
+	ReviewDecision string `json:"reviewDecision"` // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, ""
+	CommentsCount  int    `json:"comments"`
+}
+
+type CIStatusResult struct {
+	State      string // SUCCESS, FAILURE, PENDING, ""
+	Conclusion string // e.g. "success", "failure"
+	URL        string // link to the CI run
+}
+
+type PRReview struct {
+	Author string `json:"author"`
+	State  string `json:"state"` // APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING
 }
 
 func (g *Git) run(args ...string) (string, error) {
@@ -101,12 +118,29 @@ func (g *Git) RepoInfo() (RepoInfoResult, error) {
 
 	headSHA, _ := g.run("rev-parse", "--short", "HEAD")
 
+	// Get upstream tracking branch
+	var upstream string
+	var aheadCount int
+	if branch != "HEAD" {
+		upstream, _ = g.run("rev-parse", "--abbrev-ref", branch+"@{upstream}")
+		if upstream != "" {
+			// Count commits ahead of upstream
+			ahead, err := g.run("rev-list", "--count", upstream+"..HEAD")
+			if err == nil {
+				fmt.Sscanf(ahead, "%d", &aheadCount)
+			}
+		}
+	}
+
 	return RepoInfoResult{
 		Branch:         branch,
+		Upstream:       upstream,
 		RepoName:       repoName,
+		DirName:        filepath.Base(g.dir),
 		Worktree:       worktree,
 		HeadSHA:        headSHA,
 		IsDetachedHead: branch == "HEAD",
+		AheadCount:     aheadCount,
 	}, nil
 }
 
@@ -302,7 +336,7 @@ func (g *Git) FileContent(file string) (string, error) {
 
 // PRInfo fetches PR info via gh CLI. Returns zero-value PRInfoResult if no PR exists.
 func (g *Git) PRInfo() (PRInfoResult, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName")
+	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName,isDraft,reviewDecision")
 	if err != nil {
 		// No PR exists or gh not available
 		return PRInfoResult{}, nil
@@ -312,4 +346,76 @@ func (g *Git) PRInfo() (PRInfoResult, error) {
 		return PRInfoResult{}, nil
 	}
 	return result, nil
+}
+
+// PRChecks fetches CI check status for the current PR.
+func (g *Git) PRChecks() (CIStatusResult, error) {
+	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,conclusion,detailsUrl")
+	if err != nil {
+		return CIStatusResult{}, nil
+	}
+
+	var checks []struct {
+		Name       string `json:"name"`
+		State      string `json:"state"`
+		Conclusion string `json:"conclusion"`
+		URL        string `json:"detailsUrl"`
+	}
+	if err := json.Unmarshal([]byte(out), &checks); err != nil {
+		return CIStatusResult{}, nil
+	}
+
+	// Aggregate: if any failed, overall is FAILURE; if any pending, PENDING; else SUCCESS
+	result := CIStatusResult{State: "SUCCESS"}
+	for _, c := range checks {
+		if c.Conclusion == "failure" || c.Conclusion == "action_required" {
+			result.State = "FAILURE"
+			result.URL = c.URL
+			return result, nil
+		}
+		if c.State == "PENDING" || c.State == "QUEUED" || c.State == "IN_PROGRESS" {
+			result.State = "PENDING"
+			if result.URL == "" {
+				result.URL = c.URL
+			}
+		}
+	}
+	if len(checks) > 0 && result.URL == "" {
+		result.URL = checks[0].URL
+	}
+	return result, nil
+}
+
+// PRReviews fetches review information for the current PR.
+func (g *Git) PRReviews() ([]PRReview, error) {
+	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "reviews", "-q", ".reviews[] | {author: .author.login, state: .state}")
+	if err != nil {
+		return nil, nil
+	}
+
+	// gh outputs NDJSON, one object per line
+	var reviews []PRReview
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var r PRReview
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			continue
+		}
+		reviews = append(reviews, r)
+	}
+	return reviews, nil
+}
+
+// PRCommentCount fetches the number of comments on the current PR.
+func (g *Git) PRCommentCount() (int, error) {
+	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "comments", "-q", ".comments | length")
+	if err != nil {
+		return 0, nil
+	}
+	var count int
+	fmt.Sscanf(strings.TrimSpace(out), "%d", &count)
+	return count, nil
 }

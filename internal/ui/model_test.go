@@ -39,6 +39,9 @@ type mockGit struct {
 
 func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
 func (m *mockGit) PRInfo() (git.PRInfoResult, error)     { return m.prInfo, m.prInfoErr }
+func (m *mockGit) PRChecks() (git.CIStatusResult, error) { return git.CIStatusResult{}, nil }
+func (m *mockGit) PRReviews() ([]git.PRReview, error)    { return nil, nil }
+func (m *mockGit) PRCommentCount() (int, error)          { return 0, nil }
 func (m *mockGit) DetectBase() (string, error)           { return m.base, m.baseErr }
 func (m *mockGit) ChangedFiles(base string) (git.ChangedFilesResult, error) {
 	return m.changedFiles, m.changedErr
