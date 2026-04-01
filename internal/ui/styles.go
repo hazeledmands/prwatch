@@ -73,4 +73,9 @@ var (
 	ciPassStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
 	ciFailStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
 	ciPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF"))
+
+	// Search highlight
+	searchHighlightStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#F9E2AF")).
+				Foreground(lipgloss.Color("#1E1E2E"))
 )

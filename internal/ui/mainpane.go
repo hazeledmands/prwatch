@@ -8,10 +8,12 @@ import (
 )
 
 type mainPane struct {
-	viewport viewport.Model
-	content  string
-	width    int
-	height   int
+	viewport    viewport.Model
+	content     string
+	isDiff      bool // whether content was set via SetContent (diff coloring)
+	searchQuery string
+	width       int
+	height      int
 }
 
 func newMainPane() *mainPane {
@@ -28,11 +30,30 @@ func (m *mainPane) SetSize(w, h int) {
 
 func (m *mainPane) SetContent(content string) {
 	m.content = content
-	m.viewport.SetContent(colorDiff(content))
+	m.isDiff = true
+	m.refreshViewport()
 }
 
 func (m *mainPane) SetPlainContent(content string) {
 	m.content = content
+	m.isDiff = false
+	m.refreshViewport()
+}
+
+// SetSearchQuery updates the search highlighting in the viewport.
+func (m *mainPane) SetSearchQuery(query string) {
+	m.searchQuery = query
+	m.refreshViewport()
+}
+
+func (m *mainPane) refreshViewport() {
+	content := m.content
+	if m.isDiff {
+		content = colorDiff(content)
+	}
+	if m.searchQuery != "" {
+		content = highlightSearch(content, m.searchQuery)
+	}
 	m.viewport.SetContent(content)
 }
 
@@ -87,6 +108,46 @@ func (m *mainPane) FindMatches(query string) []int {
 // ScrollToLine scrolls the viewport to show the given line.
 func (m *mainPane) ScrollToLine(line int) {
 	m.viewport.SetYOffset(line)
+}
+
+// highlightSearch applies a contrasting background to matching text in each line.
+func highlightSearch(content, query string) string {
+	if query == "" {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	q := strings.ToLower(query)
+	for i, line := range lines {
+		stripped := stripANSIForWidth(line)
+		if strings.Contains(strings.ToLower(stripped), q) {
+			lines[i] = highlightMatchInLine(line, query)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// highlightMatchInLine wraps matching substrings with the search highlight style.
+// Works on text that may already contain ANSI escape codes.
+func highlightMatchInLine(line, query string) string {
+	q := strings.ToLower(query)
+	lower := strings.ToLower(line)
+	var result strings.Builder
+	pos := 0
+	for {
+		idx := strings.Index(strings.ToLower(line[pos:]), q)
+		if idx < 0 {
+			result.WriteString(line[pos:])
+			break
+		}
+		result.WriteString(line[pos : pos+idx])
+		matchEnd := pos + idx + len(query)
+		// Find the actual matched text (preserving original case)
+		matchText := line[pos+idx : matchEnd]
+		result.WriteString(searchHighlightStyle.Render(matchText))
+		pos = matchEnd
+	}
+	_ = lower // used in ToLower above
+	return result.String()
 }
 
 // colorDiff applies syntax coloring to unified diff output.

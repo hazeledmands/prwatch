@@ -510,6 +510,7 @@ func (m *Model) handleSearchNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) updateSearchMatches() {
 	m.searchMatches = m.mainPane.FindMatches(m.searchQuery)
 	m.searchMatchIdx = 0
+	m.mainPane.SetSearchQuery(m.searchQuery)
 	if len(m.searchMatches) > 0 {
 		m.mainPane.ScrollToLine(m.searchMatches[0])
 	}
@@ -521,6 +522,7 @@ func (m *Model) clearSearch() {
 	m.searchQuery = ""
 	m.searchMatches = nil
 	m.searchMatchIdx = 0
+	m.mainPane.SetSearchQuery("")
 }
 
 func (m *Model) sidebarPixelWidth() int {
