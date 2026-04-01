@@ -288,6 +288,19 @@ func TestWindowSizeMsg(t *testing.T) {
 	}
 }
 
+func TestUpdate_UnknownMsg(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	// Send an unhandled message type
+	type unknownMsg struct{}
+	result, cmd := m.Update(unknownMsg{})
+	if result == nil {
+		t.Error("should return model")
+	}
+	if cmd != nil {
+		t.Error("should return nil cmd for unknown msg")
+	}
+}
+
 func TestGitDataMsg(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
@@ -830,6 +843,36 @@ func TestHelp_DismissWithQ(t *testing.T) {
 	}
 }
 
+func TestHelp_DismissWithQuestionMark(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+	if !m.showHelp {
+		t.Fatal("? should show help")
+	}
+
+	// Pressing ? again should dismiss
+	result, _ = m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+	if m.showHelp {
+		t.Error("? should dismiss help overlay")
+	}
+}
+
+func TestHelp_DismissWithEsc(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = result.(*Model)
+	if m.showHelp {
+		t.Error("esc should dismiss help overlay")
+	}
+}
+
 func TestSearch_EnterAndExit(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 
@@ -1121,9 +1164,20 @@ func TestUpdateMainContent_EmptySidebarSelection(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 	m.base = "HEAD"
+
+	// FileDiffMode empty sidebar
 	m.mode = FileDiffMode
-	// No items in sidebar
-	m.updateMainContent() // should set empty content
+	m.updateMainContent()
+
+	// FileViewMode empty sidebar
+	m.mode = FileViewMode
+	m.updateMainContent()
+
+	// CommitMode empty commits
+	m.mode = CommitMode
+	m.commits = nil
+	m.updateSidebarItems()
+	m.updateMainContent()
 }
 
 func TestUpdateMainContent_CommitMode_OutOfBounds(t *testing.T) {
