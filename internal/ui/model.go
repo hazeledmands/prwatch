@@ -57,6 +57,7 @@ type GitDataSource interface {
 	FileDiffUncommitted(file string) (string, error)
 	FileContent(file string) (string, error)
 	CommitPatch(sha string) (string, error)
+	AllFiles(includeIgnored bool) ([]string, error)
 }
 
 type Model struct {
@@ -73,6 +74,7 @@ type Model struct {
 	prCommentCount   int
 	committedFiles   []string
 	uncommittedFiles []string
+	allFiles         []string // all files in the repo (for file-view mode)
 	commits          []gitpkg.Commit
 	sidebar          *sidebar
 	mainPane         *mainPane
@@ -81,6 +83,10 @@ type Model struct {
 	confirming       bool
 	lastKeyG         bool // tracks whether last key was 'g' for gg binding
 	showHelp         bool
+	showIgnored      bool // whether to show gitignored files in all-files section
+	sidebarHidden    bool // [f] toggles sidebar visibility
+	wordWrap         bool // [w] toggles word wrapping in main pane
+	lineNumbers      bool // [n] toggles line numbers in file-view mode
 	searching        bool // search input is active
 	searchConfirmed  bool // enter pressed, n/p navigation active
 	searchQuery      string
@@ -99,6 +105,7 @@ type gitDataMsg struct {
 	base             string
 	committedFiles   []string
 	uncommittedFiles []string
+	allFiles         []string
 	commits          []gitpkg.Commit
 	err              error
 }
@@ -120,13 +127,16 @@ func NewModel(dir string, g GitDataSource) *Model {
 		mode = FileViewMode
 	}
 	return &Model{
-		git:        g,
-		dir:        dir,
-		mode:       mode,
-		focus:      SidebarFocus,
-		sidebar:    newSidebar(),
-		mainPane:   newMainPane(),
-		sidebarPct: 30, // default 30% of width
+		git:         g,
+		dir:         dir,
+		mode:        mode,
+		focus:       SidebarFocus,
+		sidebar:     newSidebar(),
+		mainPane:    newMainPane(),
+		sidebarPct:  30, // default 30% of width
+		showIgnored: true,
+		wordWrap:    true,
+		lineNumbers: true,
 	}
 }
 
@@ -177,6 +187,15 @@ func (m *Model) loadPRStatus() tea.Msg {
 	}
 }
 
+type allFilesMsg struct {
+	files []string
+}
+
+func (m *Model) reloadAllFiles() tea.Msg {
+	files, _ := m.git.AllFiles(m.showIgnored)
+	return allFilesMsg{files: files}
+}
+
 func (m *Model) loadGitData() tea.Msg {
 	info, err := m.git.RepoInfo()
 	if err != nil {
@@ -216,6 +235,9 @@ func (m *Model) loadGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
+	// Fetch all files for file-view mode sidebar
+	allFiles, _ := m.git.AllFiles(m.showIgnored)
+
 	return gitDataMsg{
 		repoInfo:         info,
 		prInfo:           prInfo,
@@ -225,6 +247,7 @@ func (m *Model) loadGitData() tea.Msg {
 		base:             base,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
+		allFiles:         allFiles,
 		commits:          commits,
 	}
 }
@@ -250,7 +273,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.base = msg.base
 		m.committedFiles = msg.committedFiles
 		m.uncommittedFiles = msg.uncommittedFiles
+		m.allFiles = msg.allFiles
 		m.commits = msg.commits
+		m.updateSidebarItems()
+		m.updateMainContent()
+		return m, nil
+
+	case allFilesMsg:
+		m.allFiles = msg.files
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
@@ -429,6 +459,28 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.sidebarPct -= 5
 			m.updateLayout()
 		}
+		return m, nil
+
+	case key.Matches(msg, keys.ToggleIgnored):
+		if m.mode == FileViewMode {
+			m.showIgnored = !m.showIgnored
+			return m, m.reloadAllFiles
+		}
+		return m, nil
+
+	case key.Matches(msg, keys.ToggleSidebar):
+		m.sidebarHidden = !m.sidebarHidden
+		m.updateLayout()
+		return m, nil
+
+	case key.Matches(msg, keys.ToggleWrap):
+		m.wordWrap = !m.wordWrap
+		m.mainPane.SetWordWrap(m.wordWrap)
+		return m, nil
+
+	case key.Matches(msg, keys.ToggleLineNums):
+		m.lineNumbers = !m.lineNumbers
+		m.mainPane.SetLineNumbers(m.lineNumbers)
 		return m, nil
 
 	case key.Matches(msg, keys.Enter):
@@ -745,7 +797,7 @@ func (m *Model) isUncommittedFile(file string) bool {
 
 func (m *Model) updateSidebarItems() {
 	switch m.mode {
-	case FileDiffMode, FileViewMode:
+	case FileDiffMode:
 		var items []sidebarItem
 		// Uncommitted files first (dimmed), then separator, then committed
 		for _, f := range m.uncommittedFiles {
@@ -755,6 +807,41 @@ func (m *Model) updateSidebarItems() {
 			items = append(items, sidebarItem{kind: itemSeparator})
 		}
 		for _, f := range m.committedFiles {
+			items = append(items, sidebarItem{label: f, kind: itemNormal})
+		}
+		m.sidebar.SetItems(items)
+
+	case FileViewMode:
+		var items []sidebarItem
+		// Category 1: Uncommitted files (dimmed)
+		for _, f := range m.uncommittedFiles {
+			items = append(items, sidebarItem{label: f, kind: itemDim})
+		}
+		// Category 2: Committed files
+		if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
+			items = append(items, sidebarItem{kind: itemSeparator})
+		}
+		for _, f := range m.committedFiles {
+			items = append(items, sidebarItem{label: f, kind: itemNormal})
+		}
+		// Category 3: All files (excluding those already shown)
+		changedSet := make(map[string]bool)
+		for _, f := range m.uncommittedFiles {
+			changedSet[f] = true
+		}
+		for _, f := range m.committedFiles {
+			changedSet[f] = true
+		}
+		var otherFiles []string
+		for _, f := range m.allFiles {
+			if !changedSet[f] {
+				otherFiles = append(otherFiles, f)
+			}
+		}
+		if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
+			items = append(items, sidebarItem{kind: itemSeparator})
+		}
+		for _, f := range otherFiles {
 			items = append(items, sidebarItem{label: f, kind: itemNormal})
 		}
 		m.sidebar.SetItems(items)
@@ -852,11 +939,17 @@ func (m *Model) updateMainContent() {
 func (m *Model) updateLayout() {
 	statusBarHeight := 2                                // line 1: branch/mode/status, line 2: PR info
 	contentHeight := max(0, m.height-statusBarHeight-2) // borders
-	sidebarWidth := max(0, m.width*m.sidebarPct/100)
-	mainWidth := max(0, m.width-sidebarWidth-4) // borders
 
-	m.sidebar.SetSize(sidebarWidth, contentHeight)
-	m.mainPane.SetSize(mainWidth, contentHeight)
+	if m.sidebarHidden {
+		mainWidth := max(0, m.width-2) // just main pane borders
+		m.sidebar.SetSize(0, contentHeight)
+		m.mainPane.SetSize(mainWidth, contentHeight)
+	} else {
+		sidebarWidth := max(0, m.width*m.sidebarPct/100)
+		mainWidth := max(0, m.width-sidebarWidth-4) // borders
+		m.sidebar.SetSize(sidebarWidth, contentHeight)
+		m.mainPane.SetSize(mainWidth, contentHeight)
+	}
 }
 
 // RenderOnce synchronously loads data, applies the given terminal size,
@@ -905,6 +998,9 @@ func (m *Model) View() tea.View {
 	var result string
 	if m.showHelp {
 		result = bar + "\n" + m.renderHelp()
+	} else if m.sidebarHidden {
+		mainView := m.mainPane.View(m.focus == MainFocus)
+		result = bar + "\n" + mainView
 	} else {
 		sidebarView := m.sidebar.View(m.focus == SidebarFocus)
 		mainView := m.mainPane.View(m.focus == MainFocus)
@@ -990,7 +1086,7 @@ func (m *Model) renderHelp() string {
 		"",
 		"  [space]      Cycle mode (diff -> file -> commit)",
 		"  [d]          File diff mode",
-		"  [f] [v]      File view mode",
+		"  [v]          File view mode",
 		"  [c]          Commit mode",
 		"",
 		"  [h] [left]   Focus sidebar",
@@ -1003,13 +1099,18 @@ func (m *Model) renderHelp() string {
 		"  [gg]         Go to top",
 		"  [G]          Go to bottom",
 		"",
-		"  [+] [=]     Grow sidebar",
+		"  [+] [=]      Grow sidebar",
 		"  [-]          Shrink sidebar",
+		"  [f]          Toggle sidebar visibility",
+		"",
+		"  [w]          Toggle word wrap",
+		"  [n]          Toggle line numbers (file view) / next search result",
+		"  [i]          Toggle gitignored files (file view)",
 		"",
 		"  [enter]      Open file in $EDITOR / switch to main pane",
 		"  [/]          Search (type to match, enter to confirm)",
-		"  [n]          Next search result",
-		"  [p]          Previous search result",
+		"  [n]          Next search result (after search)",
+		"  [p]          Previous search result (after search)",
 		"  [?]          Show this help",
 		"",
 		"  [q] [esc]    Quit (confirm)",

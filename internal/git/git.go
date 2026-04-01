@@ -351,6 +351,56 @@ func (g *Git) FileContent(file string) (string, error) {
 	return string(content), nil
 }
 
+// AllFiles returns all files in the repo (tracked + untracked).
+// If includeIgnored is true, gitignored files are also included.
+// Results are sorted alphabetically.
+func (g *Git) AllFiles(includeIgnored bool) ([]string, error) {
+	fileSet := make(map[string]bool)
+
+	// Tracked files
+	out, err := g.run("ls-files")
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range strings.Split(out, "\n") {
+		f = strings.TrimSpace(f)
+		if f != "" {
+			fileSet[f] = true
+		}
+	}
+
+	// Untracked files (excluding ignored)
+	out, err = g.run("ls-files", "--others", "--exclude-standard")
+	if err == nil {
+		for _, f := range strings.Split(out, "\n") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				fileSet[f] = true
+			}
+		}
+	}
+
+	// Ignored files
+	if includeIgnored {
+		out, err = g.run("ls-files", "--others", "--ignored", "--exclude-standard")
+		if err == nil {
+			for _, f := range strings.Split(out, "\n") {
+				f = strings.TrimSpace(f)
+				if f != "" {
+					fileSet[f] = true
+				}
+			}
+		}
+	}
+
+	var files []string
+	for f := range fileSet {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
 // PRInfo fetches PR info via gh CLI. Returns zero-value PRInfoResult if no PR exists.
 func (g *Git) PRInfo() (PRInfoResult, error) {
 	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName,isDraft,reviewDecision")

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
@@ -14,11 +15,25 @@ type mainPane struct {
 	searchQuery string
 	width       int
 	height      int
+	wordWrap    bool // whether to wrap long lines
+	lineNumbers bool // whether to show line numbers (plain content only)
 }
 
 func newMainPane() *mainPane {
 	vp := viewport.New()
-	return &mainPane{viewport: vp}
+	return &mainPane{viewport: vp, wordWrap: true, lineNumbers: true}
+}
+
+// SetWordWrap enables or disables word wrapping.
+func (m *mainPane) SetWordWrap(on bool) {
+	m.wordWrap = on
+	m.refreshViewport()
+}
+
+// SetLineNumbers enables or disables line numbers for plain content.
+func (m *mainPane) SetLineNumbers(on bool) {
+	m.lineNumbers = on
+	m.refreshViewport()
 }
 
 func (m *mainPane) SetSize(w, h int) {
@@ -50,9 +65,14 @@ func (m *mainPane) refreshViewport() {
 	content := m.content
 	if m.isDiff {
 		content = colorDiff(content)
+	} else if m.lineNumbers {
+		content = addLineNumbers(content)
 	}
 	if m.searchQuery != "" {
 		content = highlightSearch(content, m.searchQuery)
+	}
+	if m.wordWrap && m.width > 0 {
+		content = wrapLines(content, m.width)
 	}
 	m.viewport.SetContent(content)
 }
@@ -148,6 +168,52 @@ func highlightMatchInLine(line, query string) string {
 	}
 	_ = lower // used in ToLower above
 	return result.String()
+}
+
+// addLineNumbers prepends line numbers to each line of content.
+func addLineNumbers(content string) string {
+	lines := strings.Split(content, "\n")
+	width := len(fmt.Sprintf("%d", len(lines)))
+	for i, line := range lines {
+		lines[i] = fmt.Sprintf("%*d  %s", width, i+1, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// wrapLines wraps each line at the given width, respecting ANSI codes.
+// This is a simple character-based wrap (not word-aware).
+func wrapLines(content string, width int) string {
+	if width <= 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	var result []string
+	for _, line := range lines {
+		stripped := stripANSIForWidth(line)
+		if displayWidthOf(stripped) <= width {
+			result = append(result, line)
+			continue
+		}
+		// Simple wrap: break at width boundaries
+		var current strings.Builder
+		w := 0
+		for _, r := range line {
+			current.WriteRune(r)
+			// Don't count ANSI escape characters toward width
+			if r != '\x1b' {
+				w++
+			}
+			if w >= width {
+				result = append(result, current.String())
+				current.Reset()
+				w = 0
+			}
+		}
+		if current.Len() > 0 {
+			result = append(result, current.String())
+		}
+	}
+	return strings.Join(result, "\n")
 }
 
 // colorDiff applies syntax coloring to unified diff output.

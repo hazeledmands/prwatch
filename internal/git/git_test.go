@@ -1042,6 +1042,74 @@ func TestRepoInfo_WithUpstream(t *testing.T) {
 	}
 }
 
+func TestAllFiles(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	// Add an untracked file and a gitignored file
+	writeFile(t, dir, "untracked.go", "package u\n")
+	writeFile(t, dir, ".gitignore", "ignored.txt\n")
+	writeFile(t, dir, "ignored.txt", "secret\n")
+	runGit(t, dir, "add", ".gitignore")
+	runGit(t, dir, "commit", "-m", "add gitignore")
+
+	t.Run("without ignored files", func(t *testing.T) {
+		files, err := g.AllFiles(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Should include tracked files and untracked (non-ignored) files
+		hasIgnored := false
+		for _, f := range files {
+			if f == "ignored.txt" {
+				hasIgnored = true
+			}
+		}
+		if hasIgnored {
+			t.Error("should not include ignored.txt when includeIgnored=false")
+		}
+		// Should include untracked.go
+		hasUntracked := false
+		for _, f := range files {
+			if f == "untracked.go" {
+				hasUntracked = true
+			}
+		}
+		if !hasUntracked {
+			t.Error("should include untracked.go")
+		}
+	})
+
+	t.Run("with ignored files", func(t *testing.T) {
+		files, err := g.AllFiles(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hasIgnored := false
+		for _, f := range files {
+			if f == "ignored.txt" {
+				hasIgnored = true
+			}
+		}
+		if !hasIgnored {
+			t.Error("should include ignored.txt when includeIgnored=true")
+		}
+	})
+
+	t.Run("sorted", func(t *testing.T) {
+		files, err := g.AllFiles(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 1; i < len(files); i++ {
+			if files[i] < files[i-1] {
+				t.Errorf("files not sorted: %v", files)
+				break
+			}
+		}
+	})
+}
+
 func TestPRChecks_ActionRequired(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"deploy","state":"COMPLETED","conclusion":"action_required","detailsUrl":"https://ci.example.com/4"}]`

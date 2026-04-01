@@ -50,6 +50,8 @@ type mockGit struct {
 	patchErr        error
 	allCommits      []git.Commit
 	allCommitsErr   error
+	allFiles        []string
+	allFilesErr     error
 }
 
 func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
@@ -71,6 +73,9 @@ func (m *mockGit) FileDiffUncommitted(file string) (string, error) {
 }
 func (m *mockGit) FileContent(file string) (string, error) { return m.fileContent, m.contentErr }
 func (m *mockGit) CommitPatch(sha string) (string, error)  { return m.commitPatch, m.patchErr }
+func (m *mockGit) AllFiles(includeIgnored bool) ([]string, error) {
+	return m.allFiles, m.allFilesErr
+}
 
 func TestModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", testGit())
@@ -105,22 +110,16 @@ func TestModeSwitching(t *testing.T) {
 		t.Error("after c, mode should be CommitMode")
 	}
 
-	result, _ = m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
+	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 	if m.mode != FileViewMode {
-		t.Error("after f, mode should be FileViewMode")
+		t.Error("after v, mode should be FileViewMode")
 	}
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
 	m = result.(*Model)
 	if m.mode != FileDiffMode {
 		t.Error("after d, mode should be FileDiffMode")
-	}
-
-	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
-	m = result.(*Model)
-	if m.mode != FileViewMode {
-		t.Error("after v, mode should be FileViewMode")
 	}
 }
 
@@ -153,7 +152,7 @@ func TestModeSwitching_RetainsSelectedFile(t *testing.T) {
 	}
 
 	// Switch to file-view mode
-	result, _ := m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 	if m.mode != FileViewMode {
 		t.Fatal("should be in FileViewMode")
@@ -2489,5 +2488,199 @@ func TestSearch_EscClearsSearchState(t *testing.T) {
 	}
 	if m.searchQuery != "" {
 		t.Error("esc should clear search query")
+	}
+}
+
+func TestFileViewMode_ThreeCategories(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed:   []string{"alpha.go", "beta.go"},
+			Uncommitted: []string{"wip.go"},
+		},
+		allFiles:    []string{"alpha.go", "beta.go", "main.go", "readme.md", "wip.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Switch to file-view mode
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	// Sidebar should have: wip.go (dim), separator, alpha.go, beta.go, separator, main.go, readme.md
+	items := m.sidebar.items
+	if len(items) != 7 {
+		t.Fatalf("expected 7 sidebar items, got %d: %v", len(items), items)
+	}
+	if items[0].label != "wip.go" || items[0].kind != itemDim {
+		t.Errorf("item 0: expected dim wip.go, got %v", items[0])
+	}
+	if items[1].kind != itemSeparator {
+		t.Errorf("item 1: expected separator, got %v", items[1])
+	}
+	if items[2].label != "alpha.go" || items[2].kind != itemNormal {
+		t.Errorf("item 2: expected alpha.go, got %v", items[2])
+	}
+	if items[3].label != "beta.go" || items[3].kind != itemNormal {
+		t.Errorf("item 3: expected beta.go, got %v", items[3])
+	}
+	if items[4].kind != itemSeparator {
+		t.Errorf("item 4: expected separator, got %v", items[4])
+	}
+	if items[5].label != "main.go" {
+		t.Errorf("item 5: expected main.go, got %v", items[5])
+	}
+	if items[6].label != "readme.md" {
+		t.Errorf("item 6: expected readme.md, got %v", items[6])
+	}
+}
+
+func TestFileDiffMode_NoAllFilesCategory(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed:   []string{"alpha.go"},
+			Uncommitted: []string{"wip.go"},
+		},
+		allFiles:   []string{"alpha.go", "main.go", "wip.go"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:   "+new",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// In file-diff mode, sidebar should only have changed files (no "all files" category)
+	items := m.sidebar.items
+	if len(items) != 3 { // wip.go, separator, alpha.go
+		t.Fatalf("expected 3 sidebar items in diff mode, got %d: %v", len(items), items)
+	}
+}
+
+func TestToggleSidebar(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	if m.sidebarHidden {
+		t.Error("sidebar should be visible by default")
+	}
+
+	// Press f to hide sidebar
+	result, _ := m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
+	m = result.(*Model)
+	if !m.sidebarHidden {
+		t.Error("sidebar should be hidden after f")
+	}
+
+	// Press f again to show
+	result, _ = m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
+	m = result.(*Model)
+	if m.sidebarHidden {
+		t.Error("sidebar should be visible after second f")
+	}
+}
+
+func TestToggleWordWrap(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	if !m.wordWrap {
+		t.Error("word wrap should be on by default")
+	}
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "w", Code: 'w'})
+	m = result.(*Model)
+	if m.wordWrap {
+		t.Error("word wrap should be off after w")
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Text: "w", Code: 'w'})
+	m = result.(*Model)
+	if !m.wordWrap {
+		t.Error("word wrap should be on after second w")
+	}
+}
+
+func TestToggleLineNumbers(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	if !m.lineNumbers {
+		t.Error("line numbers should be on by default")
+	}
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
+	m = result.(*Model)
+	if m.lineNumbers {
+		t.Error("line numbers should be off after n")
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
+	m = result.(*Model)
+	if !m.lineNumbers {
+		t.Error("line numbers should be on after second n")
+	}
+}
+
+func TestToggleIgnored(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"alpha.go"},
+		},
+		allFiles:    []string{"alpha.go", "main.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	if !m.showIgnored {
+		t.Error("showIgnored should be on by default")
+	}
+
+	// Switch to file-view mode first
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	// Press i to toggle
+	result, _ = m.Update(tea.KeyPressMsg{Text: "i", Code: 'i'})
+	m = result.(*Model)
+	if m.showIgnored {
+		t.Error("showIgnored should be off after i")
+	}
+
+	// i should not work in diff mode
+	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "i", Code: 'i'})
+	m = result.(*Model)
+	if m.showIgnored {
+		t.Error("i in diff mode should not toggle showIgnored")
 	}
 }

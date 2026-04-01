@@ -3,28 +3,32 @@ package ui
 import "charm.land/bubbles/v2/key"
 
 type keyMap struct {
-	QuitConfirm   key.Binding
-	QuitImmediate key.Binding
-	ToggleMode    key.Binding
-	FileDiffMode  key.Binding
-	FileViewMode  key.Binding
-	CommitMode    key.Binding
-	FocusLeft     key.Binding
-	FocusRight    key.Binding
-	FocusToggle   key.Binding
-	Up            key.Binding
-	Down          key.Binding
-	PageUp        key.Binding
-	PageDown      key.Binding
-	Enter         key.Binding
-	GoTop         key.Binding
-	GoBottom      key.Binding
-	Search        key.Binding
-	Help          key.Binding
-	SidebarGrow   key.Binding
-	SidebarShrink key.Binding
-	SearchNext    key.Binding
-	SearchPrev    key.Binding
+	QuitConfirm    key.Binding
+	QuitImmediate  key.Binding
+	ToggleMode     key.Binding
+	FileDiffMode   key.Binding
+	FileViewMode   key.Binding
+	CommitMode     key.Binding
+	FocusLeft      key.Binding
+	FocusRight     key.Binding
+	FocusToggle    key.Binding
+	Up             key.Binding
+	Down           key.Binding
+	PageUp         key.Binding
+	PageDown       key.Binding
+	Enter          key.Binding
+	GoTop          key.Binding
+	GoBottom       key.Binding
+	Search         key.Binding
+	Help           key.Binding
+	SidebarGrow    key.Binding
+	SidebarShrink  key.Binding
+	SearchNext     key.Binding
+	SearchPrev     key.Binding
+	ToggleIgnored  key.Binding
+	ToggleSidebar  key.Binding
+	ToggleWrap     key.Binding
+	ToggleLineNums key.Binding
 }
 
 var keys = keyMap{
@@ -41,7 +45,7 @@ var keys = keyMap{
 		key.WithKeys("d"),
 	),
 	FileViewMode: key.NewBinding(
-		key.WithKeys("f", "v"),
+		key.WithKeys("v"),
 	),
 	CommitMode: key.NewBinding(
 		key.WithKeys("c"),
@@ -93,5 +97,17 @@ var keys = keyMap{
 	),
 	SearchPrev: key.NewBinding(
 		key.WithKeys("p"),
+	),
+	ToggleIgnored: key.NewBinding(
+		key.WithKeys("i"),
+	),
+	ToggleSidebar: key.NewBinding(
+		key.WithKeys("f"),
+	),
+	ToggleWrap: key.NewBinding(
+		key.WithKeys("w"),
+	),
+	ToggleLineNums: key.NewBinding(
+		key.WithKeys("n"),
 	),
 }
