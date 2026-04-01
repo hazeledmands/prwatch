@@ -604,6 +604,20 @@ func TestSidebar_LongLabel_Truncated(t *testing.T) {
 	}
 }
 
+func TestSidebarFocus_UnmatchedKey(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.focus = SidebarFocus
+
+	// Press a key that doesn't match any binding (like 'x')
+	result, cmd := m.Update(tea.KeyPressMsg{Text: "x", Code: 'x'})
+	if result == nil {
+		t.Error("should return model")
+	}
+	if cmd != nil {
+		t.Error("unmatched key in sidebar should produce nil cmd")
+	}
+}
+
 func TestMainPane_ForwardKeys(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
@@ -1286,9 +1300,12 @@ func TestParseHunkNewStart_NoCommaOrSpace(t *testing.T) {
 func TestCurrentLineNumber_VariousDiffPrefixes(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.mode = FileDiffMode
-	m.mainPane.SetSize(80, 24)
-	// Include all diff prefix types for full line coverage
-	m.mainPane.content = "diff --git a/f b/f\nindex abc..def 100644\n--- a/f\n+++ b/f\n@@ -1,5 +1,5 @@\n context\n-old\n+new\n\\ No newline at end of file\n context2"
+	m.mainPane.SetSize(80, 2) // small viewport so we can scroll
+	content := "diff --git a/f b/f\nindex abc..def 100644\n--- a/f\n+++ b/f\n@@ -1,5 +1,5 @@\n context\n-old\n+new\n\\ No newline at end of file\n context2"
+	m.mainPane.SetContent(content)
+	m.mainPane.content = content
+	// Scroll to the end so the loop processes all lines
+	m.mainPane.GoToBottom()
 	line := m.currentLineNumber()
 	if line < 1 {
 		t.Errorf("expected line >= 1, got %d", line)
@@ -1595,6 +1612,46 @@ func TestUpdateMainContent_WithMockGit_UncommittedDiff(t *testing.T) {
 	m.updateMainContent()
 	if !strings.Contains(m.mainPane.content, "new line") {
 		t.Error("should show uncommitted diff")
+	}
+}
+
+func TestUpdateMainContent_WithMockGit_FileViewSuccess(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "test"},
+		base:        "abc",
+		fileContent: "package main\n\nfunc main() {}\n",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.base = "abc"
+	m.updateLayout()
+	m.mode = FileViewMode
+	m.committedFiles = []string{"main.go"}
+	m.updateSidebarItems()
+	m.updateMainContent()
+	if !strings.Contains(m.mainPane.content, "package main") {
+		t.Error("should show file content")
+	}
+}
+
+func TestUpdateMainContent_WithMockGit_CommitPatchSuccess(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "test"},
+		base:        "abc",
+		commitPatch: "commit abc\n\ndiff --git a/f b/f\n+new",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.base = "abc"
+	m.updateLayout()
+	m.mode = CommitMode
+	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
+	m.updateSidebarItems()
+	m.updateMainContent()
+	if !strings.Contains(m.mainPane.content, "commit abc") {
+		t.Error("should show commit patch")
 	}
 }
 
