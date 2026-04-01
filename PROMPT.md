@@ -9,6 +9,21 @@ there should be three modes: a "file-diff" mode, a "file-view" mode, and a "comm
 the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar -- smaller than the "main" pane on the right. the sidebar should display a list (of either files or commits) and the main pane should display content.
 
 the "status bar" should show the name of the branch and the repo and the worktree, as well as details and a link to the github PR (if there is one).
+details in the status bar:
+- current branch, and current upstream
+- name of directory
+- name of git repo
+- current mode
+- current PR (should be a TUI-compatible link)
+- high level overview of "git status":
+  - ahead of upstream by ? commits (? unpushed commits)
+  - number uncommitted files (clicking this should switch to "file diff" mode)
+  - number of commits in branch (clicking this should switch to "commit" mode)
+- high level overview of "github PR status": (check this every minute)
+  - draft mode?
+  - CI status (with link)
+  - review requests and approvals / rejections
+  - number of comments
 
 in the "file-diff" mode, the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
 
