@@ -3,11 +3,13 @@ create a simple TUI, in the vein of lazygit. it is meant to be run in a director
 the UI should show the delta between the merge-base of the current branch and the origin's base branch (like GitHub's three-dot diff). for committed files, diff against HEAD. for uncommitted files, diff against the working tree. the tool should use origin/<base> rather than the local base branch ref to stay consistent with GitHub's view.
 
 the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
+- if the user has interacted with the app, and there is an update, the app should endeavor to keep the current view as stable as possible (so the currently highlighted file should stay highlighted, and scrolled to the same-ish spot, even while the surrounding content changes)
 
-there should be three modes: a "file-diff" mode, a "file-view" mode, and a "commit" mode. [m] should switch between the three modes.
-[d] or [1] should jump to file-diff mode
-[v] or [2] should jump to file-view mode
+there should be three modes: a "file-view" mode, a "file-diff" mode, and a "commit" mode. [m] should switch between the three modes.
+[v] or [1] should jump to file-view mode
+[d] or [2] should jump to file-diff mode
 [c] or [3] should jump to commit mode
+file-view mode should be the default mode we start up to.
 
 the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar -- smaller than the "main" pane on the right. the sidebar should display a list (of either files or commits) and the main pane should display content.
 
@@ -32,12 +34,11 @@ checking against the github server:
 - we should do this often enough to get fresh data, but not so often that we run into rate limits.
 - respond to rate limits appropriately, backing off as needed
 
-in the "file-diff" mode, the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
-
 in the "file-view" mode, the left pane should be a list of all files in the directory, and the right pane should be the full file, that highlights the diff for the current changeset.
 this mode should have a "gutter":
   [n] should toggle on/off line numbers when displaying full files (defaulting to on)
   if there is a diff for the current file, there should be a "diff gutter" that flags new lines (+), removed lines (-), and changed lines (~). if the file being viewed was COMPLETELY removed or is totally new, then the gutter should indicate that too.
+  changed lines should display the changed content inline
   wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line
 any new content (via the diff) should show as "green" in file view mode, and removed content should show as red
 [shift]+[d] should show/hide removed content from the diff, in its own line (defaulting to showing)
@@ -57,6 +58,8 @@ tree view (enabled by default): files should be grouped under directories, and s
   - [t] should toggle this mode on/off
   - files and subdirectories in directories can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter].
   - for uncommitted files and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
+
+in the "file-diff" mode, the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
 
 in "commits" mode:
 the left pane should be a list of commmits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
