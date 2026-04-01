@@ -506,6 +506,128 @@ func TestDetectBase_FallbackToHEAD(t *testing.T) {
 	}
 }
 
+func TestDetectBase_WithOrigin(t *testing.T) {
+	// Create a "bare" origin repo, then clone it so we have origin/main
+	originDir := t.TempDir()
+	cmds := [][]string{
+		{"git", "init", "--initial-branch=main", "--bare"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = originDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup origin %v: %s %v", args, out, err)
+		}
+	}
+
+	// Clone it
+	cloneDir := t.TempDir()
+	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
+	if out, err := cloneCmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %s %v", out, err)
+	}
+
+	// Set up user config
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+
+	// Create initial commit on main
+	writeFile(t, cloneDir, "README.md", "# hello\n")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "initial")
+	runGit(t, cloneDir, "push", "origin", "main")
+
+	// Create feature branch
+	runGit(t, cloneDir, "checkout", "-b", "feature")
+	writeFile(t, cloneDir, "feature.go", "package f\n")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "feature")
+
+	g := git.New(cloneDir)
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base == "" {
+		t.Error("should detect base via origin/main")
+	}
+}
+
+func TestDetectBase_WithOriginMaster(t *testing.T) {
+	// Create a "bare" origin repo with master branch
+	originDir := t.TempDir()
+	cmds := [][]string{
+		{"git", "init", "--initial-branch=master", "--bare"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = originDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("setup origin %v: %s %v", args, out, err)
+		}
+	}
+
+	cloneDir := t.TempDir()
+	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
+	if out, err := cloneCmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %s %v", out, err)
+	}
+
+	runGit(t, cloneDir, "config", "user.email", "test@test.com")
+	runGit(t, cloneDir, "config", "user.name", "Test")
+	writeFile(t, cloneDir, "README.md", "# hello\n")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "initial")
+	runGit(t, cloneDir, "push", "origin", "master")
+
+	runGit(t, cloneDir, "checkout", "-b", "feature")
+	writeFile(t, cloneDir, "feature.go", "package f\n")
+	runGit(t, cloneDir, "add", ".")
+	runGit(t, cloneDir, "commit", "-m", "feature")
+
+	g := git.New(cloneDir)
+	base, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base == "" {
+		t.Error("should detect base via origin/master")
+	}
+}
+
+func TestFileContent_FallbackToHEAD(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	// Delete the file from working tree but it exists in HEAD
+	os.Remove(filepath.Join(dir, "feature.go"))
+
+	content, err := g.FileContent("feature.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, "package feature") {
+		t.Errorf("should fall back to HEAD, got: %q", content)
+	}
+}
+
+func TestCommits_FallbackToRecentHistory(t *testing.T) {
+	// When on the same branch as base (base..HEAD is empty), should show recent commits
+	dir := setupTestRepo(t)
+	runGit(t, dir, "checkout", "main")
+	g := git.New(dir)
+
+	// Use HEAD as base — range HEAD..HEAD is empty
+	sha, _ := g.DetectBase()
+	commits, err := g.Commits(sha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) == 0 {
+		t.Error("should show recent commits as fallback")
+	}
+}
+
 func TestRepoInfo_Worktree(t *testing.T) {
 	dir := setupTestRepo(t)
 	runGit(t, dir, "checkout", "main")
