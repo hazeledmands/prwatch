@@ -34,6 +34,7 @@ type mainPane struct {
 	lineNumbers     bool                   // whether to show line numbers (plain content only)
 	diffAnnotations map[int]diffAnnotation // line number -> annotation (for file-view gutter)
 	showRemoved     bool                   // Shift+D: show removed lines inline
+	xOffset         int                    // horizontal scroll offset (when word wrap is off)
 }
 
 func newMainPane() *mainPane {
@@ -221,7 +222,7 @@ func (m *mainPane) refreshViewport() {
 		if m.wordWrap {
 			content = wrapLinesWithIndent(content, m.width, gutterWidth)
 		} else {
-			content = truncateLines(content, m.width)
+			content = truncateLinesWithOffset(content, m.width, m.xOffset)
 		}
 	}
 	m.viewport.SetContent(content)
@@ -476,27 +477,53 @@ func wrapLinesWithIndent(content string, width, indent int) string {
 	return strings.Join(result, "\n")
 }
 
-// truncateLines cuts each line at the given width, respecting ANSI codes.
-// Lines shorter than width are left as-is.
-func truncateLines(content string, width int) string {
+// ScrollLeft scrolls the viewport left by n columns.
+func (m *mainPane) ScrollLeft(n int) {
+	m.xOffset = max(0, m.xOffset-n)
+	m.refreshViewport()
+}
+
+// ScrollRight scrolls the viewport right by n columns.
+func (m *mainPane) ScrollRight(n int) {
+	m.xOffset += n
+	m.refreshViewport()
+}
+
+// truncateLinesWithOffset applies a horizontal scroll offset, then truncates.
+func truncateLinesWithOffset(content string, width, offset int) string {
 	if width <= 0 {
 		return content
 	}
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
-		lineW := ansiAwareIterate(line, func(r rune, w int) {})
-		if lineW <= width {
-			continue
-		}
+		// Skip offset characters, then take width characters
 		var b strings.Builder
-		w := 0
-		ansiAwareIterate(line, func(r rune, dw int) {
-			if dw > 0 && w+dw > width {
-				return
+		pos := 0
+		taken := 0
+		inEscape := false
+		for _, r := range line {
+			if inEscape {
+				if pos >= offset {
+					b.WriteRune(r) // always emit ANSI in the visible region
+				}
+				if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+					inEscape = false
+				}
+				continue
 			}
-			b.WriteRune(r)
-			w += dw
-		})
+			if r == '\x1b' {
+				if pos >= offset {
+					b.WriteRune(r)
+				}
+				inEscape = true
+				continue
+			}
+			if pos >= offset && taken < width {
+				b.WriteRune(r)
+				taken++
+			}
+			pos++
+		}
 		lines[i] = b.String()
 	}
 	return strings.Join(lines, "\n")

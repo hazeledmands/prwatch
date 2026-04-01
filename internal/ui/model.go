@@ -552,6 +552,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.ToggleWrap):
 		m.wordWrap = !m.wordWrap
+		if m.wordWrap {
+			m.mainPane.xOffset = 0 // reset horizontal scroll when enabling wrap
+		}
 		m.mainPane.SetWordWrap(m.wordWrap)
 		return m, nil
 
@@ -848,7 +851,16 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			m.sidebar.ScrollDown()
 		}
 	} else {
-		// Forward to main pane viewport
+		// Horizontal scrolling (when word wrap is off)
+		if !m.wordWrap && (msg.Button == tea.MouseWheelLeft || msg.Button == tea.MouseWheelRight) {
+			if msg.Button == tea.MouseWheelLeft {
+				m.mainPane.ScrollLeft(4)
+			} else {
+				m.mainPane.ScrollRight(4)
+			}
+			return m, nil
+		}
+		// Vertical scrolling — forward to main pane viewport
 		cmd := m.mainPane.Update(msg)
 		return m, cmd
 	}

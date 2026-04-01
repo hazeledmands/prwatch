@@ -415,3 +415,41 @@ func TestMainPane_WrapDoesNotEnterGutter(t *testing.T) {
 		t.Errorf("continuation line should start with spaces (gutter indent), got %q", stripped[:min(20, len(stripped))])
 	}
 }
+
+func TestMainPane_HorizontalScroll(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(20, 10)
+	mp.SetWordWrap(false)
+
+	// Content with a long line
+	mp.SetPlainContent("short\nabcdefghijklmnopqrstuvwxyz1234567890")
+
+	// Initially xOffset is 0
+	if mp.xOffset != 0 {
+		t.Errorf("expected xOffset 0, got %d", mp.xOffset)
+	}
+
+	// Scroll right
+	mp.ScrollRight(5)
+	if mp.xOffset != 5 {
+		t.Errorf("expected xOffset 5, got %d", mp.xOffset)
+	}
+
+	// After scrolling right, the rendered content should start from offset 5
+	rendered := mp.viewport.View()
+	lines := strings.Split(rendered, "\n")
+	// The long line should now start at position 5
+	if len(lines) > 1 {
+		stripped := stripANSIForWidth(lines[1])
+		// With line numbers on and offset 5, we should see shifted content
+		if strings.Contains(stripped, "abcde") {
+			t.Error("after scrolling right 5, 'abcde' should not be visible")
+		}
+	}
+
+	// Scroll left past 0
+	mp.ScrollLeft(10)
+	if mp.xOffset != 0 {
+		t.Errorf("expected xOffset clamped to 0, got %d", mp.xOffset)
+	}
+}
