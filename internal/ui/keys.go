@@ -77,10 +77,10 @@ var keys = keyMap{
 		key.WithKeys("j", "down"),
 	),
 	PageUp: key.NewBinding(
-		key.WithKeys("pgup"),
+		key.WithKeys("pgup", "shift+space"),
 	),
 	PageDown: key.NewBinding(
-		key.WithKeys("pgdown"),
+		key.WithKeys("pgdown", "space"),
 	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter"),

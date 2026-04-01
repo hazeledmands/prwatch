@@ -109,6 +109,7 @@ type Model struct {
 	dragEndX            int
 	dragEndY            int
 	dragging            bool
+	loading             bool // true until first data load completes
 	err                 error
 }
 
@@ -156,6 +157,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		wordWrap:    true,
 		lineNumbers: true,
 		prInterval:  prRefreshDefault,
+		loading:     g != nil,
 		dragStartX:  -1,
 		dragStartY:  -1,
 	}
@@ -294,6 +296,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case gitDataMsg:
+		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
 			return m, nil
@@ -611,6 +614,26 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Down):
 		if m.focus == SidebarFocus {
 			m.sidebar.SelectNext()
+			m.updateMainContent()
+			return m, nil
+		}
+
+	case key.Matches(msg, keys.PageDown):
+		if m.focus == SidebarFocus {
+			// Page down in sidebar
+			for range m.sidebar.visibleLines() {
+				m.sidebar.SelectNext()
+			}
+			m.updateMainContent()
+			return m, nil
+		}
+
+	case key.Matches(msg, keys.PageUp):
+		if m.focus == SidebarFocus {
+			// Page up in sidebar
+			for range m.sidebar.visibleLines() {
+				m.sidebar.SelectPrev()
+			}
 			m.updateMainContent()
 			return m, nil
 		}
@@ -1386,6 +1409,11 @@ func (m *Model) View() tea.View {
 
 	if m.err != nil {
 		v.SetContent(fmt.Sprintf("Error: %v\nPress q to quit.\n", m.err))
+		return v
+	}
+
+	if m.loading {
+		v.SetContent(padToHeight("loading...", m.width, m.height))
 		return v
 	}
 

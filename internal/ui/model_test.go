@@ -1252,6 +1252,7 @@ func TestSearch_CtrlCCancels(t *testing.T) {
 
 func TestView_WithHelp(t *testing.T) {
 	m := NewModel("/tmp", testGit())
+	m.loading = false
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
@@ -1265,6 +1266,7 @@ func TestView_WithHelp(t *testing.T) {
 
 func TestView_WithSearch(t *testing.T) {
 	m := NewModel("/tmp", testGit())
+	m.loading = false
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
@@ -2389,6 +2391,7 @@ func TestSearch_MatchCountDisplayed(t *testing.T) {
 	// Spec: "the number of matches, and the index of the current match,
 	// should display at the bottom of the screen"
 	m := NewModel("/tmp", testGit())
+	m.loading = false
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
