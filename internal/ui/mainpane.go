@@ -55,6 +55,27 @@ func (m *mainPane) ScrollTop() int {
 	return m.viewport.YOffset()
 }
 
+// GoToTop scrolls the viewport to the very top.
+func (m *mainPane) GoToTop() {
+	m.viewport.GotoTop()
+}
+
+// GoToBottom scrolls the viewport to the very bottom.
+func (m *mainPane) GoToBottom() {
+	m.viewport.GotoBottom()
+}
+
+// SearchAndHighlight scrolls to the first occurrence of query in the visible content.
+func (m *mainPane) SearchAndHighlight(query string) {
+	lines := strings.Split(m.content, "\n")
+	for i, line := range lines {
+		if strings.Contains(strings.ToLower(line), strings.ToLower(query)) {
+			m.viewport.SetYOffset(i)
+			return
+		}
+	}
+}
+
 // colorDiff applies syntax coloring to unified diff output.
 func colorDiff(content string) string {
 	lines := strings.Split(content, "\n")

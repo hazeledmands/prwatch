@@ -77,6 +77,37 @@ func (s *sidebar) SelectPrev() {
 	}
 }
 
+func (s *sidebar) SelectFirst() {
+	for i := 0; i < len(s.items); i++ {
+		if s.items[i].kind != itemSeparator {
+			s.selected = i
+			s.clampOffset()
+			return
+		}
+	}
+}
+
+func (s *sidebar) SelectLast() {
+	for i := len(s.items) - 1; i >= 0; i-- {
+		if s.items[i].kind != itemSeparator {
+			s.selected = i
+			s.clampOffset()
+			return
+		}
+	}
+}
+
+func (s *sidebar) SelectIndex(idx int) {
+	if idx < 0 || idx >= len(s.items) {
+		return
+	}
+	if s.items[idx].kind == itemSeparator {
+		return
+	}
+	s.selected = idx
+	s.clampOffset()
+}
+
 // skipToSelectable moves selection to the nearest selectable item.
 func (s *sidebar) skipToSelectable() {
 	if len(s.items) == 0 {

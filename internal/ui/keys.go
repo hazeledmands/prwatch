@@ -11,11 +11,16 @@ type keyMap struct {
 	CommitMode    key.Binding
 	FocusLeft     key.Binding
 	FocusRight    key.Binding
+	FocusToggle   key.Binding
 	Up            key.Binding
 	Down          key.Binding
 	PageUp        key.Binding
 	PageDown      key.Binding
 	Enter         key.Binding
+	GoTop         key.Binding
+	GoBottom      key.Binding
+	Search        key.Binding
+	Help          key.Binding
 }
 
 var keys = keyMap{
@@ -43,6 +48,9 @@ var keys = keyMap{
 	FocusRight: key.NewBinding(
 		key.WithKeys("l", "right"),
 	),
+	FocusToggle: key.NewBinding(
+		key.WithKeys("tab"),
+	),
 	Up: key.NewBinding(
 		key.WithKeys("k", "up"),
 	),
@@ -57,5 +65,17 @@ var keys = keyMap{
 	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter"),
+	),
+	GoTop: key.NewBinding(
+		key.WithKeys("g"),
+	),
+	GoBottom: key.NewBinding(
+		key.WithKeys("G"),
+	),
+	Search: key.NewBinding(
+		key.WithKeys("/"),
+	),
+	Help: key.NewBinding(
+		key.WithKeys("?"),
 	),
 }

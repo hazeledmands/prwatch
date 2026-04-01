@@ -60,6 +60,73 @@ func TestMainPane_View(t *testing.T) {
 	}
 }
 
+func TestMainPane_GoToTop(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 3)
+
+	var lines []string
+	for i := 0; i < 50; i++ {
+		lines = append(lines, "line")
+	}
+	mp.SetContent(strings.Join(lines, "\n"))
+
+	mp.GoToBottom()
+	mp.GoToTop()
+	if mp.ScrollTop() != 0 {
+		t.Errorf("GoToTop should scroll to 0, got %d", mp.ScrollTop())
+	}
+}
+
+func TestMainPane_GoToBottom(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 3)
+
+	var lines []string
+	for i := 0; i < 50; i++ {
+		lines = append(lines, "line")
+	}
+	mp.SetContent(strings.Join(lines, "\n"))
+
+	mp.GoToBottom()
+	if mp.ScrollTop() == 0 {
+		t.Error("GoToBottom should scroll past 0")
+	}
+}
+
+func TestMainPane_SearchAndHighlight(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 3)
+	mp.SetContent("line1\nline2\ntarget line\nline4\nline5")
+
+	mp.SearchAndHighlight("target")
+	if mp.ScrollTop() != 2 {
+		t.Errorf("search should scroll to line 2, got %d", mp.ScrollTop())
+	}
+}
+
+func TestMainPane_SearchAndHighlight_CaseInsensitive(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 3)
+	mp.SetContent("line1\nline2\nTARGET line\nline4\nline5")
+
+	mp.SearchAndHighlight("target")
+	if mp.ScrollTop() != 2 {
+		t.Errorf("case-insensitive search should find TARGET, got offset %d", mp.ScrollTop())
+	}
+}
+
+func TestMainPane_SearchAndHighlight_NotFound(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 3)
+	mp.SetContent("line1\nline2\nline3")
+
+	mp.SearchAndHighlight("nonexistent")
+	// Should not panic, offset stays at 0
+	if mp.ScrollTop() != 0 {
+		t.Errorf("search miss should not change offset, got %d", mp.ScrollTop())
+	}
+}
+
 func TestColorDiff(t *testing.T) {
 	input := "diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1,3 +1,3 @@\n context\n-old line\n+new line"
 	result := colorDiff(input)

@@ -657,6 +657,334 @@ func TestHandleKey_UpInSidebar(t *testing.T) {
 	}
 }
 
+func TestTabTogglesFocus(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	if m.focus != SidebarFocus {
+		t.Fatal("initial focus should be SidebarFocus")
+	}
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = result.(*Model)
+	if m.focus != MainFocus {
+		t.Error("tab should toggle to MainFocus")
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = result.(*Model)
+	if m.focus != SidebarFocus {
+		t.Error("tab should toggle back to SidebarFocus")
+	}
+}
+
+func TestGG_GoToTop_Sidebar(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.committedFiles = []string{"a.go", "b.go", "c.go"}
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.focus = SidebarFocus
+
+	// Move to last item
+	m.sidebar.SelectLast()
+	if m.sidebar.SelectedIndex() != 2 {
+		t.Fatalf("expected index 2, got %d", m.sidebar.SelectedIndex())
+	}
+
+	// Press g once
+	result, _ := m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
+	m = result.(*Model)
+	if m.sidebar.SelectedIndex() != 2 {
+		t.Error("single g should not move selection")
+	}
+
+	// Press g again (gg)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
+	m = result.(*Model)
+	if m.sidebar.SelectedIndex() != 0 {
+		t.Errorf("gg should go to top, got index %d", m.sidebar.SelectedIndex())
+	}
+}
+
+func TestG_GoToBottom_Sidebar(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.committedFiles = []string{"a.go", "b.go", "c.go"}
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.focus = SidebarFocus
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "G", Code: 'G'})
+	m = result.(*Model)
+	if m.sidebar.SelectedIndex() != 2 {
+		t.Errorf("G should go to last item, got index %d", m.sidebar.SelectedIndex())
+	}
+}
+
+func TestGG_GoToTop_MainPane(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.focus = MainFocus
+	m.mainPane.SetContent("line1\nline2\nline3\nline4\nline5")
+
+	// Press g, then g
+	result, _ := m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
+	m = result.(*Model)
+	if m.mainPane.ScrollTop() != 0 {
+		t.Errorf("gg should scroll to top, got offset %d", m.mainPane.ScrollTop())
+	}
+}
+
+func TestG_GoToBottom_MainPane(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 5
+	m.updateLayout()
+	m.focus = MainFocus
+
+	// Set long content
+	var lines []string
+	for i := 0; i < 100; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	m.mainPane.SetContent(strings.Join(lines, "\n"))
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "G", Code: 'G'})
+	m = result.(*Model)
+	// Should be scrolled down from 0
+	if m.mainPane.ScrollTop() == 0 {
+		t.Error("G should scroll to bottom")
+	}
+}
+
+func TestHelp_ShowAndDismiss(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+	if !m.showHelp {
+		t.Error("? should show help")
+	}
+
+	// Any key should dismiss
+	result, _ = m.Update(tea.KeyPressMsg{Text: "x", Code: 'x'})
+	m = result.(*Model)
+	if m.showHelp {
+		t.Error("any key should dismiss help")
+	}
+}
+
+func TestHelp_DismissWithQ(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+
+	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	m = result.(*Model)
+	if m.showHelp {
+		t.Error("q should dismiss help, not trigger quit confirm")
+	}
+	if m.confirming {
+		t.Error("q in help mode should not trigger quit confirm")
+	}
+}
+
+func TestSearch_EnterAndExit(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	if !m.searching {
+		t.Error("/ should enter search mode")
+	}
+
+	// Type a query
+	result, _ = m.Update(tea.KeyPressMsg{Text: "h", Code: 'h'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "i", Code: 'i'})
+	m = result.(*Model)
+	if m.searchQuery != "hi" {
+		t.Errorf("search query = %q, want 'hi'", m.searchQuery)
+	}
+
+	// Backspace
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = result.(*Model)
+	if m.searchQuery != "h" {
+		t.Errorf("after backspace, query = %q, want 'h'", m.searchQuery)
+	}
+
+	// Enter to execute
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+	if m.searching {
+		t.Error("enter should exit search mode")
+	}
+}
+
+func TestSearch_EscapeCancels(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+
+	result, _ = m.Update(tea.KeyPressMsg{Text: "x", Code: 'x'})
+	m = result.(*Model)
+
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = result.(*Model)
+	if m.searching {
+		t.Error("escape should cancel search")
+	}
+	if m.searchQuery != "" {
+		t.Error("escape should clear query")
+	}
+}
+
+func TestSearch_CtrlCCancels(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+
+	// ctrl+c maps to QuitImmediate, should cancel search not quit
+	result, cmd := m.Update(tea.KeyPressMsg{Text: "Q", Code: 'Q'})
+	m = result.(*Model)
+	if m.searching {
+		t.Error("Q should cancel search")
+	}
+	if cmd != nil {
+		t.Error("should not quit from search mode")
+	}
+}
+
+func TestView_WithHelp(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.showHelp = true
+
+	v := m.View()
+	if !strings.Contains(v.Content, "Keybindings") {
+		t.Error("help view should show keybindings")
+	}
+}
+
+func TestView_WithSearch(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.searching = true
+	m.searchQuery = "test"
+
+	v := m.View()
+	if !strings.Contains(v.Content, "/test_") {
+		t.Error("search bar should be visible")
+	}
+}
+
+func TestMouseClick_Sidebar(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.committedFiles = []string{"a.go", "b.go", "c.go"}
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.focus = MainFocus
+
+	// Click on sidebar area (x=5, y=3 should be in sidebar, item index 1)
+	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 3})
+	m = result.(*Model)
+	if m.focus != SidebarFocus {
+		t.Error("clicking sidebar should focus it")
+	}
+}
+
+func TestMouseClick_MainPane(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.focus = SidebarFocus
+
+	// Click on main pane area (far right)
+	result, _ := m.Update(tea.MouseClickMsg{X: 60, Y: 5})
+	m = result.(*Model)
+	if m.focus != MainFocus {
+		t.Error("clicking main pane should focus it")
+	}
+}
+
+func TestMouseClick_StatusBar(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.focus = SidebarFocus
+
+	// Click status bar (y=0) should do nothing
+	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 0})
+	m = result.(*Model)
+	if m.focus != SidebarFocus {
+		t.Error("clicking status bar should not change focus")
+	}
+}
+
+func TestMouseWheel_Sidebar(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.committedFiles = []string{"a.go", "b.go", "c.go"}
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+
+	// Scroll down in sidebar
+	result, _ := m.Update(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelDown})
+	m = result.(*Model)
+	if m.sidebar.SelectedIndex() != 1 {
+		t.Errorf("scroll down should select next, got %d", m.sidebar.SelectedIndex())
+	}
+
+	// Scroll up
+	result, _ = m.Update(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})
+	m = result.(*Model)
+	if m.sidebar.SelectedIndex() != 0 {
+		t.Errorf("scroll up should select prev, got %d", m.sidebar.SelectedIndex())
+	}
+}
+
+func TestMouseWheel_MainPane(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Scroll in main pane area — just verify no panic
+	result, _ := m.Update(tea.MouseWheelMsg{X: 60, Y: 5, Button: tea.MouseWheelDown})
+	_ = result
+}
+
+func TestView_MouseModeEnabled(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	v := m.View()
+	if v.MouseMode != tea.MouseModeCellMotion {
+		t.Error("view should enable mouse cell motion")
+	}
+}
+
 func TestNonGitMode_BlocksModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", nil)
 

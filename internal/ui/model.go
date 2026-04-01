@@ -45,6 +45,10 @@ type Model struct {
 	mainPane         *mainPane
 	dir              string
 	confirming       bool
+	lastKeyG         bool // tracks whether last key was 'g' for gg binding
+	showHelp         bool
+	searching        bool
+	searchQuery      string
 	err              error
 }
 
@@ -167,12 +171,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+
+	case tea.MouseClickMsg:
+		return m.handleMouseClick(msg)
+
+	case tea.MouseWheelMsg:
+		return m.handleMouseWheel(msg)
 	}
 
 	return m, nil
 }
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Search input mode
+	if m.searching {
+		return m.handleSearchKey(msg)
+	}
+
+	// Help overlay — any key dismisses
+	if m.showHelp {
+		if key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.Help) {
+			m.showHelp = false
+			return m, nil
+		}
+		m.showHelp = false
+		return m, nil
+	}
+
 	// Quit confirmation handling
 	if m.confirming {
 		if key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.QuitImmediate) {
@@ -182,12 +207,34 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle gg (go to top) — second g in sequence
+	if m.lastKeyG && key.Matches(msg, keys.GoTop) {
+		m.lastKeyG = false
+		if m.focus == SidebarFocus {
+			m.sidebar.SelectFirst()
+			m.updateMainContent()
+		} else {
+			m.mainPane.GoToTop()
+		}
+		return m, nil
+	}
+	m.lastKeyG = false
+
 	switch {
 	case key.Matches(msg, keys.QuitImmediate):
 		return m, tea.Quit
 
 	case key.Matches(msg, keys.QuitConfirm):
 		m.confirming = true
+		return m, nil
+
+	case key.Matches(msg, keys.Help):
+		m.showHelp = true
+		return m, nil
+
+	case key.Matches(msg, keys.Search):
+		m.searching = true
+		m.searchQuery = ""
 		return m, nil
 
 	case key.Matches(msg, keys.ToggleMode):
@@ -238,6 +285,28 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.focus = MainFocus
 		return m, nil
 
+	case key.Matches(msg, keys.FocusToggle):
+		if m.focus == SidebarFocus {
+			m.focus = MainFocus
+		} else {
+			m.focus = SidebarFocus
+		}
+		return m, nil
+
+	case key.Matches(msg, keys.GoTop):
+		// First 'g' — wait for second
+		m.lastKeyG = true
+		return m, nil
+
+	case key.Matches(msg, keys.GoBottom):
+		if m.focus == SidebarFocus {
+			m.sidebar.SelectLast()
+			m.updateMainContent()
+		} else {
+			m.mainPane.GoToBottom()
+		}
+		return m, nil
+
 	case key.Matches(msg, keys.Enter):
 		return m.handleEnter()
 
@@ -262,6 +331,87 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	return m, nil
+}
+
+func (m *Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, keys.QuitImmediate):
+		m.searching = false
+		m.searchQuery = ""
+		return m, nil
+	case msg.Code == tea.KeyEscape:
+		m.searching = false
+		m.searchQuery = ""
+		return m, nil
+	case msg.Code == tea.KeyEnter:
+		m.searching = false
+		m.executeSearch()
+		return m, nil
+	case msg.Code == tea.KeyBackspace:
+		if len(m.searchQuery) > 0 {
+			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+		}
+		return m, nil
+	default:
+		if msg.Text != "" {
+			m.searchQuery += msg.Text
+		}
+		return m, nil
+	}
+}
+
+func (m *Model) executeSearch() {
+	if m.searchQuery == "" {
+		return
+	}
+	m.mainPane.SearchAndHighlight(m.searchQuery)
+}
+
+func (m *Model) sidebarPixelWidth() int {
+	// sidebar width + 2 for border
+	return m.sidebar.width + 2
+}
+
+func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	x, y := msg.X, msg.Y
+
+	// Status bar is row 0
+	if y == 0 {
+		return m, nil
+	}
+
+	sidebarW := m.sidebarPixelWidth()
+	if x < sidebarW {
+		// Clicked in sidebar
+		m.focus = SidebarFocus
+		// y=1 is the top border, so content starts at y=2
+		itemIdx := y - 2 + m.sidebar.offset
+		m.sidebar.SelectIndex(itemIdx)
+		m.updateMainContent()
+	} else {
+		m.focus = MainFocus
+	}
+	return m, nil
+}
+
+func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	x := msg.X
+	sidebarW := m.sidebarPixelWidth()
+
+	if x < sidebarW {
+		// Scroll sidebar
+		if msg.Button == tea.MouseWheelUp {
+			m.sidebar.SelectPrev()
+		} else {
+			m.sidebar.SelectNext()
+		}
+		m.updateMainContent()
+	} else {
+		// Forward to main pane viewport
+		cmd := m.mainPane.Update(msg)
+		return m, cmd
+	}
 	return m, nil
 }
 
@@ -468,6 +618,7 @@ func (m *Model) updateLayout() {
 func (m *Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 
 	if m.err != nil {
 		v.SetContent(fmt.Sprintf("Error: %v\nPress q to quit.\n", m.err))
@@ -480,6 +631,48 @@ func (m *Model) View() tea.View {
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, mainView)
 
-	v.SetContent(bar + "\n" + content)
+	result := bar + "\n" + content
+
+	if m.searching {
+		searchBar := fmt.Sprintf("/%s_", m.searchQuery)
+		result += "\n" + searchBar
+	}
+
+	if m.showHelp {
+		result = bar + "\n" + m.renderHelp()
+	}
+
+	v.SetContent(result)
 	return v
+}
+
+func (m *Model) renderHelp() string {
+	help := []string{
+		"Keybindings:",
+		"",
+		"  [space]      Cycle mode (diff -> file -> commit)",
+		"  [d]          File diff mode",
+		"  [f] [v]      File view mode",
+		"  [c]          Commit mode",
+		"",
+		"  [h] [left]   Focus sidebar",
+		"  [l] [right]  Focus main pane",
+		"  [tab]        Toggle focus",
+		"",
+		"  [j] [down]   Move down / scroll down",
+		"  [k] [up]     Move up / scroll up",
+		"  [pgup/pgdn]  Page up / page down",
+		"  [gg]         Go to top",
+		"  [G]          Go to bottom",
+		"",
+		"  [enter]      Open file in $EDITOR / switch to main pane",
+		"  [/]          Search",
+		"  [?]          Show this help",
+		"",
+		"  [q] [esc]    Quit (confirm)",
+		"  [Q] [ctrl-c] Quit immediately",
+		"",
+		"Press any key to dismiss.",
+	}
+	return strings.Join(help, "\n")
 }

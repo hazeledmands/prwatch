@@ -105,6 +105,93 @@ func TestSidebar_SkipsSeparators(t *testing.T) {
 	}
 }
 
+func TestSidebar_SelectFirst(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(items("a", "b", "c"))
+	s.SelectNext()
+	s.SelectNext() // index 2
+
+	s.SelectFirst()
+	if s.SelectedIndex() != 0 {
+		t.Errorf("SelectFirst: got %d, want 0", s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SelectFirst_SkipsSeparator(t *testing.T) {
+	s := newSidebar()
+	s.SetItems([]sidebarItem{
+		{kind: itemSeparator},
+		{label: "a.go", kind: itemNormal},
+		{label: "b.go", kind: itemNormal},
+	})
+	s.SelectNext() // index 2
+
+	s.SelectFirst()
+	if s.SelectedIndex() != 1 {
+		t.Errorf("SelectFirst should skip separator, got %d", s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SelectLast(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(items("a", "b", "c"))
+
+	s.SelectLast()
+	if s.SelectedIndex() != 2 {
+		t.Errorf("SelectLast: got %d, want 2", s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SelectLast_SkipsSeparator(t *testing.T) {
+	s := newSidebar()
+	s.SetItems([]sidebarItem{
+		{label: "a.go", kind: itemNormal},
+		{label: "b.go", kind: itemNormal},
+		{kind: itemSeparator},
+	})
+
+	s.SelectLast()
+	if s.SelectedIndex() != 1 {
+		t.Errorf("SelectLast should skip separator, got %d", s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SelectIndex(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(items("a", "b", "c"))
+
+	s.SelectIndex(2)
+	if s.SelectedIndex() != 2 {
+		t.Errorf("SelectIndex(2): got %d", s.SelectedIndex())
+	}
+
+	// Out of bounds
+	s.SelectIndex(10)
+	if s.SelectedIndex() != 2 {
+		t.Error("out of bounds SelectIndex should not change selection")
+	}
+
+	// Negative
+	s.SelectIndex(-1)
+	if s.SelectedIndex() != 2 {
+		t.Error("negative SelectIndex should not change selection")
+	}
+}
+
+func TestSidebar_SelectIndex_SkipsSeparator(t *testing.T) {
+	s := newSidebar()
+	s.SetItems([]sidebarItem{
+		{label: "a.go", kind: itemNormal},
+		{kind: itemSeparator},
+		{label: "b.go", kind: itemNormal},
+	})
+
+	s.SelectIndex(1) // separator
+	if s.SelectedIndex() != 0 {
+		t.Errorf("selecting separator should not change selection, got %d", s.SelectedIndex())
+	}
+}
+
 func TestSidebar_SetItems_SkipsSeparatorOnClamp(t *testing.T) {
 	s := newSidebar()
 	// If all items are separators, selected should still be 0
