@@ -17,6 +17,42 @@ func testGit() *git.Git {
 	return git.New("/tmp")
 }
 
+// mockGit implements GitDataSource for controlled testing.
+type mockGit struct {
+	repoInfo     git.RepoInfoResult
+	repoInfoErr  error
+	prInfo       git.PRInfoResult
+	prInfoErr    error
+	base         string
+	baseErr      error
+	changedFiles git.ChangedFilesResult
+	changedErr   error
+	commits      []git.Commit
+	commitsErr   error
+	fileDiff     string
+	fileDiffErr  error
+	fileContent  string
+	contentErr   error
+	commitPatch  string
+	patchErr     error
+}
+
+func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
+func (m *mockGit) PRInfo() (git.PRInfoResult, error)     { return m.prInfo, m.prInfoErr }
+func (m *mockGit) DetectBase() (string, error)           { return m.base, m.baseErr }
+func (m *mockGit) ChangedFiles(base string) (git.ChangedFilesResult, error) {
+	return m.changedFiles, m.changedErr
+}
+func (m *mockGit) Commits(base string) ([]git.Commit, error) { return m.commits, m.commitsErr }
+func (m *mockGit) FileDiffCommitted(base, file string) (string, error) {
+	return m.fileDiff, m.fileDiffErr
+}
+func (m *mockGit) FileDiffUncommitted(file string) (string, error) {
+	return m.fileDiff, m.fileDiffErr
+}
+func (m *mockGit) FileContent(file string) (string, error) { return m.fileContent, m.contentErr }
+func (m *mockGit) CommitPatch(sha string) (string, error)  { return m.commitPatch, m.patchErr }
+
 func TestModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 
@@ -1296,6 +1332,156 @@ func TestUpdateMainContent_FileView_WithGitAndError(t *testing.T) {
 	// which will also fail — should show error
 	if !strings.Contains(m.mainPane.content, "Error") {
 		t.Error("should show error for nonexistent file in git mode")
+	}
+}
+
+func TestLoadGitData_DetectBaseError(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "test", RepoName: "repo"},
+		baseErr:  fmt.Errorf("no base"),
+	}
+	m := NewModel("/tmp", mg)
+	cmd := m.Init()
+	msg := cmd()
+	dataMsg := msg.(gitDataMsg)
+	if dataMsg.err == nil {
+		t.Error("expected error from DetectBase")
+	}
+}
+
+func TestLoadGitData_ChangedFilesError(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:   git.RepoInfoResult{Branch: "test", RepoName: "repo"},
+		base:       "abc123",
+		changedErr: fmt.Errorf("changed files error"),
+	}
+	m := NewModel("/tmp", mg)
+	cmd := m.Init()
+	msg := cmd()
+	dataMsg := msg.(gitDataMsg)
+	if dataMsg.err == nil {
+		t.Error("expected error from ChangedFiles")
+	}
+}
+
+func TestLoadGitData_CommitsError(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:   git.RepoInfoResult{Branch: "test", RepoName: "repo"},
+		base:       "abc123",
+		commitsErr: fmt.Errorf("commits error"),
+	}
+	m := NewModel("/tmp", mg)
+	cmd := m.Init()
+	msg := cmd()
+	dataMsg := msg.(gitDataMsg)
+	if dataMsg.err == nil {
+		t.Error("expected error from Commits")
+	}
+}
+
+func TestLoadGitData_Success(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		prInfo:   git.PRInfoResult{Number: 1, Title: "test"},
+		base:     "abc123",
+		changedFiles: git.ChangedFilesResult{
+			Committed:   []string{"a.go"},
+			Uncommitted: []string{"b.go"},
+		},
+		commits: []git.Commit{{SHA: "def", Subject: "commit"}},
+	}
+	m := NewModel("/tmp", mg)
+	cmd := m.Init()
+	msg := cmd()
+	dataMsg := msg.(gitDataMsg)
+	if dataMsg.err != nil {
+		t.Fatal(dataMsg.err)
+	}
+	if dataMsg.repoInfo.Branch != "feature" {
+		t.Error("should have repo info")
+	}
+	if len(dataMsg.committedFiles) != 1 {
+		t.Error("should have committed files")
+	}
+}
+
+func TestUpdateMainContent_WithMockGit_CommitPatchError(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "test"},
+		base:     "abc",
+		patchErr: fmt.Errorf("patch error"),
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.base = "abc"
+	m.updateLayout()
+	m.mode = CommitMode
+	m.commits = []git.Commit{{SHA: "def", Subject: "test"}}
+	m.updateSidebarItems()
+	m.updateMainContent()
+	if !strings.Contains(m.mainPane.content, "Error") {
+		t.Error("should show error for patch failure")
+	}
+}
+
+func TestUpdateMainContent_WithMockGit_FileDiffError(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "test"},
+		base:        "abc",
+		fileDiffErr: fmt.Errorf("diff error"),
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.base = "abc"
+	m.updateLayout()
+	m.mode = FileDiffMode
+	m.committedFiles = []string{"file.go"}
+	m.updateSidebarItems()
+	m.updateMainContent()
+	if !strings.Contains(m.mainPane.content, "Error") {
+		t.Error("should show error for diff failure")
+	}
+}
+
+func TestUpdateMainContent_WithMockGit_FileContentError(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:   git.RepoInfoResult{Branch: "test"},
+		base:       "abc",
+		contentErr: fmt.Errorf("content error"),
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.base = "abc"
+	m.updateLayout()
+	m.mode = FileViewMode
+	m.committedFiles = []string{"file.go"}
+	m.updateSidebarItems()
+	m.updateMainContent()
+	if !strings.Contains(m.mainPane.content, "Error") {
+		t.Error("should show error for content failure")
+	}
+}
+
+func TestUpdateMainContent_WithMockGit_UncommittedDiff(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "test"},
+		base:     "abc",
+		fileDiff: "+new line\n-old line",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.base = "abc"
+	m.updateLayout()
+	m.mode = FileDiffMode
+	m.uncommittedFiles = []string{"wip.go"}
+	m.updateSidebarItems()
+	m.updateMainContent()
+	if !strings.Contains(m.mainPane.content, "new line") {
+		t.Error("should show uncommitted diff")
 	}
 }
 

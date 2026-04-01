@@ -29,8 +29,22 @@ const (
 	MainFocus
 )
 
+// GitDataSource provides the git operations needed by the UI model.
+// Implemented by *git.Git; mockable for testing.
+type GitDataSource interface {
+	RepoInfo() (gitpkg.RepoInfoResult, error)
+	PRInfo() (gitpkg.PRInfoResult, error)
+	DetectBase() (string, error)
+	ChangedFiles(base string) (gitpkg.ChangedFilesResult, error)
+	Commits(base string) ([]gitpkg.Commit, error)
+	FileDiffCommitted(base, file string) (string, error)
+	FileDiffUncommitted(file string) (string, error)
+	FileContent(file string) (string, error)
+	CommitPatch(sha string) (string, error)
+}
+
 type Model struct {
-	git              *gitpkg.Git
+	git              GitDataSource
 	mode             Mode
 	focus            Focus
 	width            int
@@ -65,7 +79,7 @@ type gitDataMsg struct {
 
 type RefreshMsg struct{}
 
-func NewModel(dir string, g *gitpkg.Git) *Model {
+func NewModel(dir string, g GitDataSource) *Model {
 	mode := FileDiffMode
 	if g == nil {
 		mode = FileViewMode
