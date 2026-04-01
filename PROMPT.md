@@ -47,7 +47,7 @@ if the main pane has focus, pressing [enter] should do a contextually-relevant t
 
 when running in a non-git directory, file-view mode should be the only mode.
 
-running in a branch without a base branch (i.e. directly in main, or a detached head): file modes should show uncommitted changes, and commit mode should just list the commit history (limit 10 for now)
+running in a branch without a base branch (i.e. directly in main, or a detached head): file modes should show uncommitted changes, and commit mode should list the full commit history.
 
 detached HEAD works normally, status bar shows `detached @ <short sha>` instead of a branch name.
 

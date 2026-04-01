@@ -457,20 +457,45 @@ func (m *Model) sidebarPixelWidth() int {
 	return m.sidebar.width + 2
 }
 
+func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
+	if y == 0 && m.git != nil {
+		// Line 0: check if click is on the right side (git status summary area)
+		// Right third of the bar roughly corresponds to the status summary
+		rightThird := m.width * 2 / 3
+		if x >= rightThird {
+			// Determine if clicking "uncommitted" or "commits" based on position
+			// Simple heuristic: uncommitted info comes before commits info
+			midRight := rightThird + (m.width-rightThird)/2
+			if x < midRight && len(m.uncommittedFiles) > 0 {
+				m.mode = FileDiffMode
+				m.updateSidebarItems()
+				m.updateMainContent()
+			} else if len(m.commits) > 0 {
+				m.mode = CommitMode
+				m.updateSidebarItems()
+				m.updateMainContent()
+			}
+		}
+	}
+	return m, nil
+}
+
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	x, y := msg.X, msg.Y
 
-	// Status bar is row 0
-	if y == 0 {
-		return m, nil
+	// Status bar is rows 0-1
+	if y <= 1 {
+		return m.handleStatusBarClick(x, y)
 	}
 
+	// Adjust y for the 2-line status bar
+	contentY := y - 2
 	sidebarW := m.sidebarPixelWidth()
 	if x < sidebarW {
 		// Clicked in sidebar
 		m.focus = SidebarFocus
-		// y=1 is the top border, so content starts at y=2
-		itemIdx := y - 2 + m.sidebar.offset
+		// Content starts after status bar (2 lines) + top border (1 line) = row 3
+		itemIdx := contentY - 1 + m.sidebar.offset
 		m.sidebar.SelectIndex(itemIdx)
 		m.updateMainContent()
 	} else {

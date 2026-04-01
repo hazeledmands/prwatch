@@ -1124,18 +1124,88 @@ func TestMouseClick_MainPane(t *testing.T) {
 	}
 }
 
-func TestMouseClick_StatusBar(t *testing.T) {
+func TestMouseClick_StatusBar_Left(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
 	m.focus = SidebarFocus
+	m.mode = FileDiffMode
 
-	// Click status bar (y=0) should do nothing
+	// Click left side of status bar (y=0) should do nothing
 	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 0})
 	m = result.(*Model)
 	if m.focus != SidebarFocus {
 		t.Error("clicking status bar should not change focus")
+	}
+	if m.mode != FileDiffMode {
+		t.Error("clicking left side should not change mode")
+	}
+}
+
+func TestMouseClick_StatusBar_UncommittedArea(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 120
+	m.height = 24
+	m.updateLayout()
+	m.mode = CommitMode
+	m.uncommittedFiles = []string{"file.go"}
+	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
+	m.updateSidebarItems()
+
+	// Click right side of status bar (uncommitted area) — roughly 2/3 to midpoint
+	rightThird := m.width * 2 / 3
+	result, _ := m.Update(tea.MouseClickMsg{X: rightThird + 5, Y: 0})
+	m = result.(*Model)
+	if m.mode != FileDiffMode {
+		t.Errorf("clicking uncommitted area should switch to FileDiffMode, got %d", m.mode)
+	}
+}
+
+func TestMouseClick_StatusBar_CommitsArea(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 120
+	m.height = 24
+	m.updateLayout()
+	m.mode = FileDiffMode
+	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
+	m.updateSidebarItems()
+
+	// Click far right side of status bar (commits area)
+	result, _ := m.Update(tea.MouseClickMsg{X: m.width - 5, Y: 0})
+	m = result.(*Model)
+	if m.mode != CommitMode {
+		t.Errorf("clicking commits area should switch to CommitMode, got %d", m.mode)
+	}
+}
+
+func TestMouseClick_StatusBar_Line2(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mode = FileDiffMode
+
+	// Click on line 2 (y=1, PR info line) — should not change mode
+	result, _ := m.Update(tea.MouseClickMsg{X: 40, Y: 1})
+	m = result.(*Model)
+	if m.mode != FileDiffMode {
+		t.Error("clicking PR info line should not change mode")
+	}
+}
+
+func TestMouseClick_StatusBar_NonGit(t *testing.T) {
+	m := NewModel("/tmp", nil)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mode = FileViewMode
+
+	// Click on status bar in non-git mode — should not change mode
+	result, _ := m.Update(tea.MouseClickMsg{X: 70, Y: 0})
+	m = result.(*Model)
+	if m.mode != FileViewMode {
+		t.Error("non-git status bar click should not change mode")
 	}
 }
 
