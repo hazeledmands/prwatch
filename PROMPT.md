@@ -5,6 +5,9 @@ the UI should show the delta between the merge-base of the current branch and th
 the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
 
 there should be three modes: a "file-diff" mode, a "file-view" mode, and a "commit" mode. the [space bar] should switch between the three modes.
+[d] or [1] should jump to file-diff mode
+[v] or [2] should jump to file-view mode
+[c] or [3] should jump to commit mode
 
 the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar -- smaller than the "main" pane on the right. the sidebar should display a list (of either files or commits) and the main pane should display content.
 
@@ -99,7 +102,7 @@ mouse behavior:
 help mode:
 [?] should open a "help" page which should show all the keybindings,
 help should goe away when you hit [esc] or [q]
-[/] within help should open a search that applies only to the content in the help mode.
+[/] within help should open a search that applies only to the content in the help mode. this search should work the same way as search in the regular view -- pressing enter should go into a "search" mode where [n] and [p] switch between highlighted results
 help should be scrollable by mouse.
 
 other keybindings:
