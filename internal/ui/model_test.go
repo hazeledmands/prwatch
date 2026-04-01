@@ -573,6 +573,74 @@ func TestRefreshMsg_Git(t *testing.T) {
 	}
 }
 
+func TestPRRefreshMsg(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	msg := prRefreshMsg{
+		prInfo:       git.PRInfoResult{Number: 10, Title: "test"},
+		ciStatus:     git.CIStatusResult{State: "SUCCESS"},
+		reviews:      []git.PRReview{{Author: "alice", State: "APPROVED"}},
+		commentCount: 3,
+	}
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	if m.prInfo.Number != 10 {
+		t.Error("should update PR info")
+	}
+	if m.ciStatus.State != "SUCCESS" {
+		t.Error("should update CI status")
+	}
+	if len(m.prReviews) != 1 {
+		t.Error("should update reviews")
+	}
+	if m.prCommentCount != 3 {
+		t.Error("should update comment count")
+	}
+}
+
+func TestPRTickMsg_Git(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, cmd := m.Update(prTickMsg{})
+	m = result.(*Model)
+	if cmd == nil {
+		t.Error("prTickMsg should produce commands (loadPRStatus + schedulePRTick)")
+	}
+}
+
+func TestLoadPRStatus(t *testing.T) {
+	mg := &mockGit{
+		prInfo: git.PRInfoResult{Number: 5, Title: "test PR"},
+	}
+	m := NewModel("/tmp", mg)
+	msg := m.loadPRStatus()
+	prMsg := msg.(prRefreshMsg)
+	if prMsg.prInfo.Number != 5 {
+		t.Errorf("expected PR #5, got #%d", prMsg.prInfo.Number)
+	}
+}
+
+func TestLoadPRStatus_NoPR(t *testing.T) {
+	mg := &mockGit{}
+	m := NewModel("/tmp", mg)
+	msg := m.loadPRStatus()
+	prMsg := msg.(prRefreshMsg)
+	if prMsg.prInfo.Number != 0 {
+		t.Error("expected no PR")
+	}
+}
+
+func TestPRTickMsg_NonGit(t *testing.T) {
+	m := NewModel("/tmp", nil)
+
+	result, cmd := m.Update(prTickMsg{})
+	m = result.(*Model)
+	if cmd == nil {
+		t.Error("prTickMsg in non-git should still schedule next tick")
+	}
+}
+
 func TestSidebar_ScrollOffset(t *testing.T) {
 	s := newSidebar()
 	s.SetSize(20, 3) // only 3 visible lines

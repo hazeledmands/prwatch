@@ -336,6 +336,43 @@ func TestRenderStatusBar_WithComments(t *testing.T) {
 	}
 }
 
+func TestRenderStatusBar_FullPRDetails(t *testing.T) {
+	data := statusBarData{
+		info: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		pr: git.PRInfoResult{
+			Number:         42,
+			Title:          "My PR",
+			URL:            "https://github.com/org/repo/pull/42",
+			IsDraft:        true,
+			ReviewDecision: "CHANGES_REQUESTED",
+		},
+		ciStatus:     git.CIStatusResult{State: "FAILURE", URL: "https://ci.example.com"},
+		reviews:      []git.PRReview{{Author: "alice", State: "APPROVED"}, {Author: "bob", State: "CHANGES_REQUESTED"}},
+		commentCount: 7,
+		mode:         FileDiffMode,
+	}
+	bar := renderStatusBar(200, data)
+	if !strings.Contains(bar, "draft") {
+		t.Error("should show draft")
+	}
+	if !strings.Contains(bar, "CI") {
+		t.Error("should show CI status")
+	}
+	if !strings.Contains(bar, "7 comments") {
+		t.Error("should show comments")
+	}
+}
+
+func TestRenderLine2_PRWithNoURL(t *testing.T) {
+	data := statusBarData{
+		pr: git.PRInfoResult{Number: 1, Title: "no url"},
+	}
+	result := renderLine2(80, data)
+	if !strings.Contains(result, "PR #1") {
+		t.Error("should show PR without URL")
+	}
+}
+
 func TestMakeHyperlink(t *testing.T) {
 	link := makeHyperlink("https://example.com", "click me")
 	if !strings.Contains(link, "\033]8;;https://example.com\033\\") {
