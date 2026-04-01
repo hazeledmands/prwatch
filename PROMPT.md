@@ -38,4 +38,6 @@ detached HEAD works normally, status bar shows `detached @ <short sha>` instead 
 
 DEVELOPING:
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress.
+- use test-driven development.
+- aim for 99% code coverage.
 - make small, iterative commits to keep your work trackable
