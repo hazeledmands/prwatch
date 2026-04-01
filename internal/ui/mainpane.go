@@ -67,22 +67,18 @@ func (m *mainPane) GoToBottom() {
 	m.viewport.GotoBottom()
 }
 
-// SearchAndHighlight searches for query starting from the current viewport position.
-// Searches forward from the current scroll position, wrapping around if needed.
+// SearchAndHighlight searches for query within the currently visible viewport.
+// Per spec: "[/] to open a search (only searches what is currently visible)"
 func (m *mainPane) SearchAndHighlight(query string) {
 	lines := strings.Split(m.content, "\n")
 	start := m.viewport.YOffset()
+	end := start + m.height
+	if end > len(lines) {
+		end = len(lines)
+	}
 	q := strings.ToLower(query)
 
-	// Search forward from current position
-	for i := start; i < len(lines); i++ {
-		if strings.Contains(strings.ToLower(lines[i]), q) {
-			m.viewport.SetYOffset(i)
-			return
-		}
-	}
-	// Wrap around from the beginning
-	for i := 0; i < start; i++ {
+	for i := start; i < end; i++ {
 		if strings.Contains(strings.ToLower(lines[i]), q) {
 			m.viewport.SetYOffset(i)
 			return

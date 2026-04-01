@@ -1593,8 +1593,10 @@ func TestModeSwitching_RetainsFileSelection(t *testing.T) {
 func TestSearch_ExecutesOnContent(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
-	m.height = 5
+	m.height = 10 // small viewport so content exceeds it and scrolling works
 	m.updateLayout()
+	// Content must be longer than viewport height for scrolling to work.
+	// With height=10, contentHeight=10-4=6, so we need >6 lines.
 	m.mainPane.SetContent("line1\nline2\ntarget line\nline4\nline5\nline6\nline7\nline8\nline9\nline10")
 
 	// Enter search, type "target", press enter

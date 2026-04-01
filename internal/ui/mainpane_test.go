@@ -115,17 +115,20 @@ func TestMainPane_SearchAndHighlight_CaseInsensitive(t *testing.T) {
 	}
 }
 
-func TestMainPane_SearchAndHighlight_WrapAround(t *testing.T) {
+func TestMainPane_SearchAndHighlight_NoWrapAround(t *testing.T) {
+	// Search only searches visible content, so it should NOT wrap around
 	mp := newMainPane()
 	mp.SetSize(80, 3)
-	mp.SetContent("target line\nline2\nline3\nline4\nline5")
+	// Need enough content for scrolling: viewport=3, so 6+ lines needed
+	mp.SetContent("target line\nline2\nline3\nline4\nline5\nline6\nline7\nline8")
 
-	// Scroll past the target
-	mp.viewport.SetYOffset(3)
+	// Scroll past the target — target at line 0 is no longer visible (showing lines 4-6)
+	mp.viewport.SetYOffset(4)
 
 	mp.SearchAndHighlight("target")
-	if mp.ScrollTop() != 0 {
-		t.Errorf("wrap-around search should find target at 0, got %d", mp.ScrollTop())
+	// Should stay at offset 4 since "target" is at line 0, not in visible range (4-6)
+	if mp.ScrollTop() != 4 {
+		t.Errorf("search should not wrap around, expected offset 4, got %d", mp.ScrollTop())
 	}
 }
 
@@ -146,6 +149,34 @@ func TestMainPane_SearchAndHighlight_NotFound(t *testing.T) {
 	// Should not panic, offset stays at 0
 	if mp.ScrollTop() != 0 {
 		t.Errorf("search miss should not change offset, got %d", mp.ScrollTop())
+	}
+}
+
+func TestMainPane_SearchOnlySearchesVisible(t *testing.T) {
+	// Spec: "[/] to open a search (only searches what is currently visible)"
+	mp := newMainPane()
+	mp.SetSize(80, 3) // viewport shows 3 lines at a time
+	mp.SetContent("line1\nline2\nline3\ntarget_hidden\nline5\nline6\nline7")
+
+	// Viewport starts at 0, showing lines 0-2. "target_hidden" is at line 3, NOT visible.
+	mp.SearchAndHighlight("target_hidden")
+
+	// Search should NOT find it because it's not in the visible viewport
+	if mp.ScrollTop() != 0 {
+		t.Errorf("search should not find non-visible content, but scrolled to %d", mp.ScrollTop())
+	}
+}
+
+func TestMainPane_SearchFindsVisibleContent(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 5) // viewport shows 5 lines
+	mp.SetContent("line1\nline2\ntarget_visible\nline4\nline5\nline6\nline7")
+
+	// "target_visible" is at line 2, which IS visible (viewport shows lines 0-4)
+	mp.SearchAndHighlight("target_visible")
+
+	if mp.ScrollTop() != 2 {
+		t.Errorf("search should scroll to visible target at line 2, got %d", mp.ScrollTop())
 	}
 }
 
