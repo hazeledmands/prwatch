@@ -47,7 +47,9 @@ func (m *mainPane) View(focused bool) string {
 	if focused {
 		style = mainPaneFocusedStyle
 	}
-	return style.Width(m.width).Height(m.height).Render(m.viewport.View())
+	// lipgloss v2: Width/Height set the outer dimensions (includes borders).
+	// Add 2 for border characters on each axis.
+	return style.Width(m.width + 2).Height(m.height + 2).Render(m.viewport.View())
 }
 
 // ScrollTop returns the line number at the top of the viewport.

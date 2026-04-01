@@ -47,6 +47,7 @@ type GitDataSource interface {
 	DetectBase() (string, error)
 	ChangedFiles(base string) (gitpkg.ChangedFilesResult, error)
 	Commits(base string) ([]gitpkg.Commit, error)
+	AllCommits() ([]gitpkg.Commit, error)
 	FileDiffCommitted(base, file string) (string, error)
 	FileDiffUncommitted(file string) (string, error)
 	FileContent(file string) (string, error)
@@ -196,7 +197,13 @@ func (m *Model) loadGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
-	commits, err := m.git.Commits(base)
+	// Spec: on the base branch or detached HEAD, show full commit history
+	var commits []gitpkg.Commit
+	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
+		commits, err = m.git.AllCommits()
+	} else {
+		commits, err = m.git.Commits(base)
+	}
 	if err != nil {
 		return gitDataMsg{err: err}
 	}
@@ -529,13 +536,12 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	sidebarW := m.sidebarPixelWidth()
 
 	if x < sidebarW {
-		// Scroll sidebar
+		// Scroll sidebar view without changing selection
 		if msg.Button == tea.MouseWheelUp {
-			m.sidebar.SelectPrev()
+			m.sidebar.ScrollUp()
 		} else {
-			m.sidebar.SelectNext()
+			m.sidebar.ScrollDown()
 		}
-		m.updateMainContent()
 	} else {
 		// Forward to main pane viewport
 		cmd := m.mainPane.Update(msg)

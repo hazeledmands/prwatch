@@ -283,6 +283,15 @@ func (g *Git) FileDiffUncommitted(file string) (string, error) {
 
 // Commits returns the list of commits between base and HEAD, newest first.
 // If no commits exist in the range (e.g. on main), falls back to last 10 commits.
+// AllCommits returns the full commit history of HEAD.
+func (g *Git) AllCommits() ([]Commit, error) {
+	out, err := g.run("log", "--format=%H %s", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	return parseCommitLog(out), nil
+}
+
 func (g *Git) Commits(base string) ([]Commit, error) {
 	out, err := g.run("log", "--format=%H %s", base+"..HEAD")
 	if err != nil {

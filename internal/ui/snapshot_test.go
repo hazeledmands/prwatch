@@ -78,6 +78,10 @@ func standardMock() *mockGit {
 			{SHA: "abc1234", Subject: "Add auth middleware"},
 			{SHA: "def5678", Subject: "Update config parsing"},
 		},
+		allCommits: []git.Commit{
+			{SHA: "abc1234", Subject: "Add auth middleware"},
+			{SHA: "def5678", Subject: "Update config parsing"},
+		},
 		fileDiff:    "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,4 @@\n # My App\n+Authentication docs\n",
 		fileContent: "# My App\nAuthentication docs\n",
 		commitPatch: "commit abc1234\nAuthor: test\n\n    Add auth middleware\n\ndiff --git a/auth.go b/auth.go\n+++ b/auth.go\n+package auth\n",

@@ -108,6 +108,24 @@ func (s *sidebar) SelectIndex(idx int) {
 	s.clampOffset()
 }
 
+// ScrollUp scrolls the sidebar view up by one line without changing selection.
+func (s *sidebar) ScrollUp() {
+	if s.offset > 0 {
+		s.offset--
+	}
+}
+
+// ScrollDown scrolls the sidebar view down by one line without changing selection.
+func (s *sidebar) ScrollDown() {
+	maxOffset := len(s.items) - s.visibleLines()
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if s.offset < maxOffset {
+		s.offset++
+	}
+}
+
 // skipToSelectable moves selection to the nearest selectable item.
 func (s *sidebar) skipToSelectable() {
 	if len(s.items) == 0 {
@@ -216,5 +234,7 @@ func (s *sidebar) View(focused bool) string {
 		lines++
 	}
 
-	return style.Width(s.width).Render(content)
+	// lipgloss v2: Width sets the outer dimension (includes borders).
+	// Add 2 for the left+right border characters.
+	return style.Width(s.width + 2).Render(content)
 }

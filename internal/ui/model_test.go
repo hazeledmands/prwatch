@@ -48,6 +48,8 @@ type mockGit struct {
 	contentErr      error
 	commitPatch     string
 	patchErr        error
+	allCommits      []git.Commit
+	allCommitsErr   error
 }
 
 func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
@@ -60,6 +62,7 @@ func (m *mockGit) ChangedFiles(base string) (git.ChangedFilesResult, error) {
 	return m.changedFiles, m.changedErr
 }
 func (m *mockGit) Commits(base string) ([]git.Commit, error) { return m.commits, m.commitsErr }
+func (m *mockGit) AllCommits() ([]git.Commit, error)         { return m.allCommits, m.allCommitsErr }
 func (m *mockGit) FileDiffCommitted(base, file string) (string, error) {
 	return m.fileDiff, m.fileDiffErr
 }
@@ -1319,18 +1322,18 @@ func TestMouseWheel_Sidebar(t *testing.T) {
 	m.mode = FileDiffMode
 	m.updateSidebarItems()
 
-	// Scroll down in sidebar
+	// Scroll down in sidebar — should scroll view, NOT change selection
 	result, _ := m.Update(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelDown})
 	m = result.(*Model)
-	if m.sidebar.SelectedIndex() != 1 {
-		t.Errorf("scroll down should select next, got %d", m.sidebar.SelectedIndex())
+	if m.sidebar.SelectedIndex() != 0 {
+		t.Errorf("scroll down should not change selection, got %d", m.sidebar.SelectedIndex())
 	}
 
-	// Scroll up
+	// Scroll up — selection should remain unchanged
 	result, _ = m.Update(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})
 	m = result.(*Model)
 	if m.sidebar.SelectedIndex() != 0 {
-		t.Errorf("scroll up should select prev, got %d", m.sidebar.SelectedIndex())
+		t.Errorf("scroll up should not change selection, got %d", m.sidebar.SelectedIndex())
 	}
 }
 
@@ -1989,5 +1992,178 @@ func TestNonGitMode_BlocksModeSwitching(t *testing.T) {
 	m = result.(*Model)
 	if m.mode != FileViewMode {
 		t.Error("f should keep FileViewMode in non-git")
+	}
+}
+
+// === Regression tests for bug reports ===
+
+func TestBug_CommitsTruncatedOnBaseBranch(t *testing.T) {
+	// Bug: when on main with 1 unpushed commit, commit mode shows only 1 commit
+	// instead of full history. Spec: "running in a branch without a base branch
+	// (i.e. directly in main): commit mode should list the full commit history."
+	allCommits := []git.Commit{
+		{SHA: "aaa0001", Subject: "latest"},
+		{SHA: "aaa0002", Subject: "second"},
+		{SHA: "aaa0003", Subject: "initial"},
+	}
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:     "main",
+			Upstream:   "origin/main",
+			RepoName:   "repo",
+			AheadCount: 1,
+		},
+		base:         "abc123",
+		commits:      allCommits[:1], // Commits(base) returns only unpushed
+		changedFiles: git.ChangedFilesResult{},
+		allCommits:   allCommits, // AllCommits() returns full history
+	}
+
+	m := NewModel("/tmp", mg)
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	if len(m.commits) != 3 {
+		t.Errorf("on main branch, expected full history (3 commits), got %d", len(m.commits))
+	}
+}
+
+func TestBug_CommitsTruncatedOnDetachedHead(t *testing.T) {
+	allCommits := []git.Commit{
+		{SHA: "bbb0001", Subject: "latest"},
+		{SHA: "bbb0002", Subject: "second"},
+	}
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			IsDetachedHead: true,
+			HeadSHA:        "bbb0001",
+			RepoName:       "repo",
+		},
+		base:         "def456",
+		commits:      allCommits[:1],
+		changedFiles: git.ChangedFilesResult{},
+		allCommits:   allCommits,
+	}
+
+	m := NewModel("/tmp", mg)
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	if len(m.commits) != 2 {
+		t.Errorf("on detached HEAD, expected full history (2 commits), got %d", len(m.commits))
+	}
+}
+
+func TestBug_MouseScrollSidebarKeepsSelection(t *testing.T) {
+	// Bug: scrolling mouse over file list changes the selected file.
+	// Spec: "scrolling should independently scroll the view but keep the
+	// selections the same"
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"a.go", "b.go", "c.go", "d.go", "e.go"},
+		},
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff: "+new",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Select the second file
+	m.sidebar.SelectIndex(1)
+	selectedBefore := m.sidebar.SelectedItem()
+	if selectedBefore != "b.go" {
+		t.Fatalf("expected b.go selected, got %q", selectedBefore)
+	}
+
+	// Scroll down in the sidebar area
+	wheelMsg := tea.MouseWheelMsg{
+		X:      1,
+		Y:      5,
+		Button: tea.MouseWheelDown,
+	}
+	result, _ := m.Update(wheelMsg)
+	m = result.(*Model)
+
+	selectedAfter := m.sidebar.SelectedItem()
+	if selectedAfter != selectedBefore {
+		t.Errorf("mouse scroll changed selection from %q to %q; should stay the same",
+			selectedBefore, selectedAfter)
+	}
+}
+
+func TestBug_SidebarContentDoesNotWrap(t *testing.T) {
+	// Bug: in diff and file mode, each sidebar line wraps into the next line.
+	// Caused by lipgloss v2 Width being outer dimension (includes borders),
+	// but content formatted to the full width.
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"long_filename_that_fills_sidebar.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:    "+new\n-old",
+		fileContent: "line1\nline2\n",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Render the sidebar and check that each line fits within the border
+	sidebarView := m.sidebar.View(true)
+	stripped := stripANSI(sidebarView)
+	lines := strings.Split(stripped, "\n")
+
+	// All lines should have the same display width (sidebar outer width)
+	expectedWidth := m.sidebarPixelWidth()
+	for i, line := range lines {
+		w := displayWidth(line)
+		if w != expectedWidth {
+			t.Errorf("sidebar line %d has width %d, expected %d\nline: %q",
+				i, w, expectedWidth, line)
+		}
+	}
+}
+
+func TestBug_MainPaneContentDoesNotWrap(t *testing.T) {
+	// Bug: diff content lines wrap slightly over into the next line.
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff: "+new line of code that is reasonably long\n-old line\n",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Render the main pane and check line widths
+	mainView := m.mainPane.View(true)
+	stripped := stripANSI(mainView)
+	lines := strings.Split(stripped, "\n")
+
+	// Main pane outer width = total width - sidebar outer width
+	expectedWidth := m.width - m.sidebarPixelWidth()
+	for i, line := range lines {
+		w := displayWidth(line)
+		if w != expectedWidth {
+			t.Errorf("main pane line %d has width %d, expected %d\nline: %q",
+				i, w, expectedWidth, line)
+		}
 	}
 }

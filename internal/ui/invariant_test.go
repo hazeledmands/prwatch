@@ -69,6 +69,7 @@ func genMockGit(t *rapid.T) *mockGit {
 			Uncommitted: uncommitted,
 		},
 		commits:     commits,
+		allCommits:  commits,
 		fileDiff:    "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new\n",
 		fileContent: "line1\nline2\nline3\n",
 		commitPatch: "commit 0000000\n\n    msg\n\ndiff\n+added\n",
