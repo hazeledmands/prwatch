@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	gitpkg "github.com/hazeledmands/prwatch/internal/git"
+	runewidth "github.com/mattn/go-runewidth"
 )
 
 // ansiStripRE matches ANSI escape sequences (SGR and OSC 8 hyperlinks).
@@ -1596,14 +1597,10 @@ func stripANSIForWidth(s string) string {
 	return ansiStripRE.ReplaceAllString(s, "")
 }
 
-// displayWidthOf returns the display width of a string.
+// displayWidthOf returns the display width of a string, accounting for
+// wide characters (CJK, emoji) and tab stops.
 func displayWidthOf(s string) int {
-	n := 0
-	for _, r := range s {
-		n++
-		_ = r
-	}
-	return n
+	return runewidth.StringWidth(s)
 }
 
 // copySelection extracts text between drag start/end coordinates from the rendered

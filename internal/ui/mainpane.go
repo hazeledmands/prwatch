@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	runewidth "github.com/mattn/go-runewidth"
 )
 
 // diffLineKind describes how a source line relates to a diff.
@@ -405,9 +406,11 @@ func ansiAwareIterate(line string, fn func(r rune, displayW int)) int {
 			inEscape = true
 			continue
 		}
-		w := 1
+		var w int
 		if r == '\t' {
 			w = 8 - (totalW % 8) // tab stop every 8 columns
+		} else {
+			w = runewidth.RuneWidth(r)
 		}
 		fn(r, w)
 		totalW += w
@@ -502,40 +505,30 @@ func (m *mainPane) ScrollRight(n int) {
 }
 
 // truncateLinesWithOffset applies a horizontal scroll offset, then truncates.
+// Uses proper display width for wide characters.
 func truncateLinesWithOffset(content string, width, offset int) string {
 	if width <= 0 {
 		return content
 	}
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
-		// Skip offset characters, then take width characters
 		var b strings.Builder
-		pos := 0
-		taken := 0
-		inEscape := false
-		for _, r := range line {
-			if inEscape {
-				if pos >= offset {
-					b.WriteRune(r) // always emit ANSI in the visible region
-				}
-				if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-					inEscape = false
-				}
-				continue
-			}
-			if r == '\x1b' {
+		pos := 0   // display position in the full line
+		taken := 0 // display width taken in the output
+		ansiAwareIterate(line, func(r rune, dw int) {
+			if dw == 0 {
+				// ANSI escape character — emit if in visible region
 				if pos >= offset {
 					b.WriteRune(r)
 				}
-				inEscape = true
-				continue
+				return
 			}
-			if pos >= offset && taken < width {
+			if pos >= offset && taken+dw <= width {
 				b.WriteRune(r)
-				taken++
+				taken += dw
 			}
-			pos++
-		}
+			pos += dw
+		})
 		lines[i] = b.String()
 	}
 	return strings.Join(lines, "\n")
