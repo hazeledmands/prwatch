@@ -124,6 +124,52 @@ func TestModeSwitching(t *testing.T) {
 	}
 }
 
+func TestModeSwitching_RetainsSelectedFile(t *testing.T) {
+	// Spec: "switching between file-diff and file-view should retain the selected file"
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed:   []string{"alpha.go", "beta.go", "gamma.go"},
+			Uncommitted: []string{"wip.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:    "+new",
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Select "beta.go" (index 3: wip.go=0, separator=1, alpha.go=2, beta.go=3)
+	m.sidebar.SelectIndex(3)
+	selected := m.sidebar.SelectedItem()
+	if selected != "beta.go" {
+		t.Fatalf("expected beta.go selected, got %q", selected)
+	}
+
+	// Switch to file-view mode
+	result, _ := m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
+	m = result.(*Model)
+	if m.mode != FileViewMode {
+		t.Fatal("should be in FileViewMode")
+	}
+	if m.sidebar.SelectedItem() != "beta.go" {
+		t.Errorf("after switch to file-view, selected should be beta.go, got %q", m.sidebar.SelectedItem())
+	}
+
+	// Switch back to file-diff mode
+	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	m = result.(*Model)
+	if m.sidebar.SelectedItem() != "beta.go" {
+		t.Errorf("after switch to file-diff, selected should be beta.go, got %q", m.sidebar.SelectedItem())
+	}
+}
+
 func TestFocusSwitching(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 
@@ -2378,6 +2424,43 @@ func TestSearch_NextPrevNavigation(t *testing.T) {
 	m = result.(*Model)
 	if m.searchMatchIdx != 2 {
 		t.Errorf("p should wrap to match index 2, got %d", m.searchMatchIdx)
+	}
+}
+
+func TestSearch_FindsSidebarContent(t *testing.T) {
+	// Spec: "searching should match against the content in either pane"
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"alpha.go", "beta.go", "gamma.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:   "no match here",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Search for "beta" — should match in sidebar
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	for _, ch := range "beta" {
+		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
+		m = result.(*Model)
+	}
+
+	if len(m.searchMatches) == 0 {
+		t.Error("search should find 'beta' in sidebar file list")
+	}
+
+	// The match should have selected beta.go in the sidebar
+	if m.sidebar.SelectedItem() != "beta.go" {
+		t.Errorf("searching for 'beta' should select beta.go, got %q", m.sidebar.SelectedItem())
 	}
 }
 

@@ -21,6 +21,11 @@ var ansiStripRE = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\]8;;[^\x1b]*\x1
 
 const prRefreshInterval = 1 * time.Minute
 
+type searchMatch struct {
+	pane string // "sidebar" or "main"
+	line int    // line index in the respective pane
+}
+
 type Mode int
 
 const (
@@ -79,8 +84,8 @@ type Model struct {
 	searching        bool // search input is active
 	searchConfirmed  bool // enter pressed, n/p navigation active
 	searchQuery      string
-	searchMatches    []int // line indices of matches
-	searchMatchIdx   int   // current match index
+	searchMatches    []searchMatch // matches across both panes
+	searchMatchIdx   int           // current match index
 	err              error
 }
 
@@ -487,13 +492,13 @@ func (m *Model) handleSearchNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.SearchNext):
 		if len(m.searchMatches) > 0 {
 			m.searchMatchIdx = (m.searchMatchIdx + 1) % len(m.searchMatches)
-			m.mainPane.ScrollToLine(m.searchMatches[m.searchMatchIdx])
+			m.navigateToCurrentMatch()
 		}
 		return m, nil
 	case key.Matches(msg, keys.SearchPrev):
 		if len(m.searchMatches) > 0 {
 			m.searchMatchIdx = (m.searchMatchIdx - 1 + len(m.searchMatches)) % len(m.searchMatches)
-			m.mainPane.ScrollToLine(m.searchMatches[m.searchMatchIdx])
+			m.navigateToCurrentMatch()
 		}
 		return m, nil
 	case msg.Code == tea.KeyEscape, key.Matches(msg, keys.QuitConfirm):
@@ -508,11 +513,40 @@ func (m *Model) handleSearchNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateSearchMatches() {
-	m.searchMatches = m.mainPane.FindMatches(m.searchQuery)
+	var matches []searchMatch
+
+	// Search sidebar items
+	if m.searchQuery != "" {
+		q := strings.ToLower(m.searchQuery)
+		for i, item := range m.sidebar.items {
+			if item.kind != itemSeparator && strings.Contains(strings.ToLower(item.label), q) {
+				matches = append(matches, searchMatch{pane: "sidebar", line: i})
+			}
+		}
+	}
+
+	// Search main pane content
+	for _, line := range m.mainPane.FindMatches(m.searchQuery) {
+		matches = append(matches, searchMatch{pane: "main", line: line})
+	}
+
+	m.searchMatches = matches
 	m.searchMatchIdx = 0
 	m.mainPane.SetSearchQuery(m.searchQuery)
-	if len(m.searchMatches) > 0 {
-		m.mainPane.ScrollToLine(m.searchMatches[0])
+	m.navigateToCurrentMatch()
+}
+
+func (m *Model) navigateToCurrentMatch() {
+	if len(m.searchMatches) == 0 {
+		return
+	}
+	match := m.searchMatches[m.searchMatchIdx]
+	switch match.pane {
+	case "sidebar":
+		m.sidebar.SelectIndex(match.line)
+		m.updateMainContent()
+	case "main":
+		m.mainPane.ScrollToLine(match.line)
 	}
 }
 
