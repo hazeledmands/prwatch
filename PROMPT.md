@@ -50,8 +50,13 @@ order within these categories should be alphabetical.
 [i] should toggle on/off view of gitignored files in all files mode. it should be on by default.
 [t] should toggle on/off "tree" mode, where files are grouped under directories, which can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter]. tree mode should be on by default.
 
-in the "commit" mode, the left pane should be a list of commmits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
-commits that have not yet been pushed to the origin should be a dimmed color. there should be a dividiing horizontal line between these commits and the pushed ones.
+in "commits" mode:
+the left pane should be a list of commmits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
+the list of commits should be separated into categories, separated by a dividing horizontal line:
+- unpushed changes (not technically a commit, if there are any they should all be grouped together under one line)
+- commits that have not yet been pushed to the origin (should be a dimmed color).
+- commits in the current branch / PR that have been pushed to the origin
+- commits after the stuff that's already in the base branch
 
 [d] should jump right to file-diff mode.
 [f] or [v] should jump right to file-view mode
