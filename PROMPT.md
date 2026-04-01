@@ -52,7 +52,11 @@ in both file modes, the sidebar should be separated into categories, with a hori
 order within these categories should be alphabetical.
 deleted files should still show up in this view, but they should be red.
 [i] should toggle on/off view of gitignored files in all files mode. it should be on by default.
-[t] should toggle on/off "tree" mode, where files are grouped under directories, which can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter]. tree mode should be on by default.
+tree view (enabled by default): files should be grouped under directories, and subsequently indented.
+  - directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
+  - [t] should toggle this mode on/off
+  - files and subdirectories in directories can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter].
+  - for uncommitted files and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
 
 in "commits" mode:
 the left pane should be a list of commmits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
