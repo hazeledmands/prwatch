@@ -62,11 +62,20 @@ other keybindings:
 
 ---
 
+TESTS:
+- aim for 90% code coverage. use --race in your tests to avoid race conditions.
+- there should be a set of UI snapshot tests, that compare rendered output to a set of "golden files" in a variety of scenarios derived from this prompt.
+- there should be a list of UI invariants encoded in a property-based test suite. these invariants should be tested by rendering given a set of inputs (including the state of a git repo and a mocked result from github), and then automatically checking the rendered output against the invariants, including things like:
+  - no unexpected line wrapping (if an element is meant to fit on one line, it should)
+  - when ANSI codes are stripped out, every line should be the width of the terminal
+  - total line count exactly equals the terminal height
+  - clicking on an element (x-y coordinates based on the render) should do the thing it's supposed to
+
 DEVELOPING:
 - when starting, run git status; if there are any changes to the PROMPT.md commit those first
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress.
 - use test-driven development.
-- aim for 90% code coverage. use --race in your tests to avoid race conditions.
 - make small, iterative commits to keep your work trackable. push and re-build the binary after every commit.
 - there should be continuous integration with GHA
-- after each commit, run `PRWATCH_RENDER_ONCE=1 go run .` to see the current state of the TUI rendered as text. review the output to verify the UI looks correct before moving on.
+- after each commit, run `PRWATCH_RENDER_ONCE=1 go run .` to see the current state of the TUI rendered as text. review the output yourself to verify the UI looks correct before moving on.
+
