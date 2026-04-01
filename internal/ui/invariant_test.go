@@ -272,20 +272,45 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 		sidebarContentRow := statusBarHeight + 1
 		sidebarContentCol := 1
 
-		// Build expected items list accounting for separator between
-		// unpushed and pushed commits
+		// Build expected items list matching the new categorized commit sidebar
 		unpushed := mock.repoInfo.AheadCount
 		type expectedItem struct {
 			label       string
 			isSeparator bool
 		}
 		var expected []expectedItem
-		for i, c := range mock.commits {
+
+		// Category 1: uncommitted changes
+		uncommitted := mock.changedFiles.Uncommitted
+		if len(uncommitted) > 0 {
 			expected = append(expected, expectedItem{
-				label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
+				label: fmt.Sprintf("uncommitted changes (%d files)", len(uncommitted)),
 			})
-			if i == unpushed-1 && i < len(mock.commits)-1 {
+		}
+
+		// Category 2: unpushed commits (dimmed)
+		if unpushed > 0 {
+			if len(expected) > 0 {
 				expected = append(expected, expectedItem{isSeparator: true})
+			}
+			for i := 0; i < unpushed && i < len(mock.commits); i++ {
+				c := mock.commits[i]
+				expected = append(expected, expectedItem{
+					label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
+				})
+			}
+		}
+
+		// Category 3: pushed commits
+		if unpushed < len(mock.commits) {
+			if len(expected) > 0 {
+				expected = append(expected, expectedItem{isSeparator: true})
+			}
+			for i := unpushed; i < len(mock.commits); i++ {
+				c := mock.commits[i]
+				expected = append(expected, expectedItem{
+					label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
+				})
 			}
 		}
 

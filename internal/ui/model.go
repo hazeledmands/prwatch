@@ -1030,6 +1030,26 @@ func (m *Model) jumpToNextDiff(direction int) {
 	}
 }
 
+// commitIndexFromSidebarItem extracts the commit index from a sidebar label
+// of the form "abcdef0 subject".
+func (m *Model) commitIndexFromSidebarItem(label string) int {
+	parts := strings.SplitN(label, " ", 2)
+	if len(parts) == 0 {
+		return -1
+	}
+	sha := parts[0]
+	for i, c := range m.commits {
+		short := c.SHA
+		if len(short) > 7 {
+			short = short[:7]
+		}
+		if short == sha {
+			return i
+		}
+	}
+	return -1
+}
+
 func (m *Model) isCommittedFile(file string) bool {
 	for _, f := range m.committedFiles {
 		if f == file {
@@ -1092,20 +1112,41 @@ func (m *Model) updateSidebarItems() {
 	case CommitMode:
 		var items []sidebarItem
 		unpushed := m.repoInfo.AheadCount
-		for i, c := range m.commits {
-			kind := itemNormal
-			if i < unpushed {
-				kind = itemDim
-			}
-			items = append(items, sidebarItem{
-				label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
-				kind:  kind,
-			})
-			// Add separator between unpushed and pushed commits
-			if i == unpushed-1 && i < len(m.commits)-1 {
+
+		// Category 1: Uncommitted changes (if any)
+		if len(m.uncommittedFiles) > 0 {
+			label := fmt.Sprintf("uncommitted changes (%d files)", len(m.uncommittedFiles))
+			items = append(items, sidebarItem{label: label, kind: itemDim})
+		}
+
+		// Category 2: Unpushed commits (dimmed)
+		if unpushed > 0 {
+			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
+			for i := 0; i < unpushed && i < len(m.commits); i++ {
+				c := m.commits[i]
+				items = append(items, sidebarItem{
+					label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
+					kind:  itemDim,
+				})
+			}
 		}
+
+		// Category 3: Pushed branch commits
+		if unpushed < len(m.commits) {
+			if len(items) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			for i := unpushed; i < len(m.commits); i++ {
+				c := m.commits[i]
+				items = append(items, sidebarItem{
+					label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
+					kind:  itemNormal,
+				})
+			}
+		}
+
 		m.sidebar.SetItems(items)
 	}
 }
@@ -1193,12 +1234,31 @@ func (m *Model) updateMainContent() {
 		m.mainPane.SetPlainContent(content)
 
 	case CommitMode:
-		idx := m.sidebar.SelectedIndex()
-		if idx >= len(m.commits) {
+		selected := m.sidebar.SelectedItem()
+		if selected == "" {
 			m.mainPane.SetContent("")
 			return
 		}
-		patch, err := m.git.CommitPatch(m.commits[idx].SHA)
+		// Check if this is the "uncommitted changes" entry
+		if strings.HasPrefix(selected, "uncommitted changes") {
+			// Show combined diff of all uncommitted files
+			var diffs []string
+			for _, f := range m.uncommittedFiles {
+				d, err := m.git.FileDiffUncommitted(f)
+				if err == nil && d != "" {
+					diffs = append(diffs, d)
+				}
+			}
+			m.mainPane.SetContent(strings.Join(diffs, "\n"))
+			return
+		}
+		// Otherwise it's a commit — extract SHA from "abcdef0 subject"
+		commitIdx := m.commitIndexFromSidebarItem(selected)
+		if commitIdx < 0 || commitIdx >= len(m.commits) {
+			m.mainPane.SetContent("")
+			return
+		}
+		patch, err := m.git.CommitPatch(m.commits[commitIdx].SHA)
 		if err != nil {
 			m.mainPane.SetContent(fmt.Sprintf("Error: %v", err))
 			return
