@@ -17,6 +17,13 @@ func testGit() *git.Git {
 	return git.New("/tmp")
 }
 
+// initAndLoadGitData calls Init and extracts just the loadGitData result.
+// Use this for tests that need the git data msg directly.
+func initAndLoadGitData(m *Model) gitDataMsg {
+	msg := m.loadGitData()
+	return msg.(gitDataMsg)
+}
+
 // mockGit implements GitDataSource for controlled testing.
 type mockGit struct {
 	repoInfo     git.RepoInfoResult
@@ -665,11 +672,8 @@ func TestLoadGitData_RealRepo(t *testing.T) {
 		t.Fatal("Init should return a command")
 	}
 
-	msg := cmd()
-	dataMsg, ok := msg.(gitDataMsg)
-	if !ok {
-		t.Fatalf("expected gitDataMsg, got %T", msg)
-	}
+	msg := m.loadGitData()
+	dataMsg := msg.(gitDataMsg)
 	if dataMsg.err != nil {
 		t.Fatal(dataMsg.err)
 	}
@@ -710,9 +714,8 @@ func TestUpdateMainContent_FileViewWithGit(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 
-	// Load data
-	cmd := m.Init()
-	msg := cmd()
+	// Load data directly
+	msg := m.loadGitData()
 	m.Update(msg)
 
 	// Switch to file-view mode
@@ -1422,9 +1425,8 @@ func TestUpdateMainContent_FileDiff_UncommittedFile(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 
-	// Load data
-	cmd := m.Init()
-	msg := cmd()
+	// Load data directly
+	msg := m.loadGitData()
 	m.Update(msg)
 
 	// Should be in file-diff mode with uncommitted file
@@ -1460,8 +1462,7 @@ func TestLoadGitData_RepoInfoError(t *testing.T) {
 		repoInfoErr: fmt.Errorf("repo info error"),
 	}
 	m := NewModel("/tmp", mg)
-	cmd := m.Init()
-	msg := cmd()
+	msg := m.loadGitData()
 	dataMsg := msg.(gitDataMsg)
 	if dataMsg.err == nil {
 		t.Error("expected error from RepoInfo")
@@ -1474,8 +1475,7 @@ func TestLoadGitData_DetectBaseError(t *testing.T) {
 		baseErr:  fmt.Errorf("no base"),
 	}
 	m := NewModel("/tmp", mg)
-	cmd := m.Init()
-	msg := cmd()
+	msg := m.loadGitData()
 	dataMsg := msg.(gitDataMsg)
 	if dataMsg.err == nil {
 		t.Error("expected error from DetectBase")
@@ -1489,8 +1489,7 @@ func TestLoadGitData_ChangedFilesError(t *testing.T) {
 		changedErr: fmt.Errorf("changed files error"),
 	}
 	m := NewModel("/tmp", mg)
-	cmd := m.Init()
-	msg := cmd()
+	msg := m.loadGitData()
 	dataMsg := msg.(gitDataMsg)
 	if dataMsg.err == nil {
 		t.Error("expected error from ChangedFiles")
@@ -1504,8 +1503,7 @@ func TestLoadGitData_CommitsError(t *testing.T) {
 		commitsErr: fmt.Errorf("commits error"),
 	}
 	m := NewModel("/tmp", mg)
-	cmd := m.Init()
-	msg := cmd()
+	msg := m.loadGitData()
 	dataMsg := msg.(gitDataMsg)
 	if dataMsg.err == nil {
 		t.Error("expected error from Commits")
@@ -1524,8 +1522,7 @@ func TestLoadGitData_Success(t *testing.T) {
 		commits: []git.Commit{{SHA: "def", Subject: "commit"}},
 	}
 	m := NewModel("/tmp", mg)
-	cmd := m.Init()
-	msg := cmd()
+	msg := m.loadGitData()
 	dataMsg := msg.(gitDataMsg)
 	if dataMsg.err != nil {
 		t.Fatal(dataMsg.err)
@@ -1676,8 +1673,7 @@ func TestLoadGitData_EmptyRepo(t *testing.T) {
 
 	g := git.New(dir)
 	m := NewModel(dir, g)
-	cmd := m.Init()
-	msg := cmd()
+	msg := m.loadGitData()
 	dataMsg := msg.(gitDataMsg)
 	// Empty repo: RepoInfo may work (orphan branch) but DetectBase should fail
 	if dataMsg.err == nil {
@@ -1691,12 +1687,8 @@ func TestLoadGitData_Error(t *testing.T) {
 	g := git.New(dir)
 	m := NewModel(dir, g)
 
-	cmd := m.Init()
-	msg := cmd()
-	dataMsg, ok := msg.(gitDataMsg)
-	if !ok {
-		t.Fatalf("expected gitDataMsg, got %T", msg)
-	}
+	msg := m.loadGitData()
+	dataMsg := msg.(gitDataMsg)
 	if dataMsg.err == nil {
 		t.Error("expected error from loadGitData with non-git dir")
 	}
@@ -1709,8 +1701,7 @@ func TestLoadNonGitFiles_SkipsHiddenAndDirs(t *testing.T) {
 	os.Mkdir(filepath.Join(dir, "subdir"), 0755)
 
 	m := NewModel(dir, nil)
-	cmd := m.Init()
-	msg := cmd()
+	msg := m.loadNonGitFiles()
 	dataMsg := msg.(gitDataMsg)
 
 	if len(dataMsg.uncommittedFiles) != 1 {
@@ -1723,8 +1714,7 @@ func TestLoadNonGitFiles_SkipsHiddenAndDirs(t *testing.T) {
 
 func TestLoadNonGitFiles_BadDir(t *testing.T) {
 	m := NewModel("/nonexistent/dir", nil)
-	cmd := m.Init()
-	msg := cmd()
+	msg := m.loadNonGitFiles()
 	dataMsg := msg.(gitDataMsg)
 	if dataMsg.err == nil {
 		t.Error("expected error for nonexistent dir")

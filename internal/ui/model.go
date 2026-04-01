@@ -7,12 +7,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	gitpkg "github.com/hazeledmands/prwatch/internal/git"
 )
+
+const prRefreshInterval = 1 * time.Minute
 
 type Mode int
 
@@ -88,6 +91,15 @@ type gitDataMsg struct {
 
 type RefreshMsg struct{}
 
+type prRefreshMsg struct {
+	prInfo       gitpkg.PRInfoResult
+	ciStatus     gitpkg.CIStatusResult
+	reviews      []gitpkg.PRReview
+	commentCount int
+}
+
+type prTickMsg struct{}
+
 func NewModel(dir string, g GitDataSource) *Model {
 	mode := FileDiffMode
 	if g == nil {
@@ -107,7 +119,13 @@ func (m *Model) Init() tea.Cmd {
 	if m.git == nil {
 		return m.loadNonGitFiles
 	}
-	return m.loadGitData
+	return tea.Batch(m.loadGitData, schedulePRTick())
+}
+
+func schedulePRTick() tea.Cmd {
+	return tea.Tick(prRefreshInterval, func(t time.Time) tea.Msg {
+		return prTickMsg{}
+	})
 }
 
 func (m *Model) loadNonGitFiles() tea.Msg {
@@ -123,6 +141,24 @@ func (m *Model) loadNonGitFiles() tea.Msg {
 	}
 	return gitDataMsg{
 		uncommittedFiles: files,
+	}
+}
+
+func (m *Model) loadPRStatus() tea.Msg {
+	prInfo, _ := m.git.PRInfo()
+	var ciStatus gitpkg.CIStatusResult
+	var reviews []gitpkg.PRReview
+	var commentCount int
+	if prInfo.Number > 0 {
+		ciStatus, _ = m.git.PRChecks()
+		reviews, _ = m.git.PRReviews()
+		commentCount, _ = m.git.PRCommentCount()
+	}
+	return prRefreshMsg{
+		prInfo:       prInfo,
+		ciStatus:     ciStatus,
+		reviews:      reviews,
+		commentCount: commentCount,
 	}
 }
 
@@ -197,6 +233,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
+
+	case prRefreshMsg:
+		m.prInfo = msg.prInfo
+		m.ciStatus = msg.ciStatus
+		m.prReviews = msg.reviews
+		m.prCommentCount = msg.commentCount
+		return m, nil
+
+	case prTickMsg:
+		if m.git == nil {
+			return m, schedulePRTick()
+		}
+		return m, tea.Batch(m.loadPRStatus, schedulePRTick())
 
 	case RefreshMsg:
 		if m.git == nil {

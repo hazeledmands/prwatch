@@ -58,6 +58,7 @@ other keybindings:
 [gg] and [G] to go to the beginning and end
 [/] to open a search (only searches what is currently visible)
 [?] to show all the keybindings, which goes away when you hit [esc] or [q]
+[+] and [-] should change the size of the sidebar
 
 ---
 
