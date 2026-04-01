@@ -530,15 +530,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.FocusLeft):
-		// Scroll focused view left
-		if m.focus == MainFocus && !m.wordWrap {
+		if m.focus == SidebarFocus {
+			return m.handleSidebarLeft()
+		}
+		if !m.wordWrap {
 			m.mainPane.ScrollLeft(4)
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.FocusRight):
-		// Scroll focused view right
-		if m.focus == MainFocus && !m.wordWrap {
+		if m.focus == SidebarFocus {
+			return m.handleSidebarRight()
+		}
+		if !m.wordWrap {
 			m.mainPane.ScrollRight(4)
 		}
 		return m, nil
@@ -1012,21 +1016,76 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.focus == SidebarFocus {
-		// If a directory is selected in tree mode, toggle its collapsed state
-		if m.treeMode && m.sidebar.SelectedIsDir() {
-			dir := m.sidebar.SelectedItem()
-			m.collapsedDirs[dir] = !m.collapsedDirs[dir]
-			m.updateSidebarItems()
-			return m, nil
-		}
-		m.focus = MainFocus
-		return m, nil
+		// Enter behaves like Right in tree mode
+		return m.handleSidebarRight()
 	}
 
 	// Main pane focused
 	if m.mode == FileDiffMode || m.mode == FileViewMode {
 		return m, m.openEditor()
 	}
+	return m, nil
+}
+
+// handleSidebarLeft handles left/h key when sidebar is focused.
+// Tree mode: collapse directory or go to parent. Non-tree: no-op.
+func (m *Model) handleSidebarLeft() (tea.Model, tea.Cmd) {
+	if !m.treeMode {
+		return m, nil
+	}
+
+	if m.sidebar.SelectedIsDir() {
+		// Collapse the directory if it's open
+		dir := m.sidebar.SelectedItem()
+		if !m.collapsedDirs[dir] {
+			m.collapsedDirs[dir] = true
+			m.updateSidebarItems()
+			return m, nil
+		}
+	}
+
+	// Go to nearest parent directory
+	idx := m.sidebar.SelectedIndex()
+	currentIndent := -1
+	if idx < len(m.sidebar.items) {
+		currentIndent = m.sidebar.items[idx].indent
+	}
+	for i := idx - 1; i >= 0; i-- {
+		item := m.sidebar.items[i]
+		if item.isDir && item.indent < currentIndent {
+			m.sidebar.SelectIndex(i)
+			m.updateMainContent()
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+// handleSidebarRight handles right/l/enter key when sidebar is focused.
+// Tree mode: expand directory or go to first child. Leaf: switch to main.
+// Non-tree: switch to main pane.
+func (m *Model) handleSidebarRight() (tea.Model, tea.Cmd) {
+	if !m.treeMode {
+		m.focus = MainFocus
+		return m, nil
+	}
+
+	if m.sidebar.SelectedIsDir() {
+		dir := m.sidebar.SelectedItem()
+		if m.collapsedDirs[dir] {
+			// Expand the directory
+			m.collapsedDirs[dir] = false
+			m.updateSidebarItems()
+		} else {
+			// Already expanded — move to first child
+			m.sidebar.SelectNext()
+			m.updateMainContent()
+		}
+		return m, nil
+	}
+
+	// Leaf node — switch to main pane
+	m.focus = MainFocus
 	return m, nil
 }
 

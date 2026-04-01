@@ -3396,18 +3396,28 @@ func TestHandleEnter_DirectoryToggle(t *testing.T) {
 		t.Fatal("first item should be a directory in tree mode")
 	}
 
-	// Press enter to collapse the directory
-	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	// Press h (left) to collapse the directory
+	result, _ := m.Update(tea.KeyPressMsg{Text: "h", Code: 'h'})
 	m = result.(*Model)
 	if !m.collapsedDirs["internal"] {
-		t.Error("enter on directory should collapse it")
+		t.Error("h on expanded directory should collapse it")
 	}
 
-	// Press enter again to expand
+	// Press enter to expand it again
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
 	if m.collapsedDirs["internal"] {
 		t.Error("enter on collapsed directory should expand it")
+	}
+
+	// Press enter on expanded dir moves to first child
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+	if m.sidebar.SelectedIsDir() {
+		// Moved to child — might be a subdir or file
+	}
+	if m.sidebar.SelectedIndex() == 0 {
+		t.Error("enter on expanded directory should move to child")
 	}
 }
 
