@@ -1,0 +1,30 @@
+  feature/add-auth → origin/main @ myapp             [diff]              1 uncommitted · 2 commits  
+  PR #42: Add authentication                                                                        
+Keybindings:
+
+  [space]      Cycle mode (diff -> file -> commit)
+  [d]          File diff mode
+  [f] [v]      File view mode
+  [c]          Commit mode
+
+  [h] [left]   Focus sidebar
+  [l] [right]  Focus main pane
+  [tab]        Toggle focus
+
+  [j] [down]   Move down / scroll down
+  [k] [up]     Move up / scroll up
+  [pgup/pgdn]  Page up / page down
+  [gg]         Go to top
+  [G]          Go to bottom
+
+  [+] [=]     Grow sidebar
+  [-]          Shrink sidebar
+
+  [enter]      Open file in $EDITOR / switch to main pane
+  [/]          Search
+  [?]          Show this help
+
+  [q] [esc]    Quit (confirm)
+  [Q] [ctrl-c] Quit immediately
+
+Press any key to dismiss.

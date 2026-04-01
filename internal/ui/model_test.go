@@ -26,29 +26,35 @@ func initAndLoadGitData(m *Model) gitDataMsg {
 
 // mockGit implements GitDataSource for controlled testing.
 type mockGit struct {
-	repoInfo     git.RepoInfoResult
-	repoInfoErr  error
-	prInfo       git.PRInfoResult
-	prInfoErr    error
-	base         string
-	baseErr      error
-	changedFiles git.ChangedFilesResult
-	changedErr   error
-	commits      []git.Commit
-	commitsErr   error
-	fileDiff     string
-	fileDiffErr  error
-	fileContent  string
-	contentErr   error
-	commitPatch  string
-	patchErr     error
+	repoInfo        git.RepoInfoResult
+	repoInfoErr     error
+	prInfo          git.PRInfoResult
+	prInfoErr       error
+	ciStatus        git.CIStatusResult
+	ciStatusErr     error
+	reviews         []git.PRReview
+	reviewsErr      error
+	commentCount    int
+	commentCountErr error
+	base            string
+	baseErr         error
+	changedFiles    git.ChangedFilesResult
+	changedErr      error
+	commits         []git.Commit
+	commitsErr      error
+	fileDiff        string
+	fileDiffErr     error
+	fileContent     string
+	contentErr      error
+	commitPatch     string
+	patchErr        error
 }
 
 func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
 func (m *mockGit) PRInfo() (git.PRInfoResult, error)     { return m.prInfo, m.prInfoErr }
-func (m *mockGit) PRChecks() (git.CIStatusResult, error) { return git.CIStatusResult{}, nil }
-func (m *mockGit) PRReviews() ([]git.PRReview, error)    { return nil, nil }
-func (m *mockGit) PRCommentCount() (int, error)          { return 0, nil }
+func (m *mockGit) PRChecks() (git.CIStatusResult, error) { return m.ciStatus, m.ciStatusErr }
+func (m *mockGit) PRReviews() ([]git.PRReview, error)    { return m.reviews, m.reviewsErr }
+func (m *mockGit) PRCommentCount() (int, error)          { return m.commentCount, m.commentCountErr }
 func (m *mockGit) DetectBase() (string, error)           { return m.base, m.baseErr }
 func (m *mockGit) ChangedFiles(base string) (git.ChangedFilesResult, error) {
 	return m.changedFiles, m.changedErr
