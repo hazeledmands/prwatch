@@ -349,6 +349,15 @@ func parseHunkNewStart(hunkLine string) int {
 	return n
 }
 
+func (m *Model) isUncommittedFile(file string) bool {
+	for _, f := range m.uncommittedFiles {
+		if f == file {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Model) updateSidebarItems() {
 	switch m.mode {
 	case FileDiffMode, FileViewMode:
@@ -405,7 +414,13 @@ func (m *Model) updateMainContent() {
 			m.mainPane.SetContent("")
 			return
 		}
-		diff, err := m.git.FileDiff(m.base, file)
+		var diff string
+		var err error
+		if m.isUncommittedFile(file) {
+			diff, err = m.git.FileDiffUncommitted(file)
+		} else {
+			diff, err = m.git.FileDiffCommitted(m.base, file)
+		}
 		if err != nil {
 			m.mainPane.SetContent(fmt.Sprintf("Error: %v", err))
 			return

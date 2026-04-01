@@ -175,7 +175,7 @@ func TestChangedFiles_FileInBothGoesToUncommitted(t *testing.T) {
 	}
 }
 
-func TestFileDiff(t *testing.T) {
+func TestFileDiffCommitted(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.New(dir)
 
@@ -184,12 +184,46 @@ func TestFileDiff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	diff, err := g.FileDiff(base, "feature.go")
+	diff, err := g.FileDiffCommitted(base, "feature.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(diff, "+package feature") {
 		t.Errorf("diff should contain added line, got:\n%s", diff)
+	}
+}
+
+func TestFileDiffUncommitted(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	// Modify a tracked file
+	writeFile(t, dir, "feature.go", "package feature\n\nvar x = 1\n")
+
+	diff, err := g.FileDiffUncommitted("feature.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff, "+var x = 1") {
+		t.Errorf("diff should contain uncommitted change, got:\n%s", diff)
+	}
+}
+
+func TestFileDiffUncommitted_UntrackedFile(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	writeFile(t, dir, "newfile.go", "package newfile\n")
+
+	diff, err := g.FileDiffUncommitted("newfile.go")
+	if err != nil {
+		// --no-index exits 1 on diff, which is expected
+		if diff == "" {
+			t.Fatal(err)
+		}
+	}
+	if !strings.Contains(diff, "+package newfile") {
+		t.Errorf("diff should contain new file content, got:\n%s", diff)
 	}
 }
 

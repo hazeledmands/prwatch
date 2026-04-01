@@ -89,22 +89,35 @@ func (g *Git) RepoInfo() (RepoInfoResult, error) {
 	}, nil
 }
 
-// DetectBase finds the merge-base commit between HEAD and the base branch.
-// Tries: gh pr base → main → master → HEAD~1.
+// DetectBase finds the merge-base commit between HEAD and origin's base branch.
+// Uses origin/<base> refs to stay consistent with GitHub's three-dot diff view.
+// Tries: gh pr base → origin/main → origin/master → local main → local master → HEAD~1.
 func (g *Git) DetectBase() (string, error) {
-	// Try gh pr view first
+	// Try gh pr view first — use origin/<base> for GitHub consistency
 	if base, err := g.ghPRBase(); err == nil && base != "" {
+		if sha, err := g.run("merge-base", "HEAD", "origin/"+base); err == nil {
+			return sha, nil
+		}
+		// Fall back to local ref if origin not available
 		if sha, err := g.run("merge-base", "HEAD", base); err == nil {
 			return sha, nil
 		}
 	}
 
-	// Try main
-	if sha, err := g.run("merge-base", "HEAD", "main"); err == nil {
+	// Try origin/main
+	if sha, err := g.run("merge-base", "HEAD", "origin/main"); err == nil {
 		return sha, nil
 	}
 
-	// Try master
+	// Try origin/master
+	if sha, err := g.run("merge-base", "HEAD", "origin/master"); err == nil {
+		return sha, nil
+	}
+
+	// Fall back to local refs (no remote configured)
+	if sha, err := g.run("merge-base", "HEAD", "main"); err == nil {
+		return sha, nil
+	}
 	if sha, err := g.run("merge-base", "HEAD", "master"); err == nil {
 		return sha, nil
 	}
@@ -194,13 +207,30 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 	}, nil
 }
 
-// FileDiff returns the diff for a single file between base and HEAD (including uncommitted).
-func (g *Git) FileDiff(base, file string) (string, error) {
-	diff, err := g.run("diff", base, "--", file)
-	if err != nil {
-		return "", err
+// FileDiffCommitted returns the diff for a committed file between base and HEAD.
+func (g *Git) FileDiffCommitted(base, file string) (string, error) {
+	return g.run("diff", base+"..HEAD", "--", file)
+}
+
+// FileDiffUncommitted returns the working tree diff for a file against HEAD.
+func (g *Git) FileDiffUncommitted(file string) (string, error) {
+	// Try tracked diff first (staged + unstaged vs HEAD)
+	diff, err := g.run("diff", "HEAD", "--", file)
+	if err == nil && diff != "" {
+		return diff, nil
 	}
-	return diff, nil
+	// For untracked files, diff against /dev/null.
+	// git diff --no-index exits 1 when differences exist, so we capture output manually.
+	cmd := exec.Command("git", "diff", "--no-index", "/dev/null", file)
+	cmd.Dir = g.dir
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Run() // ignore exit code — 1 means "differences found"
+	out := stdout.String()
+	if out != "" {
+		return out, nil
+	}
+	return "", fmt.Errorf("no diff available for %s", file)
 }
 
 // Commits returns the list of commits between base and HEAD, newest first.
