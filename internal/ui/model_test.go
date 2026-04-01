@@ -176,16 +176,53 @@ func TestFocusSwitching(t *testing.T) {
 		t.Error("initial focus should be SidebarFocus")
 	}
 
+	// Tab switches focus
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = result.(*Model)
+	if m.focus != MainFocus {
+		t.Error("after tab, focus should be MainFocus")
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = result.(*Model)
+	if m.focus != SidebarFocus {
+		t.Error("after second tab, focus should be SidebarFocus")
+	}
+}
+
+func TestArrowKeysScrollHorizontally(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:   "+new",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.wordWrap = false
+	m.focus = MainFocus
+	m.updateLayout()
+
+	// Press l (right) should scroll right, not switch focus
 	result, _ := m.Update(tea.KeyPressMsg{Text: "l", Code: 'l'})
 	m = result.(*Model)
 	if m.focus != MainFocus {
-		t.Error("after l, focus should be MainFocus")
+		t.Error("l should not switch focus to sidebar")
+	}
+	if m.mainPane.xOffset != 4 {
+		t.Errorf("expected xOffset 4 after l, got %d", m.mainPane.xOffset)
 	}
 
+	// Press h (left) should scroll left
 	result, _ = m.Update(tea.KeyPressMsg{Text: "h", Code: 'h'})
 	m = result.(*Model)
-	if m.focus != SidebarFocus {
-		t.Error("after h, focus should be SidebarFocus")
+	if m.mainPane.xOffset != 0 {
+		t.Errorf("expected xOffset 0 after h, got %d", m.mainPane.xOffset)
 	}
 }
 

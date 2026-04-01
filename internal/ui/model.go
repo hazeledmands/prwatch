@@ -495,11 +495,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.FocusLeft):
-		m.focus = SidebarFocus
+		// Scroll focused view left
+		if m.focus == MainFocus && !m.wordWrap {
+			m.mainPane.ScrollLeft(4)
+		}
 		return m, nil
 
 	case key.Matches(msg, keys.FocusRight):
-		m.focus = MainFocus
+		// Scroll focused view right
+		if m.focus == MainFocus && !m.wordWrap {
+			m.mainPane.ScrollRight(4)
+		}
 		return m, nil
 
 	case key.Matches(msg, keys.FocusToggle):
@@ -1487,9 +1493,9 @@ func (m *Model) helpContentLines() []string {
 		"  [v]          File view mode",
 		"  [c]          Commit mode",
 		"",
-		"  [h] [left]   Focus sidebar",
-		"  [l] [right]  Focus main pane",
-		"  [tab]        Toggle focus",
+		"  [h] [left]   Scroll left (when wrap off)",
+		"  [l] [right]  Scroll right (when wrap off)",
+		"  [tab]        Toggle focus (sidebar / main pane)",
 		"",
 		"  [j] [down]   Move down / scroll down",
 		"  [k] [up]     Move up / scroll up",

@@ -7,9 +7,9 @@ Keybindings:
   [v]          File view mode                                                                       
   [c]          Commit mode                                                                          
                                                                                                     
-  [h] [left]   Focus sidebar                                                                        
-  [l] [right]  Focus main pane                                                                      
-  [tab]        Toggle focus                                                                         
+  [h] [left]   Scroll left (when wrap off)                                                          
+  [l] [right]  Scroll right (when wrap off)                                                         
+  [tab]        Toggle focus (sidebar / main pane)                                                   
                                                                                                     
   [j] [down]   Move down / scroll down                                                              
   [k] [up]     Move up / scroll up                                                                  
