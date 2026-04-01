@@ -56,14 +56,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: file watcher failed: %v\n", err)
 	} else {
 		defer w.Close()
-		// Also watch .git dir for ref changes
+		// Also watch .git dir and key subdirs for ref changes (new commits)
 		gitDir := filepath.Join(dir, ".git")
 		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-			wGit, err := watcher.New(gitDir, func() {
-				p.Send(ui.RefreshMsg{})
-			})
-			if err == nil {
+			refreshFn := func() { p.Send(ui.RefreshMsg{}) }
+			// Watch .git itself for HEAD changes
+			if wGit, err := watcher.New(gitDir, refreshFn); err == nil {
 				defer wGit.Close()
+			}
+			// Watch .git/refs/heads for new branch commits
+			refsDir := filepath.Join(gitDir, "refs", "heads")
+			if info, err := os.Stat(refsDir); err == nil && info.IsDir() {
+				if wRefs, err := watcher.New(refsDir, refreshFn); err == nil {
+					defer wRefs.Close()
+				}
 			}
 		}
 	}
