@@ -41,10 +41,19 @@ var (
 					Foreground(lipgloss.Color("#AAA"))
 	sidebarSeparatorStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#555"))
+	sidebarDeletedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#F38BA8")) // red for deleted files
+	sidebarDeletedSelectedStyle = lipgloss.NewStyle().
+					Background(lipgloss.Color("#333")).
+					Foreground(lipgloss.Color("#F38BA8"))
+	sidebarDeletedHoverStyle = lipgloss.NewStyle().
+					Background(lipgloss.Color("#2A2A2A")).
+					Foreground(lipgloss.Color("#F38BA8"))
 
 	// Diff coloring
 	diffAddStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
 	diffRemoveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
+	diffChangeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")) // yellow for changed
 	diffHunkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#89DCEB"))
 	diffHeaderStyle = lipgloss.NewStyle().Bold(true)
 

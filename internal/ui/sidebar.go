@@ -13,6 +13,7 @@ const (
 	itemNormal    sidebarItemKind = iota
 	itemDim                       // uncommitted files — rendered dimmer
 	itemSeparator                 // horizontal line, not selectable
+	itemDeleted                   // deleted files — rendered in red
 )
 
 type sidebarItem struct {
@@ -26,7 +27,10 @@ type sidebarItem struct {
 // buildTreeItems converts a flat list of file paths into a tree-structured list
 // of sidebar items with directories and indentation. Directories start expanded.
 // The collapsed map tracks which directory paths are collapsed.
-func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]bool) []sidebarItem {
+// kindFunc returns the item kind for a given file path. If nil, the default kind is used.
+type kindFunc func(filePath string) sidebarItemKind
+
+func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]bool, kf ...kindFunc) []sidebarItem {
 	if len(files) == 0 {
 		return nil
 	}
@@ -61,7 +65,11 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 			}
 			if isLast {
 				child.isFile = true
-				child.kind = kind
+				if len(kf) > 0 && kf[0] != nil {
+					child.kind = kf[0](f)
+				} else {
+					child.kind = kind
+				}
 			}
 			node = child
 		}
@@ -327,6 +335,8 @@ func (s *sidebar) View(focused bool) string {
 			switch item.kind {
 			case itemDim:
 				b.WriteString(sidebarUncommittedSelectedStyle.Render(label))
+			case itemDeleted:
+				b.WriteString(sidebarDeletedSelectedStyle.Render(label))
 			default:
 				b.WriteString(sidebarSelectedItemStyle.Render(label))
 			}
@@ -334,6 +344,8 @@ func (s *sidebar) View(focused bool) string {
 			switch item.kind {
 			case itemDim:
 				b.WriteString(sidebarUncommittedHoverStyle.Render(label))
+			case itemDeleted:
+				b.WriteString(sidebarDeletedHoverStyle.Render(label))
 			default:
 				b.WriteString(sidebarHoverStyle.Render(label))
 			}
@@ -341,6 +353,8 @@ func (s *sidebar) View(focused bool) string {
 			switch item.kind {
 			case itemDim:
 				b.WriteString(sidebarUncommittedStyle.Render(label))
+			case itemDeleted:
+				b.WriteString(sidebarDeletedStyle.Render(label))
 			default:
 				b.WriteString(sidebarItemStyle.Render(label))
 			}

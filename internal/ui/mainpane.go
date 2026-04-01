@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // diffLineKind describes how a source line relates to a diff.
@@ -15,6 +16,7 @@ const (
 	diffLineUnchanged diffLineKind = iota
 	diffLineAdded
 	diffLineRemoved // a removed line (not present in the file, shown inline when Shift+D is on)
+	diffLineChanged // a modified line (consecutive -/+ in diff)
 )
 
 // diffAnnotation maps a file line number (1-indexed) to its change kind.
@@ -67,7 +69,7 @@ func (m *mainPane) DiffLineNumbers() []int {
 	}
 	var lines []int
 	for lineNo, ann := range m.diffAnnotations {
-		if ann.kind == diffLineAdded {
+		if ann.kind == diffLineAdded || ann.kind == diffLineChanged {
 			lines = append(lines, lineNo)
 		}
 	}
@@ -146,10 +148,13 @@ func parseDiffAnnotations(unifiedDiff string) map[int]diffAnnotation {
 		}
 		if strings.HasPrefix(line, "+") {
 			ann := annotations[newLineNo]
-			ann.kind = diffLineAdded
 			if len(pendingRemoved) > 0 {
+				// Removed lines followed by added = changed line
+				ann.kind = diffLineChanged
 				ann.removedLines = append(ann.removedLines, pendingRemoved...)
 				pendingRemoved = nil
+			} else {
+				ann.kind = diffLineAdded
 			}
 			annotations[newLineNo] = ann
 			newLineNo++
@@ -259,13 +264,20 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 			}
 		}
 
-		if hasAnn && ann.kind == diffLineAdded {
-			gutter := " + "
-			if m.lineNumbers {
-				formatted := prefix + gutter + line
-				result = append(result, diffAddStyle.Render(formatted))
+		if hasAnn && (ann.kind == diffLineAdded || ann.kind == diffLineChanged) {
+			var gutter string
+			var style lipgloss.Style
+			if ann.kind == diffLineChanged {
+				gutter = " ~ "
+				style = diffChangeStyle
 			} else {
-				result = append(result, diffAddStyle.Render(gutter+line))
+				gutter = " + "
+				style = diffAddStyle
+			}
+			if m.lineNumbers {
+				result = append(result, style.Render(prefix+gutter+line))
+			} else {
+				result = append(result, style.Render(gutter+line))
 			}
 		} else {
 			gutter := "   "

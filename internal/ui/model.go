@@ -78,6 +78,7 @@ type Model struct {
 	prCommentCount      int
 	committedFiles      []string
 	uncommittedFiles    []string
+	deletedFiles        []string // files deleted in base..HEAD
 	allFiles            []string // all files in the repo (for file-view mode)
 	commits             []gitpkg.Commit
 	sidebar             *sidebar
@@ -125,6 +126,7 @@ type gitDataMsg struct {
 	base             string
 	committedFiles   []string
 	uncommittedFiles []string
+	deletedFiles     []string
 	allFiles         []string
 	commits          []gitpkg.Commit
 	err              error
@@ -286,6 +288,7 @@ func (m *Model) loadGitData() tea.Msg {
 		base:             base,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
+		deletedFiles:     files.Deleted,
 		allFiles:         allFiles,
 		commits:          commits,
 	}
@@ -313,6 +316,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.base = msg.base
 		m.committedFiles = msg.committedFiles
 		m.uncommittedFiles = msg.uncommittedFiles
+		m.deletedFiles = msg.deletedFiles
 		m.allFiles = msg.allFiles
 		m.commits = msg.commits
 		m.updateSidebarItems()
@@ -1169,6 +1173,22 @@ func (m *Model) commitIndexFromSidebarItem(label string) int {
 	return -1
 }
 
+func (m *Model) isDeletedFile(file string) bool {
+	for _, f := range m.deletedFiles {
+		if f == file {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Model) fileItemKind(file string, defaultKind sidebarItemKind) sidebarItemKind {
+	if m.isDeletedFile(file) {
+		return itemDeleted
+	}
+	return defaultKind
+}
+
 func (m *Model) isCommittedFile(file string) bool {
 	for _, f := range m.committedFiles {
 		if f == file {
@@ -1187,7 +1207,7 @@ func (m *Model) updateSidebarItems() {
 			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
-			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs)...)
+			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
 		} else {
 			for _, f := range m.uncommittedFiles {
 				items = append(items, sidebarItem{label: f, filePath: f, kind: itemDim})
@@ -1196,7 +1216,7 @@ func (m *Model) updateSidebarItems() {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 			for _, f := range m.committedFiles {
-				items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
+				items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
 			}
 		}
 		m.sidebar.SetItems(items)
@@ -1223,7 +1243,7 @@ func (m *Model) updateSidebarItems() {
 			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
-			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs)...)
+			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
 			if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
@@ -1236,13 +1256,13 @@ func (m *Model) updateSidebarItems() {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 			for _, f := range m.committedFiles {
-				items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
+				items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
 			}
 			if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 			for _, f := range otherFiles {
-				items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
+				items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
 			}
 		}
 		m.sidebar.SetItems(items)

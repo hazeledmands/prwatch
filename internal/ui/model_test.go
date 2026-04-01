@@ -3261,3 +3261,59 @@ func TestBuildTreeItems(t *testing.T) {
 		t.Errorf("after collapsing internal/, expected 2 items, got %d", nonSepCount)
 	}
 }
+
+func TestParseDiffAnnotations_ChangedLines(t *testing.T) {
+	// When removed lines are immediately followed by added lines,
+	// those should be marked as "changed" (~), not just "added" (+)
+	diff := `@@ -1,3 +1,3 @@
+ unchanged
+-old line
++new line
+ unchanged
+`
+	annotations := parseDiffAnnotations(diff)
+	ann, ok := annotations[2]
+	if !ok {
+		t.Fatal("expected annotation for line 2")
+	}
+	if ann.kind != diffLineChanged {
+		t.Errorf("line 2 should be changed (got kind=%v)", ann.kind)
+	}
+	if len(ann.removedLines) != 1 || ann.removedLines[0] != "old line" {
+		t.Errorf("line 2 should have removed 'old line', got %v", ann.removedLines)
+	}
+}
+
+func TestDeletedFilesShownInRed(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"deleted.go", "normal.go"},
+			Deleted:   []string{"deleted.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:   "+new",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Check that deleted.go has itemDeleted kind
+	found := false
+	for _, item := range m.sidebar.items {
+		if item.filePath == "deleted.go" {
+			if item.kind != itemDeleted {
+				t.Errorf("deleted.go should have itemDeleted kind, got %v", item.kind)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("deleted.go should appear in sidebar")
+	}
+}

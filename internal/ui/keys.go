@@ -126,10 +126,10 @@ var keys = keyMap{
 		key.WithKeys("D"),
 	),
 	NextDiff: key.NewBinding(
-		key.WithKeys("J"),
+		key.WithKeys("J", "shift+down"),
 	),
 	PrevDiff: key.NewBinding(
-		key.WithKeys("K"),
+		key.WithKeys("K", "shift+up"),
 	),
 	ToggleTree: key.NewBinding(
 		key.WithKeys("t"),
