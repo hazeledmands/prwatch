@@ -985,6 +985,237 @@ func TestView_MouseModeEnabled(t *testing.T) {
 	}
 }
 
+func TestHandleEnter_MainFocus_FileMode_NoFile(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.focus = MainFocus
+	m.mode = FileDiffMode
+	// No files set, sidebar returns empty string
+
+	result, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+	// openEditor should return nil cmd when file is empty
+	if cmd != nil {
+		t.Error("enter with no file should produce nil cmd")
+	}
+}
+
+func TestHandleEnter_MainFocus_CommitMode(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.focus = MainFocus
+	m.mode = CommitMode
+
+	result, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+	// In commit mode, enter should do nothing
+	if cmd != nil {
+		t.Error("enter in commit mode main focus should produce nil cmd")
+	}
+}
+
+func TestExecuteSearch_EmptyQuery(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.searchQuery = ""
+	m.executeSearch() // should not panic
+}
+
+func TestUpdateMainContent_EmptyBase(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.base = "" // no base set
+	m.mode = FileDiffMode
+	m.updateMainContent() // should return early without panic
+}
+
+func TestUpdateMainContent_EmptySidebarSelection(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.base = "HEAD"
+	m.mode = FileDiffMode
+	// No items in sidebar
+	m.updateMainContent() // should set empty content
+}
+
+func TestUpdateMainContent_CommitMode_OutOfBounds(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.base = "HEAD"
+	m.mode = CommitMode
+	m.commits = nil // empty commits
+	m.updateSidebarItems()
+	m.updateMainContent() // should set empty content without panic
+}
+
+func TestUpdateMainContent_NonGit_EmptySidebar(t *testing.T) {
+	m := NewModel("/tmp", nil)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mode = FileViewMode
+	// No files
+	m.updateMainContent() // should set empty content
+}
+
+func TestUpdateMainContent_NonGit_BadFile(t *testing.T) {
+	m := NewModel("/tmp", nil)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mode = FileViewMode
+	m.uncommittedFiles = []string{"nonexistent_file.xyz"}
+	m.updateSidebarItems()
+	m.updateMainContent()
+	// Should show error in content
+	if !strings.Contains(m.mainPane.content, "Error") {
+		t.Error("should show error for missing file")
+	}
+}
+
+func TestCurrentLineNumber_DiffWithMultipleHunks(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.mode = FileDiffMode
+	m.mainPane.SetSize(80, 20)
+	m.mainPane.content = "diff --git a/f b/f\nindex abc..def\n--- a/f\n+++ b/f\n@@ -5,3 +5,4 @@\n context\n+added\n-removed\n context"
+	line := m.currentLineNumber()
+	if line < 1 {
+		t.Errorf("expected line >= 1, got %d", line)
+	}
+}
+
+func TestParseHunkNewStart_SpaceSeparated(t *testing.T) {
+	result := parseHunkNewStart("@@ -1 +1 @@")
+	if result != 1 {
+		t.Errorf("expected 1, got %d", result)
+	}
+}
+
+func TestParseHunkNewStart_AtoiError(t *testing.T) {
+	result := parseHunkNewStart("@@ -1 +abc,3 @@")
+	if result != 0 {
+		t.Errorf("expected 0 for non-numeric, got %d", result)
+	}
+}
+
+func TestParseHunkNewStart_NoCommaOrSpace(t *testing.T) {
+	result := parseHunkNewStart("@@ +123")
+	if result != 0 {
+		t.Errorf("expected 0 when no comma/space delimiter after number, got %d", result)
+	}
+}
+
+func TestCurrentLineNumber_EmptyContent(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.mode = FileDiffMode
+	m.mainPane.content = ""
+	line := m.currentLineNumber()
+	if line < 1 {
+		t.Errorf("expected line >= 1, got %d", line)
+	}
+}
+
+func TestModeSwitching_RetainsFileSelection(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.committedFiles = []string{"a.go", "b.go"}
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+
+	// Select second file
+	m.sidebar.SelectNext()
+	if m.sidebar.SelectedItem() != "b.go" {
+		t.Fatalf("expected b.go, got %s", m.sidebar.SelectedItem())
+	}
+
+	// Switch to file-view — should retain selection
+	result, _ := m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
+	m = result.(*Model)
+	if m.sidebar.SelectedItem() != "b.go" {
+		t.Errorf("file-view should retain selection, got %s", m.sidebar.SelectedItem())
+	}
+}
+
+func TestSearch_ExecutesOnContent(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 5
+	m.updateLayout()
+	m.mainPane.SetContent("line1\nline2\ntarget line\nline4\nline5\nline6\nline7\nline8\nline9\nline10")
+
+	// Enter search, type "target", press enter
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "t", Code: 't'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "a", Code: 'a'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "r", Code: 'r'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "e", Code: 'e'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "t", Code: 't'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+
+	if m.mainPane.ScrollTop() != 2 {
+		t.Errorf("search should scroll to target line (2), got %d", m.mainPane.ScrollTop())
+	}
+}
+
+func TestG_SingleG_DoesNotMove(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.committedFiles = []string{"a.go", "b.go", "c.go"}
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.focus = SidebarFocus
+	m.sidebar.SelectLast()
+
+	// Press g once, then something else — should NOT go to top
+	result, _ := m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
+	m = result.(*Model)
+	// lastKeyG should be cleared, no jump to top
+	if m.lastKeyG {
+		t.Error("lastKeyG should be cleared after non-g key")
+	}
+}
+
+func TestLoadNonGitFiles_SkipsHiddenAndDirs(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "visible.txt"), []byte("hi"), 0644)
+	os.WriteFile(filepath.Join(dir, ".hidden"), []byte("hi"), 0644)
+	os.Mkdir(filepath.Join(dir, "subdir"), 0755)
+
+	m := NewModel(dir, nil)
+	cmd := m.Init()
+	msg := cmd()
+	dataMsg := msg.(gitDataMsg)
+
+	if len(dataMsg.uncommittedFiles) != 1 {
+		t.Errorf("expected 1 visible file, got %d: %v", len(dataMsg.uncommittedFiles), dataMsg.uncommittedFiles)
+	}
+	if dataMsg.uncommittedFiles[0] != "visible.txt" {
+		t.Errorf("expected visible.txt, got %q", dataMsg.uncommittedFiles[0])
+	}
+}
+
+func TestLoadNonGitFiles_BadDir(t *testing.T) {
+	m := NewModel("/nonexistent/dir", nil)
+	cmd := m.Init()
+	msg := cmd()
+	dataMsg := msg.(gitDataMsg)
+	if dataMsg.err == nil {
+		t.Error("expected error for nonexistent dir")
+	}
+}
+
 func TestNonGitMode_BlocksModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", nil)
 

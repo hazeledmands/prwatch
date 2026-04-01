@@ -204,3 +204,67 @@ func TestSidebar_SetItems_SkipsSeparatorOnClamp(t *testing.T) {
 		t.Errorf("selection should skip separator, got %d", s.SelectedIndex())
 	}
 }
+
+func TestSidebar_SkipToSelectable_AllSeparators(t *testing.T) {
+	s := newSidebar()
+	// Edge case: all items are separators (shouldn't happen in practice)
+	s.items = []sidebarItem{
+		{kind: itemSeparator},
+		{kind: itemSeparator},
+	}
+	s.selected = 0
+	s.skipToSelectable()
+	// Should not panic, selected stays wherever it was
+}
+
+func TestSidebar_SkipToSelectable_ForwardSearch(t *testing.T) {
+	s := newSidebar()
+	// Separator at start, selectable after
+	s.items = []sidebarItem{
+		{kind: itemSeparator},
+		{kind: itemSeparator},
+		{label: "found.go", kind: itemNormal},
+	}
+	s.selected = 0
+	s.skipToSelectable()
+	if s.SelectedIndex() != 2 {
+		t.Errorf("should skip forward to index 2, got %d", s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SkipToSelectable_BackwardSearch(t *testing.T) {
+	s := newSidebar()
+	// Selectable before separator, separator at end
+	s.items = []sidebarItem{
+		{label: "found.go", kind: itemNormal},
+		{kind: itemSeparator},
+		{kind: itemSeparator},
+	}
+	s.selected = 1
+	s.skipToSelectable()
+	if s.SelectedIndex() != 0 {
+		t.Errorf("should skip backward to index 0, got %d", s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SkipToSelectable_SelectedPastEnd(t *testing.T) {
+	s := newSidebar()
+	s.items = []sidebarItem{
+		{label: "a.go", kind: itemNormal},
+	}
+	s.selected = 5 // past end
+	s.skipToSelectable()
+	if s.SelectedIndex() != 0 {
+		t.Errorf("should clamp to last, got %d", s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SelectFirst_Empty(t *testing.T) {
+	s := newSidebar()
+	s.SelectFirst() // should not panic
+}
+
+func TestSidebar_SelectLast_Empty(t *testing.T) {
+	s := newSidebar()
+	s.SelectLast() // should not panic
+}
