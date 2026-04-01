@@ -2169,3 +2169,61 @@ func TestBug_MainPaneContentDoesNotWrap(t *testing.T) {
 		}
 	}
 }
+
+func TestCommitMode_UnpushedCommitsDimmedWithSeparator(t *testing.T) {
+	// Spec: "commits that have not yet been pushed to the origin should be a
+	// dimmed color. there should be a dividing horizontal line between these
+	// commits and the pushed ones."
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:     "feature/test",
+			Upstream:   "origin/feature/test",
+			RepoName:   "repo",
+			AheadCount: 2, // 2 unpushed commits
+		},
+		base:         "abc123",
+		changedFiles: git.ChangedFilesResult{},
+		commits: []git.Commit{
+			{SHA: "ccc0001", Subject: "unpushed 1"},
+			{SHA: "ccc0002", Subject: "unpushed 2"},
+			{SHA: "ccc0003", Subject: "pushed 1"},
+			{SHA: "ccc0004", Subject: "pushed 2"},
+		},
+		allCommits: []git.Commit{
+			{SHA: "ccc0001", Subject: "unpushed 1"},
+			{SHA: "ccc0002", Subject: "unpushed 2"},
+			{SHA: "ccc0003", Subject: "pushed 1"},
+			{SHA: "ccc0004", Subject: "pushed 2"},
+		},
+	}
+
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.mode = CommitMode
+	m.updateSidebarItems()
+
+	items := m.sidebar.items
+	// Should be: 2 unpushed (dim), 1 separator, 2 pushed (normal)
+	if len(items) != 5 {
+		t.Fatalf("expected 5 sidebar items (2 dim + 1 sep + 2 normal), got %d", len(items))
+	}
+	if items[0].kind != itemDim {
+		t.Errorf("item 0 should be dim (unpushed), got kind %d", items[0].kind)
+	}
+	if items[1].kind != itemDim {
+		t.Errorf("item 1 should be dim (unpushed), got kind %d", items[1].kind)
+	}
+	if items[2].kind != itemSeparator {
+		t.Errorf("item 2 should be separator, got kind %d", items[2].kind)
+	}
+	if items[3].kind != itemNormal {
+		t.Errorf("item 3 should be normal (pushed), got kind %d", items[3].kind)
+	}
+	if items[4].kind != itemNormal {
+		t.Errorf("item 4 should be normal (pushed), got kind %d", items[4].kind)
+	}
+}

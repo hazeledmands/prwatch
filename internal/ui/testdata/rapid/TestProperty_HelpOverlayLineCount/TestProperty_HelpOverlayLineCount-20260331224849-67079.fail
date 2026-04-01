@@ -1,0 +1,35 @@
+# 2026/03/31 22:48:49.449608 [TestProperty_HelpOverlayLineCount] [rapid] draw width: 40
+# 2026/03/31 22:48:49.449623 [TestProperty_HelpOverlayLineCount] [rapid] draw height: 10
+# 2026/03/31 22:48:49.449632 [TestProperty_HelpOverlayLineCount] [rapid] draw nCommitted: 0
+# 2026/03/31 22:48:49.449642 [TestProperty_HelpOverlayLineCount] [rapid] draw nUncommitted: 0
+# 2026/03/31 22:48:49.449650 [TestProperty_HelpOverlayLineCount] [rapid] draw nCommits: 0
+# 2026/03/31 22:48:49.449659 [TestProperty_HelpOverlayLineCount] [rapid] draw branch: "main"
+# 2026/03/31 22:48:49.449667 [TestProperty_HelpOverlayLineCount] [rapid] draw detached: false
+# 2026/03/31 22:48:49.449674 [TestProperty_HelpOverlayLineCount] [rapid] draw prNum: 0
+# 2026/03/31 22:48:49.449681 [TestProperty_HelpOverlayLineCount] [rapid] draw aheadCount: 0
+# 2026/03/31 22:48:49.450092 [TestProperty_HelpOverlayLineCount] help overlay: expected 10 lines, got 30
+# 
+v0.4.8#7430122129729402118
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

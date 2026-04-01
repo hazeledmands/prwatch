@@ -1,0 +1,40 @@
+# 2026/03/31 22:48:49.328830 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw width: 40
+# 2026/03/31 22:48:49.328844 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw height: 10
+# 2026/03/31 22:48:49.328853 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw mode: 0
+# 2026/03/31 22:48:49.328863 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw nCommitted: 0
+# 2026/03/31 22:48:49.328871 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw nUncommitted: 0
+# 2026/03/31 22:48:49.328881 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw nCommits: 0
+# 2026/03/31 22:48:49.328889 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw branch: "main"
+# 2026/03/31 22:48:49.328896 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw detached: false
+# 2026/03/31 22:48:49.328903 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw prNum: 0
+# 2026/03/31 22:48:49.328911 [TestProperty_EveryLineIsTerminalWidth] [rapid] draw aheadCount: 0
+# 2026/03/31 22:48:49.329582 [TestProperty_EveryLineIsTerminalWidth] line 3 has display width 24, expected 40
+# line: "╭──────────────────────╮"
+# 
+v0.4.8#9982053606332780179
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

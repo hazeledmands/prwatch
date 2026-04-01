@@ -272,8 +272,28 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 		sidebarContentRow := statusBarHeight + 1
 		sidebarContentCol := 1
 
-		visibleCount := min(len(mock.commits), height-statusBarHeight-2)
+		// Build expected items list accounting for separator between
+		// unpushed and pushed commits
+		unpushed := mock.repoInfo.AheadCount
+		type expectedItem struct {
+			label       string
+			isSeparator bool
+		}
+		var expected []expectedItem
+		for i, c := range mock.commits {
+			expected = append(expected, expectedItem{
+				label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
+			})
+			if i == unpushed-1 && i < len(mock.commits)-1 {
+				expected = append(expected, expectedItem{isSeparator: true})
+			}
+		}
+
+		visibleCount := min(len(expected), height-statusBarHeight-2)
 		for i := 0; i < visibleCount; i++ {
+			if expected[i].isSeparator {
+				continue // skip separator rows
+			}
 			row := sidebarContentRow + i
 			clickMsg := tea.MouseClickMsg{
 				X:      sidebarContentCol,
@@ -283,11 +303,10 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 			result, _ := m.Update(clickMsg)
 			m = result.(*Model)
 
-			expectedLabel := fmt.Sprintf("%.7s %s", mock.commits[i].SHA, mock.commits[i].Subject)
 			selected := m.sidebar.SelectedItem()
-			if selected != expectedLabel {
+			if selected != expected[i].label {
 				t.Fatalf("clicked commit row %d (item %d), expected %q, got %q",
-					row, i, expectedLabel, selected)
+					row, i, expected[i].label, selected)
 			}
 		}
 	})

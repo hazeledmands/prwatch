@@ -1,0 +1,35 @@
+# 2026/03/31 22:48:49.503843 [TestProperty_ConfirmQuitLineCount] [rapid] draw width: 40
+# 2026/03/31 22:48:49.503858 [TestProperty_ConfirmQuitLineCount] [rapid] draw height: 10
+# 2026/03/31 22:48:49.503866 [TestProperty_ConfirmQuitLineCount] [rapid] draw nCommitted: 1
+# 2026/03/31 22:48:49.503876 [TestProperty_ConfirmQuitLineCount] [rapid] draw nUncommitted: 1
+# 2026/03/31 22:48:49.503885 [TestProperty_ConfirmQuitLineCount] [rapid] draw nCommits: 0
+# 2026/03/31 22:48:49.503899 [TestProperty_ConfirmQuitLineCount] [rapid] draw branch: "main"
+# 2026/03/31 22:48:49.503907 [TestProperty_ConfirmQuitLineCount] [rapid] draw detached: false
+# 2026/03/31 22:48:49.503917 [TestProperty_ConfirmQuitLineCount] [rapid] draw prNum: 0
+# 2026/03/31 22:48:49.503924 [TestProperty_ConfirmQuitLineCount] [rapid] draw aheadCount: 0
+# 2026/03/31 22:48:49.504863 [TestProperty_ConfirmQuitLineCount] confirm quit: expected 10 lines, got 11
+# 
+v0.4.8#5645057717398694293
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

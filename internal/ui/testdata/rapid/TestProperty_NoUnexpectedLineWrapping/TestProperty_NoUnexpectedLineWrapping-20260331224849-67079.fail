@@ -1,0 +1,36 @@
+# 2026/03/31 22:48:49.347997 [TestProperty_NoUnexpectedLineWrapping] [rapid] draw width: 40
+# 2026/03/31 22:48:49.348011 [TestProperty_NoUnexpectedLineWrapping] [rapid] draw mode: 0
+# 2026/03/31 22:48:49.348020 [TestProperty_NoUnexpectedLineWrapping] [rapid] draw nCommitted: 0
+# 2026/03/31 22:48:49.348031 [TestProperty_NoUnexpectedLineWrapping] [rapid] draw nUncommitted: 0
+# 2026/03/31 22:48:49.348039 [TestProperty_NoUnexpectedLineWrapping] [rapid] draw nCommits: 0
+# 2026/03/31 22:48:49.348048 [TestProperty_NoUnexpectedLineWrapping] [rapid] draw branch: "main"
+# 2026/03/31 22:48:49.348056 [TestProperty_NoUnexpectedLineWrapping] [rapid] draw detached: true
+# 2026/03/31 22:48:49.348064 [TestProperty_NoUnexpectedLineWrapping] [rapid] draw prNum: 0
+# 2026/03/31 22:48:49.348071 [TestProperty_NoUnexpectedLineWrapping] [rapid] draw aheadCount: 0
+# 2026/03/31 22:48:49.348371 [TestProperty_NoUnexpectedLineWrapping] status bar should be 2 lines, got 3 (width=40)
+# bar: "  detached @ abc1234 → origin/main @    \n testrepo[diff]                         \n  No PR                                 "
+# 
+v0.4.8#4425781176688502181
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0

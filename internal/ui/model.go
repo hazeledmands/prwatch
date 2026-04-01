@@ -665,11 +665,20 @@ func (m *Model) updateSidebarItems() {
 		}
 		m.sidebar.SetItems(items)
 	case CommitMode:
-		items := make([]sidebarItem, len(m.commits))
+		var items []sidebarItem
+		unpushed := m.repoInfo.AheadCount
 		for i, c := range m.commits {
-			items[i] = sidebarItem{
+			kind := itemNormal
+			if i < unpushed {
+				kind = itemDim
+			}
+			items = append(items, sidebarItem{
 				label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
-				kind:  itemNormal,
+				kind:  kind,
+			})
+			// Add separator between unpushed and pushed commits
+			if i == unpushed-1 && i < len(m.commits)-1 {
+				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 		}
 		m.sidebar.SetItems(items)

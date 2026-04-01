@@ -12,8 +12,8 @@ the "status bar" should show the name of the branch and the repo and the worktre
 details in the status bar:
 - current branch, and current upstream
 - name of directory
-- name of git repo
-- current mode
+- name of git repo (should be a TUI-compatible link to the git repo)
+- current mode (clicking this should switch modes, like the space bar)
 - current PR (should be a TUI-compatible link)
 - high level overview of "git status":
   - ahead of upstream by ? commits (? unpushed commits)

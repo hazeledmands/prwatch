@@ -1,0 +1,35 @@
+# 2026/04/01 12:16:17.297565 [TestProperty_ClickCommitSelectsCommit] [rapid] draw width: 60
+# 2026/04/01 12:16:17.297583 [TestProperty_ClickCommitSelectsCommit] [rapid] draw height: 15
+# 2026/04/01 12:16:17.297593 [TestProperty_ClickCommitSelectsCommit] [rapid] draw nCommitted: 0
+# 2026/04/01 12:16:17.297605 [TestProperty_ClickCommitSelectsCommit] [rapid] draw nUncommitted: 0
+# 2026/04/01 12:16:17.297613 [TestProperty_ClickCommitSelectsCommit] [rapid] draw nCommits: 2
+# 2026/04/01 12:16:17.297634 [TestProperty_ClickCommitSelectsCommit] [rapid] draw branch: "main"
+# 2026/04/01 12:16:17.297646 [TestProperty_ClickCommitSelectsCommit] [rapid] draw detached: false
+# 2026/04/01 12:16:17.297653 [TestProperty_ClickCommitSelectsCommit] [rapid] draw prNum: 0
+# 2026/04/01 12:16:17.297660 [TestProperty_ClickCommitSelectsCommit] [rapid] draw aheadCount: 1
+# 2026/04/01 12:16:17.297750 [TestProperty_ClickCommitSelectsCommit] clicked commit row 4 (item 1), expected "0000001 commit message 1", got "0000000 commit message 0"
+# 
+v0.4.8#8850181932647551646
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
