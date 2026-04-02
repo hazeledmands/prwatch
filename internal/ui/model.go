@@ -167,6 +167,8 @@ type prRefreshMsg struct {
 	ciStatus     gitpkg.CIStatusResult
 	reviews      []gitpkg.PRReview
 	commentCount int
+	ciChecks     []gitpkg.CICheck
+	prComments   []gitpkg.PRComment
 	rateLimited  bool
 }
 
@@ -235,16 +237,22 @@ func (m *Model) loadPRStatus() tea.Msg {
 	var ciStatus gitpkg.CIStatusResult
 	var reviews []gitpkg.PRReview
 	var commentCount int
+	var ciChecks []gitpkg.CICheck
+	var prComments []gitpkg.PRComment
 	if prInfo.Number > 0 {
 		ciStatus, _ = m.git.PRChecks()
 		reviews, _ = m.git.PRReviews()
 		commentCount, _ = m.git.PRCommentCount()
+		ciChecks, _ = m.git.CIChecks()
+		prComments, _ = m.git.PRComments()
 	}
 	return prRefreshMsg{
 		prInfo:       prInfo,
 		ciStatus:     ciStatus,
 		reviews:      reviews,
 		commentCount: commentCount,
+		ciChecks:     ciChecks,
+		prComments:   prComments,
 	}
 }
 
@@ -429,6 +437,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ciStatus = msg.ciStatus
 		m.prReviews = msg.reviews
 		m.prCommentCount = msg.commentCount
+		m.ciChecks = msg.ciChecks
+		m.prComments = msg.prComments
+		m.updateSidebarItems()
+		m.updateMainContent()
 		return m, nil
 
 	case prTickMsg:

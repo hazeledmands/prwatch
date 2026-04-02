@@ -1,6 +1,6 @@
 ## New Bugs
 
-- CI checks are not showing up properly. Example: https://github.com/honeycombio/hound/pull/32185 is failing CI, but I'm not seeing that in the branch
+(none)
 
 ## Fixed Bugs
 
@@ -17,3 +17,4 @@
 - Horizontal scroll was dropping ANSI styling — fixed by always emitting ANSI escape codes.
 - Shift+space wasn't paging up — fixed by adding explicit handler for shift+space key combo.
 - "Uncommitted changes" in commit mode was slow — fixed by using single `git diff HEAD` instead of per-file diffs.
+- CI checks not showing up properly — fixed by adding `ciChecks` and `prComments` fields to `prRefreshMsg`, fetching them in `loadPRStatus()`, and updating model + UI in the refresh handler.

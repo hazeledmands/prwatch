@@ -723,6 +723,8 @@ func TestPRRefreshMsg(t *testing.T) {
 		ciStatus:     git.CIStatusResult{State: "SUCCESS"},
 		reviews:      []git.PRReview{{Author: "alice", State: "APPROVED"}},
 		commentCount: 3,
+		ciChecks:     []git.CICheck{{Name: "build", Conclusion: "success"}, {Name: "lint", Conclusion: "failure"}},
+		prComments:   []git.PRComment{{Author: "bob", Body: "looks good"}},
 	}
 	result, _ := m.Update(msg)
 	m = result.(*Model)
@@ -739,6 +741,53 @@ func TestPRRefreshMsg(t *testing.T) {
 	if m.prCommentCount != 3 {
 		t.Error("should update comment count")
 	}
+	if len(m.ciChecks) != 2 {
+		t.Errorf("should update CI checks, got %d", len(m.ciChecks))
+	}
+	if len(m.prComments) != 1 {
+		t.Errorf("should update PR comments, got %d", len(m.prComments))
+	}
+}
+
+func TestPRRefreshMsg_UpdatesSidebarAndMainContent(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{RepoName: "test"},
+		prInfo:   git.PRInfoResult{Number: 5, Title: "Initial PR"},
+		base:     "main",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 120
+	m.height = 40
+
+	// Load initial git data
+	gitMsg := m.loadGitData()
+	result, _ := m.Update(gitMsg)
+	m = result.(*Model)
+
+	// Switch to PR mode
+	m.mode = PRViewMode
+
+	// Send a prRefreshMsg with CI checks
+	msg := prRefreshMsg{
+		prInfo:   git.PRInfoResult{Number: 5, Title: "Updated PR"},
+		ciStatus: git.CIStatusResult{State: "FAILURE"},
+		ciChecks: []git.CICheck{
+			{Name: "tests", Conclusion: "failure"},
+			{Name: "lint", Conclusion: "success"},
+		},
+		prComments: []git.PRComment{{Author: "alice", Body: "fix tests"}},
+	}
+	result, _ = m.Update(msg)
+	m = result.(*Model)
+
+	// CI checks should be updated
+	if len(m.ciChecks) != 2 {
+		t.Errorf("expected 2 CI checks after refresh, got %d", len(m.ciChecks))
+	}
+	// PR comments should be updated
+	if len(m.prComments) != 1 {
+		t.Errorf("expected 1 PR comment after refresh, got %d", len(m.prComments))
+	}
 }
 
 func TestPRTickMsg_Git(t *testing.T) {
@@ -753,13 +802,21 @@ func TestPRTickMsg_Git(t *testing.T) {
 
 func TestLoadPRStatus(t *testing.T) {
 	mg := &mockGit{
-		prInfo: git.PRInfoResult{Number: 5, Title: "test PR"},
+		prInfo:     git.PRInfoResult{Number: 5, Title: "test PR"},
+		ciChecks:   []git.CICheck{{Name: "build", Conclusion: "success"}},
+		prComments: []git.PRComment{{Author: "alice", Body: "lgtm"}},
 	}
 	m := NewModel("/tmp", mg)
 	msg := m.loadPRStatus()
 	prMsg := msg.(prRefreshMsg)
 	if prMsg.prInfo.Number != 5 {
 		t.Errorf("expected PR #5, got #%d", prMsg.prInfo.Number)
+	}
+	if len(prMsg.ciChecks) != 1 {
+		t.Errorf("expected 1 CI check in refresh msg, got %d", len(prMsg.ciChecks))
+	}
+	if len(prMsg.prComments) != 1 {
+		t.Errorf("expected 1 PR comment in refresh msg, got %d", len(prMsg.prComments))
 	}
 }
 
