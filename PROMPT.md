@@ -94,6 +94,8 @@ sidebar should show:
 - horizontal rule
 - CI status (one line per CI check)
 
+### CI logs
+- support RWX as a CI provider. look into RWX as an api, or using the rwx CLI. if the github CI status points to RWX, display the log from RWX instead.
 
 ### sidebar (both file modes)
 
@@ -263,3 +265,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 
 ## DOCUMENTATION
 - the readme file should be up-to-date and provide a relatively concise overview of what this tool is meant to do.
+
+## EXAMPLES
+Take a look at EXAMPLES.md (should be in .gitignore since these examples may contain sensitive data) for some links to PRs and CI logs that you can use as example cases.
+
