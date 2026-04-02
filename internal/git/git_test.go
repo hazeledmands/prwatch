@@ -1108,6 +1108,142 @@ func TestAllFiles(t *testing.T) {
 	})
 }
 
+func TestBehindCount(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	// Feature branch is 0 commits behind main (main has only initial commit)
+	count := g.BehindCount("main")
+	if count != 0 {
+		t.Errorf("expected 0 behind, got %d", count)
+	}
+
+	// Add a commit to main, feature branch should be 1 behind
+	runGit(t, dir, "checkout", "main")
+	writeFile(t, dir, "extra.txt", "extra\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "extra on main")
+	runGit(t, dir, "checkout", "hazel/test/feature")
+
+	count = g.BehindCount("main")
+	if count != 1 {
+		t.Errorf("expected 1 behind, got %d", count)
+	}
+}
+
+func TestAllCommits(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	commits, err := g.AllCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Feature branch has 2 commits: "add feature" and "initial commit"
+	if len(commits) != 2 {
+		t.Fatalf("expected 2 commits, got %d", len(commits))
+	}
+	if commits[0].Subject != "add feature" {
+		t.Errorf("first commit subject = %q, want %q", commits[0].Subject, "add feature")
+	}
+}
+
+func TestBaseCommits(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	commits, err := g.BaseCommits("main", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 1 {
+		t.Fatalf("expected 1 base commit, got %d", len(commits))
+	}
+	if commits[0].Subject != "initial commit" {
+		t.Errorf("base commit subject = %q, want %q", commits[0].Subject, "initial commit")
+	}
+}
+
+func TestPRComments(t *testing.T) {
+	dir := setupTestRepo(t)
+	commentsJSON := `{"author":"alice","body":"looks good"}
+{"author":"bob","body":"needs work"}`
+	g := git.NewWithRunner(dir, mockGHRunner(commentsJSON, nil))
+
+	comments, err := g.PRComments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(comments))
+	}
+	if comments[0].Author != "alice" {
+		t.Errorf("first comment author = %q, want %q", comments[0].Author, "alice")
+	}
+	if comments[1].Body != "needs work" {
+		t.Errorf("second comment body = %q, want %q", comments[1].Body, "needs work")
+	}
+}
+
+func TestPRComments_Error(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("gh failed")))
+
+	comments, err := g.PRComments()
+	if err != nil {
+		t.Errorf("PRComments should return nil on error, got %v", err)
+	}
+	if comments != nil {
+		t.Errorf("expected nil comments on error, got %v", comments)
+	}
+}
+
+func TestCIChecks(t *testing.T) {
+	dir := setupTestRepo(t)
+	checksJSON := `[{"name":"build","state":"COMPLETED","conclusion":"success","detailsUrl":"https://ci.example.com/1"},{"name":"lint","state":"COMPLETED","conclusion":"failure","detailsUrl":"https://ci.example.com/2"}]`
+	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
+
+	checks, err := g.CIChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checks) != 2 {
+		t.Fatalf("expected 2 checks, got %d", len(checks))
+	}
+	if checks[0].Name != "build" || checks[0].Conclusion != "success" {
+		t.Errorf("unexpected first check: %+v", checks[0])
+	}
+	if checks[1].Name != "lint" || checks[1].Conclusion != "failure" {
+		t.Errorf("unexpected second check: %+v", checks[1])
+	}
+}
+
+func TestCIChecks_Error(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("gh failed")))
+
+	checks, err := g.CIChecks()
+	if err != nil {
+		t.Errorf("CIChecks should return nil on error, got %v", err)
+	}
+	if checks != nil {
+		t.Errorf("expected nil checks on error, got %v", checks)
+	}
+}
+
+func TestCIChecks_InvalidJSON(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("not json", nil))
+
+	checks, err := g.CIChecks()
+	if err != nil {
+		t.Errorf("CIChecks should return nil on invalid JSON, got %v", err)
+	}
+	if checks != nil {
+		t.Errorf("expected nil checks on invalid JSON, got %v", checks)
+	}
+}
+
 func TestPRChecks_ActionRequired(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"deploy","state":"COMPLETED","conclusion":"action_required","detailsUrl":"https://ci.example.com/4"}]`
