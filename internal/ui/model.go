@@ -63,6 +63,7 @@ type GitDataSource interface {
 	FileContent(file string) (string, error)
 	CommitPatch(sha string) (string, error)
 	AllFiles(includeIgnored bool) ([]string, error)
+	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
 }
 
 type Model struct {
@@ -83,7 +84,8 @@ type Model struct {
 	allFiles            []string        // all files in the repo (for file-view mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
 	commits             []gitpkg.Commit
-	lastViewedFile      string // track the last file shown in file-view for auto-jump
+	baseCommits         []gitpkg.Commit // commits from the base branch (for commit mode category 4)
+	lastViewedFile      string          // track the last file shown in file-view for auto-jump
 	sidebar             *sidebar
 	mainPane            *mainPane
 	sidebarPct          int // sidebar width as percentage of total width (10-50)
@@ -133,6 +135,7 @@ type gitDataMsg struct {
 	allFiles         []string
 	ignoredFiles     map[string]bool
 	commits          []gitpkg.Commit
+	baseCommits      []gitpkg.Commit
 	err              error
 }
 
@@ -280,6 +283,12 @@ func (m *Model) loadGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
+	// Fetch base branch commits for commit mode category 4
+	var baseCommits []gitpkg.Commit
+	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
+		baseCommits, _ = m.git.BaseCommits(base, 50)
+	}
+
 	// Fetch all files for file-view mode sidebar
 	allFiles, _ := m.git.AllFiles(m.showIgnored)
 
@@ -312,6 +321,7 @@ func (m *Model) loadGitData() tea.Msg {
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		commits:          commits,
+		baseCommits:      baseCommits,
 	}
 }
 
@@ -341,6 +351,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.allFiles = msg.allFiles
 		m.ignoredFiles = msg.ignoredFiles
 		m.commits = msg.commits
+		m.baseCommits = msg.baseCommits
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
@@ -1414,6 +1425,19 @@ func (m *Model) updateSidebarItems() {
 				items = append(items, sidebarItem{
 					label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
 					kind:  itemNormal,
+				})
+			}
+		}
+
+		// Category 4: Base branch commits (already in base, before the feature branch)
+		if len(m.baseCommits) > 0 {
+			if len(items) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			for _, c := range m.baseCommits {
+				items = append(items, sidebarItem{
+					label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
+					kind:  itemDim,
 				})
 			}
 		}

@@ -52,6 +52,8 @@ type mockGit struct {
 	allCommitsErr   error
 	allFiles        []string
 	allFilesErr     error
+	baseCommits     []git.Commit
+	baseCommitsErr  error
 }
 
 func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
@@ -75,6 +77,9 @@ func (m *mockGit) FileContent(file string) (string, error) { return m.fileConten
 func (m *mockGit) CommitPatch(sha string) (string, error)  { return m.commitPatch, m.patchErr }
 func (m *mockGit) AllFiles(includeIgnored bool) ([]string, error) {
 	return m.allFiles, m.allFilesErr
+}
+func (m *mockGit) BaseCommits(base string, limit int) ([]git.Commit, error) {
+	return m.baseCommits, m.baseCommitsErr
 }
 
 func TestModeSwitching(t *testing.T) {
@@ -3662,9 +3667,9 @@ func TestHandleSidebarLeft_GoToParent(t *testing.T) {
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
 		changedFiles: git.ChangedFilesResult{
-			Committed: []string{"dir/sub/file.go"},
+			Committed: []string{"dir/file1.go", "dir/file2.go"},
 		},
-		allFiles:    []string{"dir/sub/file.go"},
+		allFiles:    []string{"dir/file1.go", "dir/file2.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
 		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
@@ -4023,4 +4028,48 @@ func TestJumpToNextDiff_Wrap(t *testing.T) {
 	// Jump prev should also work and wrap
 	result, _ = m.Update(tea.KeyPressMsg{Text: "K", Code: 'K'})
 	m = result.(*Model)
+}
+
+func TestCommitMode_BaseCommitsCategory4(t *testing.T) {
+	// Spec: commit mode category 4 shows "commits after the stuff that's already in the base branch"
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo", AheadCount: 0},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits: []git.Commit{
+			{SHA: "1111111", Subject: "feature commit"},
+		},
+		allCommits: []git.Commit{
+			{SHA: "1111111", Subject: "feature commit"},
+		},
+		baseCommits: []git.Commit{
+			{SHA: "2222222", Subject: "base commit 1"},
+			{SHA: "3333333", Subject: "base commit 2"},
+		},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	m.mode = CommitMode
+	m.updateSidebarItems()
+
+	// Should have the feature commit + separator + base commits
+	hasBaseCommit := false
+	for _, item := range m.sidebar.items {
+		if strings.Contains(item.label, "base commit 1") {
+			hasBaseCommit = true
+			if item.kind != itemDim {
+				t.Error("base commits should be dimmed")
+			}
+		}
+	}
+	if !hasBaseCommit {
+		t.Error("commit mode should include base branch commits in category 4")
+	}
 }

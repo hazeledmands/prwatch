@@ -75,6 +75,20 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 		}
 	}
 
+	// leafCount returns the total number of leaf (file) nodes under a node.
+	var leafCount func(n *treeNode) int
+	leafCount = func(n *treeNode) int {
+		count := 0
+		for _, child := range n.children {
+			if child.isFile && len(child.children) == 0 {
+				count++
+			} else {
+				count += leafCount(child)
+			}
+		}
+		return count
+	}
+
 	// Flatten tree into items
 	var items []sidebarItem
 	var flatten func(node *treeNode, indent int)
@@ -93,6 +107,40 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 
 		for _, name := range dirNames {
 			child := node.children[name]
+
+			// Spec: if there is only one leaf node, display the whole subtree on one line
+			if leafCount(child) == 1 {
+				// Find the single leaf by traversing down
+				cur := child
+				for {
+					var nextDir *treeNode
+					var leafNode *treeNode
+					for _, c := range cur.children {
+						if c.isFile && len(c.children) == 0 {
+							leafNode = c
+						} else {
+							nextDir = c
+						}
+					}
+					if leafNode != nil {
+						// Found the leaf — render as flat path
+						label := strings.Repeat("  ", indent) + "  " + leafNode.path
+						items = append(items, sidebarItem{
+							label:    label,
+							kind:     leafNode.kind,
+							filePath: leafNode.path,
+							indent:   indent,
+						})
+						break
+					}
+					if nextDir == nil {
+						break
+					}
+					cur = nextDir
+				}
+				continue
+			}
+
 			prefix := ""
 			if collapsed[child.path] {
 				prefix = "▶"

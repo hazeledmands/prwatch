@@ -299,3 +299,48 @@ func TestSidebar_ClampOffset_ZeroVisible(t *testing.T) {
 	s.SelectNext()
 	// Should not panic with zero height
 }
+
+func TestBuildTreeItems_SingleLeafFlatPath(t *testing.T) {
+	// Spec: "if there is only one leaf node in the tree, display the whole
+	// relevant subtree on the same line, kind of like when tree mode is disabled."
+	collapsed := make(map[string]bool)
+	items := buildTreeItems([]string{"dir/sub/file.go"}, itemNormal, collapsed)
+
+	if len(items) != 1 {
+		t.Fatalf("single-leaf tree should produce 1 item, got %d", len(items))
+	}
+	if items[0].filePath != "dir/sub/file.go" {
+		t.Errorf("item should have full path, got %q", items[0].filePath)
+	}
+	if items[0].isDir {
+		t.Error("single-leaf should be rendered as a file, not a directory")
+	}
+}
+
+func TestBuildTreeItems_MultipleLeaves_NotFlattened(t *testing.T) {
+	// Multiple files under a directory should still use tree structure
+	collapsed := make(map[string]bool)
+	items := buildTreeItems([]string{"dir/a.go", "dir/b.go"}, itemNormal, collapsed)
+
+	hasDirItem := false
+	for _, item := range items {
+		if item.isDir {
+			hasDirItem = true
+		}
+	}
+	if !hasDirItem {
+		t.Error("multiple leaves should still show directory structure")
+	}
+}
+
+func TestBuildTreeItems_SingleLeafPreservesKind(t *testing.T) {
+	collapsed := make(map[string]bool)
+	items := buildTreeItems([]string{"pkg/file.go"}, itemDim, collapsed)
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].kind != itemDim {
+		t.Errorf("single-leaf should preserve kind, got %v", items[0].kind)
+	}
+}
