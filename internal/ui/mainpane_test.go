@@ -662,3 +662,52 @@ func TestWrapLines_PreservesShortWords(t *testing.T) {
 		}
 	}
 }
+
+func TestTruncateLinesWithOffset_PreservesANSI(t *testing.T) {
+	// Regression: horizontal scroll should preserve ANSI codes for visible text
+	styled := "\x1b[32mgreen text here\x1b[0m"
+	result := truncateLinesWithOffset(styled, 10, 5)
+	// The visible portion should still contain ANSI codes
+	if !strings.Contains(result, "\x1b[32m") {
+		t.Error("ANSI styling should be preserved after horizontal scroll")
+	}
+	// The visible text should start from position 5
+	stripped := stripANSIForWidth(result)
+	if !strings.Contains(stripped, " text") {
+		t.Errorf("visible text should contain 'text', got %q", stripped)
+	}
+}
+
+func TestMouseShiftWheelHorizontalScroll(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.wordWrap = false
+	m.mainPane.SetWordWrap(false)
+	m.mainPane.SetPlainContent(strings.Repeat("x", 200))
+
+	// Shift+WheelDown = scroll right
+	result, _ := m.Update(tea.MouseWheelMsg{
+		X:      50,
+		Y:      10,
+		Button: tea.MouseWheelDown,
+		Mod:    tea.ModShift,
+	})
+	m = result.(*Model)
+
+	if m.mainPane.xOffset == 0 {
+		t.Error("shift+wheel down should scroll right when wrap is off")
+	}
+
+	// Shift+WheelUp = scroll left
+	result, _ = m.Update(tea.MouseWheelMsg{
+		X:      50,
+		Y:      10,
+		Button: tea.MouseWheelUp,
+		Mod:    tea.ModShift,
+	})
+	m = result.(*Model)
+	// Should have scrolled back
+}

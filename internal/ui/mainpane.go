@@ -780,10 +780,8 @@ func truncateLinesWithOffset(content string, width, offset int) string {
 		taken := 0 // display width taken in the output
 		ansiAwareIterate(line, func(r rune, dw int) {
 			if dw == 0 {
-				// ANSI escape character — emit if in visible region
-				if pos >= offset {
-					b.WriteRune(r)
-				}
+				// ANSI escape character — always emit to preserve styling
+				b.WriteRune(r)
 				return
 			}
 			if pos >= offset && taken+dw <= width {

@@ -1005,13 +1005,19 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		}
 	} else {
 		// Horizontal scrolling (when word wrap is off)
-		if !m.wordWrap && (msg.Button == tea.MouseWheelLeft || msg.Button == tea.MouseWheelRight) {
-			if msg.Button == tea.MouseWheelLeft {
-				m.mainPane.ScrollLeft(4)
-			} else {
-				m.mainPane.ScrollRight(4)
+		// Support both native horizontal wheel events and Shift+vertical wheel
+		if !m.wordWrap {
+			isHorizScroll := msg.Button == tea.MouseWheelLeft || msg.Button == tea.MouseWheelRight
+			isShiftVertScroll := (msg.Button == tea.MouseWheelUp || msg.Button == tea.MouseWheelDown) && msg.Mod&tea.ModShift != 0
+			if isHorizScroll || isShiftVertScroll {
+				scrollLeft := msg.Button == tea.MouseWheelLeft || (isShiftVertScroll && msg.Button == tea.MouseWheelUp)
+				if scrollLeft {
+					m.mainPane.ScrollLeft(4)
+				} else {
+					m.mainPane.ScrollRight(4)
+				}
+				return m, nil
 			}
-			return m, nil
 		}
 		// Vertical scrolling — forward to main pane viewport
 		cmd := m.mainPane.Update(msg)
