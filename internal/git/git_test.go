@@ -1257,3 +1257,49 @@ func TestPRChecks_ActionRequired(t *testing.T) {
 		t.Errorf("action_required should be FAILURE, got %q", ci.State)
 	}
 }
+
+func TestPRReviewRequests(t *testing.T) {
+	dir := setupTestRepo(t)
+	requestsJSON := `{"reviewRequests":[{"__typename":"User","login":"alice"},{"__typename":"Team","name":"Storage Reviewers","slug":"org/storage-reviewers"}]}`
+	g := git.NewWithRunner(dir, mockGHRunner(requestsJSON, nil))
+
+	requests, err := g.PRReviewRequests()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(requests))
+	}
+	if requests[0].Name != "alice" || requests[0].IsTeam {
+		t.Errorf("first request: got %+v, want user alice", requests[0])
+	}
+	if requests[1].Name != "Storage Reviewers" || !requests[1].IsTeam {
+		t.Errorf("second request: got %+v, want team Storage Reviewers", requests[1])
+	}
+}
+
+func TestPRReviewRequests_Error(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("gh failed")))
+
+	requests, err := g.PRReviewRequests()
+	if err != nil {
+		t.Error("should return nil on error")
+	}
+	if requests != nil {
+		t.Error("should return nil requests on error")
+	}
+}
+
+func TestPRReviewRequests_Empty(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.NewWithRunner(dir, mockGHRunner(`{"reviewRequests":[]}`, nil))
+
+	requests, err := g.PRReviewRequests()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 0 {
+		t.Errorf("expected 0 requests, got %d", len(requests))
+	}
+}

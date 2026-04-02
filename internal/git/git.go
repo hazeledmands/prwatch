@@ -113,6 +113,12 @@ type PRReview struct {
 	State  string `json:"state"` // APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING
 }
 
+// PRReviewRequest represents a pending review request on a PR.
+type PRReviewRequest struct {
+	Name   string // display name (login for users, team name for teams)
+	IsTeam bool
+}
+
 func (g *Git) run(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = g.dir
@@ -572,6 +578,39 @@ func (g *Git) PRReviews() ([]PRReview, error) {
 		reviews = append(reviews, r)
 	}
 	return reviews, nil
+}
+
+// PRReviewRequests fetches pending review requests for the current PR.
+func (g *Git) PRReviewRequests() ([]PRReviewRequest, error) {
+	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "reviewRequests")
+	if err != nil {
+		return nil, nil
+	}
+
+	var result struct {
+		ReviewRequests []struct {
+			TypeName string `json:"__typename"`
+			Login    string `json:"login"` // for User
+			Name     string `json:"name"`  // for Team
+		} `json:"reviewRequests"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		return nil, nil
+	}
+
+	var requests []PRReviewRequest
+	for _, rr := range result.ReviewRequests {
+		name := rr.Login
+		isTeam := false
+		if rr.TypeName == "Team" {
+			name = rr.Name
+			isTeam = true
+		}
+		if name != "" {
+			requests = append(requests, PRReviewRequest{Name: name, IsTeam: isTeam})
+		}
+	}
+	return requests, nil
 }
 
 // gitRemoteToHTTPS converts a git remote URL to an HTTPS URL.
