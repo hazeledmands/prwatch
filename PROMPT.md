@@ -45,7 +45,8 @@ line 3: github status
 ## modes
 
 main modes: "file-view", "file-diff", "commit", "pr".
-file-view mode should be the default mode we start up to.
+PR mode should be the default mode we start up to, if there is an active PR.
+otherwise, default to file-view mode.
 switching between file-diff and file-view should retain the selected file.
 
 ### file-view mode
