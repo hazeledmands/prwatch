@@ -97,6 +97,12 @@ func (m *mockGit) CIChecks() ([]git.CICheck, error) {
 func (m *mockGit) PRReviewRequests() ([]git.PRReviewRequest, error) {
 	return m.reviewRequests, m.reviewRequestsErr
 }
+func (m *mockGit) RWXResults(runID string) (*git.RWXResult, error) {
+	return &git.RWXResult{RunID: runID, Status: "passed"}, nil
+}
+func (m *mockGit) RWXTaskLog(taskID string) (string, error) {
+	return "mock log output", nil
+}
 
 func TestModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", testGit())

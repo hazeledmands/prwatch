@@ -78,6 +78,8 @@ type GitDataSource interface {
 	PRComments() ([]gitpkg.PRComment, error)
 	CIChecks() ([]gitpkg.CICheck, error)
 	PRReviewRequests() ([]gitpkg.PRReviewRequest, error)
+	RWXResults(runID string) (*gitpkg.RWXResult, error)
+	RWXTaskLog(taskID string) (string, error)
 }
 
 type Model struct {
@@ -103,6 +105,8 @@ type Model struct {
 	baseCommits         []gitpkg.Commit    // commits from the base branch (for commit mode category 4)
 	prComments          []gitpkg.PRComment // PR comments for PR-view mode
 	ciChecks            []gitpkg.CICheck   // CI checks for PR-view mode
+	pendingRWXCheck     *gitpkg.CICheck    // CI check awaiting RWX log fetch
+	rwxLogCache         map[string]string  // cache of RWX logs by check URL
 	lastViewedFile      string             // track the last file shown in file-view for auto-jump
 	sidebar             *sidebar
 	mainPane            *mainPane
@@ -179,6 +183,53 @@ type prRefreshMsg struct {
 
 type prTickMsg struct{}
 
+// maybeFetchRWXLog returns a tea.Cmd to fetch RWX logs if there's a pending check.
+func (m *Model) maybeFetchRWXLog() tea.Cmd {
+	if m.pendingRWXCheck == nil || m.git == nil {
+		return nil
+	}
+	check := *m.pendingRWXCheck
+	m.pendingRWXCheck = nil
+	return func() tea.Msg {
+		runID := gitpkg.ExtractRWXRunID(check.URL)
+		if runID == "" {
+			return rwxLogMsg{checkURL: check.URL, err: fmt.Errorf("could not extract run ID from URL")}
+		}
+
+		// First get the results to find failed tasks
+		results, err := m.git.RWXResults(runID)
+		if err != nil {
+			return rwxLogMsg{checkURL: check.URL, err: err}
+		}
+
+		var content strings.Builder
+		content.WriteString(fmt.Sprintf("RWX Run: %s\nStatus: %s\n", runID, results.Status))
+
+		if len(results.FailedTasks) > 0 {
+			content.WriteString(fmt.Sprintf("\nFailed tasks: %d\n", len(results.FailedTasks)))
+			for _, task := range results.FailedTasks {
+				content.WriteString(fmt.Sprintf("\n--- %s ---\n\n", task.Key))
+				log, err := m.git.RWXTaskLog(task.TaskID)
+				if err != nil {
+					content.WriteString(fmt.Sprintf("Error fetching log: %v\n", err))
+				} else {
+					content.WriteString(log)
+				}
+			}
+		} else {
+			content.WriteString("\nNo failed tasks.")
+		}
+
+		return rwxLogMsg{checkURL: check.URL, log: content.String()}
+	}
+}
+
+type rwxLogMsg struct {
+	checkURL string
+	log      string
+	err      error
+}
+
 func NewModel(dir string, g GitDataSource) *Model {
 	mode := FileViewMode
 	if g == nil {
@@ -195,6 +246,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		showIgnored:   true,
 		treeMode:      true,
 		collapsedDirs: make(map[string]bool),
+		rwxLogCache:   make(map[string]string),
 		wordWrap:      true,
 		lineNumbers:   true,
 		prInterval:    prRefreshDefault,
@@ -389,6 +441,18 @@ func (m *Model) loadGitData() tea.Msg {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	result, cmd := m.update(msg)
+	rm := result.(*Model)
+	if rwxCmd := rm.maybeFetchRWXLog(); rwxCmd != nil {
+		if cmd != nil {
+			return result, tea.Batch(cmd, rwxCmd)
+		}
+		return result, rwxCmd
+	}
+	return result, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -453,6 +517,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ciChecks = msg.ciChecks
 		m.prComments = msg.prComments
 		m.updateSidebarItems()
+		m.updateMainContent()
+		return m, nil
+
+	case rwxLogMsg:
+		m.rwxLogCache[msg.checkURL] = msg.log
+		if msg.err != nil {
+			m.rwxLogCache[msg.checkURL] = fmt.Sprintf("Error fetching RWX logs: %v", msg.err)
+		}
+		m.pendingRWXCheck = nil
 		m.updateMainContent()
 		return m, nil
 
@@ -1909,6 +1982,15 @@ func (m *Model) updateMainContent() {
 					content := fmt.Sprintf("Check: %s\nStatus: %s", check.Name, status)
 					if check.URL != "" {
 						content += fmt.Sprintf("\nURL: %s", check.URL)
+					}
+					// If RWX, check cache or trigger async fetch
+					if gitpkg.IsRWXURL(check.URL) {
+						if cached, ok := m.rwxLogCache[check.URL]; ok {
+							content += "\n\n" + cached
+						} else {
+							content += "\n\nLoading RWX logs..."
+							m.pendingRWXCheck = &check
+						}
 					}
 					m.mainPane.SetPlainContent(content)
 					break
