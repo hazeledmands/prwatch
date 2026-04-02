@@ -313,9 +313,9 @@ func (g *Git) FileDiffUncommitted(file string) (string, error) {
 
 // Commits returns the list of commits between base and HEAD, newest first.
 // If no commits exist in the range (e.g. on main), falls back to last 10 commits.
-// AllCommits returns the full commit history of HEAD.
+// AllCommits returns the full commit history of HEAD, capped at 1000 entries.
 func (g *Git) AllCommits() ([]Commit, error) {
-	out, err := g.run("log", "--format=%H %s", "HEAD")
+	out, err := g.run("log", "-n", "1000", "--format=%H %s", "HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -329,14 +329,24 @@ func (g *Git) Commits(base string) ([]Commit, error) {
 	}
 	commits := parseCommitLog(out)
 	if len(commits) == 0 {
-		// On the base branch itself — show full commit history
-		out, err = g.run("log", "--format=%H %s", "HEAD")
+		// On the base branch itself — show full commit history (capped at 1000)
+		out, err = g.run("log", "-n", "1000", "--format=%H %s", "HEAD")
 		if err != nil {
 			return nil, err
 		}
 		commits = parseCommitLog(out)
 	}
 	return commits, nil
+}
+
+// BaseCommits returns commits from the base branch that are already in the
+// history (before the feature branch diverged). Limited to a reasonable count.
+func (g *Git) BaseCommits(base string, limit int) ([]Commit, error) {
+	out, err := g.run("log", "-n", fmt.Sprintf("%d", limit), "--format=%H %s", base)
+	if err != nil {
+		return nil, err
+	}
+	return parseCommitLog(out), nil
 }
 
 func parseCommitLog(out string) []Commit {
