@@ -326,9 +326,9 @@ func TestRepoInfo_DetachedHead(t *testing.T) {
 
 func TestPRInfo_NoPR(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	// Mock gh to return "no pull requests found" — avoids hitting real GitHub API
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no pull requests found for branch")))
 
-	// In a local-only repo, PRInfo should return empty/no-error
 	info, err := g.PRInfo()
 	if err != nil {
 		t.Fatal(err)
@@ -759,14 +759,13 @@ func TestDetectBase_GHReturnsNonExistentBranch(t *testing.T) {
 }
 
 func TestDefaultCmdRunner_Error(t *testing.T) {
-	// Using New() which uses the default runner — run a command that fails
-	g := git.New(t.TempDir()) // not a git repo
-	// IsRepo uses g.run which is git-specific, but PRInfo uses runCmd
+	// Mock gh to simulate "not a git repository" — avoids hitting real GitHub API
+	dir := t.TempDir()
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("not a git repository")))
 	info, err := g.PRInfo()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// gh will fail in a non-git temp dir, defaultCmdRunner error path exercised
 	if info.Number != 0 {
 		t.Error("expected empty PR info")
 	}
