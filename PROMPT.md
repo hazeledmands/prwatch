@@ -2,23 +2,31 @@ create a simple TUI, in the vein of lazygit. it is meant to be run in a director
 
 the UI should show the delta between the merge-base of the current branch and the origin's base branch (like GitHub's three-dot diff). for committed files, diff against HEAD. for uncommitted files, diff against the working tree. the tool should use origin/<base> rather than the local base branch ref to stay consistent with GitHub's view.
 
+## live refresh
+
 the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
 - if the user has interacted with the app, and there is an update, the app should endeavor to keep the current view as stable as possible (so the currently highlighted file should stay highlighted, and scrolled to the same-ish spot, even while the surrounding content changes)
 
-there should be three modes: a "file-view" mode, a "file-diff" mode, and a "commit" mode. [m] should switch between the three modes.
-[v] or [1] should jump to file-view mode
-[d] or [2] should jump to file-diff mode
-[c] or [3] should jump to commit mode
-file-view mode should be the default mode we start up to.
+checking against the github server:
+- we should do this often enough to get fresh data, but not so often that we run into rate limits.
+- respond to rate limits appropriately, backing off as needed
+
+## layout
 
 the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar -- smaller than the "main" pane on the right. the sidebar should display a list (of either files or commits) and the main pane should display content.
+
+binary content should never be shown -- instead display [binary content].
+
+startup sequence: while still loading, the display should say "loading..." rather than displaying inaccurate information.
+
+## status bar
 
 the "status bar" should show the name of the branch and the repo and the worktree, as well as details and a link to the github PR (if there is one).
 details in the status bar:
 - current branch, and current upstream
 - name of directory
 - name of git repo (should be a TUI-compatible link to the git repo)
-- current mode (clicking this should switch modes, like the space bar)
+- current mode (clicking this should switch modes, like [m])
 - current PR (should be a TUI-compatible link)
 - high level overview of "git status":
   - ahead of upstream by ? commits (? unpushed commits)
@@ -30,60 +38,56 @@ details in the status bar:
   - review requests and approvals / rejections
   - number of comments
 
-checking against the github server:
-- we should do this often enough to get fresh data, but not so often that we run into rate limits.
-- respond to rate limits appropriately, backing off as needed
+## modes
 
-in the "file-view" mode, the left pane should be a list of all files in the directory, and the right pane should be the full file, that highlights the diff for the current changeset.
+there should be three modes: a "file-view" mode, a "file-diff" mode, and a "commit" mode.
+file-view mode should be the default mode we start up to.
+switching between file-diff and file-view should retain the selected file.
+
+### file-view mode
+
+the left pane should be a list of all files in the directory, and the right pane should be the full file, that highlights the diff for the current changeset.
+
 this mode should have a "gutter":
-  [n] should toggle on/off line numbers when displaying full files (defaulting to on)
-  if there is a diff for the current file, there should be a "diff gutter" that flags new lines (+), removed lines (-), and changed lines (~). if the file being viewed was COMPLETELY removed or is totally new, then the gutter should indicate that too.
-  changed lines should display the changed content inline
-  wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line
-any new content (via the diff) should show as "green" in file view mode, and removed content should show as red
-[shift]+[d] should show/hide removed content from the diff, in its own line (defaulting to showing)
-[shift]+[j]/[k]/[up]/[down] should jump directly to the next or previous diff. this should wrap around, just like search results.
-entering into this view should jump immediately to the first diff
-both modes should not attempt to show binary content -- instead it should just say [binary content]
+- [n] should toggle on/off line numbers when displaying full files (defaulting to on)
+- if there is a diff for the current file, there should be a "diff gutter" that flags new lines (+), removed lines (-), and changed lines (~). if the file being viewed was COMPLETELY removed or is totally new, then the gutter should indicate that too.
+- changed lines should have ~ in the gutter. if the diff is less than 1/4 of the width of the active pane, show both the deleted content (in red) and the new content (in green) inline on the same line. if the diff is bigger than that, duplicate the line with the deleted version on top (red) and the new version on bottom (green). retained (unchanged) text within a changed line should be yellow, deleted text red, new text green.
+- wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line
+- [shift]+[d] should show/hide removed content from the diff, in its own line (defaulting to showing)
+- [shift]+[j]/[k]/[up]/[down] should jump directly to the next or previous diff. this should wrap around, just like search results.
+- entering into this view should jump immediately to the first diff
 
-in both file modes, the sidebar should be separated into categories, with a horizontal line between each:
+### file-diff mode
+
+the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
+
+### sidebar (both file modes)
+
+the sidebar should be separated into categories, with a horizontal line between each:
   1. uncommitted files (rendered in a dimmer style)
   2. committed files
   3. all files (file-view mode only)
+
 order within these categories should be alphabetical.
 deleted files should still show up in this view, but they should be red.
 [i] should toggle on/off view of gitignored files in all files mode. it should be on by default. ignored files should show up in a dimmed color.
+
 tree view (enabled by default): files should be grouped under directories, and subsequently indented.
-  - directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
-  - [t] should toggle this mode on/off
-  - files and subdirectories in directories can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter].
-  - for uncommitted files and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
+- directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
+- [t] should toggle this mode on/off
+- files and subdirectories in directories can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter].
+- for uncommitted files and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
 
-in the "file-diff" mode, the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
+### commit mode
 
-in "commits" mode:
-the left pane should be a list of commmits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
+the left pane should be a list of commits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
 the list of commits should be separated into categories, separated by a dividing horizontal line:
 - unpushed changes (not technically a commit, if there are any they should all be grouped together under one line)
 - commits that have not yet been pushed to the origin (should be a dimmed color).
 - commits in the current branch / PR that have been pushed to the origin
 - commits after the stuff that's already in the base branch
 
-switching between file-diff and file-view should retain the selected file.
-
-[tab] should switch focus between the sidebar and the main panel
-[,] should focus the sidebar and [.] should focus the main panel
-if the sidebar has focus, the up/down/j/k keys should control which item in the sidebar is selected. if the main pane has focus, the up/down/j/k keys should scroll the view.
-[pgdn]/[space] should scroll the currently focused view down
-[pgup]/[shift]+[space] should scroll the currently focused view up
-if the main pane is in focus, the left/right arrow keys and h/l keys (vim style) should scroll the view left/right if any content is truncated. if the view is already scrolled all the way to the left, focus should switch to the sidebar. it should not be possible to scroll farther to the right than the last character that would be visible in the file.
-if the sidebar has focus on a file tree, [left]/[right]/[h]/[l] should act in a standard file-tree way:
-- left should close the branch if the cursor is currently at a branch. otherwise, it should go to the nearest parent
-- right, or [enter], should open the branch if the cursor is at a branch, otherwise it should go to the nearest child. if at a leaf node, it should switch to the main pane.
-- when not in tree mode, pressing [enter] or [right] or [l] on a sidebar entry should switch to the main pane.
-if the main pane has focus, pressing [enter] should do a contextually-relevant thing: in file mode it should open $EDITOR to the given file, to whatever line is currently in view. in "commit" mode it should.... maybe do nothing for now.
-
-[q] and [esc] show a confirmation prompt in the status bar. press [q] again to confirm, or any other key to cancel. [shift-Q] and [ctrl-c] quit immediately.
+## edge cases
 
 when running in a non-git directory, file-view mode should be the only mode.
 
@@ -93,42 +97,107 @@ running in a branch without a base branch (i.e. directly in main, or a detached 
 
 detached HEAD works normally, status bar shows `detached @ <short sha>` instead of a branch name.
 
-searching:
-the [/] key should open a search input at the bottom of the screen.
-cancel the active search with [esc].
-searching should match against the content in either pane, even content that is scrolled offscreen.
+## keybindings
+
+### mode switching
+| key | action |
+|-----|--------|
+| [m] | cycle modes (file-view -> file-diff -> commit) |
+| [v] or [1] | jump to file-view mode |
+| [d] or [2] | jump to file-diff mode |
+| [c] or [3] | jump to commit mode |
+
+### focus & navigation
+| key | action |
+|-----|--------|
+| [tab] | toggle focus between sidebar and main panel |
+| [,] | focus the sidebar |
+| [.] | focus the main panel |
+| [j]/[k] or [up]/[down] | sidebar: select item. main pane: scroll vertically |
+| [space]/[pgdn] | page down the focused view |
+| [shift]+[space]/[pgup] | page up the focused view |
+| [gg] | go to the top of the focused view |
+| [G] | go to the bottom of the focused view |
+
+### horizontal scrolling (main pane focused, word wrap off)
+| key | action |
+|-----|--------|
+| [h]/[l] or [left]/[right] | scroll left/right. left at scroll=0 switches focus to sidebar. cannot scroll past the last visible character. |
+
+### sidebar tree navigation (sidebar focused, tree mode on)
+| key | action |
+|-----|--------|
+| [left]/[h] | close branch, or go to nearest parent |
+| [right]/[l] or [enter] | open branch, go to nearest child, or (leaf node) switch to main pane |
+
+when not in tree mode, [enter]/[right]/[l] on a sidebar entry switches to the main pane.
+
+### main pane actions
+| key | action |
+|-----|--------|
+| [enter] | file modes: open $EDITOR at current line. commit mode: no-op for now. |
+
+### file-view specific
+| key | action |
+|-----|--------|
+| [n] | toggle line numbers |
+| [shift]+[d] | toggle showing removed diff lines inline |
+| [shift]+[j]/[k]/[up]/[down] | jump to next/previous diff (wraps around) |
+| [i] | toggle gitignored files in all-files section |
+| [t] | toggle tree view |
+
+### display
+| key | action |
+|-----|--------|
+| [+]/[-] | resize sidebar |
+| [f] | hide/show sidebar |
+| [w] | toggle word wrapping (default: on). word-wrap should break at word boundaries, except words longer than 1/8 of the screen width should be broken mid-word. |
+| [r] | manual refresh |
+
+### search
+| key | action |
+|-----|--------|
+| [/] | open search input at bottom of screen |
+| [esc] | cancel search |
+| [backspace] | if search text is empty, cancel search |
+| [enter] | if search text is empty, cancel search. otherwise confirm search and enter n/p navigation mode |
+| [n] | next search result (wraps around) |
+| [p] or [shift]+[n] | previous search result (wraps around) |
+
+searching should match against the content in the main pane only (not the sidebar), including content that is scrolled offscreen.
 searching should match as you type, and scroll to put the results of the search in view.
 the number of matches, and the index of the current match, should display at the bottom of the screen.
 results should be highlighted (text background should be a contrasting color).
-pressing [enter] during a search allows [n] to jump to next result and [p] to jump to previous result. jumping between results should wrap around, so the next result after the last one should be the first one.
 
-mouse behavior:
-- the user should be able to click on files or commits in the sidebar to open them in the main view.
-- scrolling should independently scroll the view but keep the selections the same, kind of like a scroll box in a windowed GUI.
-- when text is not wrapped, it should be possible to scroll left/right, too
-- hovering the mouse over clickable elements should cause them to highlight
-- dragging the mouse over text should highlight the text, and finishing a drag should cause a copy to the system's paste buffer
-  selecting should stay within the boundaries of the pane that we're selecting in. that is, if the user drags in the main pane, and drags across multiple lines, the select should copy multiple lines from that pane but not include TUI glyphs or characters from the gutter, or other ANSI codes
+### quit
+| key | action |
+|-----|--------|
+| [q]/[esc] | show confirmation prompt. press [q] again to confirm, or any other key to cancel. |
+| [Q]/[ctrl-c] | quit immediately |
 
-help mode:
-[?] should open a "help" page which should show all the keybindings,
-help should goe away when you hit [esc] or [q]
-[/] within help should open a search that applies only to the content in the help mode. this search should work the same way as search in the regular view -- pressing enter should go into a "search" mode where [n] and [p] switch between highlighted results
+### help
+| key | action |
+|-----|--------|
+| [?] | open help page showing all keybindings |
+
+help goes away when you hit [esc] or [q].
+[/] within help opens a search scoped to help content, with the same n/p navigation as regular search.
 help should be scrollable by mouse.
 
-other keybindings:
-[gg] and [G] to go to the top and bottom of whatever view is in focus
-[+] and [-] should change the size of the sidebar
-[f] should hide/show the sidebar
-[w] should toggle on/off word wrapping in the main pane (defaulting to on)
-[r] should refresh the whole app, to deal with cases where something fell behind from the filesystem or git or etc
+## mouse behavior
 
-startup sequence:
-while still loading, the display should say "loading..." rather than displaying inaccurate information
+- clicking on files or commits in the sidebar opens them in the main view.
+- scrolling independently scrolls the focused view, keeping selections the same.
+- when text is not wrapped, horizontal mouse scroll works too.
+- hovering over clickable elements highlights them.
+- dragging over text highlights it, and finishing a drag copies to the system paste buffer.
+  - selecting stays within the boundaries of the pane being dragged in.
+  - the highlight should only cover the relevant content that will be copied — not TUI glyphs, border characters, or gutter content.
+  - copied text should not include TUI glyphs, gutter characters, or ANSI codes.
 
 ---
 
-TESTS:
+## TESTS
 - aim for 90% code coverage. use --race in your tests to avoid race conditions.
 - there should be a set of UI snapshot tests, that compare rendered output to a set of "golden files" in a variety of scenarios derived from this prompt.
 - there should be a list of UI invariants encoded in a property-based test suite. these invariants should be tested by rendering given a set of inputs (including the state of a git repo and a mocked result from github), and then automatically checking the rendered output against the invariants, including things like:
@@ -137,7 +206,7 @@ TESTS:
   - total line count exactly equals the terminal height
   - clicking on an element (x-y coordinates based on the render) should do the thing it's supposed to
 
-DEVELOPING:
+## DEVELOPING
 - when starting, run git status; if there are any changes to the PROMPT.md commit those first
 - check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then remove the bug report.
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress.
@@ -149,6 +218,8 @@ DEVELOPING:
 - there should be continuous integration with GHA
 - after each commit, run `PRWATCH_RENDER_ONCE=1 go run .` to see the current state of the TUI rendered as text. review the output yourself to verify the UI looks correct before moving on.
 - if everything looks good, audit the code for things that could possibly be refactored for clarity, consistency, maintainability or other forms of code quality.
+- there should be tests that cover every behavior listed in this prompt file. if a behavior is described here, there should be a test asserting it works.
+- if anything in this spec is ambiguous, contradictory, or impossible to implement as written, make a reasonable choice and then flag it in INCONSISTENCIES.md so the human-in-the-loop can clarify.
 
-DOCUMENTATION:
+## DOCUMENTATION
 - the readme file should be up-to-date and provide a relatively concise overview of what this tool is meant to do.
