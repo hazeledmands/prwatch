@@ -23,26 +23,28 @@ the UI should update when the size of its bounding box changes. e.g. if the term
 
 ## status bar
 
-the "status bar" should show the name of the branch and the repo and the worktree, as well as details and a link to the github PR (if there is one).
-details in the status bar:
-- current branch, and current upstream
-- name of directory
-- name of git repo (should be a TUI-compatible link to the git repo)
-- current mode (clicking this should switch modes, like [m])
-- current PR (should be a TUI-compatible link)
-- high level overview of "git status":
-  - ahead of upstream by ? commits (? unpushed commits)
-  - number uncommitted files (clicking this should switch to "file diff" mode)
-  - number of commits in branch (clicking this should switch to "commit" mode)
-- high level overview of "github PR status":
-  - draft mode?
-  - CI status (with link)
-  - review requests and approvals / rejections
+the "status bar" should be divided into three sections, one line per each:
+line 1: overall status
+  - name of current mode ([file], [diff], [commits], [help])
+  - name of current directory
+  - if in a worktree, the name of the main git tree
+line 2: local git status
+  - name of current branch and merge base, if any (eg: `foo -> main`, or just `main`)
+  - number of uncommitted files (12 uncommitted)
+  - number of unpushed commits (2 unpushed)
+  - number of commits after base (3 commits) -- or just the number of commits if we're in the main branch
+    clicking this should switch to [commits] mode
+line 3: github status
+  - name of the current PR
+    this should be a TUI-compatible link to the PR
+  - [DRAFT] if in draft mode
+  - review requests and approvals/rejections
   - number of comments
+  - CI status (as an emoji)
 
 ## modes
 
-there should be three modes: a "file-view" mode, a "file-diff" mode, and a "commit" mode.
+main modes: "file-view", "file-diff", "commit", "pr".
 file-view mode should be the default mode we start up to.
 switching between file-diff and file-view should retain the selected file.
 
@@ -63,6 +65,17 @@ this mode should have a "gutter":
 ### file-diff mode
 
 the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
+
+### pr-view mode
+
+only available if there is an active PR. sidebar should show:
+- PR description
+- horizontal rule
+- comments (one line per comment)
+- horizontal rule
+- CI status (one line per CI check)
+
+main panel should show the content associated with the currently-selected sidebar item.
 
 ### sidebar (both file modes)
 
@@ -195,7 +208,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 - clicking on files or commits in the sidebar opens them in the main view.
 - scrolling independently scrolls the focused view, keeping selections the same.
 - when text is not wrapped, horizontal mouse scroll works too.
-- hovering over clickable elements highlights them.
+- hovering over clickable elements highlights them with a different background color.
 - dragging over text highlights it, and finishing a drag copies to the system paste buffer.
   - selecting stays within the boundaries of the pane being dragged in.
   - the highlight should only cover the relevant content that will be copied — not TUI glyphs, border characters, or gutter content.
