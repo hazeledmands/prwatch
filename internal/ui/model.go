@@ -1715,13 +1715,15 @@ func (m *Model) applyDragHighlight(content string) string {
 		startX, endX = endX, startX
 	}
 
-	// Clamp to main pane area
+	// Clamp to main pane area, excluding the gutter
 	sidebarW := 0
 	if !m.sidebarHidden {
 		sidebarW = m.sidebarPixelWidth()
 	}
-	if startX < sidebarW {
-		startX = sidebarW
+	// Content starts after sidebar + main pane border + gutter
+	gutterOffset := sidebarW + 1 + m.mainPane.gutterWidth // +1 for border
+	if startX < gutterOffset {
+		startX = gutterOffset
 	}
 	if endX >= m.width {
 		endX = m.width - 1
@@ -1732,7 +1734,7 @@ func (m *Model) applyDragHighlight(content string) string {
 
 	for y := startY; y <= endY && y < len(lines); y++ {
 		stripped := stripANSIForWidth(lines[y])
-		fromX := sidebarW
+		fromX := gutterOffset
 		toX := len(stripped)
 		if y == startY {
 			fromX = startX
@@ -1857,13 +1859,19 @@ func (m *Model) copySelection() {
 		line := stripANSIForWidth(contentLines[y])
 		line = strings.TrimRight(line, " ") // remove trailing padding
 
+		// Strip gutter prefix (line numbers + diff markers)
+		if gw > 0 && len(line) > gw {
+			line = line[gw:]
+		}
+
 		fromX := 0
 		toX := len(line)
 		if y == startY {
-			fromX = startX
+			// Adjust startX for gutter removal
+			fromX = max(0, startX-gw)
 		}
 		if y == endY {
-			toX = endX + 1
+			toX = max(0, endX+1-gw)
 		}
 		if fromX > len(line) {
 			fromX = len(line)
