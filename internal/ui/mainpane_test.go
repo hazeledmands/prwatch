@@ -663,10 +663,24 @@ func TestWrapLines_PreservesShortWords(t *testing.T) {
 	}
 }
 
+func TestTruncateLinesWithOffset_StickyPrefix(t *testing.T) {
+	// With a 5-char sticky prefix and offset 3, the first 5 chars should always show
+	line := "GUTTR content goes here and is long"
+	result := truncateLinesWithOffset(line, 20, 3, 5)
+	stripped := stripANSIForWidth(result)
+	if !strings.HasPrefix(stripped, "GUTTR") {
+		t.Errorf("sticky gutter should be preserved, got %q", stripped)
+	}
+	// Content should be offset by 3 from after the gutter
+	if strings.Contains(stripped, "con") {
+		t.Error("first 3 chars of content should be scrolled off")
+	}
+}
+
 func TestTruncateLinesWithOffset_PreservesANSI(t *testing.T) {
 	// Regression: horizontal scroll should preserve ANSI codes for visible text
 	styled := "\x1b[32mgreen text here\x1b[0m"
-	result := truncateLinesWithOffset(styled, 10, 5)
+	result := truncateLinesWithOffset(styled, 10, 5, 0)
 	// The visible portion should still contain ANSI codes
 	if !strings.Contains(result, "\x1b[32m") {
 		t.Error("ANSI styling should be preserved after horizontal scroll")

@@ -236,7 +236,7 @@ func (m *mainPane) refreshViewport() {
 		if m.wordWrap {
 			content = wrapLinesWithIndent(content, m.width, gutterWidth)
 		} else {
-			content = truncateLinesWithOffset(content, m.width, m.xOffset)
+			content = truncateLinesWithOffset(content, m.width, m.xOffset, gutterWidth)
 		}
 	}
 	m.viewport.SetContent(content)
@@ -745,11 +745,12 @@ func (m *mainPane) ScrollLeft(n int) {
 // Caps at the max content width minus viewport width.
 func (m *mainPane) ScrollRight(n int) {
 	m.xOffset += n
-	// Cap at max content width
-	maxWidth := m.maxContentWidth()
-	if maxWidth > m.width && m.xOffset > maxWidth-m.width {
-		m.xOffset = maxWidth - m.width
-	} else if maxWidth <= m.width {
+	// Cap at max content width minus gutter (gutter is always shown)
+	maxWidth := m.maxContentWidth() - m.gutterWidth
+	availableWidth := m.width - m.gutterWidth
+	if maxWidth > availableWidth && m.xOffset > maxWidth-availableWidth {
+		m.xOffset = maxWidth - availableWidth
+	} else if maxWidth <= availableWidth {
 		m.xOffset = 0
 	}
 	m.refreshViewport()
@@ -768,8 +769,10 @@ func (m *mainPane) maxContentWidth() int {
 }
 
 // truncateLinesWithOffset applies a horizontal scroll offset, then truncates.
-// Uses proper display width for wide characters.
-func truncateLinesWithOffset(content string, width, offset int) string {
+// The stickyPrefix parameter specifies how many display columns at the start
+// of each line are "sticky" (always shown, not affected by horizontal scroll).
+// This is used to keep the gutter visible when scrolling.
+func truncateLinesWithOffset(content string, width, offset, stickyPrefix int) string {
 	if width <= 0 {
 		return content
 	}
@@ -784,7 +787,11 @@ func truncateLinesWithOffset(content string, width, offset int) string {
 				b.WriteRune(r)
 				return
 			}
-			if pos >= offset && taken+dw <= width {
+			if pos < stickyPrefix {
+				// Sticky prefix — always show
+				b.WriteRune(r)
+				taken += dw
+			} else if pos-stickyPrefix >= offset && taken+dw <= width {
 				b.WriteRune(r)
 				taken += dw
 			}

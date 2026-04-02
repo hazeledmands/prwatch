@@ -3966,7 +3966,7 @@ func TestWrapLinesWithIndent_WithIndent(t *testing.T) {
 }
 
 func TestTruncateLinesWithOffset_WidthZero(t *testing.T) {
-	result := truncateLinesWithOffset("hello", 0, 0)
+	result := truncateLinesWithOffset("hello", 0, 0, 0)
 	if result != "hello" {
 		t.Errorf("width 0 should return original, got %q", result)
 	}

@@ -800,6 +800,16 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.helpScrollOffset--
 		}
 		return m, nil
+	case key.Matches(msg, keys.PageDown):
+		maxOffset := max(0, len(helpLines)-visibleHeight)
+		m.helpScrollOffset = min(m.helpScrollOffset+visibleHeight, maxOffset)
+		return m, nil
+	case key.Matches(msg, keys.PageUp):
+		m.helpScrollOffset = max(0, m.helpScrollOffset-visibleHeight)
+		return m, nil
+	case key.Matches(msg, keys.GoBottom):
+		m.helpScrollOffset = max(0, len(helpLines)-visibleHeight)
+		return m, nil
 	case key.Matches(msg, keys.QuitImmediate):
 		return m, tea.Quit
 	default:
