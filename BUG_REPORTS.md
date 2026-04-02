@@ -1,5 +1,7 @@
 ## New Bugs
 
+- CI checks are not showing up properly. Example: https://github.com/honeycombio/hound/pull/32185 is failing CI, but I'm not seeing that in the branch
+
 ## Fixed Bugs
 
 - Jump to previous hunk and jump-to-hunk wrapping weren't working — fixed by using `ViewportToSourceLine()` to convert viewport scroll position to source line number before comparing against diff annotation line numbers.

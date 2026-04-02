@@ -1590,6 +1590,30 @@ func (m *Model) updateSidebarItems() {
 		if len(m.prComments) == 0 {
 			items = append(items, sidebarItem{label: "(no comments)", kind: itemDim})
 		}
+
+		// Reviews
+		for _, r := range m.prReviews {
+			var status string
+			switch r.State {
+			case "APPROVED":
+				status = "✓"
+			case "CHANGES_REQUESTED":
+				status = "✗"
+			case "COMMENTED":
+				status = "💬"
+			default:
+				status = "…"
+			}
+			items = append(items, sidebarItem{
+				label: fmt.Sprintf("%s @%s", status, r.Author),
+				kind:  itemNormal,
+			})
+		}
+		if len(m.prReviews) == 0 && len(m.prComments) == 0 {
+			// Only show "(no reviews)" if there are also no comments
+		} else if len(m.prReviews) == 0 {
+			items = append(items, sidebarItem{label: "(no reviews)", kind: itemDim})
+		}
 		items = append(items, sidebarItem{kind: itemSeparator})
 
 		// CI checks
@@ -1753,6 +1777,27 @@ func (m *Model) updateMainContent() {
 				expected := fmt.Sprintf("@%s (#%d)", c.Author, i+1)
 				if selected == expected {
 					m.mainPane.SetPlainContent(fmt.Sprintf("@%s:\n\n%s", c.Author, c.Body))
+					break
+				}
+			}
+		} else if strings.HasPrefix(selected, "✓ @") || strings.HasPrefix(selected, "✗ @") ||
+			strings.HasPrefix(selected, "💬 @") || strings.HasPrefix(selected, "… @") {
+			// Review — show review state
+			for _, r := range m.prReviews {
+				var prefix string
+				switch r.State {
+				case "APPROVED":
+					prefix = "✓"
+				case "CHANGES_REQUESTED":
+					prefix = "✗"
+				case "COMMENTED":
+					prefix = "💬"
+				default:
+					prefix = "…"
+				}
+				expected := fmt.Sprintf("%s @%s", prefix, r.Author)
+				if selected == expected {
+					m.mainPane.SetPlainContent(fmt.Sprintf("Review by @%s\nState: %s", r.Author, r.State))
 					break
 				}
 			}
