@@ -4118,3 +4118,57 @@ func TestCommitMode_BaseCommitsCategory4(t *testing.T) {
 		t.Error("commit mode should include base branch commits in category 4")
 	}
 }
+
+func TestHelpPageUpDown(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 15 // short to allow scrolling
+	m.updateLayout()
+
+	// Open help
+	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+
+	// Page down
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	m = result.(*Model)
+	if m.helpScrollOffset == 0 {
+		t.Error("pgdn should scroll help down")
+	}
+	savedOffset := m.helpScrollOffset
+
+	// Page up
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+	m = result.(*Model)
+	if m.helpScrollOffset >= savedOffset {
+		t.Error("pgup should scroll help up")
+	}
+
+	// Go to bottom
+	result, _ = m.Update(tea.KeyPressMsg{Text: "G", Code: 'G'})
+	m = result.(*Model)
+	if m.helpScrollOffset == 0 {
+		t.Error("G should scroll help to bottom")
+	}
+
+	// Space should also work
+	m.helpScrollOffset = 0
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	m = result.(*Model)
+	if m.helpScrollOffset == 0 {
+		t.Error("space should page down in help")
+	}
+}
+
+func TestScrollToSourceLine_NoWrap(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 5) // short viewport
+	mp.SetWordWrap(false)
+	mp.SetPlainContent("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12")
+
+	mp.ScrollToSourceLine(10)
+	if mp.ScrollTop() < 5 {
+		t.Errorf("expected scroll near line 10, got %d", mp.ScrollTop())
+	}
+}
