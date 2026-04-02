@@ -1,6 +1,9 @@
 ## New Bugs
 
-(none)
+- CRITICAL: GitHub is rate limiting me again. we need to figure out some way to curtail this.
+- check bugreport/sidebar_emoji.png: the sidebar is off because of the emoji rendering, it looks like
+- check bugreport/header_colors.png: the header is purple for "file' but not "diff commits help * prwatch" and then it becomes purple again. this is confusing.
+- I'm in a directory on a branch associated with a PR, but the ui says "no pr". if this is because the API rate limit is exceeded, we should display that as an error message.
 
 ## Fixed Bugs
 
