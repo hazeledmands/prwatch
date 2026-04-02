@@ -77,6 +77,7 @@ type GitDataSource interface {
 	BehindCount(baseRef string) int
 	PRComments() ([]gitpkg.PRComment, error)
 	CIChecks() ([]gitpkg.CICheck, error)
+	PRReviewRequests() ([]gitpkg.PRReviewRequest, error)
 }
 
 type Model struct {
@@ -90,6 +91,7 @@ type Model struct {
 	prInfo              gitpkg.PRInfoResult
 	ciStatus            gitpkg.CIStatusResult
 	prReviews           []gitpkg.PRReview
+	prReviewRequests    []gitpkg.PRReviewRequest
 	prCommentCount      int
 	committedFiles      []string
 	uncommittedFiles    []string
@@ -155,6 +157,7 @@ type gitDataMsg struct {
 	baseCommits      []gitpkg.Commit
 	prComments       []gitpkg.PRComment
 	ciChecks         []gitpkg.CICheck
+	reviewRequests   []gitpkg.PRReviewRequest
 	behindCount      int
 	prFetchFailed    bool // true if PR fetch errored (e.g. rate limit) — preserve old PR data
 	err              error
@@ -163,13 +166,14 @@ type gitDataMsg struct {
 type RefreshMsg struct{}
 
 type prRefreshMsg struct {
-	prInfo       gitpkg.PRInfoResult
-	ciStatus     gitpkg.CIStatusResult
-	reviews      []gitpkg.PRReview
-	commentCount int
-	ciChecks     []gitpkg.CICheck
-	prComments   []gitpkg.PRComment
-	rateLimited  bool
+	prInfo         gitpkg.PRInfoResult
+	ciStatus       gitpkg.CIStatusResult
+	reviews        []gitpkg.PRReview
+	reviewRequests []gitpkg.PRReviewRequest
+	commentCount   int
+	ciChecks       []gitpkg.CICheck
+	prComments     []gitpkg.PRComment
+	rateLimited    bool
 }
 
 type prTickMsg struct{}
@@ -236,23 +240,26 @@ func (m *Model) loadPRStatus() tea.Msg {
 	}
 	var ciStatus gitpkg.CIStatusResult
 	var reviews []gitpkg.PRReview
+	var reviewRequests []gitpkg.PRReviewRequest
 	var commentCount int
 	var ciChecks []gitpkg.CICheck
 	var prComments []gitpkg.PRComment
 	if prInfo.Number > 0 {
 		ciStatus, _ = m.git.PRChecks()
 		reviews, _ = m.git.PRReviews()
+		reviewRequests, _ = m.git.PRReviewRequests()
 		commentCount, _ = m.git.PRCommentCount()
 		ciChecks, _ = m.git.CIChecks()
 		prComments, _ = m.git.PRComments()
 	}
 	return prRefreshMsg{
-		prInfo:       prInfo,
-		ciStatus:     ciStatus,
-		reviews:      reviews,
-		commentCount: commentCount,
-		ciChecks:     ciChecks,
-		prComments:   prComments,
+		prInfo:         prInfo,
+		ciStatus:       ciStatus,
+		reviews:        reviews,
+		reviewRequests: reviewRequests,
+		commentCount:   commentCount,
+		ciChecks:       ciChecks,
+		prComments:     prComments,
 	}
 }
 
@@ -286,12 +293,14 @@ func (m *Model) loadGitData() tea.Msg {
 	// Fetch PR details if a PR exists (and fetch succeeded)
 	var ciStatus gitpkg.CIStatusResult
 	var reviews []gitpkg.PRReview
+	var reviewRequests []gitpkg.PRReviewRequest
 	var commentCount int
 	var prComments []gitpkg.PRComment
 	var ciChecks []gitpkg.CICheck
 	if prInfo.Number > 0 {
 		ciStatus, _ = m.git.PRChecks()
 		reviews, _ = m.git.PRReviews()
+		reviewRequests, _ = m.git.PRReviewRequests()
 		commentCount, _ = m.git.PRCommentCount()
 		prComments, _ = m.git.PRComments()
 		ciChecks, _ = m.git.CIChecks()
@@ -373,6 +382,7 @@ func (m *Model) loadGitData() tea.Msg {
 		behindCount:      behindCount,
 		prComments:       prComments,
 		ciChecks:         ciChecks,
+		reviewRequests:   reviewRequests,
 		prFetchFailed:    prFetchFailed,
 	}
 }
@@ -398,6 +408,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prInfo = msg.prInfo
 			m.ciStatus = msg.ciStatus
 			m.prReviews = msg.prReviews
+			m.prReviewRequests = msg.reviewRequests
 			m.prCommentCount = msg.prCommentCount
 			m.prComments = msg.prComments
 			m.ciChecks = msg.ciChecks
@@ -436,6 +447,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prInfo = msg.prInfo
 		m.ciStatus = msg.ciStatus
 		m.prReviews = msg.reviews
+		m.prReviewRequests = msg.reviewRequests
 		m.prCommentCount = msg.commentCount
 		m.ciChecks = msg.ciChecks
 		m.prComments = msg.prComments
@@ -1889,19 +1901,20 @@ func (m *Model) View() tea.View {
 	}
 
 	bar, labels := renderStatusBar(m.width, statusBarData{
-		info:          m.repoInfo,
-		pr:            m.prInfo,
-		ciStatus:      m.ciStatus,
-		reviews:       m.prReviews,
-		commentCount:  m.prCommentCount,
-		mode:          m.mode,
-		confirming:    m.confirming,
-		uncommitCount: len(m.uncommittedFiles),
-		commitCount:   len(m.commits),
-		behindCount:   m.behindCount,
-		showHelp:      m.showHelp,
-		hoverX:        m.hoverX,
-		hoverY:        m.hoverY,
+		info:           m.repoInfo,
+		pr:             m.prInfo,
+		ciStatus:       m.ciStatus,
+		reviews:        m.prReviews,
+		reviewRequests: m.prReviewRequests,
+		commentCount:   m.prCommentCount,
+		mode:           m.mode,
+		confirming:     m.confirming,
+		uncommitCount:  len(m.uncommittedFiles),
+		commitCount:    len(m.commits),
+		behindCount:    m.behindCount,
+		showHelp:       m.showHelp,
+		hoverX:         m.hoverX,
+		hoverY:         m.hoverY,
 	})
 	m.modeLabels = labels
 

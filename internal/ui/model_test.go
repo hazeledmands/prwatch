@@ -26,38 +26,40 @@ func initAndLoadGitData(m *Model) gitDataMsg {
 
 // mockGit implements GitDataSource for controlled testing.
 type mockGit struct {
-	repoInfo        git.RepoInfoResult
-	repoInfoErr     error
-	prInfo          git.PRInfoResult
-	prInfoErr       error
-	ciStatus        git.CIStatusResult
-	ciStatusErr     error
-	reviews         []git.PRReview
-	reviewsErr      error
-	commentCount    int
-	commentCountErr error
-	base            string
-	baseErr         error
-	changedFiles    git.ChangedFilesResult
-	changedErr      error
-	commits         []git.Commit
-	commitsErr      error
-	fileDiff        string
-	fileDiffErr     error
-	fileContent     string
-	contentErr      error
-	commitPatch     string
-	patchErr        error
-	allCommits      []git.Commit
-	allCommitsErr   error
-	allFiles        []string
-	allFilesErr     error
-	baseCommits     []git.Commit
-	baseCommitsErr  error
-	prComments      []git.PRComment
-	prCommentsErr   error
-	ciChecks        []git.CICheck
-	ciChecksErr     error
+	repoInfo          git.RepoInfoResult
+	repoInfoErr       error
+	prInfo            git.PRInfoResult
+	prInfoErr         error
+	ciStatus          git.CIStatusResult
+	ciStatusErr       error
+	reviews           []git.PRReview
+	reviewsErr        error
+	commentCount      int
+	commentCountErr   error
+	base              string
+	baseErr           error
+	changedFiles      git.ChangedFilesResult
+	changedErr        error
+	commits           []git.Commit
+	commitsErr        error
+	fileDiff          string
+	fileDiffErr       error
+	fileContent       string
+	contentErr        error
+	commitPatch       string
+	patchErr          error
+	allCommits        []git.Commit
+	allCommitsErr     error
+	allFiles          []string
+	allFilesErr       error
+	baseCommits       []git.Commit
+	baseCommitsErr    error
+	prComments        []git.PRComment
+	prCommentsErr     error
+	ciChecks          []git.CICheck
+	ciChecksErr       error
+	reviewRequests    []git.PRReviewRequest
+	reviewRequestsErr error
 }
 
 func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
@@ -91,6 +93,9 @@ func (m *mockGit) PRComments() ([]git.PRComment, error) {
 }
 func (m *mockGit) CIChecks() ([]git.CICheck, error) {
 	return m.ciChecks, m.ciChecksErr
+}
+func (m *mockGit) PRReviewRequests() ([]git.PRReviewRequest, error) {
+	return m.reviewRequests, m.reviewRequestsErr
 }
 
 func TestModeSwitching(t *testing.T) {
