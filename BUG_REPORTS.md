@@ -1,9 +1,6 @@
 ## New Bugs
 
-- CRITICAL: GitHub is rate limiting me again. we need to figure out some way to curtail this.
-- check bugreport/sidebar_emoji.png: the sidebar is off because of the emoji rendering, it looks like
-- check bugreport/header_colors.png: the header is purple for "file' but not "diff commits help * prwatch" and then it becomes purple again. this is confusing.
-- I'm in a directory on a branch associated with a PR, but the ui says "no pr". if this is because the API rate limit is exceeded, we should display that as an error message.
+(none)
 
 ## Fixed Bugs
 
@@ -23,3 +20,6 @@
 - CI checks not showing up properly — fixed by adding `ciChecks` and `prComments` fields to `prRefreshMsg`, fetching them in `loadPRStatus()`, and updating model + UI in the refresh handler.
 - CI checks not showing at all — root cause was `gh pr checks --json` using wrong field names (`conclusion`/`detailsUrl` don't exist). Fixed by using correct fields: `bucket` (pass/fail/pending/skipping/cancel) and `link`.
 - Mode tab brackets caused text jumping when switching modes — fixed by removing brackets, using bold/white styling for active mode instead.
+- GitHub API rate limiting — increased default refresh to 2min/15min max, now shows "GitHub API rate limited" or "GitHub API error" in status bar instead of "No PR".
+- Sidebar emoji alignment — replaced emoji CI check prefixes (✅❌⏳⏭️) with fixed-width text ([✓][✗][…][-]) and 💬 with "c" for consistent column alignment.
+- Header inactive mode colors too dim — changed inactive mode color from #B0A0D0 to #D0C8E8 for better contrast on purple background.

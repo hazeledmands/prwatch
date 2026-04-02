@@ -16,6 +16,7 @@ type statusBarData struct {
 	reviews        []git.PRReview
 	reviewRequests []git.PRReviewRequest
 	commentCount   int
+	prError        string // error message for GitHub API issues
 	mode           Mode
 	confirming     bool
 	uncommitCount  int
@@ -215,7 +216,9 @@ func renderLine2(width int, data statusBarData) string {
 	if data.behindCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d behind", data.behindCount))
 	}
-	if data.pr.Number == 0 {
+	if data.prError != "" {
+		parts = append(parts, data.prError)
+	} else if data.pr.Number == 0 {
 		parts = append(parts, "No PR")
 	}
 

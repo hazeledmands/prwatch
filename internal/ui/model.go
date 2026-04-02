@@ -30,8 +30,8 @@ func renderMarkdown(md string, _ int) (string, error) {
 }
 
 const (
-	prRefreshDefault = 1 * time.Minute
-	prRefreshMax     = 10 * time.Minute
+	prRefreshDefault = 2 * time.Minute
+	prRefreshMax     = 15 * time.Minute
 )
 
 type searchMatch struct {
@@ -94,6 +94,7 @@ type Model struct {
 	ciStatus            gitpkg.CIStatusResult
 	prReviews           []gitpkg.PRReview
 	prReviewRequests    []gitpkg.PRReviewRequest
+	prError             string // error message for PR/GitHub API issues
 	prCommentCount      int
 	committedFiles      []string
 	uncommittedFiles    []string
@@ -469,6 +470,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.repoInfo = msg.repoInfo
 		// If PR fetch failed (e.g. rate limit), preserve existing PR data
+		if msg.prFetchFailed {
+			m.prError = "GitHub API error"
+		} else {
+			m.prError = ""
+		}
 		if !msg.prFetchFailed {
 			m.prInfo = msg.prInfo
 			m.ciStatus = msg.ciStatus
@@ -505,10 +511,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.rateLimited {
 			// Double the interval on rate limit, up to max
 			m.prInterval = min(m.prInterval*2, prRefreshMax)
+			m.prError = "GitHub API rate limited"
 			return m, nil
 		}
-		// Successful fetch — reset to default interval
+		// Successful fetch — reset to default interval and clear error
 		m.prInterval = prRefreshDefault
+		m.prError = ""
 		m.prInfo = msg.prInfo
 		m.ciStatus = msg.ciStatus
 		m.prReviews = msg.reviews
@@ -1454,7 +1462,7 @@ func (m *Model) selectFirstReview() {
 	for i, item := range m.sidebar.items {
 		if strings.HasPrefix(item.label, "✓ @") ||
 			strings.HasPrefix(item.label, "✗ @") ||
-			strings.HasPrefix(item.label, "💬 @") ||
+			strings.HasPrefix(item.label, "c @") ||
 			strings.HasPrefix(item.label, "… @") {
 			m.sidebar.SelectIndex(i)
 			return
@@ -1770,7 +1778,7 @@ func (m *Model) updateSidebarItems() {
 			case "CHANGES_REQUESTED":
 				status = "✗"
 			case "COMMENTED":
-				status = "💬"
+				status = "c"
 			default:
 				status = "…"
 			}
@@ -1791,15 +1799,15 @@ func (m *Model) updateSidebarItems() {
 			var prefix string
 			switch check.Bucket {
 			case "pass":
-				prefix = "✅"
+				prefix = "[✓]"
 			case "fail", "cancel":
-				prefix = "❌"
+				prefix = "[✗]"
 			case "pending":
-				prefix = "⏳"
+				prefix = "[…]"
 			case "skipping":
-				prefix = "⏭️"
+				prefix = "[-]"
 			default:
-				prefix = "  "
+				prefix = "   "
 			}
 			items = append(items, sidebarItem{label: prefix + " " + check.Name, kind: itemNormal})
 		}
@@ -1951,7 +1959,7 @@ func (m *Model) updateMainContent() {
 				}
 			}
 		} else if strings.HasPrefix(selected, "✓ @") || strings.HasPrefix(selected, "✗ @") ||
-			strings.HasPrefix(selected, "💬 @") || strings.HasPrefix(selected, "… @") {
+			strings.HasPrefix(selected, "c @") || strings.HasPrefix(selected, "… @") {
 			// Review — show review state
 			for _, r := range m.prReviews {
 				var prefix string
@@ -1961,7 +1969,7 @@ func (m *Model) updateMainContent() {
 				case "CHANGES_REQUESTED":
 					prefix = "✗"
 				case "COMMENTED":
-					prefix = "💬"
+					prefix = "c"
 				default:
 					prefix = "…"
 				}
@@ -2061,6 +2069,7 @@ func (m *Model) View() tea.View {
 		ciStatus:       m.ciStatus,
 		reviews:        m.prReviews,
 		reviewRequests: m.prReviewRequests,
+		prError:        m.prError,
 		commentCount:   m.prCommentCount,
 		mode:           m.mode,
 		confirming:     m.confirming,
