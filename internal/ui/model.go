@@ -38,6 +38,7 @@ const (
 	FileDiffMode
 	CommitMode
 	PRViewMode
+	HelpMode // not a real mode — used for clickable label in mode bar
 )
 
 type Focus int
@@ -65,6 +66,7 @@ type GitDataSource interface {
 	CommitPatch(sha string) (string, error)
 	AllFiles(includeIgnored bool) ([]string, error)
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
+	BehindCount(baseRef string) int
 	PRComments() ([]gitpkg.PRComment, error)
 	CIChecks() ([]gitpkg.CICheck, error)
 }
@@ -87,6 +89,7 @@ type Model struct {
 	allFiles            []string        // all files in the repo (for file-view mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
 	commits             []gitpkg.Commit
+	behindCount         int                // how many commits behind base
 	baseCommits         []gitpkg.Commit    // commits from the base branch (for commit mode category 4)
 	prComments          []gitpkg.PRComment // PR comments for PR-view mode
 	ciChecks            []gitpkg.CICheck   // CI checks for PR-view mode
@@ -144,6 +147,7 @@ type gitDataMsg struct {
 	baseCommits      []gitpkg.Commit
 	prComments       []gitpkg.PRComment
 	ciChecks         []gitpkg.CICheck
+	behindCount      int
 	prFetchFailed    bool // true if PR fetch errored (e.g. rate limit) — preserve old PR data
 	err              error
 }
@@ -298,6 +302,19 @@ func (m *Model) loadGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
+	// Compute behind count: how many commits on the base branch we don't have
+	var behindCount int
+	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
+		// Use PR base ref if available, otherwise infer from upstream
+		baseRef := "origin/main"
+		if prInfo.BaseRef != "" {
+			baseRef = "origin/" + prInfo.BaseRef
+		} else if info.Upstream != "" {
+			baseRef = info.Upstream
+		}
+		behindCount = m.git.BehindCount(baseRef)
+	}
+
 	// Fetch base branch commits for commit mode category 4
 	var baseCommits []gitpkg.Commit
 	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
@@ -337,6 +354,7 @@ func (m *Model) loadGitData() tea.Msg {
 		ignoredFiles:     ignoredSet,
 		commits:          commits,
 		baseCommits:      baseCommits,
+		behindCount:      behindCount,
 		prComments:       prComments,
 		ciChecks:         ciChecks,
 		prFetchFailed:    prFetchFailed,
@@ -376,6 +394,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ignoredFiles = msg.ignoredFiles
 		m.commits = msg.commits
 		m.baseCommits = msg.baseCommits
+		m.behindCount = msg.behindCount
 		// On first load, default to PR mode if a PR exists and mode hasn't been changed
 		if wasLoading && m.prInfo.Number > 0 && m.mode == FileViewMode {
 			m.mode = PRViewMode
@@ -1011,9 +1030,14 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 		// Line 1: click on specific mode label to switch to that mode
 		for _, label := range m.modeLabels {
 			if x >= label.start && x < label.end {
-				m.mode = label.mode
-				m.updateSidebarItems()
-				m.updateMainContent()
+				if label.mode == HelpMode {
+					m.showHelp = !m.showHelp
+				} else {
+					m.showHelp = false
+					m.mode = label.mode
+					m.updateSidebarItems()
+					m.updateMainContent()
+				}
 				return m, nil
 			}
 		}
@@ -1811,6 +1835,8 @@ func (m *Model) View() tea.View {
 		confirming:    m.confirming,
 		uncommitCount: len(m.uncommittedFiles),
 		commitCount:   len(m.commits),
+		behindCount:   m.behindCount,
+		showHelp:      m.showHelp,
 		hoverX:        m.hoverX,
 		hoverY:        m.hoverY,
 	})

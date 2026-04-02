@@ -40,6 +40,7 @@ line 2: local git status (not shown if this is not a git repo)
   - number of commits that this branch is behind base, if any (4 behind)
   - if no PR, "No PR"
 line 3: github status (not shown if there is no PR)
+  - if the github API is returning errors, then put the error message here! otherwise:
   - name of the current PR
     this should be a TUI-compatible link to the PR
   - [DRAFT] if in draft mode, [MERGED] if merged

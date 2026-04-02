@@ -1,4 +1,4 @@
-  [file] diff commits · empty                                                                       
+  [file] diff commits help · empty                                                                  
   main · No PR                                                                                      
 ╭──────────────────────────────────────────────────────────────────╮                                
 │1                                                                 │                                

@@ -215,6 +215,18 @@ func (g *Git) ghPRBase() (string, error) {
 	return g.runCmd(g.dir, "gh", "pr", "view", "--json", "baseRefName", "-q", ".baseRefName")
 }
 
+// BehindCount returns the number of commits the current branch is behind the
+// given base ref (e.g. "origin/main"). Returns 0 if not applicable.
+func (g *Git) BehindCount(baseRef string) int {
+	out, err := g.run("rev-list", "--count", "HEAD.."+baseRef)
+	if err != nil {
+		return 0
+	}
+	var count int
+	fmt.Sscanf(out, "%d", &count)
+	return count
+}
+
 // ChangedFilesResult separates committed and uncommitted file changes.
 type ChangedFilesResult struct {
 	Committed   []string // files changed in base..HEAD only

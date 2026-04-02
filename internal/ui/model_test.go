@@ -85,6 +85,7 @@ func (m *mockGit) AllFiles(includeIgnored bool) ([]string, error) {
 func (m *mockGit) BaseCommits(base string, limit int) ([]git.Commit, error) {
 	return m.baseCommits, m.baseCommitsErr
 }
+func (m *mockGit) BehindCount(baseRef string) int { return 0 }
 func (m *mockGit) PRComments() ([]git.PRComment, error) {
 	return m.prComments, m.prCommentsErr
 }

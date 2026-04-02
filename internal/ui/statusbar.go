@@ -19,6 +19,8 @@ type statusBarData struct {
 	confirming    bool
 	uncommitCount int
 	commitCount   int
+	behindCount   int // commits behind base branch
+	showHelp      bool
 	hoverX        int // mouse hover position for highlighting
 	hoverY        int
 }
@@ -80,6 +82,7 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 		{FileDiffMode, "diff"},
 		{CommitMode, "commits"},
 		{PRViewMode, "pr"},
+		{HelpMode, "help"},
 	}
 
 	var modeItems []string
@@ -110,7 +113,9 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 		// Check if hover is on this label
 		isHovered := data.hoverY == 0 && data.hoverX >= label.start && data.hoverX < label.end
 
-		if m.mode == data.mode {
+		// Help mode is "active" when help overlay is shown
+		isActive := m.mode == data.mode || (m.mode == HelpMode && data.showHelp)
+		if isActive {
 			if isHovered {
 				modeItems = append(modeItems, modeActiveHoverStyle.Render(displayText))
 			} else {
@@ -148,6 +153,10 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 	}
 
 	bar := strings.Join(parts, " · ")
+	// Truncate to prevent wrapping — statusBarStyle has Padding(0,1) = 2 chars
+	if lipgloss.Width(bar) > width-2 {
+		bar = truncateToWidth(bar, width-2)
+	}
 	return statusBarStyle.Width(width).Render(bar), labels
 }
 
@@ -189,6 +198,9 @@ func renderLine2(width int, data statusBarData) string {
 	}
 	if data.commitCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d commits", data.commitCount))
+	}
+	if data.behindCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d behind", data.behindCount))
 	}
 	if data.pr.Number == 0 {
 		parts = append(parts, "No PR")
