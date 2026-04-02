@@ -135,8 +135,9 @@ type Model struct {
 	dragEndX            int
 	dragEndY            int
 	dragging            bool
-	loading             bool        // true until first data load completes
-	modeLabels          []modeLabel // clickable mode label positions from last render
+	loading             bool         // true until first data load completes
+	modeLabels          []modeLabel  // clickable mode label positions from last render
+	line3Labels         []line3Label // clickable positions on PR status line
 	err                 error
 }
 
@@ -1081,13 +1082,26 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 			m.updateMainContent()
 		}
 	case 2:
-		// Line 3: PR status — clicking CI status jumps to PR mode CI results
-		if m.prInfo.Number > 0 && m.ciStatus.State != "" {
-			m.mode = PRViewMode
-			m.updateSidebarItems()
-			// Find the first failing CI check in the sidebar
-			m.selectFirstCIFailure()
-			m.updateMainContent()
+		// Line 3: PR status — click on specific elements
+		if m.prInfo.Number > 0 {
+			for _, label := range m.line3Labels {
+				if x >= label.start && x < label.end {
+					m.mode = PRViewMode
+					m.updateSidebarItems()
+					switch label.target {
+					case line3Description:
+						m.sidebar.SelectFirst()
+					case line3Reviews:
+						m.selectFirstReview()
+					case line3Comments:
+						m.selectFirstComment()
+					case line3CI:
+						m.selectFirstCIFailure()
+					}
+					m.updateMainContent()
+					return m, nil
+				}
+			}
 		}
 	}
 	return m, nil
@@ -1352,6 +1366,29 @@ func (m *Model) isUncommittedFile(file string) bool {
 }
 
 // jumpToFirstDiff scrolls to the first diff line in the current file.
+// selectFirstComment selects the first comment in the PR mode sidebar.
+func (m *Model) selectFirstComment() {
+	for i, item := range m.sidebar.items {
+		if strings.HasPrefix(item.label, "@") {
+			m.sidebar.SelectIndex(i)
+			return
+		}
+	}
+}
+
+// selectFirstReview selects the first review in the PR mode sidebar.
+func (m *Model) selectFirstReview() {
+	for i, item := range m.sidebar.items {
+		if strings.HasPrefix(item.label, "✓ @") ||
+			strings.HasPrefix(item.label, "✗ @") ||
+			strings.HasPrefix(item.label, "💬 @") ||
+			strings.HasPrefix(item.label, "… @") {
+			m.sidebar.SelectIndex(i)
+			return
+		}
+	}
+}
+
 // selectFirstCIFailure selects the first failing CI check in the PR mode sidebar.
 // If no failures, selects the first CI check item.
 func (m *Model) selectFirstCIFailure() {
@@ -1936,7 +1973,7 @@ func (m *Model) View() tea.View {
 		return v
 	}
 
-	bar, labels := renderStatusBar(m.width, statusBarData{
+	bar, labels, l3Labels := renderStatusBar(m.width, statusBarData{
 		info:           m.repoInfo,
 		pr:             m.prInfo,
 		ciStatus:       m.ciStatus,
@@ -1953,6 +1990,7 @@ func (m *Model) View() tea.View {
 		hoverY:         m.hoverY,
 	})
 	m.modeLabels = labels
+	m.line3Labels = l3Labels
 
 	var result string
 	if m.showHelp {

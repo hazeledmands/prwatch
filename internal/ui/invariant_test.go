@@ -167,7 +167,7 @@ func TestProperty_NoUnexpectedLineWrapping(t *testing.T) {
 			uncommitCount: len(mock.changedFiles.Uncommitted),
 			commitCount:   len(mock.commits),
 		}
-		bar, _ := renderStatusBar(width, data)
+		bar, _, _ := renderStatusBar(width, data)
 		stripped := stripANSI(bar)
 		barLines := strings.Split(stripped, "\n")
 

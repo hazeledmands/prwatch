@@ -4601,7 +4601,7 @@ func TestStatusBar_PRMode(t *testing.T) {
 		pr:   git.PRInfoResult{Number: 42, Title: "Test PR"},
 		mode: PRViewMode,
 	}
-	bar, _ := renderStatusBar(80, data)
+	bar, _, _ := renderStatusBar(80, data)
 	if !strings.Contains(bar, "pr") {
 		t.Error("PR mode should show pr in mode bar")
 	}
@@ -5228,7 +5228,7 @@ func TestCIStatusBar_ShowsTextLabel(t *testing.T) {
 		pr:       git.PRInfoResult{Number: 1, Title: "test"},
 		ciStatus: git.CIStatusResult{State: "FAILURE"},
 	}
-	bar, _ := renderStatusBar(120, data)
+	bar, _, _ := renderStatusBar(120, data)
 	if !strings.Contains(bar, "CI failing") {
 		t.Errorf("status bar should show 'CI failing' text, got: %s", bar)
 	}
@@ -5240,7 +5240,7 @@ func TestCIStatusBar_PassingText(t *testing.T) {
 		pr:       git.PRInfoResult{Number: 1, Title: "test"},
 		ciStatus: git.CIStatusResult{State: "SUCCESS"},
 	}
-	bar, _ := renderStatusBar(120, data)
+	bar, _, _ := renderStatusBar(120, data)
 	if !strings.Contains(bar, "CI passing") {
 		t.Errorf("status bar should show 'CI passing' text, got: %s", bar)
 	}
@@ -5271,8 +5271,23 @@ func TestClickCIStatus_JumpsToPRMode(t *testing.T) {
 	m.mode = FileDiffMode
 	m.updateSidebarItems()
 
-	// Click on line 3 (PR status line, y=2) - should switch to PR mode
-	click := tea.MouseClickMsg{X: 50, Y: 2, Button: tea.MouseLeft}
+	// Render to populate line3Labels
+	m.View()
+
+	// Find the CI label position on line 3
+	ciX := -1
+	for _, label := range m.line3Labels {
+		if label.target == line3CI {
+			ciX = label.start
+			break
+		}
+	}
+	if ciX < 0 {
+		t.Fatal("no CI label found on line 3")
+	}
+
+	// Click on CI status on line 3 (y=2)
+	click := tea.MouseClickMsg{X: ciX, Y: 2, Button: tea.MouseLeft}
 	result, _ = m.Update(click)
 	m = result.(*Model)
 
@@ -5283,5 +5298,46 @@ func TestClickCIStatus_JumpsToPRMode(t *testing.T) {
 	selected := m.sidebar.SelectedItem()
 	if !strings.Contains(selected, "build") {
 		t.Errorf("should select first failing CI check 'build', got %q", selected)
+	}
+}
+
+func TestClickPRName_JumpsToDescription(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
+		prInfo:   git.PRInfoResult{Number: 42, Title: "test PR"},
+		base:     "main",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 120
+	m.height = 40
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.View()
+
+	// Find the description label
+	descX := -1
+	for _, label := range m.line3Labels {
+		if label.target == line3Description {
+			descX = label.start
+			break
+		}
+	}
+	if descX < 0 {
+		t.Fatal("no description label found on line 3")
+	}
+
+	click := tea.MouseClickMsg{X: descX, Y: 2, Button: tea.MouseLeft}
+	result, _ = m.Update(click)
+	m = result.(*Model)
+
+	if m.mode != PRViewMode {
+		t.Errorf("clicking PR name should switch to PR mode, got mode %d", m.mode)
+	}
+	if m.sidebar.SelectedItem() != "Description" {
+		t.Errorf("should select Description, got %q", m.sidebar.SelectedItem())
 	}
 }
