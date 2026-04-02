@@ -26,16 +26,16 @@ The status bar shows your branch, repo name, worktree status, and GitHub PR info
 
 There are three modes, switchable with `m` or by clicking the mode indicator in the status bar:
 
-- **File Diff** (`d` / `1`) -- sidebar lists changed files, main pane shows the unified diff for the selected file.
-- **File View** (`v` / `2`) -- sidebar lists all files (uncommitted, committed, and all repo files), main pane shows the full file with line numbers and a diff gutter highlighting added/removed lines.
-- **Commit** (`c` / `3`) -- sidebar lists commits (uncommitted changes, unpushed, pushed) with category dividers, main pane shows the patch.
+- **File View** (`v` / `1`, default) -- sidebar lists all files (uncommitted, committed, and all repo files), main pane shows the full file with line numbers and a diff gutter highlighting added/changed/removed lines.
+- **File Diff** (`d` / `2`) -- sidebar lists changed files, main pane shows the unified diff for the selected file.
+- **Commit** (`c` / `3`) -- sidebar lists commits (uncommitted changes, unpushed, pushed, base branch) with category dividers, main pane shows the patch.
 
 ## Keys
 
 | Key | Action |
 |-----|--------|
 | `m` | Cycle between modes |
-| `d`/`1` `v`/`2` `c`/`3` | Jump to a specific mode |
+| `v`/`1` `d`/`2` `c`/`3` | Jump to a specific mode |
 | `tab` | Toggle focus between sidebar and main pane |
 | `,` `.` | Focus sidebar / main pane directly |
 | `j`/`k` / up/down | Navigate sidebar or scroll main pane |
@@ -44,13 +44,15 @@ There are three modes, switchable with `m` or by clicking the mode indicator in 
 | `shift+space`/`pgup` | Page up |
 | `gg` `G` | Go to top / bottom |
 | `enter` | Sidebar: focus main. Main (file mode): open `$EDITOR` |
-| `/` | Search (incremental, then `n`/`p` to navigate matches) |
+| `/` | Search (incremental, then `n`/`p`/`shift+N` to navigate matches) |
 | `?` | Help (scrollable, searchable) |
 | `w` | Toggle word wrap |
 | `n` | Toggle line numbers (file view) |
 | `i` | Toggle gitignored files (file view) |
 | `D` | Toggle removed lines in diff gutter (file view) |
-| `J`/`K` | Jump to next/previous diff hunk (file view) |
+| `J`/`K`/`shift+up/down` | Jump to next/previous diff hunk (file view) |
+| `t` | Toggle tree view (file modes) |
+| `r` | Manual refresh |
 | `f` | Toggle sidebar visibility |
 | `+`/`-` | Resize sidebar |
 | `q`/`esc` | Quit (with confirmation) |
