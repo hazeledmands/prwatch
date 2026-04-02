@@ -29,6 +29,7 @@ line 1: overall status
   - name of current directory
   - if in a worktree, the name of the main git tree
   - name of view modes, with the current mode highlighted (file [diff] commits pr help)
+    each mode should be clickable
   - if not a git repo, "Not a git repo"
 line 2: local git status (not shown if this is not a git repo)
   - name of current branch and merge base, if any (eg: `foo -> main`, or just `main`)
