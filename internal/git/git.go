@@ -291,9 +291,16 @@ func (g *Git) FileDiffCommitted(base, file string) (string, error) {
 }
 
 // FileDiffUncommitted returns the working tree diff for a file against HEAD.
+// If file is empty, returns the diff for all files.
 func (g *Git) FileDiffUncommitted(file string) (string, error) {
 	// Try tracked diff first (staged + unstaged vs HEAD)
-	diff, err := g.run("diff", "HEAD", "--", file)
+	var diff string
+	var err error
+	if file == "" {
+		diff, err = g.run("diff", "HEAD")
+	} else {
+		diff, err = g.run("diff", "HEAD", "--", file)
+	}
 	if err == nil && diff != "" {
 		return diff, nil
 	}
