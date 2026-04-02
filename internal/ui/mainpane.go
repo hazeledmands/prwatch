@@ -234,6 +234,89 @@ func (m *mainPane) refreshViewport() {
 	m.viewport.SetContent(content)
 }
 
+// inlineDiffSize returns the total display width of the changed characters
+// between old and new text (characters that differ).
+func inlineDiffSize(oldText, newText string) int {
+	oldRunes := []rune(oldText)
+	newRunes := []rune(newText)
+
+	// Find common prefix length
+	prefixLen := 0
+	for prefixLen < len(oldRunes) && prefixLen < len(newRunes) && oldRunes[prefixLen] == newRunes[prefixLen] {
+		prefixLen++
+	}
+
+	// Find common suffix length
+	suffixLen := 0
+	for suffixLen < len(oldRunes)-prefixLen && suffixLen < len(newRunes)-prefixLen &&
+		oldRunes[len(oldRunes)-1-suffixLen] == newRunes[len(newRunes)-1-suffixLen] {
+		suffixLen++
+	}
+
+	// The diff size is the changed portion in both old and new
+	oldDiffLen := len(oldRunes) - prefixLen - suffixLen
+	newDiffLen := len(newRunes) - prefixLen - suffixLen
+	if oldDiffLen < 0 {
+		oldDiffLen = 0
+	}
+	if newDiffLen < 0 {
+		newDiffLen = 0
+	}
+	return oldDiffLen + newDiffLen
+}
+
+// renderInlineDiff renders a changed line with inline diff coloring.
+// Retained text is yellow, deleted text is red, new text is green.
+func renderInlineDiff(oldText, newText string) string {
+	oldRunes := []rune(oldText)
+	newRunes := []rune(newText)
+
+	// Find common prefix
+	prefixLen := 0
+	for prefixLen < len(oldRunes) && prefixLen < len(newRunes) && oldRunes[prefixLen] == newRunes[prefixLen] {
+		prefixLen++
+	}
+
+	// Find common suffix
+	suffixLen := 0
+	for suffixLen < len(oldRunes)-prefixLen && suffixLen < len(newRunes)-prefixLen &&
+		oldRunes[len(oldRunes)-1-suffixLen] == newRunes[len(newRunes)-1-suffixLen] {
+		suffixLen++
+	}
+
+	var b strings.Builder
+
+	// Common prefix (yellow — retained)
+	if prefixLen > 0 {
+		b.WriteString(diffRetainedStyle.Render(string(newRunes[:prefixLen])))
+	}
+
+	// Deleted middle (red)
+	oldMidEnd := len(oldRunes) - suffixLen
+	if oldMidEnd < prefixLen {
+		oldMidEnd = prefixLen
+	}
+	if oldMidEnd > prefixLen {
+		b.WriteString(diffRemoveStyle.Render(string(oldRunes[prefixLen:oldMidEnd])))
+	}
+
+	// Added middle (green)
+	newMidEnd := len(newRunes) - suffixLen
+	if newMidEnd < prefixLen {
+		newMidEnd = prefixLen
+	}
+	if newMidEnd > prefixLen {
+		b.WriteString(diffAddStyle.Render(string(newRunes[prefixLen:newMidEnd])))
+	}
+
+	// Common suffix (yellow — retained)
+	if suffixLen > 0 {
+		b.WriteString(diffRetainedStyle.Render(string(newRunes[len(newRunes)-suffixLen:])))
+	}
+
+	return b.String()
+}
+
 // applyFileViewFormatting adds line numbers and diff gutter to plain content.
 // Returns the formatted content and the gutter width (for wrapping indentation).
 func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
@@ -254,8 +337,9 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 		}
 
 		ann, hasAnn := m.diffAnnotations[lineNo]
-		if hasAnn && m.showRemoved && len(ann.removedLines) > 0 {
-			// Insert removed lines before this line
+		if hasAnn && m.showRemoved && len(ann.removedLines) > 0 && ann.kind != diffLineChanged {
+			// Insert removed lines before this line (for non-changed lines only;
+			// changed lines handle their own removed content via inline/split rendering)
 			for _, removed := range ann.removedLines {
 				gutterMark := " - "
 				if m.lineNumbers {
@@ -265,7 +349,36 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 			}
 		}
 
-		if hasAnn && (ann.kind == diffLineAdded || ann.kind == diffLineChanged) {
+		if hasAnn && ann.kind == diffLineChanged && len(ann.removedLines) > 0 {
+			gutter := " ~ "
+			oldLine := ann.removedLines[len(ann.removedLines)-1]
+			contentWidth := m.width - gutterWidth
+			if contentWidth <= 0 {
+				contentWidth = m.width
+			}
+			diffSize := inlineDiffSize(oldLine, line)
+			if diffSize <= contentWidth/4 {
+				// Small diff: show inline with old (red) + new (green) on same line
+				rendered := renderInlineDiff(oldLine, line)
+				if m.lineNumbers {
+					result = append(result, prefix+gutter+rendered)
+				} else {
+					result = append(result, gutter+rendered)
+				}
+			} else {
+				// Large diff: show deleted version (red) on top, new version (green) on bottom
+				gutterMarkDel := " ~ "
+				if m.lineNumbers {
+					gutterMarkDel = strings.Repeat(" ", numWidth) + " ~ "
+				}
+				result = append(result, diffRemoveStyle.Render(gutterMarkDel+oldLine))
+				if m.lineNumbers {
+					result = append(result, diffAddStyle.Render(prefix+gutter+line))
+				} else {
+					result = append(result, diffAddStyle.Render(gutter+line))
+				}
+			}
+		} else if hasAnn && (ann.kind == diffLineAdded || ann.kind == diffLineChanged) {
 			var gutter string
 			var style lipgloss.Style
 			if ann.kind == diffLineChanged {

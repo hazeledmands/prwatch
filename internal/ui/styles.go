@@ -83,6 +83,9 @@ var (
 	ciFailStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
 	ciPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF"))
 
+	// Inline diff: retained (unchanged) text within a changed line
+	diffRetainedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")) // yellow
+
 	// Search highlight
 	searchHighlightStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("#F9E2AF")).

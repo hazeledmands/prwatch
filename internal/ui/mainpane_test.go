@@ -454,6 +454,106 @@ func TestMainPane_HorizontalScroll(t *testing.T) {
 	}
 }
 
+func TestInlineDiffSize(t *testing.T) {
+	// "hello world" → "hello earth" — changed "world" to "earth" = 5+5 = 10
+	size := inlineDiffSize("hello world", "hello earth")
+	if size != 10 {
+		t.Errorf("expected diff size 10, got %d", size)
+	}
+
+	// "abc" → "axc" — changed "b" to "x" = 1+1 = 2
+	size = inlineDiffSize("abc", "axc")
+	if size != 2 {
+		t.Errorf("expected diff size 2, got %d", size)
+	}
+
+	// identical strings
+	size = inlineDiffSize("same", "same")
+	if size != 0 {
+		t.Errorf("expected diff size 0, got %d", size)
+	}
+}
+
+func TestRenderInlineDiff_SmallChange(t *testing.T) {
+	result := renderInlineDiff("hello world", "hello earth")
+	stripped := stripANSIForWidth(result)
+	// Should contain all text from both old and new
+	if !strings.Contains(stripped, "hello") {
+		t.Error("inline diff should contain retained prefix 'hello'")
+	}
+	if !strings.Contains(stripped, "world") {
+		t.Error("inline diff should contain deleted text 'world'")
+	}
+	if !strings.Contains(stripped, "earth") {
+		t.Error("inline diff should contain added text 'earth'")
+	}
+}
+
+func TestChangedLine_InlineWhenSmall(t *testing.T) {
+	// When change is small (< 1/4 pane width), render inline
+	mp := newMainPane()
+	mp.SetSize(80, 20)
+	mp.lineNumbers = true
+	mp.showRemoved = true
+
+	mp.diffAnnotations = map[int]diffAnnotation{
+		2: {kind: diffLineChanged, removedLines: []string{"hello world"}},
+	}
+	mp.SetPlainContent("line1\nhello earth\nline3")
+
+	rendered := mp.viewport.View()
+	lines := strings.Split(rendered, "\n")
+
+	// Line 2 should have ~ gutter and inline diff (both old and new text visible)
+	found := false
+	for _, line := range lines {
+		stripped := stripANSIForWidth(line)
+		if strings.Contains(stripped, "~") && strings.Contains(stripped, "world") && strings.Contains(stripped, "earth") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("small changed line should show inline diff with both old and new text")
+	}
+}
+
+func TestChangedLine_SplitWhenLarge(t *testing.T) {
+	// When change is large (>= 1/4 pane width), split into two lines
+	mp := newMainPane()
+	mp.SetSize(40, 20) // narrow pane so 1/4 = 10
+	mp.lineNumbers = false
+	mp.showRemoved = true
+
+	// Make a change that's larger than 10 chars
+	mp.diffAnnotations = map[int]diffAnnotation{
+		1: {kind: diffLineChanged, removedLines: []string{"completely different old text here"}},
+	}
+	mp.SetPlainContent("totally new replacement line here\nline2")
+
+	rendered := mp.viewport.View()
+	lines := strings.Split(rendered, "\n")
+
+	// Should have the old text on one line and new text on the next
+	hasOld := false
+	hasNew := false
+	for _, line := range lines {
+		stripped := stripANSIForWidth(line)
+		if strings.Contains(stripped, "completely different") {
+			hasOld = true
+		}
+		if strings.Contains(stripped, "totally new") {
+			hasNew = true
+		}
+	}
+	if !hasOld {
+		t.Error("large changed line should show old text on separate line")
+	}
+	if !hasNew {
+		t.Error("large changed line should show new text on separate line")
+	}
+}
+
 func TestWrapLines_BreaksAtWordBoundaries(t *testing.T) {
 	// Spec: "word-wrap should break at word boundaries"
 	// "abcdef ghijkl" is 13 chars. At width 10, character-boundary wrapping
