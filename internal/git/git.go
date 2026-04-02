@@ -108,6 +108,19 @@ type CIStatusResult struct {
 	URL   string // link to the CI run
 }
 
+// RWXResult represents the result of an RWX CI run.
+type RWXResult struct {
+	RunID       string
+	Status      string // passed, failed
+	FailedTasks []RWXFailedTask
+}
+
+// RWXFailedTask represents a failed task in an RWX run.
+type RWXFailedTask struct {
+	Key    string
+	TaskID string
+}
+
 type PRReview struct {
 	Author string `json:"author"`
 	State  string `json:"state"` // APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING
@@ -677,4 +690,95 @@ func (g *Git) CIChecks() ([]CICheck, error) {
 		return nil, nil
 	}
 	return checks, nil
+}
+
+// IsRWXURL returns true if the URL points to an RWX CI run.
+func IsRWXURL(url string) bool {
+	return strings.Contains(url, "cloud.rwx.com/mint/")
+}
+
+// ExtractRWXRunID extracts the run ID from an RWX URL.
+// URL format: https://cloud.rwx.com/mint/<org>/runs/<run-id>
+func ExtractRWXRunID(url string) string {
+	if !IsRWXURL(url) {
+		return ""
+	}
+	idx := strings.Index(url, "/runs/")
+	if idx < 0 {
+		return ""
+	}
+	runID := url[idx+len("/runs/"):]
+	// Remove any trailing path or query
+	if i := strings.IndexAny(runID, "/?#"); i >= 0 {
+		runID = runID[:i]
+	}
+	return runID
+}
+
+// RWXResults fetches the result of an RWX run using the rwx CLI.
+func (g *Git) RWXResults(runID string) (*RWXResult, error) {
+	out, err := g.runCmd(g.dir, "rwx", "results", runID, "--output", "text")
+	if err != nil {
+		// rwx results exits 1 on failure, but still outputs useful data
+		if out == "" {
+			return nil, err
+		}
+	}
+
+	result := &RWXResult{RunID: runID}
+
+	// Parse output
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Run result status:") {
+			result.Status = strings.TrimSpace(strings.TrimPrefix(line, "Run result status:"))
+		}
+		// Failed task lines: "- ci.lint-go (task-id: c60819ffe21693dda97241c55b0a8f2e)"
+		if strings.HasPrefix(line, "- ") && strings.Contains(line, "(task-id:") {
+			taskLine := strings.TrimPrefix(line, "- ")
+			parts := strings.SplitN(taskLine, " (task-id: ", 2)
+			if len(parts) == 2 {
+				taskID := strings.TrimSuffix(parts[1], ")")
+				result.FailedTasks = append(result.FailedTasks, RWXFailedTask{
+					Key:    parts[0],
+					TaskID: taskID,
+				})
+			}
+		}
+	}
+	return result, nil
+}
+
+// RWXTaskLog fetches the log for a specific RWX task.
+func (g *Git) RWXTaskLog(taskID string) (string, error) {
+	tmpDir, err := os.MkdirTemp("", "prwatch-rwx-*")
+	if err != nil {
+		return "", fmt.Errorf("creating temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	_, err = g.runCmd(g.dir, "rwx", "logs", taskID, "--output-dir", tmpDir)
+	if err != nil {
+		return "", err
+	}
+
+	// Read all .log files from the output dir
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		return "", err
+	}
+	var content strings.Builder
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".log") {
+			data, err := os.ReadFile(filepath.Join(tmpDir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			if content.Len() > 0 {
+				content.WriteString("\n\n--- " + entry.Name() + " ---\n\n")
+			}
+			content.Write(data)
+		}
+	}
+	return content.String(), nil
 }

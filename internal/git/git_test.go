@@ -1303,3 +1303,85 @@ func TestPRReviewRequests_Empty(t *testing.T) {
 		t.Errorf("expected 0 requests, got %d", len(requests))
 	}
 }
+
+func TestIsRWXURL(t *testing.T) {
+	tests := []struct {
+		url      string
+		expected bool
+	}{
+		{"https://cloud.rwx.com/mint/honeycomb/runs/abc123", true},
+		{"https://github.com/actions/runs/123", false},
+		{"https://cloud.rwx.com/mint/org/runs/def456", true},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := git.IsRWXURL(tt.url); got != tt.expected {
+			t.Errorf("IsRWXURL(%q) = %v, want %v", tt.url, got, tt.expected)
+		}
+	}
+}
+
+func TestExtractRWXRunID(t *testing.T) {
+	tests := []struct {
+		url      string
+		expected string
+	}{
+		{"https://cloud.rwx.com/mint/honeycomb/runs/7a0c90c974b442d586969dd9be7974ef", "7a0c90c974b442d586969dd9be7974ef"},
+		{"https://cloud.rwx.com/mint/org/runs/abc123?foo=bar", "abc123"},
+		{"https://github.com/actions/runs/123", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := git.ExtractRWXRunID(tt.url); got != tt.expected {
+			t.Errorf("ExtractRWXRunID(%q) = %q, want %q", tt.url, got, tt.expected)
+		}
+	}
+}
+
+// mockCmdRunner returns a CmdRunner that intercepts commands by name with mock responses.
+func mockCmdRunner(responses map[string]struct {
+	output string
+	err    error
+}) git.CmdRunner {
+	return func(dir string, name string, args ...string) (string, error) {
+		if resp, ok := responses[name]; ok {
+			return resp.output, resp.err
+		}
+		// Fall back to real execution for unmatched commands
+		cmd := exec.Command(name, args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+}
+
+func TestRWXResults(t *testing.T) {
+	dir := setupTestRepo(t)
+	rwxOutput := "Run result status: failed\n\n# Failed task:\n\n- ci.lint-go (task-id: c60819ffe21693dda97241c55b0a8f2e)\n"
+	g := git.NewWithRunner(dir, mockCmdRunner(map[string]struct {
+		output string
+		err    error
+	}{
+		"rwx": {output: rwxOutput, err: fmt.Errorf("exit status 1")},
+	}))
+
+	result, err := g.RWXResults("testrun123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "failed" {
+		t.Errorf("expected status 'failed', got %q", result.Status)
+	}
+	if len(result.FailedTasks) != 1 {
+		t.Fatalf("expected 1 failed task, got %d", len(result.FailedTasks))
+	}
+	if result.FailedTasks[0].Key != "ci.lint-go" {
+		t.Errorf("expected task key 'ci.lint-go', got %q", result.FailedTasks[0].Key)
+	}
+	if result.FailedTasks[0].TaskID != "c60819ffe21693dda97241c55b0a8f2e" {
+		t.Errorf("expected task ID 'c60819ffe21693dda97241c55b0a8f2e', got %q", result.FailedTasks[0].TaskID)
+	}
+}
