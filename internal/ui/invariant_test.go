@@ -171,10 +171,11 @@ func TestProperty_NoUnexpectedLineWrapping(t *testing.T) {
 		stripped := stripANSI(bar)
 		barLines := strings.Split(stripped, "\n")
 
-		// Status bar should be exactly 3 lines
-		if len(barLines) != 3 {
-			t.Fatalf("status bar should be 3 lines, got %d (width=%d)\nbar: %q",
-				len(barLines), width, stripped)
+		// Status bar should be 1-3 lines depending on git/PR state
+		expectedLines := statusBarLineCount(data)
+		if len(barLines) != expectedLines {
+			t.Fatalf("status bar should be %d lines, got %d (width=%d)\nbar: %q",
+				expectedLines, len(barLines), width, stripped)
 		}
 
 		for i, line := range barLines {
@@ -211,7 +212,7 @@ func TestProperty_ClickSidebarSelectsItem(t *testing.T) {
 
 		// The sidebar starts at row 2 (after 2-line status bar), inside border at row 3
 		// and column 1 (inside the left border of the sidebar)
-		statusBarHeight := 3
+		statusBarHeight := statusBarLineCount(statusBarData{info: mock.repoInfo, pr: mock.prInfo})
 		sidebarContentRow := statusBarHeight + 1 // first row inside sidebar border
 		sidebarContentCol := 1                   // first col inside sidebar border
 
@@ -276,7 +277,7 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 		msg := m.loadGitData()
 		m.Update(msg)
 
-		statusBarHeight := 3
+		statusBarHeight := statusBarLineCount(statusBarData{info: mock.repoInfo, pr: mock.prInfo})
 		sidebarContentRow := statusBarHeight + 1
 		sidebarContentCol := 1
 

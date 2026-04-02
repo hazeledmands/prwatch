@@ -21,6 +21,18 @@ type statusBarData struct {
 	commitCount   int
 }
 
+// statusBarLineCount returns how many lines the status bar will occupy.
+func statusBarLineCount(data statusBarData) int {
+	count := 1 // line 1 always shown
+	if data.info.RepoName != "" || data.info.Branch != "" {
+		count++ // line 2: git status
+	}
+	if data.pr.Number > 0 {
+		count++ // line 3: PR status
+	}
+	return count
+}
+
 func renderStatusBar(width int, data statusBarData) string {
 	if data.confirming {
 		msg := " Quit? Press q/Q to confirm, any other key to cancel"
@@ -32,9 +44,19 @@ func renderStatusBar(width int, data statusBarData) string {
 	}
 
 	line1 := renderLine1(width, data)
-	line2 := renderLine2(width, data)
-	line3 := renderLine3(width, data)
-	return line1 + "\n" + line2 + "\n" + line3
+	result := line1
+
+	// Line 2: only show for git repos
+	if data.info.RepoName != "" || data.info.Branch != "" {
+		result += "\n" + renderLine2(width, data)
+	}
+
+	// Line 3: only show if there's a PR
+	if data.pr.Number > 0 {
+		result += "\n" + renderLine3(width, data)
+	}
+
+	return result
 }
 
 // renderLine1: overall status — mode, directory, worktree
@@ -75,6 +97,9 @@ func renderLine1(width int, data statusBarData) string {
 	}
 	if data.info.Worktree != "" && data.info.RepoName != "" && data.info.DirName != data.info.RepoName {
 		parts = append(parts, "in "+data.info.RepoName)
+	}
+	if data.info.RepoName == "" && data.info.Branch == "" {
+		parts = append(parts, "Not a git repo")
 	}
 
 	bar := strings.Join(parts, " · ")
@@ -120,6 +145,9 @@ func renderLine2(width int, data statusBarData) string {
 	if data.commitCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d commits", data.commitCount))
 	}
+	if data.pr.Number == 0 {
+		parts = append(parts, "No PR")
+	}
 
 	bar := strings.Join(parts, " · ")
 	// Truncate if too wide for the content area (width - 2 padding)
@@ -131,10 +159,6 @@ func renderLine2(width int, data statusBarData) string {
 
 // renderLine3: github status — PR, draft, reviews, comments, CI
 func renderLine3(width int, data statusBarData) string {
-	if data.pr.Number == 0 {
-		return statusBarDimStyle.Width(width).Render(" No PR")
-	}
-
 	// PR link
 	prLink := fmt.Sprintf("PR #%d: %s", data.pr.Number, data.pr.Title)
 	if data.pr.URL != "" {

@@ -1368,6 +1368,7 @@ func TestMouseClick_StatusBar_Line2SwitchesToCommits(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 120
 	m.height = 24
+	m.repoInfo = git.RepoInfoResult{Branch: "feature", RepoName: "repo"}
 	m.updateLayout()
 	m.mode = FileDiffMode
 	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}

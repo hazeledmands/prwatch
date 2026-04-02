@@ -417,7 +417,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		if m.showHelp {
 			helpLines := m.helpContentLines()
-			visibleHeight := max(1, m.height-5)
+			visibleHeight := max(1, m.height-m.statusBarLines()-2)
 			if msg.Button == tea.MouseWheelUp && m.helpScrollOffset > 0 {
 				m.helpScrollOffset--
 			} else if msg.Button == tea.MouseWheelDown && m.helpScrollOffset < len(helpLines)-visibleHeight {
@@ -463,7 +463,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.Code == tea.KeySpace && msg.Mod&tea.ModShift != 0 {
 		if m.showHelp {
 			helpLines := m.helpContentLines()
-			visibleHeight := max(1, m.height-5)
+			visibleHeight := max(1, m.height-m.statusBarLines()-2)
 			m.helpScrollOffset = max(0, m.helpScrollOffset-visibleHeight)
 			_ = helpLines
 			return m, nil
@@ -839,7 +839,7 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	helpLines := m.helpContentLines()
-	visibleHeight := max(1, m.height-5) // status bar + borders
+	visibleHeight := max(1, m.height-m.statusBarLines()-2) // status bar + borders
 
 	switch {
 	case key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.Help):
@@ -984,6 +984,10 @@ func (m *Model) clearSearch() {
 	m.mainPane.SetSearchQuery("")
 }
 
+func (m *Model) statusBarLines() int {
+	return statusBarLineCount(statusBarData{info: m.repoInfo, pr: m.prInfo})
+}
+
 func (m *Model) sidebarPixelWidth() int {
 	// sidebar width + 2 for border
 	return m.sidebar.width + 2
@@ -1027,13 +1031,13 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	x, y := msg.X, msg.Y
 
 	// Status bar is rows 0-2
-	if y <= 2 {
+	if y < m.statusBarLines() {
 		m.dragging = false
 		return m.handleStatusBarClick(x, y)
 	}
 
 	// Adjust y for the 3-line status bar
-	contentY := y - 3
+	contentY := y - m.statusBarLines()
 	sidebarW := m.sidebarPixelWidth()
 	if !m.sidebarHidden && x < sidebarW {
 		// Clicked in sidebar — no drag tracking
@@ -1742,7 +1746,10 @@ func (m *Model) updateMainContent() {
 }
 
 func (m *Model) updateLayout() {
-	statusBarHeight := 3                                // 3-line status bar
+	statusBarHeight := statusBarLineCount(statusBarData{
+		info: m.repoInfo,
+		pr:   m.prInfo,
+	})
 	contentHeight := max(0, m.height-statusBarHeight-2) // borders
 
 	if m.sidebarHidden {
@@ -1957,7 +1964,7 @@ func (m *Model) copySelection() {
 	// - 3 rows of status bar
 	// - 1 row of top border
 	// And the x offset is sidebarPixelWidth() + 1 (left border of main pane)
-	statusRows := 3
+	statusRows := m.statusBarLines()
 	topBorder := 1
 	sidebarW := 0
 	if !m.sidebarHidden {
@@ -2112,7 +2119,7 @@ func (m *Model) helpContentLines() []string {
 
 func (m *Model) renderHelp() string {
 	lines := m.helpContentLines()
-	visibleHeight := max(1, m.height-5) // status bar + borders
+	visibleHeight := max(1, m.height-m.statusBarLines()-2) // status bar + borders
 
 	// Apply search highlighting
 	if m.helpSearchQuery != "" {
