@@ -2,10 +2,10 @@
   feature/add-auth → main · 1 uncommitted · 2 commits                                               
   PR #42: Add authentication · 1✓/1✗                                                                
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
-│Description                   ││1                                                                 │
-│──────────────────────────────││                                                                  │
-│(no comments)                 ││                                                                  │
-│──────────────────────────────││                                                                  │
+│Description                   ││1   PR #42: Add authentication                                    │
+│──────────────────────────────││2   Reviewers: @alice ✓, @bob ✗                                   │
+│(no comments)                 ││3                                                                 │
+│──────────────────────────────││4                                                                 │
 │(no CI checks)                ││                                                                  │
 │                              ││                                                                  │
 │                              ││                                                                  │

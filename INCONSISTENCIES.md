@@ -1,13 +1,20 @@
 # Spec Inconsistencies / Ambiguities
 
-## Copy selection with word wrap
+## PR description markdown formatting
 
-The spec says: "copied text should be the same as the text from the file (or
-diff) that is being copied - it should not carry over extra newlines when the
-text in the UI wraps."
+The spec says: "PR description with markdown formatting". The charmbracelet/glamour
+library (the standard Go terminal markdown renderer) has dependency conflicts with
+the bubbletea/v2 ecosystem used by this project. PR descriptions are displayed as
+plain text until the dependency conflict is resolved upstream.
 
-Current implementation attempts to detect wrap-continuation lines by checking
-for gutter-width indentation, but this heuristic doesn't work perfectly for
-all modes (especially diff mode where gutter width is 0). A fully correct
-implementation requires mapping viewport coordinates back through the wrapping
-transformation, which is complex. Flagging for future improvement.
+## PR deployments
+
+The spec mentions "deployments" in the PR view description panel. The GitHub CLI
+`gh pr view` doesn't expose deployment data in its JSON output. This would require
+using the GitHub REST/GraphQL API directly. Flagging for future implementation.
+
+## Copy selection with word wrap (RESOLVED)
+
+Previously used a heuristic to detect wrap-continuation lines. Now uses an explicit
+`wrapContinuation` boolean map built during the wrapping process, which correctly
+identifies continuation lines regardless of mode or gutter width.

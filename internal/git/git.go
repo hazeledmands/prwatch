@@ -64,15 +64,31 @@ type Commit struct {
 }
 
 type PRInfoResult struct {
-	Number         int    `json:"number"`
-	Title          string `json:"title"`
-	URL            string `json:"url"`
-	State          string `json:"state"`
-	BaseRef        string `json:"baseRefName"`
-	IsDraft        bool   `json:"isDraft"`
-	ReviewDecision string `json:"reviewDecision"` // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, ""
-	CommentsCount  int    `json:"comments"`
-	Body           string `json:"body"`
+	Number         int         `json:"number"`
+	Title          string      `json:"title"`
+	URL            string      `json:"url"`
+	State          string      `json:"state"`
+	BaseRef        string      `json:"baseRefName"`
+	IsDraft        bool        `json:"isDraft"`
+	ReviewDecision string      `json:"reviewDecision"` // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, ""
+	CommentsCount  int         `json:"comments"`
+	Body           string      `json:"body"`
+	Labels         []PRLabel   `json:"labels"`
+	Assignees      []PRUser    `json:"assignees"`
+	Milestone      PRMilestone `json:"milestone"`
+	MergedBy       *PRUser     `json:"mergedBy"`
+}
+
+type PRLabel struct {
+	Name string `json:"name"`
+}
+
+type PRUser struct {
+	Login string `json:"login"`
+}
+
+type PRMilestone struct {
+	Title string `json:"title"`
 }
 
 type PRComment struct {
@@ -478,7 +494,7 @@ func (g *Git) AllFiles(includeIgnored bool) ([]string, error) {
 // PRInfo fetches PR info via gh CLI. Returns zero-value PRInfoResult if no PR exists.
 // Returns an error if the gh command fails for reasons other than "no PR" (e.g. rate limiting, auth issues).
 func (g *Git) PRInfo() (PRInfoResult, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName,isDraft,reviewDecision,body")
+	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName,isDraft,reviewDecision,body,labels,assignees,milestone,mergedBy")
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		// These errors mean genuinely no PR or no remote — not a transient failure

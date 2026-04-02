@@ -21,6 +21,14 @@ import (
 // ansiStripRE matches ANSI escape sequences (SGR and OSC 8 hyperlinks).
 var ansiStripRE = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\]8;;[^\x1b]*\x1b\\`)
 
+// renderMarkdown converts markdown text to terminal-formatted text.
+// Note: glamour (charmbracelet/glamour) has dependency conflicts with the
+// current bubbletea/v2 ecosystem, so we display markdown as-is for now.
+// See INCONSISTENCIES.md.
+func renderMarkdown(md string, _ int) (string, error) {
+	return md, nil
+}
+
 const (
 	prRefreshDefault = 1 * time.Minute
 	prRefreshMax     = 10 * time.Minute
@@ -1326,7 +1334,7 @@ func (m *Model) jumpToNextDiff(direction int) {
 		return
 	}
 
-	currentLine := m.mainPane.ScrollTop() + 1
+	currentLine := m.mainPane.ViewportToSourceLine()
 	if direction > 0 {
 		// Find next diff line after current
 		for _, l := range diffLines {
@@ -1738,7 +1746,7 @@ func (m *Model) updateMainContent() {
 	case PRViewMode:
 		selected := m.sidebar.SelectedItem()
 		if selected == "Description" {
-			m.mainPane.SetPlainContent(m.prInfo.Body)
+			m.mainPane.SetPlainContent(m.renderPRDescription())
 		} else if strings.HasPrefix(selected, "@") {
 			// Comment — find the matching comment
 			for i, c := range m.prComments {
@@ -2103,6 +2111,80 @@ func (m *Model) copySelection() {
 	}
 	cmd.Stdin = strings.NewReader(text)
 	cmd.Run() //nolint: ignore clipboard errors
+}
+
+// renderPRDescription builds the full PR description panel content:
+// title, status, metadata, and markdown-rendered body.
+func (m *Model) renderPRDescription() string {
+	pr := m.prInfo
+	var b strings.Builder
+
+	// Title and status
+	b.WriteString(fmt.Sprintf("PR #%d: %s", pr.Number, pr.Title))
+	if pr.IsDraft {
+		b.WriteString(" [DRAFT]")
+	}
+	if pr.State == "MERGED" {
+		b.WriteString(" [MERGED]")
+	} else if pr.State == "CLOSED" {
+		b.WriteString(" [CLOSED]")
+	}
+	b.WriteString("\n")
+
+	// Labels
+	if len(pr.Labels) > 0 {
+		var names []string
+		for _, l := range pr.Labels {
+			names = append(names, l.Name)
+		}
+		b.WriteString(fmt.Sprintf("Labels: %s\n", strings.Join(names, ", ")))
+	}
+
+	// Assignees
+	if len(pr.Assignees) > 0 {
+		var names []string
+		for _, a := range pr.Assignees {
+			names = append(names, "@"+a.Login)
+		}
+		b.WriteString(fmt.Sprintf("Assignees: %s\n", strings.Join(names, ", ")))
+	}
+
+	// Reviewers (from prReviews)
+	if len(m.prReviews) > 0 {
+		var items []string
+		for _, r := range m.prReviews {
+			status := ""
+			switch r.State {
+			case "APPROVED":
+				status = "✓"
+			case "CHANGES_REQUESTED":
+				status = "✗"
+			default:
+				status = "…"
+			}
+			items = append(items, fmt.Sprintf("@%s %s", r.Author, status))
+		}
+		b.WriteString(fmt.Sprintf("Reviewers: %s\n", strings.Join(items, ", ")))
+	}
+
+	// Milestone
+	if pr.Milestone.Title != "" {
+		b.WriteString(fmt.Sprintf("Milestone: %s\n", pr.Milestone.Title))
+	}
+
+	b.WriteString("\n")
+
+	// Render body as markdown using glamour
+	if pr.Body != "" {
+		rendered, err := renderMarkdown(pr.Body, m.mainPane.width)
+		if err != nil {
+			b.WriteString(pr.Body)
+		} else {
+			b.WriteString(rendered)
+		}
+	}
+
+	return b.String()
 }
 
 func (m *Model) helpContentLines() []string {

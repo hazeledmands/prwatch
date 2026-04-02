@@ -511,6 +511,58 @@ func (m *mainPane) ScrollToSourceLine(sourceLine int) {
 	m.viewport.SetYOffset(sourceLine - 1)
 }
 
+// ViewportToSourceLine converts a viewport scroll offset to the closest source
+// file line number. This reverses the formatting/wrapping transformation so that
+// hunk navigation can compare viewport position against source line numbers.
+func (m *mainPane) ViewportToSourceLine() int {
+	vpOffset := m.viewport.YOffset()
+	if m.sourceToFormatLine == nil || len(m.sourceToFormatLine) == 0 {
+		return vpOffset + 1
+	}
+	// Build reverse map: formatted line -> source line
+	reverseMap := make(map[int]int, len(m.sourceToFormatLine))
+	for src, fmt := range m.sourceToFormatLine {
+		reverseMap[fmt] = src
+	}
+
+	if !m.wordWrap || m.width <= 0 {
+		// Without wrapping, viewport line = formatted line
+		if src, ok := reverseMap[vpOffset]; ok {
+			return src
+		}
+		// Find the closest formatted line <= vpOffset
+		best := 1
+		for formattedIdx, srcLine := range reverseMap {
+			if formattedIdx <= vpOffset && srcLine > best {
+				best = srcLine
+			}
+		}
+		return best
+	}
+
+	// With wrapping: walk through formatted lines, counting viewport lines
+	formattedLines := strings.Split(m.formattedContent, "\n")
+	viewportLine := 0
+	for i, line := range formattedLines {
+		lineW := ansiAwareIterate(line, func(r rune, w int) {})
+		var linesUsed int
+		if lineW > m.width {
+			linesUsed = (lineW + m.width - 1) / m.width
+		} else {
+			linesUsed = 1
+		}
+		if viewportLine+linesUsed > vpOffset {
+			// This formatted line contains the viewport offset
+			if src, ok := reverseMap[i]; ok {
+				return src
+			}
+			return i + 1
+		}
+		viewportLine += linesUsed
+	}
+	return len(formattedLines)
+}
+
 // highlightSearch applies a contrasting background to matching text in each line.
 func highlightSearch(content, query string) string {
 	if query == "" {

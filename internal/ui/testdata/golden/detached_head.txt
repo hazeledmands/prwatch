@@ -2,9 +2,9 @@
   detached @ abc1234 · 1 uncommitted · 2 commits                                                    
   PR #42: Add authentication                                                                        
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
-│Description                   ││1                                                                 │
-│──────────────────────────────││                                                                  │
-│(no comments)                 ││                                                                  │
+│Description                   ││1   PR #42: Add authentication                                    │
+│──────────────────────────────││2                                                                 │
+│(no comments)                 ││3                                                                 │
 │──────────────────────────────││                                                                  │
 │(no CI checks)                ││                                                                  │
 │                              ││                                                                  │
