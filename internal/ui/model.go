@@ -1080,6 +1080,15 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 			m.updateSidebarItems()
 			m.updateMainContent()
 		}
+	case 2:
+		// Line 3: PR status — clicking CI status jumps to PR mode CI results
+		if m.prInfo.Number > 0 && m.ciStatus.State != "" {
+			m.mode = PRViewMode
+			m.updateSidebarItems()
+			// Find the first failing CI check in the sidebar
+			m.selectFirstCIFailure()
+			m.updateMainContent()
+		}
 	}
 	return m, nil
 }
@@ -1343,6 +1352,33 @@ func (m *Model) isUncommittedFile(file string) bool {
 }
 
 // jumpToFirstDiff scrolls to the first diff line in the current file.
+// selectFirstCIFailure selects the first failing CI check in the PR mode sidebar.
+// If no failures, selects the first CI check item.
+func (m *Model) selectFirstCIFailure() {
+	// Find the first failure in ciChecks
+	targetName := ""
+	for _, check := range m.ciChecks {
+		if check.Bucket == "fail" || check.Bucket == "cancel" {
+			targetName = check.Name
+			break
+		}
+	}
+	// If no failure, use the first CI check
+	if targetName == "" && len(m.ciChecks) > 0 {
+		targetName = m.ciChecks[0].Name
+	}
+	if targetName == "" {
+		return
+	}
+	// Find the sidebar item matching this CI check
+	for i, item := range m.sidebar.items {
+		if strings.Contains(item.label, targetName) {
+			m.sidebar.SelectIndex(i)
+			return
+		}
+	}
+}
+
 func (m *Model) jumpToFirstDiff() {
 	diffLines := m.mainPane.DiffLineNumbers()
 	if len(diffLines) > 0 {

@@ -244,23 +244,23 @@ func renderLine3(width int, data statusBarData) string {
 	return statusBarDimStyle.Width(width).Render(bar)
 }
 
-// renderCIStatusEmoji returns CI status as an emoji.
+// renderCIStatusEmoji returns CI status as an emoji plus text label.
 func renderCIStatusEmoji(ci git.CIStatusResult) string {
 	switch ci.State {
 	case "SUCCESS":
-		text := "✅"
+		text := "✅ CI passing"
 		if ci.URL != "" {
 			text = makeHyperlink(ci.URL, text)
 		}
 		return text
 	case "FAILURE":
-		text := "❌"
+		text := "❌ CI failing"
 		if ci.URL != "" {
 			text = makeHyperlink(ci.URL, text)
 		}
 		return text
 	case "PENDING":
-		text := "⏳"
+		text := "⏳ CI pending"
 		if ci.URL != "" {
 			text = makeHyperlink(ci.URL, text)
 		}

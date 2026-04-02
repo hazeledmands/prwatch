@@ -5221,3 +5221,67 @@ func TestViewportToSourceLine(t *testing.T) {
 		t.Errorf("source line at top should be >= 1, got %d", srcLine)
 	}
 }
+
+func TestCIStatusBar_ShowsTextLabel(t *testing.T) {
+	data := statusBarData{
+		info:     git.RepoInfoResult{Branch: "main", RepoName: "repo", DirName: "repo"},
+		pr:       git.PRInfoResult{Number: 1, Title: "test"},
+		ciStatus: git.CIStatusResult{State: "FAILURE"},
+	}
+	bar, _ := renderStatusBar(120, data)
+	if !strings.Contains(bar, "CI failing") {
+		t.Errorf("status bar should show 'CI failing' text, got: %s", bar)
+	}
+}
+
+func TestCIStatusBar_PassingText(t *testing.T) {
+	data := statusBarData{
+		info:     git.RepoInfoResult{Branch: "main", RepoName: "repo", DirName: "repo"},
+		pr:       git.PRInfoResult{Number: 1, Title: "test"},
+		ciStatus: git.CIStatusResult{State: "SUCCESS"},
+	}
+	bar, _ := renderStatusBar(120, data)
+	if !strings.Contains(bar, "CI passing") {
+		t.Errorf("status bar should show 'CI passing' text, got: %s", bar)
+	}
+}
+
+func TestClickCIStatus_JumpsToPRMode(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
+		prInfo:   git.PRInfoResult{Number: 42, Title: "test PR"},
+		base:     "main",
+		ciChecks: []git.CICheck{
+			{Name: "lint", Bucket: "pass"},
+			{Name: "build", Bucket: "fail"},
+			{Name: "test", Bucket: "pass"},
+		},
+		ciStatus: git.CIStatusResult{State: "FAILURE"},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 120
+	m.height = 40
+
+	// Load git data to populate model
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	// Should be in a non-PR mode initially
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+
+	// Click on line 3 (PR status line, y=2) - should switch to PR mode
+	click := tea.MouseClickMsg{X: 50, Y: 2, Button: tea.MouseLeft}
+	result, _ = m.Update(click)
+	m = result.(*Model)
+
+	if m.mode != PRViewMode {
+		t.Errorf("clicking CI status should switch to PR mode, got mode %d", m.mode)
+	}
+	// Should select the failing check
+	selected := m.sidebar.SelectedItem()
+	if !strings.Contains(selected, "build") {
+		t.Errorf("should select first failing CI check 'build', got %q", selected)
+	}
+}
