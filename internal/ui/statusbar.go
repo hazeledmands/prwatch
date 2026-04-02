@@ -56,8 +56,8 @@ func statusBarLineCount(data statusBarData) int {
 	if data.info.RepoName != "" || data.info.Branch != "" {
 		count++ // line 2: git status
 	}
-	if data.pr.Number > 0 {
-		count++ // line 3: PR status
+	if data.pr.Number > 0 || data.prError != "" {
+		count++ // line 3: PR status or error
 	}
 	return count
 }
@@ -86,6 +86,10 @@ func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line
 		l3, l3Labels := renderLine3(width, data)
 		line3Labels = l3Labels
 		result += "\n" + l3
+	} else if data.prError != "" {
+		// Show error on line 3 when no PR data available
+		errLine := statusBarDimStyle.Width(width).Render(" " + data.prError)
+		result += "\n" + errLine
 	}
 
 	return result, labels, line3Labels
@@ -216,9 +220,7 @@ func renderLine2(width int, data statusBarData) string {
 	if data.behindCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d behind", data.behindCount))
 	}
-	if data.prError != "" {
-		parts = append(parts, data.prError)
-	} else if data.pr.Number == 0 {
+	if data.pr.Number == 0 && data.prError == "" {
 		parts = append(parts, "No PR")
 	}
 
