@@ -31,114 +31,97 @@ func renderStatusBar(width int, data statusBarData) string {
 		return statusBarConfirmStyle.Width(width).Render(msg)
 	}
 
-	// Line 1: branch info, mode, git status summary
 	line1 := renderLine1(width, data)
-	// Line 2: PR info
 	line2 := renderLine2(width, data)
-	return line1 + "\n" + line2
+	line3 := renderLine3(width, data)
+	return line1 + "\n" + line2 + "\n" + line3
 }
 
+// renderLine1: overall status — mode, directory, worktree
 func renderLine1(width int, data statusBarData) string {
+	var modeStr string
+	switch data.mode {
+	case FileViewMode:
+		modeStr = modeFileStyle.Render("[file]")
+	case FileDiffMode:
+		modeStr = modeFileStyle.Render("[diff]")
+	case CommitMode:
+		modeStr = modeCommitStyle.Render("[commits]")
+	}
+
+	dirName := data.info.DirName
+	if dirName == "" {
+		dirName = data.info.RepoName
+	}
+
+	var parts []string
+	parts = append(parts, " "+modeStr)
+	if dirName != "" {
+		parts = append(parts, dirName)
+	}
+	if data.info.Worktree != "" && data.info.RepoName != "" && data.info.DirName != data.info.RepoName {
+		parts = append(parts, "in "+data.info.RepoName)
+	}
+
+	bar := strings.Join(parts, " · ")
+	return statusBarStyle.Width(width).Render(bar)
+}
+
+// renderLine2: local git status — branch, uncommitted, unpushed, commits
+func renderLine2(width int, data statusBarData) string {
 	info := data.info
 
-	// Branch display
+	// Branch and merge base
 	var branchDisplay string
 	if info.IsDetachedHead {
 		branchDisplay = fmt.Sprintf("detached @ %s", info.HeadSHA)
 	} else {
 		branchDisplay = info.Branch
 	}
-	if info.Upstream != "" {
-		branchDisplay += " → " + info.Upstream
-	}
 
-	// Left: branch @ repo (dir)
-	left := " " + branchDisplay
-	if info.RepoName != "" {
-		repoDisplay := info.RepoName
-		if info.RepoURL != "" {
-			repoDisplay = makeHyperlink(info.RepoURL, info.RepoName)
+	// Show "branch -> base" if not on main/master
+	if info.Branch != "main" && info.Branch != "master" && !info.IsDetachedHead {
+		// Extract base branch name from upstream or default to "main"
+		base := "main"
+		if info.Upstream != "" {
+			parts := strings.Split(info.Upstream, "/")
+			if len(parts) > 1 {
+				base = parts[len(parts)-1]
+			}
 		}
-		left = fmt.Sprintf(" %s @ %s", branchDisplay, repoDisplay)
-	}
-	if info.DirName != "" && info.DirName != info.RepoName {
-		left += fmt.Sprintf(" (%s)", info.DirName)
-	}
-	if info.Worktree != "" {
-		left += " [wt]"
+		if base != info.Branch {
+			branchDisplay = info.Branch + " → " + base
+		}
 	}
 
-	// Mode indicator
-	var modeStr string
-	switch data.mode {
-	case FileDiffMode:
-		modeStr = modeFileStyle.Render("[diff]")
-	case FileViewMode:
-		modeStr = modeFileStyle.Render("[file]")
-	case CommitMode:
-		modeStr = modeCommitStyle.Render("[commits]")
-	}
+	var parts []string
+	parts = append(parts, " "+branchDisplay)
 
-	// Right: git status summary
-	var statusParts []string
-	if info.AheadCount > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("↑%d", info.AheadCount))
-	}
 	if data.uncommitCount > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("%d uncommitted", data.uncommitCount))
+		parts = append(parts, fmt.Sprintf("%d uncommitted", data.uncommitCount))
+	}
+	if info.AheadCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d unpushed", info.AheadCount))
 	}
 	if data.commitCount > 0 {
-		statusParts = append(statusParts, fmt.Sprintf("%d commits", data.commitCount))
-	}
-	right := strings.Join(statusParts, " · ")
-	if right != "" {
-		right += " "
+		parts = append(parts, fmt.Sprintf("%d commits", data.commitCount))
 	}
 
-	// contentWidth accounts for lipgloss padding (0,1) on each side
-	contentWidth := width - 2
-
-	// Progressively truncate sections to fit within contentWidth.
-	// Priority: keep mode visible, then right status, then truncate left.
-	modeW := lipgloss.Width(modeStr)
-	rightW := lipgloss.Width(right)
-	leftW := lipgloss.Width(left)
-
-	available := contentWidth - modeW
-	if available < 0 {
-		available = 0
+	bar := strings.Join(parts, " · ")
+	// Truncate if too wide for the content area (width - 2 padding)
+	if lipgloss.Width(bar) > width-2 {
+		bar = truncateToWidth(bar, width-2)
 	}
-
-	// Truncate right if it doesn't fit alongside mode
-	if rightW > available/2 {
-		right = truncateToWidth(right, available/2)
-		rightW = lipgloss.Width(right)
-	}
-
-	// Truncate left to whatever remains
-	leftMax := available - rightW
-	if leftW > leftMax {
-		left = truncateToWidth(left, leftMax)
-		leftW = lipgloss.Width(left)
-	}
-
-	padding := contentWidth - leftW - modeW - rightW
-	if padding < 0 {
-		padding = 0
-	}
-	leftPad := padding / 2
-	rightPad := padding - leftPad
-
-	bar := left + strings.Repeat(" ", leftPad) + modeStr + strings.Repeat(" ", rightPad) + right
-	return statusBarStyle.Width(width).Render(bar)
+	return statusBarPRStyle.Width(width).Render(bar)
 }
 
-func renderLine2(width int, data statusBarData) string {
+// renderLine3: github status — PR, draft, reviews, comments, CI
+func renderLine3(width int, data statusBarData) string {
 	if data.pr.Number == 0 {
 		return statusBarDimStyle.Width(width).Render(" No PR")
 	}
 
-	// PR link with OSC 8 hyperlink
+	// PR link
 	prLink := fmt.Sprintf("PR #%d: %s", data.pr.Number, data.pr.Title)
 	if data.pr.URL != "" {
 		prLink = makeHyperlink(data.pr.URL, prLink)
@@ -147,15 +130,8 @@ func renderLine2(width int, data statusBarData) string {
 	var parts []string
 	parts = append(parts, " "+prLink)
 
-	// Draft indicator
 	if data.pr.IsDraft {
-		parts = append(parts, "draft")
-	}
-
-	// CI status
-	ciStr := renderCIStatus(data.ciStatus)
-	if ciStr != "" {
-		parts = append(parts, ciStr)
+		parts = append(parts, "[DRAFT]")
 	}
 
 	// Reviews
@@ -169,10 +145,42 @@ func renderLine2(width int, data statusBarData) string {
 		parts = append(parts, fmt.Sprintf("%d comments", data.commentCount))
 	}
 
+	// CI status (emoji)
+	ciStr := renderCIStatusEmoji(data.ciStatus)
+	if ciStr != "" {
+		parts = append(parts, ciStr)
+	}
+
 	bar := strings.Join(parts, " · ")
-	return statusBarPRStyle.Width(width).Render(bar)
+	return statusBarDimStyle.Width(width).Render(bar)
 }
 
+// renderCIStatusEmoji returns CI status as an emoji.
+func renderCIStatusEmoji(ci git.CIStatusResult) string {
+	switch ci.State {
+	case "SUCCESS":
+		text := "✅"
+		if ci.URL != "" {
+			text = makeHyperlink(ci.URL, text)
+		}
+		return text
+	case "FAILURE":
+		text := "❌"
+		if ci.URL != "" {
+			text = makeHyperlink(ci.URL, text)
+		}
+		return text
+	case "PENDING":
+		text := "⏳"
+		if ci.URL != "" {
+			text = makeHyperlink(ci.URL, text)
+		}
+		return text
+	}
+	return ""
+}
+
+// renderCIStatus returns CI status with check/cross symbols (for tests).
 func renderCIStatus(ci git.CIStatusResult) string {
 	switch ci.State {
 	case "SUCCESS":
@@ -240,7 +248,7 @@ func renderReviews(reviews []git.PRReview, decision string) string {
 }
 
 // truncateToWidth truncates a string to the given display width, appending "…"
-// if truncation occurs. Uses lipgloss.Width for accurate display width.
+// if truncation occurs.
 func truncateToWidth(s string, maxWidth int) string {
 	if maxWidth <= 0 {
 		return ""
@@ -248,7 +256,6 @@ func truncateToWidth(s string, maxWidth int) string {
 	if lipgloss.Width(s) <= maxWidth {
 		return s
 	}
-	// Reserve space for ellipsis
 	target := maxWidth - 1
 	if target < 0 {
 		target = 0

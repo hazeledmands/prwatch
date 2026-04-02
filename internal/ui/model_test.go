@@ -1328,37 +1328,33 @@ func TestMouseClick_StatusBar_Left(t *testing.T) {
 	m.focus = SidebarFocus
 	m.mode = FileDiffMode
 
-	// Click left side of status bar (y=0) should do nothing
+	// Click status bar row 0 should cycle mode
 	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 0})
 	m = result.(*Model)
 	if m.focus != SidebarFocus {
 		t.Error("clicking status bar should not change focus")
 	}
-	if m.mode != FileDiffMode {
-		t.Error("clicking left side should not change mode")
+	if m.mode != CommitMode {
+		t.Errorf("clicking row 0 should cycle mode from diff to commit, got %d", m.mode)
 	}
 }
 
-func TestMouseClick_StatusBar_UncommittedArea(t *testing.T) {
+func TestMouseClick_StatusBar_Line1CyclesMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 120
 	m.height = 24
 	m.updateLayout()
-	m.mode = CommitMode
-	m.uncommittedFiles = []string{"file.go"}
-	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
-	m.updateSidebarItems()
+	m.mode = FileViewMode
 
-	// Click right side of status bar (uncommitted area) — roughly 2/3 to midpoint
-	rightThird := m.width * 2 / 3
-	result, _ := m.Update(tea.MouseClickMsg{X: rightThird + 5, Y: 0})
+	// Click on row 0 (mode indicator area)
+	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 0})
 	m = result.(*Model)
 	if m.mode != FileDiffMode {
-		t.Errorf("clicking uncommitted area should switch to FileDiffMode, got %d", m.mode)
+		t.Errorf("clicking line 1 should cycle mode, got %d", m.mode)
 	}
 }
 
-func TestMouseClick_StatusBar_CommitsArea(t *testing.T) {
+func TestMouseClick_StatusBar_Line2SwitchesToCommits(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 120
 	m.height = 24
@@ -1367,11 +1363,11 @@ func TestMouseClick_StatusBar_CommitsArea(t *testing.T) {
 	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
 	m.updateSidebarItems()
 
-	// Click far right side of status bar (commits area)
-	result, _ := m.Update(tea.MouseClickMsg{X: m.width - 5, Y: 0})
+	// Click row 1 (local git status) should switch to commit mode
+	result, _ := m.Update(tea.MouseClickMsg{X: 50, Y: 1})
 	m = result.(*Model)
 	if m.mode != CommitMode {
-		t.Errorf("clicking commits area should switch to CommitMode, got %d", m.mode)
+		t.Errorf("clicking line 2 should switch to CommitMode, got %d", m.mode)
 	}
 }
 

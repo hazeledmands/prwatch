@@ -1,4 +1,5 @@
-  feature/add-auth → origin/main @ myapp             [file]              1 uncommitted · 2 commits  
+  [file] · myapp                                                                                    
+  feature/add-auth → main · 1 uncommitted · 2 commits                                               
   PR #42: Add authentication                                                                        
 Keybindings:                                                                                        
                                                                                                     
@@ -25,6 +26,5 @@ Keybindings:
                                                                                                     
   [w]          Toggle word wrap                                                                     
   [n]          Toggle line numbers (file view)                                                      
-  [i]          Toggle gitignored files (file view)                                                  
                                                                                                     
                                                                                                     

@@ -1,4 +1,5 @@
-  feature/add-auth → origin/main @ myapp             [file]              1 uncommitted · 2 commits  
+  [file] · myapp                                                                                    
+  feature/add-auth → main · 1 uncommitted · 2 commits                                               
   PR #42: Add authentication                                                                        
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
 │  README.md                   ││1   # My App                                                      │
@@ -26,5 +27,4 @@
 │  aaau.go                     ││                                                                  │
 │  aaav.go                     ││                                                                  │
 │  aaaw.go                     ││                                                                  │
-│  aaax.go                     ││                                                                  │
 ╰──────────────────────────────╯╰──────────────────────────────────────────────────────────────────╯

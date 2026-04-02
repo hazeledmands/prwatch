@@ -397,7 +397,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		if m.showHelp {
 			helpLines := m.helpContentLines()
-			visibleHeight := max(1, m.height-4)
+			visibleHeight := max(1, m.height-5)
 			if msg.Button == tea.MouseWheelUp && m.helpScrollOffset > 0 {
 				m.helpScrollOffset--
 			} else if msg.Button == tea.MouseWheelDown && m.helpScrollOffset < len(helpLines)-visibleHeight {
@@ -439,6 +439,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Handle shift+space as page up (may not be caught by key.Matches)
+	if msg.Code == tea.KeySpace && msg.Mod&tea.ModShift != 0 {
+		if m.showHelp {
+			helpLines := m.helpContentLines()
+			visibleHeight := max(1, m.height-5)
+			m.helpScrollOffset = max(0, m.helpScrollOffset-visibleHeight)
+			_ = helpLines
+			return m, nil
+		}
+		if m.focus == SidebarFocus {
+			for range m.sidebar.visibleLines() {
+				m.sidebar.SelectPrev()
+			}
+			m.updateMainContent()
+			return m, nil
+		}
+		// Forward to viewport for page up
+		return m, m.mainPane.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+	}
+
 	// Search input mode
 	if m.searching {
 		return m.handleSearchKey(msg)
@@ -776,7 +796,7 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	helpLines := m.helpContentLines()
-	visibleHeight := max(1, m.height-4) // status bar + borders
+	visibleHeight := max(1, m.height-5) // status bar + borders
 
 	switch {
 	case key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.Help):
@@ -927,37 +947,28 @@ func (m *Model) sidebarPixelWidth() int {
 }
 
 func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
-	if y == 0 && m.git != nil {
-		// Check if click is on the mode indicator (center region of the bar)
-		leftThird := m.width / 3
-		rightThird := m.width * 2 / 3
-		if x >= leftThird && x < rightThird {
-			// Cycle mode like [m] key
-			switch m.mode {
-			case FileViewMode:
-				m.mode = FileDiffMode
-			case FileDiffMode:
-				m.mode = CommitMode
-			case CommitMode:
-				m.mode = FileViewMode
-			}
+	if m.git == nil {
+		return m, nil
+	}
+	switch y {
+	case 0:
+		// Line 1: overall status — click anywhere cycles mode
+		switch m.mode {
+		case FileViewMode:
+			m.mode = FileDiffMode
+		case FileDiffMode:
+			m.mode = CommitMode
+		case CommitMode:
+			m.mode = FileViewMode
+		}
+		m.updateSidebarItems()
+		m.updateMainContent()
+	case 1:
+		// Line 2: local git status — clicking commits area switches to commit mode
+		if len(m.commits) > 0 {
+			m.mode = CommitMode
 			m.updateSidebarItems()
 			m.updateMainContent()
-			return m, nil
-		}
-
-		// Right third: git status summary area
-		if x >= rightThird {
-			midRight := rightThird + (m.width-rightThird)/2
-			if x < midRight && len(m.uncommittedFiles) > 0 {
-				m.mode = FileDiffMode
-				m.updateSidebarItems()
-				m.updateMainContent()
-			} else if len(m.commits) > 0 {
-				m.mode = CommitMode
-				m.updateSidebarItems()
-				m.updateMainContent()
-			}
 		}
 	}
 	return m, nil
@@ -966,14 +977,14 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	x, y := msg.X, msg.Y
 
-	// Status bar is rows 0-1
-	if y <= 1 {
+	// Status bar is rows 0-2
+	if y <= 2 {
 		m.dragging = false
 		return m.handleStatusBarClick(x, y)
 	}
 
-	// Adjust y for the 2-line status bar
-	contentY := y - 2
+	// Adjust y for the 3-line status bar
+	contentY := y - 3
 	sidebarW := m.sidebarPixelWidth()
 	if !m.sidebarHidden && x < sidebarW {
 		// Clicked in sidebar — no drag tracking
@@ -1566,15 +1577,9 @@ func (m *Model) updateMainContent() {
 		}
 		// Check if this is the "uncommitted changes" entry
 		if strings.HasPrefix(selected, "uncommitted changes") {
-			// Show combined diff of all uncommitted files
-			var diffs []string
-			for _, f := range m.uncommittedFiles {
-				d, err := m.git.FileDiffUncommitted(f)
-				if err == nil && d != "" {
-					diffs = append(diffs, d)
-				}
-			}
-			m.mainPane.SetContent(strings.Join(diffs, "\n"))
+			// Show combined diff of all uncommitted files in a single git call
+			diff, _ := m.git.FileDiffUncommitted("")
+			m.mainPane.SetContent(diff)
 			return
 		}
 		// Otherwise it's a commit — extract SHA from "abcdef0 subject"
@@ -1597,7 +1602,7 @@ func (m *Model) updateMainContent() {
 }
 
 func (m *Model) updateLayout() {
-	statusBarHeight := 2                                // line 1: branch/mode/status, line 2: PR info
+	statusBarHeight := 3                                // 3-line status bar
 	contentHeight := max(0, m.height-statusBarHeight-2) // borders
 
 	if m.sidebarHidden {
@@ -1809,10 +1814,10 @@ func (m *Model) copySelection() {
 	}
 
 	// Main pane content area starts after:
-	// - 2 rows of status bar
+	// - 3 rows of status bar
 	// - 1 row of top border
 	// And the x offset is sidebarPixelWidth() + 1 (left border of main pane)
-	statusRows := 2
+	statusRows := 3
 	topBorder := 1
 	sidebarW := 0
 	if !m.sidebarHidden {
@@ -1966,7 +1971,7 @@ func (m *Model) helpContentLines() []string {
 
 func (m *Model) renderHelp() string {
 	lines := m.helpContentLines()
-	visibleHeight := max(1, m.height-4) // status bar + borders
+	visibleHeight := max(1, m.height-5) // status bar + borders
 
 	// Apply search highlighting
 	if m.helpSearchQuery != "" {
