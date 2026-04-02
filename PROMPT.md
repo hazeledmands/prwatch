@@ -23,22 +23,26 @@ the UI should update when the size of its bounding box changes. e.g. if the term
 
 ## status bar
 
-the "status bar" should be divided into three sections, one line per each:
+the "status bar" should be divided into three sections, one line per each.
+
 line 1: overall status
   - name of current directory
   - if in a worktree, the name of the main git tree
   - name of view modes, with the current mode highlighted (file [diff] commits pr help)
-line 2: local git status
+  - if not a git repo, "Not a git repo"
+line 2: local git status (not shown if this is not a git repo)
   - name of current branch and merge base, if any (eg: `foo -> main`, or just `main`)
   - number of uncommitted files (12 uncommitted)
   - number of unpushed commits (2 unpushed)
   - number of commits after base (3 commits) -- or just the number of commits if we're in the main branch
     clicking this should switch to [commits] mode
-line 3: github status
+  - number of commits that this branch is behind base, if any (4 behind)
+  - if no PR, "No PR"
+line 3: github status (not shown if there is no PR)
   - name of the current PR
     this should be a TUI-compatible link to the PR
-  - [DRAFT] if in draft mode
-  - review requests and approvals/rejections
+  - [DRAFT] if in draft mode, [MERGED] if merged
+  - review requests and approvals/rejections (as emoji)
   - number of comments
   - CI status (as an emoji)
 
@@ -69,14 +73,20 @@ the left pane should be a list of the files that have been changed, and the righ
 
 ### pr-view mode
 
-only available if there is an active PR. sidebar should show:
-- PR description
+only available if there is an active PR.
+main panel should show the content associated with the currently-selected sidebar item.
+sidebar should show:
+- description
+  - main panel should show:
+      - full PR title and status (DRAFT/MERGED)
+      - tags, assignees, reviewers (and review status for each), projects, milestone
+      - PR description with markdown formatting
+      - deployments
 - horizontal rule
 - comments (one line per comment)
 - horizontal rule
 - CI status (one line per CI check)
 
-main panel should show the content associated with the currently-selected sidebar item.
 
 ### sidebar (both file modes)
 
