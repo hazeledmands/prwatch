@@ -1,6 +1,6 @@
 ## New Bugs
 
-(none)
+- the old implementation / spec contained [brackets] around the mode tabs, which caused the text to jump around when clicked
 
 ## Fixed Bugs
 
