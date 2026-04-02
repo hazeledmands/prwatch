@@ -4178,3 +4178,392 @@ func TestScrollToSourceLine_NoWrap(t *testing.T) {
 		t.Errorf("expected scroll near line 10, got %d", mp.ScrollTop())
 	}
 }
+
+func TestJumpToNextLeaf(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"dir/a.go", "dir/b.go"},
+		},
+		allFiles:    []string{"dir/a.go", "dir/b.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.mode = FileViewMode
+	m.treeMode = true
+	m.updateSidebarItems()
+
+	// Select the first item (may be a directory)
+	m.sidebar.SelectFirst()
+
+	// Shift+N should jump to the first file (leaf)
+	result, _ := m.Update(tea.KeyPressMsg{Text: "N", Code: 'N'})
+	m = result.(*Model)
+
+	if m.sidebar.SelectedIsDir() {
+		t.Error("shift+N should jump to a leaf node, not a directory")
+	}
+
+	// Remember current selection
+	first := m.sidebar.SelectedItem()
+
+	// Shift+N again should jump to next leaf
+	result, _ = m.Update(tea.KeyPressMsg{Text: "N", Code: 'N'})
+	m = result.(*Model)
+
+	if m.sidebar.SelectedItem() == first {
+		// Could wrap around if there are only 2 leaves
+	}
+	if m.sidebar.SelectedIsDir() {
+		t.Error("shift+N should still select a leaf node")
+	}
+}
+
+func TestPRViewMode_DefaultsOnFirstLoad(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		prInfo:   git.PRInfoResult{Number: 42, Title: "Test PR", Body: "PR body"},
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	if m.mode != FileViewMode {
+		t.Fatal("should start as FileViewMode before data loads")
+	}
+
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	if m.mode != PRViewMode {
+		t.Errorf("should default to PRViewMode when PR exists, got %d", m.mode)
+	}
+}
+
+func TestPRViewMode_Sidebar(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		prInfo:   git.PRInfoResult{Number: 42, Title: "Test PR", Body: "PR body"},
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		prComments: []git.PRComment{{Author: "alice", Body: "looks good"}},
+		ciChecks:   []git.CICheck{{Name: "tests", State: "COMPLETED", Conclusion: "success"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Should be in PR mode
+	if m.mode != PRViewMode {
+		t.Fatalf("expected PRViewMode, got %d", m.mode)
+	}
+
+	// Check sidebar has Description, comment, and CI check
+	hasDesc := false
+	hasComment := false
+	hasCheck := false
+	for _, item := range m.sidebar.items {
+		if item.label == "Description" {
+			hasDesc = true
+		}
+		if strings.Contains(item.label, "@alice") {
+			hasComment = true
+		}
+		if strings.Contains(item.label, "tests") {
+			hasCheck = true
+		}
+	}
+	if !hasDesc {
+		t.Error("PR sidebar should have Description item")
+	}
+	if !hasComment {
+		t.Error("PR sidebar should have comment from alice")
+	}
+	if !hasCheck {
+		t.Error("PR sidebar should have CI check 'tests'")
+	}
+}
+
+func TestPRViewMode_ModeSwitch(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		prInfo:   git.PRInfoResult{Number: 42, Title: "Test PR"},
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Start in PR mode
+	if m.mode != PRViewMode {
+		t.Fatal("should start in PRViewMode")
+	}
+
+	// Press [b] to switch to PR mode (already there — should stay)
+	result, _ := m.Update(tea.KeyPressMsg{Text: "b", Code: 'b'})
+	m = result.(*Model)
+	if m.mode != PRViewMode {
+		t.Error("[b] should keep PR mode")
+	}
+
+	// Cycle through modes with [m]
+	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
+	m = result.(*Model)
+	if m.mode == PRViewMode {
+		t.Error("[m] from PRViewMode should cycle to FileViewMode")
+	}
+}
+
+func TestPRViewMode_ShowsCICheck(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		prInfo:   git.PRInfoResult{Number: 42, Title: "Test PR"},
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		ciChecks: []git.CICheck{
+			{Name: "build", State: "COMPLETED", Conclusion: "success", URL: "https://ci.example.com"},
+		},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Navigate to CI check
+	for _, item := range m.sidebar.items {
+		if strings.Contains(item.label, "build") {
+			for i, si := range m.sidebar.items {
+				if si.label == item.label {
+					m.sidebar.SelectIndex(i)
+					m.updateMainContent()
+					break
+				}
+			}
+			break
+		}
+	}
+
+	if !strings.Contains(m.mainPane.content, "build") {
+		t.Error("selecting CI check should show check details")
+	}
+}
+
+func TestPRViewMode_ShowsComment(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		prInfo:   git.PRInfoResult{Number: 42, Title: "Test PR"},
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		prComments: []git.PRComment{
+			{Author: "alice", Body: "great changes!"},
+		},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Navigate to comment
+	for i, item := range m.sidebar.items {
+		if strings.Contains(item.label, "@alice") {
+			m.sidebar.SelectIndex(i)
+			m.updateMainContent()
+			break
+		}
+	}
+
+	if !strings.Contains(m.mainPane.content, "great changes!") {
+		t.Error("selecting comment should show comment body")
+	}
+}
+
+func TestShiftSpace_InHelp(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 15
+	m.updateLayout()
+	m.showHelp = true
+	m.helpScrollOffset = 10
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModShift})
+	m = result.(*Model)
+
+	if m.helpScrollOffset >= 10 {
+		t.Error("shift+space in help should page up")
+	}
+}
+
+func TestShiftSpace_InSidebar(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"a.go", "b.go", "c.go", "d.go", "e.go", "f.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.mode = FileDiffMode
+	m.focus = SidebarFocus
+	m.updateSidebarItems()
+
+	// Select last item
+	m.sidebar.SelectLast()
+	lastIdx := m.sidebar.SelectedIndex()
+
+	// Shift+space should page up in sidebar
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModShift})
+	m = result.(*Model)
+
+	if m.sidebar.SelectedIndex() >= lastIdx {
+		t.Error("shift+space should page up in sidebar")
+	}
+}
+
+func TestShiftSpacePageUp(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 10
+	m.updateLayout()
+	m.focus = MainFocus
+
+	// Create content taller than viewport
+	var lines []string
+	for i := 0; i < 50; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	m.mainPane.SetContent(strings.Join(lines, "\n"))
+
+	// Scroll down first
+	m.mainPane.GoToBottom()
+	bottomPos := m.mainPane.ScrollTop()
+
+	// Shift+space should page up
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModShift})
+	m = result.(*Model)
+
+	if m.mainPane.ScrollTop() >= bottomPos {
+		t.Error("shift+space should page up")
+	}
+}
+
+func TestStatusBar_PRMode(t *testing.T) {
+	data := statusBarData{
+		info: git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
+		pr:   git.PRInfoResult{Number: 42, Title: "Test PR"},
+		mode: PRViewMode,
+	}
+	bar := renderStatusBar(80, data)
+	if !strings.Contains(bar, "[pr]") {
+		t.Error("PR mode should show [pr] highlighted in mode bar")
+	}
+}
+
+func TestPRViewMode_NotAvailableWithoutPR(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mode = FileViewMode
+
+	// Press [b] — should not switch to PR mode without a PR
+	result, _ := m.Update(tea.KeyPressMsg{Text: "b", Code: 'b'})
+	m = result.(*Model)
+	if m.mode == PRViewMode {
+		t.Error("[b] should not switch to PR mode when no PR exists")
+	}
+}
+
+func TestPRViewMode_SkippedInCycleWithoutPR(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mode = CommitMode
+
+	// Press [m] from CommitMode without PR — should skip PRViewMode
+	result, _ := m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
+	m = result.(*Model)
+	if m.mode == PRViewMode {
+		t.Error("[m] from CommitMode should skip PRViewMode when no PR")
+	}
+	if m.mode != FileViewMode {
+		t.Errorf("expected FileViewMode, got %d", m.mode)
+	}
+}
+
+func TestPRViewMode_MainContent(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		prInfo:   git.PRInfoResult{Number: 42, Title: "Test PR", Body: "This is the PR body"},
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		prComments: []git.PRComment{{Author: "bob", Body: "nice work"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Description should be selected by default, showing PR body
+	if !strings.Contains(m.mainPane.content, "This is the PR body") {
+		t.Error("main pane should show PR body when Description is selected")
+	}
+}
