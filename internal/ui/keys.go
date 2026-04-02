@@ -37,6 +37,8 @@ type keyMap struct {
 	PrevDiff       key.Binding
 	Refresh        key.Binding
 	ToggleTree     key.Binding
+	NextLeaf       key.Binding
+	PrevLeaf       key.Binding
 }
 
 var keys = keyMap{
@@ -141,5 +143,11 @@ var keys = keyMap{
 	),
 	Refresh: key.NewBinding(
 		key.WithKeys("r"),
+	),
+	NextLeaf: key.NewBinding(
+		key.WithKeys("N"), // Shift+N
+	),
+	PrevLeaf: key.NewBinding(
+		key.WithKeys("P"), // Shift+P
 	),
 }

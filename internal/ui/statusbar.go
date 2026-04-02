@@ -39,17 +39,29 @@ func renderStatusBar(width int, data statusBarData) string {
 
 // renderLine1: overall status — mode, directory, worktree
 func renderLine1(width int, data statusBarData) string {
-	var modeStr string
-	switch data.mode {
-	case FileViewMode:
-		modeStr = modeFileStyle.Render("[file]")
-	case FileDiffMode:
-		modeStr = modeFileStyle.Render("[diff]")
-	case CommitMode:
-		modeStr = modeCommitStyle.Render("[commits]")
-	case PRViewMode:
-		modeStr = modeCommitStyle.Render("[pr]")
+	// Build mode bar: show all modes, highlight the active one
+	modes := []struct {
+		mode Mode
+		name string
+	}{
+		{FileViewMode, "file"},
+		{FileDiffMode, "diff"},
+		{CommitMode, "commits"},
+		{PRViewMode, "pr"},
 	}
+	var modeItems []string
+	for _, m := range modes {
+		// Skip pr mode if no PR
+		if m.mode == PRViewMode && data.pr.Number == 0 {
+			continue
+		}
+		if m.mode == data.mode {
+			modeItems = append(modeItems, modeActiveStyle.Render("["+m.name+"]"))
+		} else {
+			modeItems = append(modeItems, m.name)
+		}
+	}
+	modeStr := strings.Join(modeItems, " ")
 
 	dirName := data.info.DirName
 	if dirName == "" {

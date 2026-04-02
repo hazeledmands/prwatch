@@ -662,6 +662,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, keys.NextLeaf):
+		m.jumpToNextLeaf(1)
+		return m, nil
+
+	case key.Matches(msg, keys.PrevLeaf):
+		m.jumpToNextLeaf(-1)
+		return m, nil
+
 	case key.Matches(msg, keys.Refresh):
 		if m.git == nil {
 			return m, m.loadNonGitFiles
@@ -1305,6 +1313,25 @@ func (m *Model) jumpToNextDiff(direction int) {
 		}
 		// Wrap around to last
 		m.mainPane.ScrollToSourceLine(diffLines[len(diffLines)-1])
+	}
+}
+
+// jumpToNextLeaf moves sidebar selection to the next (direction=1) or previous
+// (direction=-1) non-directory, non-separator item. Works from any focus.
+func (m *Model) jumpToNextLeaf(direction int) {
+	start := m.sidebar.SelectedIndex()
+	items := m.sidebar.items
+	n := len(items)
+	if n == 0 {
+		return
+	}
+	for i := 1; i < n; i++ {
+		idx := (start + i*direction + n) % n
+		if items[idx].kind != itemSeparator && !items[idx].isDir {
+			m.sidebar.SelectIndex(idx)
+			m.updateMainContent()
+			return
+		}
 	}
 }
 
