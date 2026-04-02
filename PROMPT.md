@@ -19,6 +19,8 @@ binary content should never be shown -- instead display [binary content].
 
 startup sequence: while still loading, the display should say "loading..." rather than displaying inaccurate information.
 
+the UI should update when the size of its bounding box changes. e.g. if the terminal window it is in is resized. wrapped content should re-wrap when the bounding box changes.
+
 ## status bar
 
 the "status bar" should show the name of the branch and the repo and the worktree, as well as details and a link to the github PR (if there is one).
@@ -54,8 +56,9 @@ this mode should have a "gutter":
 - changed lines should have ~ in the gutter. if the diff is less than 1/4 of the width of the active pane, show both the deleted content (in red) and the new content (in green) inline on the same line. if the diff is bigger than that, duplicate the line with the deleted version on top (red) and the new version on bottom (green). retained (unchanged) text within a changed line should be yellow, deleted text red, new text green.
 - wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line
 - [shift]+[d] should show/hide removed content from the diff, in its own line (defaulting to showing)
-- [shift]+[j]/[k]/[up]/[down] should jump directly to the next or previous diff. this should wrap around, just like search results.
+- [shift]+[j]/[k]/[up]/[down] should jump directly to the next or previous diff hunk. this should wrap around, just like search results.
 - entering into this view should jump immediately to the first diff
+- gutter should stick even when the user scrolls horizontally
 
 ### file-diff mode
 
@@ -185,7 +188,7 @@ results should be highlighted (text background should be a contrasting color).
 
 help goes away when you hit [esc] or [q].
 [/] within help opens a search scoped to help content, with the same n/p navigation as regular search.
-help should be scrollable by mouse.
+help should be scrollable by mouse and also by all the same scrolling keys as in other views (page up/down, etc)
 
 ## mouse behavior
 
@@ -196,6 +199,7 @@ help should be scrollable by mouse.
 - dragging over text highlights it, and finishing a drag copies to the system paste buffer.
   - selecting stays within the boundaries of the pane being dragged in.
   - the highlight should only cover the relevant content that will be copied — not TUI glyphs, border characters, or gutter content.
+  - copied text should be the same as the text from the file (or diff) that is being copied - it should not carry over extra newlines when the text in the UI wraps
   - copied text should not include TUI glyphs, gutter characters, or ANSI codes.
 
 ---
