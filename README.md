@@ -20,22 +20,23 @@ go build -o prwatch .
 
 Run `prwatch` from any git branch (including worktrees). It automatically detects the base branch (`gh pr` base, then `origin/main`, then `origin/master`, then `HEAD~1`) and shows the delta.
 
-The status bar shows your branch, repo name, worktree status, and GitHub PR info (refreshed periodically with adaptive rate limiting).
+The 3-line status bar shows: current mode + directory, branch + git status, and GitHub PR info (refreshed periodically with adaptive rate limiting).
 
 ## Modes
 
-There are three modes, switchable with `m` or by clicking the mode indicator in the status bar:
+Four modes, switchable with `m` or by clicking the mode bar in the status bar:
 
-- **File View** (`v` / `1`, default) -- sidebar lists all files (uncommitted, committed, and all repo files), main pane shows the full file with line numbers and a diff gutter highlighting added/changed/removed lines.
+- **File View** (`v` / `1`) -- sidebar lists all files (uncommitted, committed, and all repo files), main pane shows the full file with line numbers and a diff gutter highlighting added/changed/removed lines.
 - **File Diff** (`d` / `2`) -- sidebar lists changed files, main pane shows the unified diff for the selected file.
 - **Commit** (`c` / `3`) -- sidebar lists commits (uncommitted changes, unpushed, pushed, base branch) with category dividers, main pane shows the patch.
+- **PR View** (`b` / `4`) -- when a PR exists, shows PR description, comments, and CI check status. Default mode when a PR is active.
 
 ## Keys
 
 | Key | Action |
 |-----|--------|
 | `m` | Cycle between modes |
-| `v`/`1` `d`/`2` `c`/`3` | Jump to a specific mode |
+| `v`/`1` `d`/`2` `c`/`3` `b`/`4` | Jump to a specific mode |
 | `tab` | Toggle focus between sidebar and main pane |
 | `,` `.` | Focus sidebar / main pane directly |
 | `j`/`k` / up/down | Navigate sidebar or scroll main pane |
@@ -44,6 +45,7 @@ There are three modes, switchable with `m` or by clicking the mode indicator in 
 | `shift+space`/`pgup` | Page up |
 | `gg` `G` | Go to top / bottom |
 | `enter` | Sidebar: focus main. Main (file mode): open `$EDITOR` |
+| `N`/`P` | Jump to next/previous file (leaf) in sidebar |
 | `/` | Search (incremental, then `n`/`p`/`shift+N` to navigate matches) |
 | `?` | Help (scrollable, searchable) |
 | `w` | Toggle word wrap |
@@ -61,9 +63,9 @@ There are three modes, switchable with `m` or by clicking the mode indicator in 
 ## Mouse
 
 - Click sidebar items to select them
-- Scroll wheel for vertical scrolling (horizontal when wrap is off)
+- Scroll wheel for vertical scrolling (horizontal with shift+wheel when wrap is off)
 - Hover highlights clickable elements
-- Drag to select text (copies to clipboard on release)
+- Drag to select text (copies to clipboard on release, excludes gutter)
 
 ## Live refresh
 
