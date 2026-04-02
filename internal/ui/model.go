@@ -1631,17 +1631,17 @@ func (m *Model) updateSidebarItems() {
 		// CI checks
 		for _, check := range m.ciChecks {
 			var prefix string
-			switch check.Conclusion {
-			case "success":
+			switch check.Bucket {
+			case "pass":
 				prefix = "✅"
-			case "failure", "action_required":
+			case "fail", "cancel":
 				prefix = "❌"
+			case "pending":
+				prefix = "⏳"
+			case "skipping":
+				prefix = "⏭️"
 			default:
-				if check.State == "PENDING" || check.State == "QUEUED" || check.State == "IN_PROGRESS" {
-					prefix = "⏳"
-				} else {
-					prefix = "  "
-				}
+				prefix = "  "
 			}
 			items = append(items, sidebarItem{label: prefix + " " + check.Name, kind: itemNormal})
 		}
@@ -1817,10 +1817,8 @@ func (m *Model) updateMainContent() {
 			// CI check — find the matching check
 			for _, check := range m.ciChecks {
 				if strings.Contains(selected, check.Name) {
-					var status string
-					if check.Conclusion != "" {
-						status = check.Conclusion
-					} else {
+					status := check.Bucket
+					if status == "" {
 						status = check.State
 					}
 					content := fmt.Sprintf("Check: %s\nStatus: %s", check.Name, status)

@@ -723,7 +723,7 @@ func TestPRRefreshMsg(t *testing.T) {
 		ciStatus:     git.CIStatusResult{State: "SUCCESS"},
 		reviews:      []git.PRReview{{Author: "alice", State: "APPROVED"}},
 		commentCount: 3,
-		ciChecks:     []git.CICheck{{Name: "build", Conclusion: "success"}, {Name: "lint", Conclusion: "failure"}},
+		ciChecks:     []git.CICheck{{Name: "build", Bucket: "success"}, {Name: "lint", Bucket: "failure"}},
 		prComments:   []git.PRComment{{Author: "bob", Body: "looks good"}},
 	}
 	result, _ := m.Update(msg)
@@ -772,8 +772,8 @@ func TestPRRefreshMsg_UpdatesSidebarAndMainContent(t *testing.T) {
 		prInfo:   git.PRInfoResult{Number: 5, Title: "Updated PR"},
 		ciStatus: git.CIStatusResult{State: "FAILURE"},
 		ciChecks: []git.CICheck{
-			{Name: "tests", Conclusion: "failure"},
-			{Name: "lint", Conclusion: "success"},
+			{Name: "tests", Bucket: "failure"},
+			{Name: "lint", Bucket: "success"},
 		},
 		prComments: []git.PRComment{{Author: "alice", Body: "fix tests"}},
 	}
@@ -803,7 +803,7 @@ func TestPRTickMsg_Git(t *testing.T) {
 func TestLoadPRStatus(t *testing.T) {
 	mg := &mockGit{
 		prInfo:     git.PRInfoResult{Number: 5, Title: "test PR"},
-		ciChecks:   []git.CICheck{{Name: "build", Conclusion: "success"}},
+		ciChecks:   []git.CICheck{{Name: "build", Bucket: "success"}},
 		prComments: []git.PRComment{{Author: "alice", Body: "lgtm"}},
 	}
 	m := NewModel("/tmp", mg)
@@ -4358,7 +4358,7 @@ func TestPRViewMode_Sidebar(t *testing.T) {
 		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
 		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
 		prComments: []git.PRComment{{Author: "alice", Body: "looks good"}},
-		ciChecks:   []git.CICheck{{Name: "tests", State: "COMPLETED", Conclusion: "success"}},
+		ciChecks:   []git.CICheck{{Name: "tests", State: "COMPLETED", Bucket: "success"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -4447,7 +4447,7 @@ func TestPRViewMode_ShowsCICheck(t *testing.T) {
 		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
 		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
 		ciChecks: []git.CICheck{
-			{Name: "build", State: "COMPLETED", Conclusion: "success", URL: "https://ci.example.com"},
+			{Name: "build", State: "COMPLETED", Bucket: "success", URL: "https://ci.example.com"},
 		},
 	}
 	m := NewModel("/tmp", mg)
