@@ -5347,3 +5347,191 @@ func TestClickPRName_JumpsToDescription(t *testing.T) {
 		t.Errorf("should select Description, got %q", m.sidebar.SelectedItem())
 	}
 }
+
+func TestSelectFirstComment(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:   git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
+		prInfo:     git.PRInfoResult{Number: 42, Title: "test PR"},
+		base:       "main",
+		prComments: []git.PRComment{{Author: "alice", Body: "lgtm"}, {Author: "bob", Body: "nit"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 120
+	m.height = 40
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	m.mode = PRViewMode
+	m.updateSidebarItems()
+	m.selectFirstComment()
+
+	selected := m.sidebar.SelectedItem()
+	if !strings.Contains(selected, "@alice") {
+		t.Errorf("should select first comment by @alice, got %q", selected)
+	}
+}
+
+func TestSelectFirstReview(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
+		prInfo:   git.PRInfoResult{Number: 42, Title: "test PR"},
+		base:     "main",
+		reviews:  []git.PRReview{{Author: "carol", State: "APPROVED"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 120
+	m.height = 40
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	m.mode = PRViewMode
+	m.updateSidebarItems()
+	m.selectFirstReview()
+
+	selected := m.sidebar.SelectedItem()
+	if !strings.Contains(selected, "@carol") {
+		t.Errorf("should select first review by @carol, got %q", selected)
+	}
+}
+
+func TestRWXLogMsg_CachesResult(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
+		prInfo:   git.PRInfoResult{Number: 42, Title: "test PR"},
+		base:     "main",
+		ciChecks: []git.CICheck{{Name: "RWX", Bucket: "fail", URL: "https://cloud.rwx.com/mint/org/runs/abc123"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 120
+	m.height = 40
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	// Send an rwxLogMsg
+	logMsg := rwxLogMsg{
+		checkURL: "https://cloud.rwx.com/mint/org/runs/abc123",
+		log:      "RWX Run: abc123\nStatus: failed\n\n--- ci.lint ---\n\nerror: lint failed",
+	}
+	result, _ = m.Update(logMsg)
+	m = result.(*Model)
+
+	// Check cache
+	cached, ok := m.rwxLogCache["https://cloud.rwx.com/mint/org/runs/abc123"]
+	if !ok {
+		t.Fatal("rwxLogMsg should cache the result")
+	}
+	if !strings.Contains(cached, "lint failed") {
+		t.Errorf("cached log should contain 'lint failed', got %q", cached)
+	}
+}
+
+func TestRWXLogMsg_Error(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 120
+	m.height = 40
+	m.rwxLogCache = make(map[string]string)
+
+	logMsg := rwxLogMsg{
+		checkURL: "https://cloud.rwx.com/mint/org/runs/abc123",
+		err:      fmt.Errorf("network error"),
+	}
+	result, _ := m.Update(logMsg)
+	m = result.(*Model)
+
+	cached := m.rwxLogCache["https://cloud.rwx.com/mint/org/runs/abc123"]
+	if !strings.Contains(cached, "Error fetching RWX logs") {
+		t.Errorf("should cache error message, got %q", cached)
+	}
+}
+
+func TestClickReviews_JumpsToFirstReview(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
+		prInfo:   git.PRInfoResult{Number: 42, Title: "test PR"},
+		base:     "main",
+		reviews:  []git.PRReview{{Author: "alice", State: "APPROVED"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 120
+	m.height = 40
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.View()
+
+	// Find the reviews label
+	reviewX := -1
+	for _, label := range m.line3Labels {
+		if label.target == line3Reviews {
+			reviewX = label.start
+			break
+		}
+	}
+	if reviewX < 0 {
+		t.Skip("no reviews label on line 3")
+	}
+
+	click := tea.MouseClickMsg{X: reviewX, Y: 2, Button: tea.MouseLeft}
+	result, _ = m.Update(click)
+	m = result.(*Model)
+
+	if m.mode != PRViewMode {
+		t.Errorf("clicking reviews should switch to PR mode, got mode %d", m.mode)
+	}
+	selected := m.sidebar.SelectedItem()
+	if !strings.Contains(selected, "@alice") {
+		t.Errorf("should select first review, got %q", selected)
+	}
+}
+
+func TestClickComments_JumpsToFirstComment(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:     git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
+		prInfo:       git.PRInfoResult{Number: 42, Title: "test PR"},
+		base:         "main",
+		prComments:   []git.PRComment{{Author: "bob", Body: "fix this"}},
+		commentCount: 1,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 120
+	m.height = 40
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.View()
+
+	commentX := -1
+	for _, label := range m.line3Labels {
+		if label.target == line3Comments {
+			commentX = label.start
+			break
+		}
+	}
+	if commentX < 0 {
+		t.Skip("no comments label on line 3")
+	}
+
+	click := tea.MouseClickMsg{X: commentX, Y: 2, Button: tea.MouseLeft}
+	result, _ = m.Update(click)
+	m = result.(*Model)
+
+	if m.mode != PRViewMode {
+		t.Errorf("clicking comments should switch to PR mode, got mode %d", m.mode)
+	}
+	selected := m.sidebar.SelectedItem()
+	if !strings.Contains(selected, "@bob") {
+		t.Errorf("should select first comment, got %q", selected)
+	}
+}
