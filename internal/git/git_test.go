@@ -851,7 +851,7 @@ func TestDetectBase_GHReturnsEmpty(t *testing.T) {
 
 func TestPRChecks_Success(t *testing.T) {
 	dir := setupTestRepo(t)
-	checksJSON := `[{"name":"build","state":"COMPLETED","conclusion":"success","detailsUrl":"https://ci.example.com/1"}]`
+	checksJSON := `[{"name":"build","state":"SUCCESS","bucket":"pass","link":"https://ci.example.com/1"}]`
 	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
 
 	ci, err := g.PRChecks()
@@ -865,7 +865,7 @@ func TestPRChecks_Success(t *testing.T) {
 
 func TestPRChecks_Failure(t *testing.T) {
 	dir := setupTestRepo(t)
-	checksJSON := `[{"name":"build","state":"COMPLETED","conclusion":"failure","detailsUrl":"https://ci.example.com/2"},{"name":"lint","state":"COMPLETED","conclusion":"success","detailsUrl":""}]`
+	checksJSON := `[{"name":"build","state":"FAILURE","bucket":"fail","link":"https://ci.example.com/2"},{"name":"lint","state":"SUCCESS","bucket":"pass","link":""}]`
 	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
 
 	ci, err := g.PRChecks()
@@ -882,7 +882,7 @@ func TestPRChecks_Failure(t *testing.T) {
 
 func TestPRChecks_Pending(t *testing.T) {
 	dir := setupTestRepo(t)
-	checksJSON := `[{"name":"build","state":"PENDING","conclusion":"","detailsUrl":"https://ci.example.com/3"}]`
+	checksJSON := `[{"name":"build","state":"IN_PROGRESS","bucket":"pending","link":"https://ci.example.com/3"}]`
 	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
 
 	ci, err := g.PRChecks()
@@ -1200,7 +1200,7 @@ func TestPRComments_Error(t *testing.T) {
 
 func TestCIChecks(t *testing.T) {
 	dir := setupTestRepo(t)
-	checksJSON := `[{"name":"build","state":"COMPLETED","conclusion":"success","detailsUrl":"https://ci.example.com/1"},{"name":"lint","state":"COMPLETED","conclusion":"failure","detailsUrl":"https://ci.example.com/2"}]`
+	checksJSON := `[{"name":"build","state":"SUCCESS","bucket":"pass","link":"https://ci.example.com/1"},{"name":"lint","state":"FAILURE","bucket":"fail","link":"https://ci.example.com/2"}]`
 	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
 
 	checks, err := g.CIChecks()
@@ -1210,10 +1210,10 @@ func TestCIChecks(t *testing.T) {
 	if len(checks) != 2 {
 		t.Fatalf("expected 2 checks, got %d", len(checks))
 	}
-	if checks[0].Name != "build" || checks[0].Conclusion != "success" {
+	if checks[0].Name != "build" || checks[0].Bucket != "pass" {
 		t.Errorf("unexpected first check: %+v", checks[0])
 	}
-	if checks[1].Name != "lint" || checks[1].Conclusion != "failure" {
+	if checks[1].Name != "lint" || checks[1].Bucket != "fail" {
 		t.Errorf("unexpected second check: %+v", checks[1])
 	}
 }
@@ -1246,7 +1246,7 @@ func TestCIChecks_InvalidJSON(t *testing.T) {
 
 func TestPRChecks_ActionRequired(t *testing.T) {
 	dir := setupTestRepo(t)
-	checksJSON := `[{"name":"deploy","state":"COMPLETED","conclusion":"action_required","detailsUrl":"https://ci.example.com/4"}]`
+	checksJSON := `[{"name":"deploy","state":"COMPLETED","bucket":"cancel","link":"https://ci.example.com/4"}]`
 	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
 
 	ci, err := g.PRChecks()

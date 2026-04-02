@@ -97,16 +97,15 @@ type PRComment struct {
 }
 
 type CICheck struct {
-	Name       string `json:"name"`
-	State      string `json:"state"`
-	Conclusion string `json:"conclusion"`
-	URL        string `json:"detailsUrl"`
+	Name   string `json:"name"`
+	State  string `json:"state"`
+	Bucket string `json:"bucket"` // pass, fail, pending, skipping, cancel
+	URL    string `json:"link"`
 }
 
 type CIStatusResult struct {
-	State      string // SUCCESS, FAILURE, PENDING, ""
-	Conclusion string // e.g. "success", "failure"
-	URL        string // link to the CI run
+	State string // SUCCESS, FAILURE, PENDING, ""
+	URL   string // link to the CI run
 }
 
 type PRReview struct {
@@ -521,17 +520,12 @@ func (g *Git) PRInfo() (PRInfoResult, error) {
 
 // PRChecks fetches CI check status for the current PR.
 func (g *Git) PRChecks() (CIStatusResult, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,conclusion,detailsUrl")
+	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,bucket,link")
 	if err != nil {
 		return CIStatusResult{}, nil
 	}
 
-	var checks []struct {
-		Name       string `json:"name"`
-		State      string `json:"state"`
-		Conclusion string `json:"conclusion"`
-		URL        string `json:"detailsUrl"`
-	}
+	var checks []CICheck
 	if err := json.Unmarshal([]byte(out), &checks); err != nil {
 		return CIStatusResult{}, nil
 	}
@@ -539,12 +533,12 @@ func (g *Git) PRChecks() (CIStatusResult, error) {
 	// Aggregate: if any failed, overall is FAILURE; if any pending, PENDING; else SUCCESS
 	result := CIStatusResult{State: "SUCCESS"}
 	for _, c := range checks {
-		if c.Conclusion == "failure" || c.Conclusion == "action_required" {
+		if c.Bucket == "fail" || c.Bucket == "cancel" {
 			result.State = "FAILURE"
 			result.URL = c.URL
 			return result, nil
 		}
-		if c.State == "PENDING" || c.State == "QUEUED" || c.State == "IN_PROGRESS" {
+		if c.Bucket == "pending" {
 			result.State = "PENDING"
 			if result.URL == "" {
 				result.URL = c.URL
@@ -635,7 +629,7 @@ func (g *Git) PRComments() ([]PRComment, error) {
 
 // CIChecks fetches individual CI check results for the current PR.
 func (g *Git) CIChecks() ([]CICheck, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,conclusion,detailsUrl")
+	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,bucket,link")
 	if err != nil {
 		return nil, nil
 	}
