@@ -1850,6 +1850,7 @@ func (m *Model) copySelection() {
 		endX = 0
 	}
 
+	gw := m.mainPane.gutterWidth
 	var selected strings.Builder
 	for y := startY; y <= endY && y < len(contentLines); y++ {
 		// Strip ANSI codes to get clean text
@@ -1874,6 +1875,18 @@ func (m *Model) copySelection() {
 			selected.WriteString(line[fromX:toX])
 		}
 		if y < endY {
+			// Detect wrap-continuation lines: they start with gutter-width spaces
+			// and have no gutter marker (no +/-/~ after the indent).
+			// Don't add a newline before continuation lines — join them instead.
+			nextY := y + 1
+			if nextY < len(contentLines) && m.mainPane.wordWrap && gw > 0 {
+				nextLine := stripANSIForWidth(contentLines[nextY])
+				isContinuation := len(nextLine) >= gw &&
+					strings.TrimRight(nextLine[:gw], " ") == ""
+				if isContinuation {
+					continue // skip the newline — next iteration joins to this line
+				}
+			}
 			selected.WriteString("\n")
 		}
 	}
