@@ -33,6 +33,22 @@ type modeLabel struct {
 	end   int // exclusive x offset
 }
 
+// line3Target identifies what a click on line 3 should jump to.
+type line3Target int
+
+const (
+	line3Description line3Target = iota
+	line3Reviews
+	line3Comments
+	line3CI
+)
+
+type line3Label struct {
+	target line3Target
+	start  int
+	end    int
+}
+
 // statusBarLineCount returns how many lines the status bar will occupy.
 func statusBarLineCount(data statusBarData) int {
 	count := 1 // line 1 always shown
@@ -45,14 +61,14 @@ func statusBarLineCount(data statusBarData) int {
 	return count
 }
 
-func renderStatusBar(width int, data statusBarData) (string, []modeLabel) {
+func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line3Label) {
 	if data.confirming {
 		msg := " Quit? Press q/Q to confirm, any other key to cancel"
 		pad := width - lipgloss.Width(msg)
 		if pad > 0 {
 			msg += strings.Repeat(" ", pad)
 		}
-		return statusBarConfirmStyle.Width(width).Render(msg), nil
+		return statusBarConfirmStyle.Width(width).Render(msg), nil, nil
 	}
 
 	line1, labels := renderLine1(width, data)
@@ -64,11 +80,14 @@ func renderStatusBar(width int, data statusBarData) (string, []modeLabel) {
 	}
 
 	// Line 3: only show if there's a PR
+	var line3Labels []line3Label
 	if data.pr.Number > 0 {
-		result += "\n" + renderLine3(width, data)
+		l3, l3Labels := renderLine3(width, data)
+		line3Labels = l3Labels
+		result += "\n" + l3
 	}
 
-	return result, labels
+	return result, labels, line3Labels
 }
 
 // renderLine1: overall status — mode, directory, worktree
@@ -209,39 +228,62 @@ func renderLine2(width int, data statusBarData) string {
 }
 
 // renderLine3: github status — PR, draft, reviews, comments, CI
-func renderLine3(width int, data statusBarData) string {
+func renderLine3(width int, data statusBarData) (string, []line3Label) {
+	type part struct {
+		text   string
+		target line3Target
+	}
+
+	var parts []part
+	var labels []line3Label
+
 	// PR link
 	prLink := fmt.Sprintf("PR #%d: %s", data.pr.Number, data.pr.Title)
 	if data.pr.URL != "" {
 		prLink = makeHyperlink(data.pr.URL, prLink)
 	}
-
-	var parts []string
-	parts = append(parts, " "+prLink)
+	parts = append(parts, part{" " + prLink, line3Description})
 
 	if data.pr.IsDraft {
-		parts = append(parts, "[DRAFT]")
+		parts = append(parts, part{"[DRAFT]", line3Description})
+	}
+	if data.pr.State == "MERGED" {
+		parts = append(parts, part{"[MERGED]", line3Description})
 	}
 
 	// Reviews and review requests
 	reviewStr := renderReviews(data.reviews, data.reviewRequests, data.pr.ReviewDecision)
 	if reviewStr != "" {
-		parts = append(parts, reviewStr)
+		parts = append(parts, part{reviewStr, line3Reviews})
 	}
 
 	// Comments
 	if data.commentCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d comments", data.commentCount))
+		parts = append(parts, part{fmt.Sprintf("%d comments", data.commentCount), line3Comments})
 	}
 
-	// CI status (emoji)
+	// CI status
 	ciStr := renderCIStatusEmoji(data.ciStatus)
 	if ciStr != "" {
-		parts = append(parts, ciStr)
+		parts = append(parts, part{ciStr, line3CI})
 	}
 
-	bar := strings.Join(parts, " · ")
-	return statusBarDimStyle.Width(width).Render(bar)
+	// Build the bar and track positions
+	// statusBarDimStyle has Padding(0,1), so pos starts at 1
+	pos := 1
+	var textParts []string
+	for i, p := range parts {
+		displayWidth := lipgloss.Width(p.text)
+		labels = append(labels, line3Label{target: p.target, start: pos, end: pos + displayWidth})
+		textParts = append(textParts, p.text)
+		pos += displayWidth
+		if i < len(parts)-1 {
+			pos += 3 // " · " separator
+		}
+	}
+
+	bar := strings.Join(textParts, " · ")
+	return statusBarDimStyle.Width(width).Render(bar), labels
 }
 
 // renderCIStatusEmoji returns CI status as an emoji plus text label.
