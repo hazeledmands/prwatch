@@ -122,7 +122,8 @@ type Model struct {
 	dragEndX            int
 	dragEndY            int
 	dragging            bool
-	loading             bool // true until first data load completes
+	loading             bool        // true until first data load completes
+	modeLabels          []modeLabel // clickable mode label positions from last render
 	err                 error
 }
 
@@ -143,6 +144,7 @@ type gitDataMsg struct {
 	baseCommits      []gitpkg.Commit
 	prComments       []gitpkg.PRComment
 	ciChecks         []gitpkg.CICheck
+	prFetchFailed    bool // true if PR fetch errored (e.g. rate limit) — preserve old PR data
 	err              error
 }
 
@@ -214,7 +216,8 @@ func (m *Model) loadNonGitFiles() tea.Msg {
 
 func (m *Model) loadPRStatus() tea.Msg {
 	prInfo, err := m.git.PRInfo()
-	if err != nil && isRateLimited(err) {
+	if err != nil {
+		// Any PR fetch error (rate limit, network, auth) — signal to preserve old data
 		return prRefreshMsg{rateLimited: true}
 	}
 	var ciStatus gitpkg.CIStatusResult
@@ -257,9 +260,10 @@ func (m *Model) loadGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
-	prInfo, _ := m.git.PRInfo()
+	prInfo, prErr := m.git.PRInfo()
+	prFetchFailed := prErr != nil
 
-	// Fetch PR details if a PR exists
+	// Fetch PR details if a PR exists (and fetch succeeded)
 	var ciStatus gitpkg.CIStatusResult
 	var reviews []gitpkg.PRReview
 	var commentCount int
@@ -335,6 +339,7 @@ func (m *Model) loadGitData() tea.Msg {
 		baseCommits:      baseCommits,
 		prComments:       prComments,
 		ciChecks:         ciChecks,
+		prFetchFailed:    prFetchFailed,
 	}
 }
 
@@ -354,10 +359,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.repoInfo = msg.repoInfo
-		m.prInfo = msg.prInfo
-		m.ciStatus = msg.ciStatus
-		m.prReviews = msg.prReviews
-		m.prCommentCount = msg.prCommentCount
+		// If PR fetch failed (e.g. rate limit), preserve existing PR data
+		if !msg.prFetchFailed {
+			m.prInfo = msg.prInfo
+			m.ciStatus = msg.ciStatus
+			m.prReviews = msg.prReviews
+			m.prCommentCount = msg.prCommentCount
+			m.prComments = msg.prComments
+			m.ciChecks = msg.ciChecks
+		}
 		m.base = msg.base
 		m.committedFiles = msg.committedFiles
 		m.uncommittedFiles = msg.uncommittedFiles
@@ -366,10 +376,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ignoredFiles = msg.ignoredFiles
 		m.commits = msg.commits
 		m.baseCommits = msg.baseCommits
-		m.prComments = msg.prComments
-		m.ciChecks = msg.ciChecks
 		// On first load, default to PR mode if a PR exists and mode hasn't been changed
-		if wasLoading && msg.prInfo.Number > 0 && m.mode == FileViewMode {
+		if wasLoading && m.prInfo.Number > 0 && m.mode == FileViewMode {
 			m.mode = PRViewMode
 		}
 		m.updateSidebarItems()
@@ -1000,23 +1008,15 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 	}
 	switch y {
 	case 0:
-		// Line 1: overall status — click anywhere cycles mode
-		switch m.mode {
-		case FileViewMode:
-			m.mode = FileDiffMode
-		case FileDiffMode:
-			m.mode = CommitMode
-		case CommitMode:
-			if m.prInfo.Number > 0 {
-				m.mode = PRViewMode
-			} else {
-				m.mode = FileViewMode
+		// Line 1: click on specific mode label to switch to that mode
+		for _, label := range m.modeLabels {
+			if x >= label.start && x < label.end {
+				m.mode = label.mode
+				m.updateSidebarItems()
+				m.updateMainContent()
+				return m, nil
 			}
-		case PRViewMode:
-			m.mode = FileViewMode
 		}
-		m.updateSidebarItems()
-		m.updateMainContent()
 	case 1:
 		// Line 2: local git status — clicking commits area switches to commit mode
 		if len(m.commits) > 0 {
@@ -1801,7 +1801,7 @@ func (m *Model) View() tea.View {
 		return v
 	}
 
-	bar := renderStatusBar(m.width, statusBarData{
+	bar, labels := renderStatusBar(m.width, statusBarData{
 		info:          m.repoInfo,
 		pr:            m.prInfo,
 		ciStatus:      m.ciStatus,
@@ -1811,7 +1811,10 @@ func (m *Model) View() tea.View {
 		confirming:    m.confirming,
 		uncommitCount: len(m.uncommittedFiles),
 		commitCount:   len(m.commits),
+		hoverX:        m.hoverX,
+		hoverY:        m.hoverY,
 	})
+	m.modeLabels = labels
 
 	var result string
 	if m.showHelp {

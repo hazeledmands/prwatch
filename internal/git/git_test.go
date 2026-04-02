@@ -695,13 +695,12 @@ func TestPRInfo_InvalidJSON(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.NewWithRunner(dir, mockGHRunner("not json", nil))
 
-	info, err := g.PRInfo()
-	if err != nil {
-		t.Fatal(err)
+	_, err := g.PRInfo()
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
 	}
-	// Should gracefully return empty result
-	if info.Number != 0 {
-		t.Errorf("expected 0, got #%d", info.Number)
+	if !strings.Contains(err.Error(), "parsing PR info") {
+		t.Errorf("expected parsing error, got: %v", err)
 	}
 }
 

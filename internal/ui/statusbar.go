@@ -19,6 +19,15 @@ type statusBarData struct {
 	confirming    bool
 	uncommitCount int
 	commitCount   int
+	hoverX        int // mouse hover position for highlighting
+	hoverY        int
+}
+
+// modeLabel tracks the position and mode of a clickable mode label.
+type modeLabel struct {
+	mode  Mode
+	start int // x offset within the rendered line (after padding)
+	end   int // exclusive x offset
 }
 
 // statusBarLineCount returns how many lines the status bar will occupy.
@@ -33,17 +42,17 @@ func statusBarLineCount(data statusBarData) int {
 	return count
 }
 
-func renderStatusBar(width int, data statusBarData) string {
+func renderStatusBar(width int, data statusBarData) (string, []modeLabel) {
 	if data.confirming {
 		msg := " Quit? Press q/Q to confirm, any other key to cancel"
 		pad := width - lipgloss.Width(msg)
 		if pad > 0 {
 			msg += strings.Repeat(" ", pad)
 		}
-		return statusBarConfirmStyle.Width(width).Render(msg)
+		return statusBarConfirmStyle.Width(width).Render(msg), nil
 	}
 
-	line1 := renderLine1(width, data)
+	line1, labels := renderLine1(width, data)
 	result := line1
 
 	// Line 2: only show for git repos
@@ -56,11 +65,12 @@ func renderStatusBar(width int, data statusBarData) string {
 		result += "\n" + renderLine3(width, data)
 	}
 
-	return result
+	return result, labels
 }
 
 // renderLine1: overall status — mode, directory, worktree
-func renderLine1(width int, data statusBarData) string {
+// Returns the rendered line and the clickable mode label positions.
+func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 	// Build mode bar: show all modes, highlight the active one
 	modes := []struct {
 		mode Mode
@@ -71,18 +81,53 @@ func renderLine1(width int, data statusBarData) string {
 		{CommitMode, "commits"},
 		{PRViewMode, "pr"},
 	}
+
 	var modeItems []string
+	var labels []modeLabel
+	// Account for statusBarStyle padding (1 char) + leading space in parts[0]
+	pos := 2 // 1 for Padding(0,1) + 1 for " " prefix
+	hoverMode := Mode(-1)
+
 	for _, m := range modes {
 		// Skip pr mode if no PR
 		if m.mode == PRViewMode && data.pr.Number == 0 {
 			continue
 		}
+
+		var displayText string
+		var displayWidth int
 		if m.mode == data.mode {
-			modeItems = append(modeItems, modeActiveStyle.Render("["+m.name+"]"))
+			displayText = "[" + m.name + "]"
+			displayWidth = len(displayText)
 		} else {
-			modeItems = append(modeItems, m.name)
+			displayText = m.name
+			displayWidth = len(displayText)
 		}
+
+		label := modeLabel{mode: m.mode, start: pos, end: pos + displayWidth}
+		labels = append(labels, label)
+
+		// Check if hover is on this label
+		isHovered := data.hoverY == 0 && data.hoverX >= label.start && data.hoverX < label.end
+
+		if m.mode == data.mode {
+			if isHovered {
+				modeItems = append(modeItems, modeActiveHoverStyle.Render(displayText))
+			} else {
+				modeItems = append(modeItems, modeActiveStyle.Render(displayText))
+			}
+		} else {
+			if isHovered {
+				hoverMode = m.mode
+				modeItems = append(modeItems, modeHoverStyle.Render(displayText))
+			} else {
+				modeItems = append(modeItems, modeInactiveStyle.Render(displayText))
+			}
+		}
+
+		pos += displayWidth + 1 // +1 for space separator
 	}
+	_ = hoverMode
 	modeStr := strings.Join(modeItems, " ")
 
 	dirName := data.info.DirName
@@ -103,7 +148,7 @@ func renderLine1(width int, data statusBarData) string {
 	}
 
 	bar := strings.Join(parts, " · ")
-	return statusBarStyle.Width(width).Render(bar)
+	return statusBarStyle.Width(width).Render(bar), labels
 }
 
 // renderLine2: local git status — branch, uncommitted, unpushed, commits

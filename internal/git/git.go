@@ -33,9 +33,14 @@ func NewWithRunner(dir string, runner CmdRunner) *Git {
 func defaultCmdRunner(dir string, name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		errMsg := stderr.String()
+		if errMsg != "" {
+			return "", fmt.Errorf("%s: %s", err, strings.TrimSpace(errMsg))
+		}
 		return "", err
 	}
 	return strings.TrimSpace(stdout.String()), nil
@@ -459,15 +464,29 @@ func (g *Git) AllFiles(includeIgnored bool) ([]string, error) {
 }
 
 // PRInfo fetches PR info via gh CLI. Returns zero-value PRInfoResult if no PR exists.
+// Returns an error if the gh command fails for reasons other than "no PR" (e.g. rate limiting, auth issues).
 func (g *Git) PRInfo() (PRInfoResult, error) {
 	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName,isDraft,reviewDecision,body")
 	if err != nil {
-		// No PR exists or gh not available
-		return PRInfoResult{}, nil
+		errMsg := strings.ToLower(err.Error())
+		// These errors mean genuinely no PR or no remote — not a transient failure
+		if strings.Contains(errMsg, "no pull requests found") ||
+			strings.Contains(errMsg, "no open pull requests") ||
+			strings.Contains(errMsg, "not a git repository") ||
+			strings.Contains(errMsg, "none of the remotes") ||
+			strings.Contains(errMsg, "no github remotes") ||
+			strings.Contains(errMsg, "no git remotes") ||
+			strings.Contains(errMsg, "could not determine") ||
+			strings.Contains(errMsg, "gh not found") ||
+			strings.Contains(errMsg, "executable file not found") {
+			return PRInfoResult{}, nil
+		}
+		// Everything else (rate limit, auth, network) is a real error
+		return PRInfoResult{}, err
 	}
 	var result PRInfoResult
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
-		return PRInfoResult{}, nil
+		return PRInfoResult{}, fmt.Errorf("parsing PR info: %w", err)
 	}
 	return result, nil
 }

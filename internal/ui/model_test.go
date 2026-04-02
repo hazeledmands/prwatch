@@ -1334,33 +1334,55 @@ func TestMouseClick_StatusBar_Left(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
 	m.height = 24
+	m.loading = false
 	m.updateLayout()
 	m.focus = SidebarFocus
 	m.mode = FileDiffMode
 
-	// Click status bar row 0 should cycle mode
-	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 0})
+	// Render to populate modeLabels
+	m.View()
+
+	// Find the "commits" label position and click it
+	var commitsX int
+	for _, label := range m.modeLabels {
+		if label.mode == CommitMode {
+			commitsX = label.start
+			break
+		}
+	}
+	result, _ := m.Update(tea.MouseClickMsg{X: commitsX, Y: 0})
 	m = result.(*Model)
 	if m.focus != SidebarFocus {
 		t.Error("clicking status bar should not change focus")
 	}
 	if m.mode != CommitMode {
-		t.Errorf("clicking row 0 should cycle mode from diff to commit, got %d", m.mode)
+		t.Errorf("clicking commits label should switch to commit mode, got %d", m.mode)
 	}
 }
 
-func TestMouseClick_StatusBar_Line1CyclesMode(t *testing.T) {
+func TestMouseClick_StatusBar_Line1ClicksSpecificMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 120
 	m.height = 24
+	m.loading = false
 	m.updateLayout()
 	m.mode = FileViewMode
 
-	// Click on row 0 (mode indicator area)
-	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 0})
+	// Render to populate modeLabels
+	m.View()
+
+	// Find the "diff" label and click it
+	var diffX int
+	for _, label := range m.modeLabels {
+		if label.mode == FileDiffMode {
+			diffX = label.start
+			break
+		}
+	}
+	result, _ := m.Update(tea.MouseClickMsg{X: diffX, Y: 0})
 	m = result.(*Model)
 	if m.mode != FileDiffMode {
-		t.Errorf("clicking line 1 should cycle mode, got %d", m.mode)
+		t.Errorf("clicking diff label should switch to diff mode, got %d", m.mode)
 	}
 }
 
@@ -2330,8 +2352,8 @@ func TestCommitMode_UnpushedCommitsDimmedWithSeparator(t *testing.T) {
 	}
 }
 
-func TestClickModeIndicator_CyclesModes(t *testing.T) {
-	// Spec: "current mode (clicking this should switch modes, like the space bar)"
+func TestClickModeIndicator_ClicksSpecificMode(t *testing.T) {
+	// Spec: "each mode should be clickable"
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -2354,21 +2376,32 @@ func TestClickModeIndicator_CyclesModes(t *testing.T) {
 		t.Fatalf("expected FileViewMode, got %d", m.mode)
 	}
 
-	// Click on the center of line 0 (where the mode indicator is)
-	centerX := m.width / 2
-	clickMsg := tea.MouseClickMsg{X: centerX, Y: 0, Button: tea.MouseLeft}
-	result, _ := m.Update(clickMsg)
+	// Render to populate modeLabels
+	m.View()
+
+	// Click on "diff" label
+	var diffX, commitsX int
+	for _, label := range m.modeLabels {
+		if label.mode == FileDiffMode {
+			diffX = label.start
+		}
+		if label.mode == CommitMode {
+			commitsX = label.start
+		}
+	}
+	result, _ := m.Update(tea.MouseClickMsg{X: diffX, Y: 0, Button: tea.MouseLeft})
 	m = result.(*Model)
 
 	if m.mode != FileDiffMode {
-		t.Errorf("clicking mode indicator should cycle to FileDiffMode, got %d", m.mode)
+		t.Errorf("clicking diff label should switch to FileDiffMode, got %d", m.mode)
 	}
 
-	// Click again to cycle to CommitMode
-	result, _ = m.Update(clickMsg)
+	// Render again to update labels, then click commits
+	m.View()
+	result, _ = m.Update(tea.MouseClickMsg{X: commitsX, Y: 0, Button: tea.MouseLeft})
 	m = result.(*Model)
 	if m.mode != CommitMode {
-		t.Errorf("clicking mode indicator again should cycle to CommitMode, got %d", m.mode)
+		t.Errorf("clicking commits label should switch to CommitMode, got %d", m.mode)
 	}
 }
 
@@ -4505,7 +4538,7 @@ func TestStatusBar_PRMode(t *testing.T) {
 		pr:   git.PRInfoResult{Number: 42, Title: "Test PR"},
 		mode: PRViewMode,
 	}
-	bar := renderStatusBar(80, data)
+	bar, _ := renderStatusBar(80, data)
 	if !strings.Contains(bar, "[pr]") {
 		t.Error("PR mode should show [pr] highlighted in mode bar")
 	}
