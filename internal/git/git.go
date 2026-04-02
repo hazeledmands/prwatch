@@ -67,6 +67,19 @@ type PRInfoResult struct {
 	IsDraft        bool   `json:"isDraft"`
 	ReviewDecision string `json:"reviewDecision"` // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, ""
 	CommentsCount  int    `json:"comments"`
+	Body           string `json:"body"`
+}
+
+type PRComment struct {
+	Author string `json:"author"`
+	Body   string `json:"body"`
+}
+
+type CICheck struct {
+	Name       string `json:"name"`
+	State      string `json:"state"`
+	Conclusion string `json:"conclusion"`
+	URL        string `json:"detailsUrl"`
 }
 
 type CIStatusResult struct {
@@ -447,7 +460,7 @@ func (g *Git) AllFiles(includeIgnored bool) ([]string, error) {
 
 // PRInfo fetches PR info via gh CLI. Returns zero-value PRInfoResult if no PR exists.
 func (g *Git) PRInfo() (PRInfoResult, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName,isDraft,reviewDecision")
+	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName,isDraft,reviewDecision,body")
 	if err != nil {
 		// No PR exists or gh not available
 		return PRInfoResult{}, nil
@@ -550,4 +563,38 @@ func (g *Git) PRCommentCount() (int, error) {
 	var count int
 	fmt.Sscanf(strings.TrimSpace(out), "%d", &count)
 	return count, nil
+}
+
+// PRComments fetches comments on the current PR.
+func (g *Git) PRComments() ([]PRComment, error) {
+	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "comments", "-q", ".comments[] | {author: .author.login, body: .body}")
+	if err != nil {
+		return nil, nil
+	}
+	var comments []PRComment
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var c PRComment
+		if err := json.Unmarshal([]byte(line), &c); err != nil {
+			continue
+		}
+		comments = append(comments, c)
+	}
+	return comments, nil
+}
+
+// CIChecks fetches individual CI check results for the current PR.
+func (g *Git) CIChecks() ([]CICheck, error) {
+	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,conclusion,detailsUrl")
+	if err != nil {
+		return nil, nil
+	}
+	var checks []CICheck
+	if err := json.Unmarshal([]byte(out), &checks); err != nil {
+		return nil, nil
+	}
+	return checks, nil
 }
