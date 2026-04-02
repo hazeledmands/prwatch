@@ -11,10 +11,3 @@ for gutter-width indentation, but this heuristic doesn't work perfectly for
 all modes (especially diff mode where gutter width is 0). A fully correct
 implementation requires mapping viewport coordinates back through the wrapping
 transformation, which is complex. Flagging for future improvement.
-
-## PR-view mode
-
-The spec defines a PR-view mode that shows PR description, comments, and CI
-status. This mode requires additional GitHub API calls (PR body, individual
-comments) that are not yet implemented in the git layer. The mode structure
-and keybinding are ready but the data fetching and rendering are pending.

@@ -25,9 +25,9 @@ the UI should update when the size of its bounding box changes. e.g. if the term
 
 the "status bar" should be divided into three sections, one line per each:
 line 1: overall status
-  - name of current mode ([file], [diff], [commits], [pr], [help])
   - name of current directory
   - if in a worktree, the name of the main git tree
+  - name of view modes, with the current mode highlighted (file [diff] commits pr help)
 line 2: local git status
   - name of current branch and merge base, if any (eg: `foo -> main`, or just `main`)
   - number of uncommitted files (12 uncommitted)
@@ -156,6 +156,7 @@ when not in tree mode, [enter]/[right]/[l] on a sidebar entry switches to the ma
 | key | action |
 |-----|--------|
 | [enter] | file modes: open $EDITOR at current line. commit mode: no-op for now. |
+| [shift]+[n]/[p] | jump to next/previous leaf node in the sidebar, even if the sidebar is not selected |
 
 ### file-view specific
 | key | action |
