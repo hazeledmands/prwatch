@@ -4602,3 +4602,560 @@ func TestPRViewMode_MainContent(t *testing.T) {
 		t.Error("main pane should show PR body when Description is selected")
 	}
 }
+
+func TestRenderPRDescription_FullMetadata(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		prInfo: git.PRInfoResult{
+			Number:    42,
+			Title:     "Add feature",
+			State:     "MERGED",
+			IsDraft:   false,
+			Body:      "## Description\n\nSome changes",
+			Labels:    []git.PRLabel{{Name: "bug"}, {Name: "priority"}},
+			Assignees: []git.PRUser{{Login: "alice"}},
+			Milestone: git.PRMilestone{Title: "v1.0"},
+		},
+		changedFiles: git.ChangedFilesResult{Committed: []string{"f.go"}},
+		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.prReviews = []git.PRReview{{Author: "bob", State: "APPROVED"}}
+
+	desc := m.renderPRDescription()
+	if !strings.Contains(desc, "PR #42: Add feature") {
+		t.Error("should contain PR title")
+	}
+	if !strings.Contains(desc, "[MERGED]") {
+		t.Error("should contain MERGED status")
+	}
+	if !strings.Contains(desc, "Labels: bug, priority") {
+		t.Error("should contain labels")
+	}
+	if !strings.Contains(desc, "Assignees: @alice") {
+		t.Error("should contain assignees")
+	}
+	if !strings.Contains(desc, "Milestone: v1.0") {
+		t.Error("should contain milestone")
+	}
+	if !strings.Contains(desc, "@bob ✓") {
+		t.Error("should contain reviewer with approval")
+	}
+	if !strings.Contains(desc, "## Description") {
+		t.Error("should contain PR body")
+	}
+}
+
+func TestRenderPRDescription_DraftNoBugs(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		prInfo: git.PRInfoResult{
+			Number:  1,
+			Title:   "WIP",
+			IsDraft: true,
+			Body:    "",
+		},
+		changedFiles: git.ChangedFilesResult{},
+		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	desc := m.renderPRDescription()
+	if !strings.Contains(desc, "[DRAFT]") {
+		t.Error("should show DRAFT status")
+	}
+}
+
+func TestHelpOverlay_SearchAndScroll(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 10
+	m.loading = false
+	m.updateLayout()
+
+	// Open help
+	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+	if !m.showHelp {
+		t.Fatal("help should be open")
+	}
+
+	// Scroll down in help
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = result.(*Model)
+	if m.helpScrollOffset != 1 {
+		t.Errorf("help should scroll down, offset=%d", m.helpScrollOffset)
+	}
+
+	// Page down
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	m = result.(*Model)
+	if m.helpScrollOffset <= 1 {
+		t.Error("page down should advance past 1")
+	}
+
+	// Go to bottom
+	result, _ = m.Update(tea.KeyPressMsg{Text: "G", Code: 'G'})
+	m = result.(*Model)
+	if m.helpScrollOffset == 0 {
+		t.Error("G should go to bottom of help")
+	}
+
+	// Search in help
+	result, _ = m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	if !m.helpSearching {
+		t.Error("should be searching in help")
+	}
+
+	// Type search query
+	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	m = result.(*Model)
+	if m.helpSearchQuery != "q" {
+		t.Errorf("search query should be 'q', got %q", m.helpSearchQuery)
+	}
+
+	// Confirm search
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+	if !m.helpSearchConfirmed {
+		t.Error("search should be confirmed")
+	}
+
+	// First esc exits search mode, second esc closes help
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = result.(*Model)
+	// Now close help with q
+	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	m = result.(*Model)
+	if m.showHelp {
+		t.Error("help should be closed after q")
+	}
+}
+
+func TestRenderHelp_ScrollOffset(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 10 // short so not all help lines visible
+	m.showHelp = true
+	m.helpScrollOffset = 5
+	m.updateLayout()
+
+	rendered := m.renderHelp()
+	// With offset 5, "Keybindings:" (line 0) should not be the first line
+	if strings.HasPrefix(rendered, "Keybindings:") {
+		t.Error("with scroll offset 5, first line should not be Keybindings:")
+	}
+}
+
+func TestRenderHelp_SearchHighlighting(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 40
+	m.showHelp = true
+	m.helpSearchQuery = "scroll"
+	m.updateLayout()
+
+	rendered := m.renderHelp()
+	// The rendered output should contain the search term (possibly wrapped in ANSI)
+	// At minimum the output should not be empty and should differ from no-search output
+	if len(rendered) == 0 {
+		t.Error("rendered help should not be empty")
+	}
+	// Check the ANSI-stripped version contains the word
+	stripped := stripANSIForWidth(rendered)
+	if !strings.Contains(strings.ToLower(stripped), "scroll") {
+		t.Error("rendered help should contain 'scroll' after stripping ANSI")
+	}
+}
+
+func TestRenderHelp_SearchingBarWithMatches(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 40
+	m.showHelp = true
+	m.helpSearching = true
+	m.helpSearchQuery = "wrap"
+	m.helpSearchMatches = []int{3}
+	m.updateLayout()
+
+	rendered := m.renderHelp()
+	if !strings.Contains(rendered, "/wrap") {
+		t.Error("searching bar should show /wrap")
+	}
+	if !strings.Contains(rendered, "1/1") {
+		t.Error("searching bar should show 1/1 for single match")
+	}
+}
+
+func TestRenderHelp_SearchingBarNoMatches(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 40
+	m.showHelp = true
+	m.helpSearching = true
+	m.helpSearchQuery = "zzzzz"
+	m.updateLayout()
+
+	rendered := m.renderHelp()
+	if !strings.Contains(rendered, "0/0") {
+		t.Error("searching with no matches should show 0/0")
+	}
+}
+
+func TestRenderHelp_ConfirmedSearchBar(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 40
+	m.showHelp = true
+	m.helpSearchConfirmed = true
+	m.helpSearchQuery = "mode"
+	m.helpSearchMatches = []int{2, 4, 6}
+	m.helpSearchIdx = 2
+	m.updateLayout()
+
+	rendered := m.renderHelp()
+	if !strings.Contains(rendered, "/mode") {
+		t.Error("confirmed bar should show query")
+	}
+	if !strings.Contains(rendered, "3/3") {
+		t.Error("confirmed bar should show 3/3 for idx=2 of 3 matches")
+	}
+}
+
+func TestRenderHelp_StartBeyondEnd(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 40
+	m.showHelp = true
+	m.helpScrollOffset = 9999 // way past end
+	m.updateLayout()
+
+	rendered := m.renderHelp()
+	// Should not panic and should return something (possibly empty)
+	_ = rendered
+}
+
+func TestHandleHelpKey_SearchBackspace(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.showHelp = true
+	m.helpSearching = true
+	m.helpSearchQuery = "ab"
+	m.updateLayout()
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = result.(*Model)
+	if m.helpSearchQuery != "a" {
+		t.Errorf("backspace should remove last char, got %q", m.helpSearchQuery)
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = result.(*Model)
+	if m.helpSearchQuery != "" {
+		t.Errorf("backspace should remove last char, got %q", m.helpSearchQuery)
+	}
+
+	// Backspace on empty should not panic
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = result.(*Model)
+	if m.helpSearchQuery != "" {
+		t.Error("backspace on empty should stay empty")
+	}
+}
+
+func TestHandleHelpKey_SearchEnterNoMatches(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.showHelp = true
+	m.helpSearching = true
+	m.helpSearchQuery = "zzzznotfound"
+	m.updateLayout()
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+	if m.helpSearching {
+		t.Error("enter should end searching mode")
+	}
+	if m.helpSearchConfirmed {
+		t.Error("enter with no matches should not confirm")
+	}
+}
+
+func TestHandleHelpKey_ConfirmedOtherKeyFallthrough(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.showHelp = true
+	m.helpSearchConfirmed = true
+	m.helpSearchQuery = "mode"
+	m.helpSearchMatches = []int{2, 4}
+	m.helpSearchIdx = 0
+	m.updateLayout()
+
+	// 'j' should clear confirmed and fall through to scroll down
+	result, _ := m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
+	m = result.(*Model)
+	if m.helpSearchConfirmed {
+		t.Error("other key should clear confirmed mode")
+	}
+}
+
+func TestHandleHelpKey_ConfirmedPrevNav(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.showHelp = true
+	m.helpSearchConfirmed = true
+	m.helpSearchQuery = "mode"
+	m.helpSearchMatches = []int{2, 4, 6}
+	m.helpSearchIdx = 0
+	m.updateLayout()
+
+	// p should go to previous (wrap around to last)
+	result, _ := m.Update(tea.KeyPressMsg{Text: "p", Code: 'p'})
+	m = result.(*Model)
+	if m.helpSearchIdx != 2 {
+		t.Errorf("p should wrap to last match, got idx=%d", m.helpSearchIdx)
+	}
+	if m.helpScrollOffset != 6 {
+		t.Errorf("scroll should follow match, got offset=%d", m.helpScrollOffset)
+	}
+}
+
+func TestHandleHelpKey_QuitImmediate(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.showHelp = true
+	m.updateLayout()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Error("ctrl-c in help should produce a quit command")
+	}
+}
+
+func TestHandleHelpKey_UpAtZero(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 10
+	m.showHelp = true
+	m.helpScrollOffset = 0
+	m.updateLayout()
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "k", Code: 'k'})
+	m = result.(*Model)
+	if m.helpScrollOffset != 0 {
+		t.Error("up at top should stay at 0")
+	}
+}
+
+func TestCopySelection_NoDrag(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	m.dragStartX = 5
+	m.dragStartY = 5
+	m.dragEndX = 5
+	m.dragEndY = 5
+	m.copySelection() // same point = no drag, should return early
+}
+
+func TestCopySelection_WithContent(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "short\nthis is a longer line of content\nthird line here",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Drag across main pane area
+	m.dragStartX = 30
+	m.dragStartY = 5
+	m.dragEndX = 50
+	m.dragEndY = 7
+	m.copySelection() // exercises coordinate conversion, line extraction
+}
+
+func TestCopySelection_ReversedCoordinates(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "line1\nline2\nline3",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// End before start (reversed)
+	m.dragStartX = 50
+	m.dragStartY = 8
+	m.dragEndX = 30
+	m.dragEndY = 5
+	m.copySelection() // exercises coordinate normalization
+}
+
+func TestCopySelection_NegativeCoords(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "line1\nline2",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Drag from before content area
+	m.dragStartX = 0
+	m.dragStartY = 0
+	m.dragEndX = 50
+	m.dragEndY = 8
+	m.copySelection() // exercises negative coordinate clamping
+}
+
+func TestCopySelection_HiddenSidebar(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "line1\nline2\nline3",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.sidebarHidden = true
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	m.dragStartX = 5
+	m.dragStartY = 5
+	m.dragEndX = 40
+	m.dragEndY = 7
+	m.copySelection() // exercises sidebarHidden=true path
+}
+
+func TestRenderPRDescription_ClosedState(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:     git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:         "abc",
+		prInfo:       git.PRInfoResult{Number: 5, Title: "Closed PR", State: "CLOSED"},
+		changedFiles: git.ChangedFilesResult{Committed: []string{"a.go"}},
+		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	desc := m.renderPRDescription()
+	if !strings.Contains(desc, "[CLOSED]") {
+		t.Errorf("expected [CLOSED] in description, got: %s", desc)
+	}
+}
+
+func TestRenderPRDescription_ReviewerStates(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:     git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:         "abc",
+		prInfo:       git.PRInfoResult{Number: 20, Title: "Review PR"},
+		changedFiles: git.ChangedFilesResult{Committed: []string{"a.go"}},
+		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
+		reviews: []git.PRReview{
+			{Author: "alice", State: "APPROVED"},
+			{Author: "bob", State: "CHANGES_REQUESTED"},
+			{Author: "charlie", State: "COMMENTED"},
+		},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	desc := m.renderPRDescription()
+	if !strings.Contains(desc, "Reviewers:") {
+		t.Fatal("should have Reviewers line")
+	}
+}
+
+func TestViewportToSourceLine(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 24)
+
+	// Set plain content with known line mapping
+	mp.SetPlainContent("line1\nline2\nline3\nline4\nline5")
+
+	// At top, source line should be 1
+	srcLine := mp.ViewportToSourceLine()
+	if srcLine < 1 {
+		t.Errorf("source line at top should be >= 1, got %d", srcLine)
+	}
+}

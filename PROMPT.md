@@ -86,6 +86,7 @@ sidebar should show:
       - deployments
 - horizontal rule
 - comments (one line per comment)
+- reviews (one line per review)
 - horizontal rule
 - CI status (one line per CI check)
 
