@@ -17,7 +17,7 @@ the UI should have a "status bar" at the top, with two panes arranged horizontal
 
 binary content should never be shown -- instead display [binary content].
 
-startup sequence: while still loading, the display should say "loading..." rather than displaying inaccurate information.
+while loading, data (such as data from github or a CI system), the display should indicate this rather than displaying inaccurate information. however, it should also display the data it _does_ have immediately, to keep the UI snappy and useful.
 
 the UI should update when the size of its bounding box changes. e.g. if the terminal window it is in is resized. wrapped content should re-wrap when the bounding box changes.
 
@@ -28,7 +28,7 @@ the "status bar" should be divided into three sections, one line per each.
 line 1: overall status
   - name of current directory
   - if in a worktree, the name of the main git tree
-  - name of view modes, with the current mode highlighted (file [diff] commits pr help)
+  - name of view modes, with the current mode highlighted (sort of like tabs)
     each mode should be clickable
   - if not a git repo, "Not a git repo"
 line 2: local git status (not shown if this is not a git repo)
