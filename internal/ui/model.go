@@ -2009,21 +2009,33 @@ func (m *Model) copySelection() {
 	}
 
 	gw := m.mainPane.gutterWidth
+	contMap := m.mainPane.wrapContinuation
+	// The viewport may be scrolled, so viewport line 0 corresponds to
+	// the viewport's scroll offset in the full content.
+	vpOffset := m.mainPane.viewport.YOffset()
 	var selected strings.Builder
 	for y := startY; y <= endY && y < len(contentLines); y++ {
 		// Strip ANSI codes to get clean text
 		line := stripANSIForWidth(contentLines[y])
 		line = strings.TrimRight(line, " ") // remove trailing padding
 
-		// Strip gutter prefix (line numbers + diff markers)
-		if gw > 0 && len(line) > gw {
+		// For continuation lines (word-wrapped), strip the indent prefix
+		// For original lines, strip the gutter prefix
+		absY := y + vpOffset
+		isCont := contMap != nil && absY < len(contMap) && contMap[absY]
+		if isCont {
+			// Continuation line: strip indent (gutter-width spaces)
+			if gw > 0 && len(line) > gw {
+				line = line[gw:]
+			}
+		} else if gw > 0 && len(line) > gw {
 			line = line[gw:]
 		}
 
 		fromX := 0
 		toX := len(line)
 		if y == startY {
-			// Adjust startX for gutter removal
+			// Adjust startX for gutter/indent removal
 			fromX = max(0, startX-gw)
 		}
 		if y == endY {
@@ -2039,17 +2051,10 @@ func (m *Model) copySelection() {
 			selected.WriteString(line[fromX:toX])
 		}
 		if y < endY {
-			// Detect wrap-continuation lines: they start with gutter-width spaces
-			// and have no gutter marker (no +/-/~ after the indent).
-			// Don't add a newline before continuation lines — join them instead.
-			nextY := y + 1
-			if nextY < len(contentLines) && m.mainPane.wordWrap && gw > 0 {
-				nextLine := stripANSIForWidth(contentLines[nextY])
-				isContinuation := len(nextLine) >= gw &&
-					strings.TrimRight(nextLine[:gw], " ") == ""
-				if isContinuation {
-					continue // skip the newline — next iteration joins to this line
-				}
+			// If the NEXT viewport line is a word-wrap continuation, don't add newline
+			nextAbsY := (y + 1) + vpOffset
+			if contMap != nil && nextAbsY < len(contMap) && contMap[nextAbsY] {
+				continue // join continuation lines without newline
 			}
 			selected.WriteString("\n")
 		}

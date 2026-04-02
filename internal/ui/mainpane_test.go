@@ -725,3 +725,77 @@ func TestMouseShiftWheelHorizontalScroll(t *testing.T) {
 	m = result.(*Model)
 	// Should have scrolled back
 }
+
+func TestWrapLinesWithContinuationMap(t *testing.T) {
+	// Short line that fits — no continuation
+	content := "hello world"
+	wrapped, contMap := wrapLinesWithContinuationMap(content, 80, 0)
+	if wrapped != content {
+		t.Errorf("short line should not wrap, got %q", wrapped)
+	}
+	if len(contMap) != 1 || contMap[0] {
+		t.Errorf("short line should have [false], got %v", contMap)
+	}
+
+	// Long line that wraps into 2 viewport lines
+	longLine := strings.Repeat("word ", 20) // 100 chars
+	wrapped, contMap = wrapLinesWithContinuationMap(longLine, 40, 0)
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected wrapped output to have 2+ lines, got %d", len(lines))
+	}
+	if len(contMap) != len(lines) {
+		t.Fatalf("contMap length %d != lines %d", len(contMap), len(lines))
+	}
+	if contMap[0] {
+		t.Error("first line should not be a continuation")
+	}
+	for i := 1; i < len(contMap); i++ {
+		if !contMap[i] {
+			t.Errorf("line %d should be a continuation", i)
+		}
+	}
+
+	// Multiple source lines, one wraps
+	content = "short\n" + strings.Repeat("long ", 20) + "\nanother short"
+	wrapped, contMap = wrapLinesWithContinuationMap(content, 40, 0)
+	lines = strings.Split(wrapped, "\n")
+	if len(contMap) != len(lines) {
+		t.Fatalf("contMap length %d != lines %d", len(contMap), len(lines))
+	}
+	// First line: "short" → not continuation
+	if contMap[0] {
+		t.Error("first source line should not be continuation")
+	}
+	// Last line: "another short" → not continuation
+	lastIdx := len(contMap) - 1
+	if contMap[lastIdx] {
+		t.Error("last source line should not be continuation")
+	}
+	// Middle lines: the long line wraps, so contMap[1] = false, contMap[2+] = true
+	if contMap[1] {
+		t.Error("start of long line should not be continuation")
+	}
+	if len(contMap) > 3 && !contMap[2] {
+		t.Error("wrapped part of long line should be continuation")
+	}
+}
+
+func TestWrapLinesWithContinuationMap_WithIndent(t *testing.T) {
+	// With gutter indent, continuation lines should be indented
+	longLine := "  + " + strings.Repeat("word ", 20)
+	wrapped, contMap := wrapLinesWithContinuationMap(longLine, 40, 4)
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected wrapped output with indent, got %d lines", len(lines))
+	}
+	// Continuation lines should start with 4 spaces (the indent)
+	for i := 1; i < len(lines); i++ {
+		if !strings.HasPrefix(lines[i], "    ") {
+			t.Errorf("continuation line %d should be indented, got %q", i, lines[i])
+		}
+		if !contMap[i] {
+			t.Errorf("line %d should be marked as continuation", i)
+		}
+	}
+}

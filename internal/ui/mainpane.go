@@ -41,6 +41,7 @@ type mainPane struct {
 	formattedContent   string                 // content after formatting but before wrapping
 	gutterWidth        int                    // gutter width from last formatting
 	sourceToFormatLine map[int]int            // source line number (1-indexed) → formatted line index (0-indexed)
+	wrapContinuation   []bool                 // per viewport line: true if this line is a word-wrap continuation
 }
 
 func newMainPane() *mainPane {
@@ -232,9 +233,12 @@ func (m *mainPane) refreshViewport() {
 	if m.searchQuery != "" {
 		content = highlightSearch(content, m.searchQuery)
 	}
+	m.wrapContinuation = nil
 	if m.width > 0 {
 		if m.wordWrap {
-			content = wrapLinesWithIndent(content, m.width, gutterWidth)
+			var contMap []bool
+			content, contMap = wrapLinesWithContinuationMap(content, m.width, gutterWidth)
+			m.wrapContinuation = contMap
 		} else {
 			content = truncateLinesWithOffset(content, m.width, m.xOffset, gutterWidth)
 		}
@@ -733,6 +737,145 @@ func wrapLinesWithIndent(content string, width, indent int) string {
 		return wrapLinesWordBoundary(content, width, 0)
 	}
 	return wrapLinesWordBoundary(content, width, indent)
+}
+
+// wrapLinesWithContinuationMap wraps content and returns a boolean slice where
+// each entry corresponds to a viewport line. true means the line is a continuation
+// of the previous source line (due to word wrapping).
+func wrapLinesWithContinuationMap(content string, width, indent int) (string, []bool) {
+	if width <= 0 {
+		lines := strings.Split(content, "\n")
+		cont := make([]bool, len(lines))
+		return content, cont
+	}
+	effectiveIndent := indent
+	if indent <= 0 || width <= indent {
+		effectiveIndent = 0
+	}
+
+	maxWordWidth := max(10, width/8)
+	lines := strings.Split(content, "\n")
+	var result []string
+	var contMap []bool
+	indentStr := ""
+	if effectiveIndent > 0 {
+		indentStr = strings.Repeat(" ", effectiveIndent)
+	}
+
+	for _, line := range lines {
+		lineW := ansiAwareIterate(line, func(r rune, w int) {})
+		if lineW <= width {
+			result = append(result, line)
+			contMap = append(contMap, false)
+			continue
+		}
+
+		type token struct {
+			text     string
+			displayW int
+			isSpace  bool
+		}
+		var tokens []token
+		var cur strings.Builder
+		curW := 0
+		curIsSpace := false
+		inEscape := false
+
+		for _, r := range line {
+			if inEscape {
+				cur.WriteRune(r)
+				if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+					inEscape = false
+				}
+				continue
+			}
+			if r == '\x1b' {
+				cur.WriteRune(r)
+				inEscape = true
+				continue
+			}
+			isSpace := r == ' ' || r == '\t'
+			if cur.Len() > 0 && isSpace != curIsSpace {
+				tokens = append(tokens, token{text: cur.String(), displayW: curW, isSpace: curIsSpace})
+				cur.Reset()
+				curW = 0
+			}
+			curIsSpace = isSpace
+			cur.WriteRune(r)
+			if r == '\t' {
+				curW += 8 - (curW % 8)
+			} else {
+				curW += runewidth.RuneWidth(r)
+			}
+		}
+		if cur.Len() > 0 {
+			tokens = append(tokens, token{text: cur.String(), displayW: curW, isSpace: curIsSpace})
+		}
+
+		var curLine strings.Builder
+		lineWidth := 0
+		first := true
+
+		flush := func() {
+			result = append(result, curLine.String())
+			contMap = append(contMap, !first) // first line of source is not a continuation
+			curLine.Reset()
+			if effectiveIndent > 0 {
+				curLine.WriteString(indentStr)
+				lineWidth = effectiveIndent
+			} else {
+				lineWidth = 0
+			}
+			first = false
+		}
+
+		currentMax := width
+		for _, tok := range tokens {
+			if tok.isSpace {
+				if lineWidth+tok.displayW <= currentMax {
+					curLine.WriteString(tok.text)
+					lineWidth += tok.displayW
+				} else {
+					flush()
+					currentMax = width
+				}
+				continue
+			}
+
+			if tok.displayW > maxWordWidth {
+				for _, r := range tok.text {
+					if r == '\x1b' || inEscape {
+						curLine.WriteRune(r)
+						if inEscape && ((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')) {
+							inEscape = false
+						} else if r == '\x1b' {
+							inEscape = true
+						}
+						continue
+					}
+					rw := runewidth.RuneWidth(r)
+					if lineWidth+rw > currentMax {
+						flush()
+						currentMax = width
+					}
+					curLine.WriteRune(r)
+					lineWidth += rw
+				}
+			} else {
+				if lineWidth+tok.displayW > currentMax {
+					flush()
+					currentMax = width
+				}
+				curLine.WriteString(tok.text)
+				lineWidth += tok.displayW
+			}
+		}
+		if curLine.Len() > 0 {
+			result = append(result, curLine.String())
+			contMap = append(contMap, !first)
+		}
+	}
+	return strings.Join(result, "\n"), contMap
 }
 
 // ScrollLeft scrolls the viewport left by n columns.
