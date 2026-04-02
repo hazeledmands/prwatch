@@ -311,7 +311,7 @@ func TestRenderReviews(t *testing.T) {
 		{Author: "bob", State: "CHANGES_REQUESTED"},
 		{Author: "charlie", State: "COMMENTED"},
 	}
-	result := renderReviews(reviews, "")
+	result := renderReviews(reviews, nil, "")
 	if !strings.Contains(result, "1✓") {
 		t.Error("should show approved count")
 	}
@@ -323,15 +323,42 @@ func TestRenderReviews(t *testing.T) {
 	}
 }
 
+func TestRenderReviews_WithRequests(t *testing.T) {
+	requests := []git.PRReviewRequest{
+		{Name: "alice", IsTeam: false},
+		{Name: "Storage Reviewers", IsTeam: true},
+	}
+	result := renderReviews(nil, requests, "")
+	if !strings.Contains(result, "2👀") {
+		t.Errorf("should show review request count, got %q", result)
+	}
+}
+
+func TestRenderReviews_MixedReviewsAndRequests(t *testing.T) {
+	reviews := []git.PRReview{
+		{Author: "alice", State: "APPROVED"},
+	}
+	requests := []git.PRReviewRequest{
+		{Name: "bob", IsTeam: false},
+	}
+	result := renderReviews(reviews, requests, "")
+	if !strings.Contains(result, "1✓") {
+		t.Error("should show approved count")
+	}
+	if !strings.Contains(result, "1👀") {
+		t.Error("should show review request count")
+	}
+}
+
 func TestRenderReviews_Empty(t *testing.T) {
-	result := renderReviews(nil, "")
+	result := renderReviews(nil, nil, "")
 	if result != "" {
 		t.Errorf("empty reviews should return empty, got %q", result)
 	}
 }
 
 func TestRenderReviews_UnknownDecision(t *testing.T) {
-	result := renderReviews(nil, "UNKNOWN_STATE")
+	result := renderReviews(nil, nil, "UNKNOWN_STATE")
 	if result != "" {
 		t.Errorf("unknown decision should return empty, got %q", result)
 	}
@@ -348,7 +375,7 @@ func TestRenderReviews_DecisionOnly(t *testing.T) {
 		{"", ""},
 	}
 	for _, tt := range tests {
-		result := renderReviews(nil, tt.decision)
+		result := renderReviews(nil, nil, tt.decision)
 		if result != tt.expected {
 			t.Errorf("decision %q: got %q, want %q", tt.decision, result, tt.expected)
 		}

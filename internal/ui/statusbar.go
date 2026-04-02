@@ -10,19 +10,20 @@ import (
 
 // statusBarData holds all the data needed to render the status bar.
 type statusBarData struct {
-	info          git.RepoInfoResult
-	pr            git.PRInfoResult
-	ciStatus      git.CIStatusResult
-	reviews       []git.PRReview
-	commentCount  int
-	mode          Mode
-	confirming    bool
-	uncommitCount int
-	commitCount   int
-	behindCount   int // commits behind base branch
-	showHelp      bool
-	hoverX        int // mouse hover position for highlighting
-	hoverY        int
+	info           git.RepoInfoResult
+	pr             git.PRInfoResult
+	ciStatus       git.CIStatusResult
+	reviews        []git.PRReview
+	reviewRequests []git.PRReviewRequest
+	commentCount   int
+	mode           Mode
+	confirming     bool
+	uncommitCount  int
+	commitCount    int
+	behindCount    int // commits behind base branch
+	showHelp       bool
+	hoverX         int // mouse hover position for highlighting
+	hoverY         int
 }
 
 // modeLabel tracks the position and mode of a clickable mode label.
@@ -229,8 +230,8 @@ func renderLine3(width int, data statusBarData) string {
 		parts = append(parts, "[DRAFT]")
 	}
 
-	// Reviews
-	reviewStr := renderReviews(data.reviews, data.pr.ReviewDecision)
+	// Reviews and review requests
+	reviewStr := renderReviews(data.reviews, data.reviewRequests, data.pr.ReviewDecision)
 	if reviewStr != "" {
 		parts = append(parts, reviewStr)
 	}
@@ -300,8 +301,8 @@ func renderCIStatus(ci git.CIStatusResult) string {
 	return ""
 }
 
-func renderReviews(reviews []git.PRReview, decision string) string {
-	if len(reviews) == 0 && decision == "" {
+func renderReviews(reviews []git.PRReview, requests []git.PRReviewRequest, decision string) string {
+	if len(reviews) == 0 && len(requests) == 0 && decision == "" {
 		return ""
 	}
 
@@ -323,6 +324,9 @@ func renderReviews(reviews []git.PRReview, decision string) string {
 	}
 	if rejected > 0 {
 		parts = append(parts, fmt.Sprintf("%d✗", rejected))
+	}
+	if len(requests) > 0 {
+		parts = append(parts, fmt.Sprintf("%d👀", len(requests)))
 	}
 	if pending > 0 {
 		parts = append(parts, fmt.Sprintf("%d pending", pending))
