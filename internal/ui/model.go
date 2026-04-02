@@ -436,8 +436,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Update sidebar hover index
 		sidebarW := m.sidebarPixelWidth()
-		if !m.sidebarHidden && msg.X < sidebarW && msg.Y >= 2 {
-			contentY := msg.Y - 2
+		sbLines := m.statusBarLines()
+		if !m.sidebarHidden && msg.X < sidebarW && msg.Y >= sbLines {
+			contentY := msg.Y - sbLines
 			itemIdx := contentY - 1 + m.sidebar.offset
 			m.sidebar.SetHoverIndex(itemIdx)
 		} else {
