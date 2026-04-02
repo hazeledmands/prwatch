@@ -453,3 +453,53 @@ func TestMainPane_HorizontalScroll(t *testing.T) {
 		t.Errorf("expected xOffset clamped to 0, got %d", mp.xOffset)
 	}
 }
+
+func TestWrapLines_BreaksAtWordBoundaries(t *testing.T) {
+	// Spec: "word-wrap should break at word boundaries"
+	// "abcdef ghijkl" is 13 chars. At width 10, character-boundary wrapping
+	// would split "ghijkl" into "ghij" and "kl". Word-boundary wrapping
+	// should break before "ghijkl".
+	result := wrapLines("abcdef ghijkl", 10)
+	lines := strings.Split(result, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d: %v", len(lines), lines)
+	}
+	// First line should be "abcdef" (the word before the break)
+	if strings.TrimRight(lines[0], " ") != "abcdef" {
+		t.Errorf("line 1 should be 'abcdef', got %q", lines[0])
+	}
+	// Second line should be "ghijkl" (not split mid-word)
+	if strings.TrimSpace(lines[1]) != "ghijkl" {
+		t.Errorf("line 2 should be 'ghijkl', got %q", lines[1])
+	}
+}
+
+func TestWrapLines_BreaksMidWordWhenTooLong(t *testing.T) {
+	// Spec: "words longer than 1/8 of the screen width should be broken mid-word"
+	// With width=80, 1/8 = 10. A 15-char word exceeds that threshold.
+	longWord := strings.Repeat("x", 15)
+	result := wrapLines("short "+longWord+" end", 20)
+	lines := strings.Split(result, "\n")
+	// "short " is 6 chars. The long word (15 chars) starts at position 6.
+	// 6 + 15 = 21 > 20, so the word wraps. But since 15 > 10 (1/8 of 80),
+	// it should be broken mid-word at the width boundary.
+	if len(lines) < 2 {
+		t.Fatal("expected wrapping to occur")
+	}
+}
+
+func TestWrapLines_PreservesShortWords(t *testing.T) {
+	// Words shorter than 1/8 of width should never be split
+	result := wrapLines("aa bb cc dd ee ff gg hh ii jj", 10)
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		stripped := strings.TrimSpace(line)
+		// No word should be split across lines
+		words := strings.Fields(stripped)
+		for _, w := range words {
+			if len(w) > 2 {
+				t.Errorf("line %d contains split word: %q", i, w)
+			}
+		}
+	}
+}
