@@ -1,6 +1,6 @@
 ## New Bugs
 
-- the old implementation / spec contained [brackets] around the mode tabs, which caused the text to jump around when clicked
+(none)
 
 ## Fixed Bugs
 
@@ -19,3 +19,4 @@
 - "Uncommitted changes" in commit mode was slow — fixed by using single `git diff HEAD` instead of per-file diffs.
 - CI checks not showing up properly — fixed by adding `ciChecks` and `prComments` fields to `prRefreshMsg`, fetching them in `loadPRStatus()`, and updating model + UI in the refresh handler.
 - CI checks not showing at all — root cause was `gh pr checks --json` using wrong field names (`conclusion`/`detailsUrl` don't exist). Fixed by using correct fields: `bucket` (pass/fail/pending/skipping/cancel) and `link`.
+- Mode tab brackets caused text jumping when switching modes — fixed by removing brackets, using bold/white styling for active mode instead.

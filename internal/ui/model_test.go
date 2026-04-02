@@ -4602,8 +4602,8 @@ func TestStatusBar_PRMode(t *testing.T) {
 		mode: PRViewMode,
 	}
 	bar, _ := renderStatusBar(80, data)
-	if !strings.Contains(bar, "[pr]") {
-		t.Error("PR mode should show [pr] highlighted in mode bar")
+	if !strings.Contains(bar, "pr") {
+		t.Error("PR mode should show pr in mode bar")
 	}
 }
 

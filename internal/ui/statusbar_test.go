@@ -24,7 +24,7 @@ func TestRenderStatusBar_Basic(t *testing.T) {
 	if !strings.Contains(bar, "prwatch") {
 		t.Error("status bar should contain dir/repo name")
 	}
-	if !strings.Contains(bar, "[diff]") {
+	if !strings.Contains(bar, "diff") {
 		t.Error("status bar should show diff mode indicator")
 	}
 }
@@ -35,7 +35,7 @@ func TestRenderStatusBar_FileViewMode(t *testing.T) {
 		mode: FileViewMode,
 	}
 	bar, _ := renderStatusBar(80, data)
-	if !strings.Contains(bar, "[file]") {
+	if !strings.Contains(bar, "file") {
 		t.Error("status bar should show file mode indicator")
 	}
 }
@@ -46,7 +46,7 @@ func TestRenderStatusBar_CommitMode(t *testing.T) {
 		mode: CommitMode,
 	}
 	bar, _ := renderStatusBar(80, data)
-	if !strings.Contains(bar, "[commits]") {
+	if !strings.Contains(bar, "commits") {
 		t.Error("status bar should show commit mode indicator")
 	}
 }

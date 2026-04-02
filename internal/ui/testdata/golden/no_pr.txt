@@ -1,4 +1,4 @@
-  [file] diff commits help · myapp                                                                  
+  file diff commits help · myapp                                                                    
   feature/add-auth → main · 1 uncommitted · 2 commits · No PR                                       
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
 │  README.md                   ││1   # My App                                                      │

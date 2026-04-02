@@ -98,15 +98,8 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 			continue
 		}
 
-		var displayText string
-		var displayWidth int
-		if m.mode == data.mode {
-			displayText = "[" + m.name + "]"
-			displayWidth = len(displayText)
-		} else {
-			displayText = m.name
-			displayWidth = len(displayText)
-		}
+		displayText := m.name
+		displayWidth := len(displayText)
 
 		label := modeLabel{mode: m.mode, start: pos, end: pos + displayWidth}
 		labels = append(labels, label)
