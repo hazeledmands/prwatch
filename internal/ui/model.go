@@ -1209,7 +1209,7 @@ func (m *Model) isUncommittedFile(file string) bool {
 func (m *Model) jumpToFirstDiff() {
 	diffLines := m.mainPane.DiffLineNumbers()
 	if len(diffLines) > 0 {
-		m.mainPane.ScrollToLine(diffLines[0] - 1)
+		m.mainPane.ScrollToSourceLine(diffLines[0])
 	}
 }
 
@@ -1226,22 +1226,22 @@ func (m *Model) jumpToNextDiff(direction int) {
 		// Find next diff line after current
 		for _, l := range diffLines {
 			if l > currentLine {
-				m.mainPane.ScrollToLine(l - 1) // 0-indexed
+				m.mainPane.ScrollToSourceLine(l)
 				return
 			}
 		}
 		// Wrap around to first
-		m.mainPane.ScrollToLine(diffLines[0] - 1)
+		m.mainPane.ScrollToSourceLine(diffLines[0])
 	} else {
 		// Find previous diff line before current
 		for i := len(diffLines) - 1; i >= 0; i-- {
 			if diffLines[i] < currentLine {
-				m.mainPane.ScrollToLine(diffLines[i] - 1)
+				m.mainPane.ScrollToSourceLine(diffLines[i])
 				return
 			}
 		}
 		// Wrap around to last
-		m.mainPane.ScrollToLine(diffLines[len(diffLines)-1] - 1)
+		m.mainPane.ScrollToSourceLine(diffLines[len(diffLines)-1])
 	}
 }
 
@@ -1911,8 +1911,8 @@ func (m *Model) helpContentLines() []string {
 		"  [i]          Toggle gitignored files (file view)",
 		"  [t]          Toggle tree mode (file modes, default: on)",
 		"  [D]          Toggle removed lines in diff gutter (file view)",
-		"  [J]          Jump to next diff hunk (file view)",
-		"  [K]          Jump to previous diff hunk (file view)",
+		"  [J] [S-down] Jump to next diff hunk (file view)",
+		"  [K] [S-up]   Jump to previous diff hunk (file view)",
 		"",
 		"  [enter]      Open file in $EDITOR / switch to main pane",
 		"  [/]          Search (type to match, enter to confirm)",

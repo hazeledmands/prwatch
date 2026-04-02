@@ -27,17 +27,20 @@ type diffAnnotation struct {
 }
 
 type mainPane struct {
-	viewport        viewport.Model
-	content         string
-	isDiff          bool // whether content was set via SetContent (diff coloring)
-	searchQuery     string
-	width           int
-	height          int
-	wordWrap        bool                   // whether to wrap long lines
-	lineNumbers     bool                   // whether to show line numbers (plain content only)
-	diffAnnotations map[int]diffAnnotation // line number -> annotation (for file-view gutter)
-	showRemoved     bool                   // Shift+D: show removed lines inline
-	xOffset         int                    // horizontal scroll offset (when word wrap is off)
+	viewport           viewport.Model
+	content            string
+	isDiff             bool // whether content was set via SetContent (diff coloring)
+	searchQuery        string
+	width              int
+	height             int
+	wordWrap           bool                   // whether to wrap long lines
+	lineNumbers        bool                   // whether to show line numbers (plain content only)
+	diffAnnotations    map[int]diffAnnotation // line number -> annotation (for file-view gutter)
+	showRemoved        bool                   // Shift+D: show removed lines inline
+	xOffset            int                    // horizontal scroll offset (when word wrap is off)
+	formattedContent   string                 // content after formatting but before wrapping
+	gutterWidth        int                    // gutter width from last formatting
+	sourceToFormatLine map[int]int            // source line number (1-indexed) → formatted line index (0-indexed)
 }
 
 func newMainPane() *mainPane {
@@ -221,6 +224,11 @@ func (m *mainPane) refreshViewport() {
 	} else {
 		content, gutterWidth = m.applyFileViewFormatting(content)
 	}
+
+	// Store the pre-wrap formatted content for line mapping
+	m.formattedContent = content
+	m.gutterWidth = gutterWidth
+
 	if m.searchQuery != "" {
 		content = highlightSearch(content, m.searchQuery)
 	}
@@ -327,10 +335,13 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 		gutterWidth = numWidth + 3 // "  N + " or "  N   "
 	}
 
+	m.sourceToFormatLine = make(map[int]int)
 	var result []string
 	for i, line := range lines {
 		lineNo := i + 1
 		var prefix string
+		// Track which formatted line index this source line starts at
+		m.sourceToFormatLine[lineNo] = len(result)
 
 		if m.lineNumbers {
 			prefix = fmt.Sprintf("%*d", numWidth, lineNo)
@@ -464,6 +475,36 @@ func (m *mainPane) FindMatches(query string) []int {
 // ScrollToLine scrolls the viewport to show the given line.
 func (m *mainPane) ScrollToLine(line int) {
 	m.viewport.SetYOffset(line)
+}
+
+// ScrollToSourceLine scrolls the viewport to show the given source file line number.
+// Unlike ScrollToLine, this accounts for formatting (gutter, removed lines) and
+// word wrapping that may change the viewport line count.
+func (m *mainPane) ScrollToSourceLine(sourceLine int) {
+	// Use the source-to-formatted-line mapping if available
+	if m.sourceToFormatLine != nil {
+		if formattedIdx, ok := m.sourceToFormatLine[sourceLine]; ok {
+			if !m.wordWrap || m.width <= 0 {
+				m.viewport.SetYOffset(formattedIdx)
+				return
+			}
+			// Account for wrapping: count viewport lines for formatted lines 0..formattedIdx-1
+			formattedLines := strings.Split(m.formattedContent, "\n")
+			viewportLine := 0
+			for i := 0; i < formattedIdx && i < len(formattedLines); i++ {
+				lineW := ansiAwareIterate(formattedLines[i], func(r rune, w int) {})
+				if lineW > m.width {
+					viewportLine += (lineW + m.width - 1) / m.width
+				} else {
+					viewportLine++
+				}
+			}
+			m.viewport.SetYOffset(viewportLine)
+			return
+		}
+	}
+	// Fallback: direct line mapping
+	m.viewport.SetYOffset(sourceLine - 1)
 }
 
 // highlightSearch applies a contrasting background to matching text in each line.

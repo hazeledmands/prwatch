@@ -4030,6 +4030,51 @@ func TestJumpToNextDiff_Wrap(t *testing.T) {
 	m = result.(*Model)
 }
 
+func TestJumpToDiff_WithWrapping(t *testing.T) {
+	// Regression: when wrapping is on, jumping to diffs should still work correctly
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		allFiles:   []string{"file.go"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		// Create content with long lines that will wrap
+		fileContent: "short\n" + strings.Repeat("a very long line that will definitely wrap at normal terminal widths because it is so long ", 3) + "\nchanged line\nshort\nshort",
+		fileDiff: `@@ -1,5 +1,5 @@
+ short
+ ` + strings.Repeat("a very long line that will definitely wrap at normal terminal widths because it is so long ", 3) + `
+-old
++changed line
+ short
+ short
+`,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 60  // narrow to trigger wrapping
+	m.height = 10 // short so we need to scroll
+	m.wordWrap = true
+	m.mainPane.SetWordWrap(true)
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	// Jump to next diff
+	result, _ = m.Update(tea.KeyPressMsg{Text: "J", Code: 'J'})
+	m = result.(*Model)
+
+	// The viewport should have scrolled past the wrapped long line
+	scrollTop := m.mainPane.ScrollTop()
+	if scrollTop < 2 {
+		t.Errorf("diff jump with wrapping should scroll past wrapped lines, scrollTop=%d", scrollTop)
+	}
+}
+
 func TestCommitMode_BaseCommitsCategory4(t *testing.T) {
 	// Spec: commit mode category 4 shows "commits after the stuff that's already in the base branch"
 	mg := &mockGit{
