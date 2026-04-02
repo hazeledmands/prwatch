@@ -42,10 +42,13 @@ line 2: local git status (not shown if this is not a git repo)
 line 3: github status (not shown if there is no PR)
   - if the github API is returning errors, then put the error message here! otherwise:
   - name of the current PR
-    this should be a TUI-compatible link to the PR
+    - clicking this should jump to the pr mode PR description
   - [DRAFT] if in draft mode, [MERGED] if merged
+    - clicking this should jump to the pr mode PR description
   - review requests and approvals/rejections (as emoji)
+    - clicking this should jump straight to the reviews list (if any)
   - number of comments
+    - clicking this should jump straight to the comments list
   - CI status as an emoji plus a simple textual indicator (CI failing)
     - clicking this should jump straight to CI results (the first failure, if any)
 
