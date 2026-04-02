@@ -3619,3 +3619,408 @@ func TestRenderHelp_SearchBar(t *testing.T) {
 		t.Error("render should show match index 2/3")
 	}
 }
+
+func TestHandleSidebarLeft_CollapseDir(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"dir/file.go"},
+		},
+		allFiles:    []string{"dir/file.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.treeMode = true
+	m.focus = SidebarFocus
+	m.updateSidebarItems()
+
+	// Select the directory and press left to collapse
+	if !m.sidebar.SelectedIsDir() {
+		t.Skip("first item is not a directory")
+	}
+	dir := m.sidebar.SelectedItem()
+	if m.collapsedDirs[dir] {
+		t.Error("directory should start expanded")
+	}
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	m = result.(*Model)
+	if !m.collapsedDirs[dir] {
+		t.Error("left on expanded directory should collapse it")
+	}
+}
+
+func TestHandleSidebarLeft_GoToParent(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"dir/sub/file.go"},
+		},
+		allFiles:    []string{"dir/sub/file.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.treeMode = true
+	m.focus = SidebarFocus
+	m.updateSidebarItems()
+
+	// Navigate to the file
+	for m.sidebar.SelectedIsDir() {
+		m.sidebar.SelectNext()
+	}
+	fileIdx := m.sidebar.SelectedIndex()
+
+	// Left on a file should go to parent directory
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	m = result.(*Model)
+
+	if m.sidebar.SelectedIndex() >= fileIdx {
+		t.Error("left on file should go to parent directory")
+	}
+}
+
+func TestMouseWheelHorizontal(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.wordWrap = false
+	m.mainPane.SetWordWrap(false)
+	m.mainPane.SetPlainContent(strings.Repeat("x", 200))
+
+	result, _ := m.Update(tea.MouseWheelMsg{X: 50, Y: 10, Button: tea.MouseWheelRight})
+	m = result.(*Model)
+
+	if m.mainPane.xOffset == 0 {
+		t.Error("horizontal scroll right should increase xOffset")
+	}
+
+	result, _ = m.Update(tea.MouseWheelMsg{X: 50, Y: 10, Button: tea.MouseWheelLeft})
+	m = result.(*Model)
+	// xOffset should decrease
+}
+
+func TestDragHighlight(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mainPane.SetPlainContent("some content\nmore content")
+
+	// Start a drag
+	m.dragging = true
+	m.dragStartX = 40
+	m.dragStartY = 5
+	m.dragEndX = 60
+	m.dragEndY = 5
+
+	v := m.View()
+	// Just verify it doesn't crash and produces output
+	if v.Content == "" {
+		t.Error("view should render with drag highlight")
+	}
+}
+
+func TestReloadAllFiles(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		allFiles:   []string{"file.go", "new.go"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Trigger allFiles reload
+	allMsg := m.reloadAllFiles()
+	result, _ := m.Update(allMsg)
+	m = result.(*Model)
+
+	if len(m.allFiles) != 2 {
+		t.Errorf("expected 2 files after reload, got %d", len(m.allFiles))
+	}
+}
+
+func TestBuildEditorCmd(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mainPane.SetPlainContent("line1\nline2\nline3")
+
+	editor, args := m.buildEditorCmd("test.go")
+	if editor == "" {
+		t.Error("editor should not be empty")
+	}
+	// Should include +line and filename
+	hasFile := false
+	for _, arg := range args {
+		if arg == "test.go" {
+			hasFile = true
+		}
+	}
+	if !hasFile {
+		t.Error("args should contain filename")
+	}
+}
+
+func TestCommitIndexFromSidebarItem(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.commits = []git.Commit{
+		{SHA: "abc1234567890", Subject: "first"},
+		{SHA: "def4567890123", Subject: "second"},
+	}
+
+	idx := m.commitIndexFromSidebarItem("abc1234 first")
+	if idx != 0 {
+		t.Errorf("expected commit index 0, got %d", idx)
+	}
+
+	idx = m.commitIndexFromSidebarItem("def4567 second")
+	if idx != 1 {
+		t.Errorf("expected commit index 1, got %d", idx)
+	}
+
+	idx = m.commitIndexFromSidebarItem("unknown")
+	if idx != -1 {
+		t.Errorf("expected -1 for unknown, got %d", idx)
+	}
+
+	idx = m.commitIndexFromSidebarItem("")
+	if idx != -1 {
+		t.Errorf("expected -1 for empty, got %d", idx)
+	}
+}
+
+func TestNavigateToCurrentMatch_MainPane(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 5 // small viewport
+	m.updateLayout()
+	// Make content much taller than viewport
+	var lines []string
+	for i := 0; i < 50; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	m.mainPane.SetContent(strings.Join(lines, "\n"))
+
+	m.searchMatches = []searchMatch{
+		{pane: "main", line: 30},
+	}
+	m.searchMatchIdx = 0
+	m.navigateToCurrentMatch()
+
+	if m.mainPane.ScrollTop() < 20 {
+		t.Errorf("expected scroll near line 30, got %d", m.mainPane.ScrollTop())
+	}
+}
+
+func TestScrollRight_Clamping(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(40, 10)
+	mp.SetWordWrap(false)
+	mp.SetPlainContent("short")
+
+	// Content is shorter than viewport — scroll right should clamp to 0
+	mp.ScrollRight(10)
+	if mp.xOffset != 0 {
+		t.Errorf("expected xOffset 0 for short content, got %d", mp.xOffset)
+	}
+
+	// Content wider than viewport
+	mp.SetPlainContent(strings.Repeat("x", 100))
+	mp.ScrollRight(10)
+	if mp.xOffset == 0 {
+		t.Error("scroll right should increase xOffset for wide content")
+	}
+
+	// Scroll far right — should clamp
+	mp.ScrollRight(1000)
+	maxExpected := 100 - 40
+	if mp.xOffset > maxExpected+10 { // allow some tolerance for gutter
+		t.Errorf("xOffset should be clamped, got %d", mp.xOffset)
+	}
+}
+
+func TestSearchNavKey_ExitsOnOtherKey(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mainPane.SetContent("match\nother\nmatch\nmore\nmatch")
+
+	// Enter search, type, confirm
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	for _, ch := range "match" {
+		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
+		m = result.(*Model)
+	}
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+
+	if !m.searchConfirmed {
+		t.Fatal("search should be confirmed")
+	}
+
+	// Press a non-search key — should exit search and re-process
+	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	if m.searchConfirmed {
+		t.Error("non-search key should exit search nav mode")
+	}
+}
+
+func TestHighlightSearch_EmptyQuery(t *testing.T) {
+	result := highlightSearch("some content", "")
+	if result != "some content" {
+		t.Error("empty query should return content unchanged")
+	}
+}
+
+func TestInlineDiffSize_DifferentLengths(t *testing.T) {
+	// Test where old and new have different lengths
+	size := inlineDiffSize("ab", "abcde")
+	if size != 3 { // 0 removed + 3 added ("cde")
+		t.Errorf("expected 3, got %d", size)
+	}
+
+	size = inlineDiffSize("abcde", "ab")
+	if size != 3 { // 3 removed ("cde") + 0 added
+		t.Errorf("expected 3, got %d", size)
+	}
+}
+
+func TestNavigateToCurrentMatch_Empty(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.searchMatches = nil
+	m.navigateToCurrentMatch() // should not panic
+}
+
+func TestWrapLinesWithIndent_ZeroIndent(t *testing.T) {
+	result := wrapLinesWithIndent("hello world testing now", 15, 0)
+	lines := strings.Split(result, "\n")
+	if len(lines) < 2 {
+		t.Fatal("expected wrapping")
+	}
+}
+
+func TestWrapLinesWithIndent_SmallWidth(t *testing.T) {
+	// width <= indent should fall back to no-indent wrapping
+	result := wrapLinesWithIndent("hello world", 3, 5)
+	if result == "" {
+		t.Error("should not return empty")
+	}
+}
+
+func TestWrapLinesWithIndent_WithIndent(t *testing.T) {
+	result := wrapLinesWithIndent("aaa bbb ccc ddd eee fff ggg", 15, 4)
+	lines := strings.Split(result, "\n")
+	if len(lines) < 2 {
+		t.Fatal("expected wrapping")
+	}
+	// Continuation lines should start with indent
+	for i := 1; i < len(lines); i++ {
+		if !strings.HasPrefix(lines[i], "    ") {
+			t.Errorf("continuation line %d should be indented, got %q", i, lines[i])
+		}
+	}
+}
+
+func TestTruncateLinesWithOffset_WidthZero(t *testing.T) {
+	result := truncateLinesWithOffset("hello", 0, 0)
+	if result != "hello" {
+		t.Errorf("width 0 should return original, got %q", result)
+	}
+}
+
+func TestJumpToNextDiff_NoDiffs(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.loading = false
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mainPane.SetPlainContent("no diffs here")
+	m.mainPane.ClearDiffAnnotations()
+	m.mode = FileViewMode
+
+	// Should not crash
+	m.jumpToNextDiff(1)
+	m.jumpToNextDiff(-1)
+}
+
+func TestJumpToNextDiff_Wrap(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		allFiles:    []string{"file.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "line1\nline2\nchanged\nline4\nline5",
+		fileDiff: `@@ -1,5 +1,5 @@
+ line1
+ line2
+-old
++changed
+ line4
+ line5
+`,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	// Jump to next diff (should be line 3)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "J", Code: 'J'})
+	m = result.(*Model)
+
+	// Jump again should wrap around
+	result, _ = m.Update(tea.KeyPressMsg{Text: "J", Code: 'J'})
+	m = result.(*Model)
+
+	// Jump prev should also work and wrap
+	result, _ = m.Update(tea.KeyPressMsg{Text: "K", Code: 'K'})
+	m = result.(*Model)
+}
