@@ -3398,6 +3398,48 @@ func TestDeletedFilesShownInRed(t *testing.T) {
 	}
 }
 
+func TestDeletedFile_GutterShowsRemoved(t *testing.T) {
+	// Spec: "if the file being viewed was COMPLETELY removed, then the gutter should indicate that"
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"deleted.go"},
+			Deleted:   []string{"deleted.go"},
+		},
+		allFiles:    []string{},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "old line 1\nold line 2",
+		fileDiff: `@@ -1,2 +0,0 @@
+-old line 1
+-old line 2
+`,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Ensure in file-view mode with deleted.go selected
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	// The diff annotations should mark lines as removed
+	if m.mainPane.diffAnnotations == nil {
+		t.Fatal("expected diff annotations for deleted file")
+	}
+	ann, ok := m.mainPane.diffAnnotations[1]
+	if !ok {
+		t.Fatal("expected annotation for line 1")
+	}
+	if ann.kind != diffLineRemoved {
+		t.Errorf("line 1 of deleted file should be marked as removed, got %v", ann.kind)
+	}
+}
+
 func TestJumpToNextDiff(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},

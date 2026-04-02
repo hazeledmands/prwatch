@@ -518,6 +518,65 @@ func TestChangedLine_InlineWhenSmall(t *testing.T) {
 	}
 }
 
+func TestFileViewGutter_CompletelyNewFile(t *testing.T) {
+	// A completely new file should have + on every line
+	mp := newMainPane()
+	mp.SetSize(80, 20)
+	mp.lineNumbers = true
+	mp.showRemoved = true
+
+	// All lines are added
+	mp.diffAnnotations = map[int]diffAnnotation{
+		1: {kind: diffLineAdded},
+		2: {kind: diffLineAdded},
+		3: {kind: diffLineAdded},
+	}
+	mp.SetPlainContent("new1\nnew2\nnew3")
+
+	rendered := mp.viewport.View()
+	lines := strings.Split(rendered, "\n")
+
+	addCount := 0
+	for _, line := range lines {
+		stripped := stripANSIForWidth(line)
+		if strings.Contains(stripped, " + ") {
+			addCount++
+		}
+	}
+	if addCount != 3 {
+		t.Errorf("completely new file should have + on all 3 lines, got %d", addCount)
+	}
+}
+
+func TestFileViewGutter_CompletelyRemovedFile(t *testing.T) {
+	// A completely removed file should have - on every line
+	mp := newMainPane()
+	mp.SetSize(80, 20)
+	mp.lineNumbers = true
+	mp.showRemoved = true
+
+	// All lines are removed (file-level deletion)
+	mp.diffAnnotations = map[int]diffAnnotation{
+		1: {kind: diffLineRemoved},
+		2: {kind: diffLineRemoved},
+	}
+	mp.SetPlainContent("old1\nold2")
+
+	rendered := mp.viewport.View()
+	lines := strings.Split(rendered, "\n")
+
+	removeCount := 0
+	for _, line := range lines {
+		stripped := stripANSIForWidth(line)
+		if strings.Contains(stripped, " - ") {
+			removeCount++
+		}
+	}
+	if removeCount != 2 {
+		t.Errorf("completely removed file should have - on all 2 lines, got %d", removeCount)
+	}
+}
+
 func TestChangedLine_SplitWhenLarge(t *testing.T) {
 	// When change is large (>= 1/4 pane width), split into two lines
 	mp := newMainPane()

@@ -1498,7 +1498,16 @@ func (m *Model) updateMainContent() {
 			diff, _ = m.git.FileDiffCommitted(m.base, file)
 		}
 		if diff != "" {
-			m.mainPane.SetDiffAnnotations(parseDiffAnnotations(diff))
+			annotations := parseDiffAnnotations(diff)
+			// For completely deleted files, mark all lines as removed
+			if m.isDeletedFile(file) {
+				contentLines := strings.Split(content, "\n")
+				annotations = make(map[int]diffAnnotation, len(contentLines))
+				for i := range contentLines {
+					annotations[i+1] = diffAnnotation{kind: diffLineRemoved}
+				}
+			}
+			m.mainPane.SetDiffAnnotations(annotations)
 		} else {
 			m.mainPane.ClearDiffAnnotations()
 		}

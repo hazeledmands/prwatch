@@ -378,6 +378,14 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 					result = append(result, diffAddStyle.Render(gutter+line))
 				}
 			}
+		} else if hasAnn && ann.kind == diffLineRemoved {
+			// Completely deleted file — mark every line with "-"
+			gutter := " - "
+			if m.lineNumbers {
+				result = append(result, diffRemoveStyle.Render(prefix+gutter+line))
+			} else {
+				result = append(result, diffRemoveStyle.Render(gutter+line))
+			}
 		} else if hasAnn && (ann.kind == diffLineAdded || ann.kind == diffLineChanged) {
 			var gutter string
 			var style lipgloss.Style
