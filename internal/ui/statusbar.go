@@ -47,6 +47,8 @@ func renderLine1(width int, data statusBarData) string {
 		modeStr = modeFileStyle.Render("[diff]")
 	case CommitMode:
 		modeStr = modeCommitStyle.Render("[commits]")
+	case PRViewMode:
+		modeStr = modeCommitStyle.Render("[pr]")
 	}
 
 	dirName := data.info.DirName

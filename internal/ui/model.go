@@ -37,6 +37,7 @@ const (
 	FileViewMode Mode = iota
 	FileDiffMode
 	CommitMode
+	PRViewMode
 )
 
 type Focus int
@@ -64,6 +65,8 @@ type GitDataSource interface {
 	CommitPatch(sha string) (string, error)
 	AllFiles(includeIgnored bool) ([]string, error)
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
+	PRComments() ([]gitpkg.PRComment, error)
+	CIChecks() ([]gitpkg.CICheck, error)
 }
 
 type Model struct {
@@ -84,8 +87,10 @@ type Model struct {
 	allFiles            []string        // all files in the repo (for file-view mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
 	commits             []gitpkg.Commit
-	baseCommits         []gitpkg.Commit // commits from the base branch (for commit mode category 4)
-	lastViewedFile      string          // track the last file shown in file-view for auto-jump
+	baseCommits         []gitpkg.Commit    // commits from the base branch (for commit mode category 4)
+	prComments          []gitpkg.PRComment // PR comments for PR-view mode
+	ciChecks            []gitpkg.CICheck   // CI checks for PR-view mode
+	lastViewedFile      string             // track the last file shown in file-view for auto-jump
 	sidebar             *sidebar
 	mainPane            *mainPane
 	sidebarPct          int // sidebar width as percentage of total width (10-50)
@@ -136,6 +141,8 @@ type gitDataMsg struct {
 	ignoredFiles     map[string]bool
 	commits          []gitpkg.Commit
 	baseCommits      []gitpkg.Commit
+	prComments       []gitpkg.PRComment
+	ciChecks         []gitpkg.CICheck
 	err              error
 }
 
@@ -256,10 +263,14 @@ func (m *Model) loadGitData() tea.Msg {
 	var ciStatus gitpkg.CIStatusResult
 	var reviews []gitpkg.PRReview
 	var commentCount int
+	var prComments []gitpkg.PRComment
+	var ciChecks []gitpkg.CICheck
 	if prInfo.Number > 0 {
 		ciStatus, _ = m.git.PRChecks()
 		reviews, _ = m.git.PRReviews()
 		commentCount, _ = m.git.PRCommentCount()
+		prComments, _ = m.git.PRComments()
+		ciChecks, _ = m.git.CIChecks()
 	}
 
 	base, err := m.git.DetectBase()
@@ -322,6 +333,8 @@ func (m *Model) loadGitData() tea.Msg {
 		ignoredFiles:     ignoredSet,
 		commits:          commits,
 		baseCommits:      baseCommits,
+		prComments:       prComments,
+		ciChecks:         ciChecks,
 	}
 }
 
@@ -352,6 +365,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ignoredFiles = msg.ignoredFiles
 		m.commits = msg.commits
 		m.baseCommits = msg.baseCommits
+		m.prComments = msg.prComments
+		m.ciChecks = msg.ciChecks
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
@@ -523,6 +538,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case FileDiffMode:
 			m.mode = CommitMode
 		case CommitMode:
+			if m.prInfo.Number > 0 {
+				m.mode = PRViewMode
+			} else {
+				m.mode = FileViewMode
+			}
+		case PRViewMode:
 			m.mode = FileViewMode
 		}
 		m.updateSidebarItems()
@@ -549,6 +570,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.mode = CommitMode
+		m.updateSidebarItems()
+		m.updateMainContent()
+		return m, nil
+
+	case key.Matches(msg, keys.PRMode):
+		if m.git == nil || m.prInfo.Number == 0 {
+			return m, nil
+		}
+		m.mode = PRViewMode
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
@@ -959,6 +989,12 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 		case FileDiffMode:
 			m.mode = CommitMode
 		case CommitMode:
+			if m.prInfo.Number > 0 {
+				m.mode = PRViewMode
+			} else {
+				m.mode = FileViewMode
+			}
+		case PRViewMode:
 			m.mode = FileViewMode
 		}
 		m.updateSidebarItems()
@@ -1470,6 +1506,45 @@ func (m *Model) updateSidebarItems() {
 		}
 
 		m.sidebar.SetItems(items)
+
+	case PRViewMode:
+		var items []sidebarItem
+		// PR description
+		items = append(items, sidebarItem{label: "Description", kind: itemNormal})
+		items = append(items, sidebarItem{kind: itemSeparator})
+
+		// Comments
+		for i, c := range m.prComments {
+			label := fmt.Sprintf("@%s (#%d)", c.Author, i+1)
+			items = append(items, sidebarItem{label: label, kind: itemNormal})
+		}
+		if len(m.prComments) == 0 {
+			items = append(items, sidebarItem{label: "(no comments)", kind: itemDim})
+		}
+		items = append(items, sidebarItem{kind: itemSeparator})
+
+		// CI checks
+		for _, check := range m.ciChecks {
+			var prefix string
+			switch check.Conclusion {
+			case "success":
+				prefix = "✅"
+			case "failure", "action_required":
+				prefix = "❌"
+			default:
+				if check.State == "PENDING" || check.State == "QUEUED" || check.State == "IN_PROGRESS" {
+					prefix = "⏳"
+				} else {
+					prefix = "  "
+				}
+			}
+			items = append(items, sidebarItem{label: prefix + " " + check.Name, kind: itemNormal})
+		}
+		if len(m.ciChecks) == 0 {
+			items = append(items, sidebarItem{label: "(no CI checks)", kind: itemDim})
+		}
+
+		m.sidebar.SetItems(items)
 	}
 }
 
@@ -1598,6 +1673,39 @@ func (m *Model) updateMainContent() {
 			return
 		}
 		m.mainPane.SetContent(patch)
+
+	case PRViewMode:
+		selected := m.sidebar.SelectedItem()
+		if selected == "Description" {
+			m.mainPane.SetPlainContent(m.prInfo.Body)
+		} else if strings.HasPrefix(selected, "@") {
+			// Comment — find the matching comment
+			for i, c := range m.prComments {
+				expected := fmt.Sprintf("@%s (#%d)", c.Author, i+1)
+				if selected == expected {
+					m.mainPane.SetPlainContent(fmt.Sprintf("@%s:\n\n%s", c.Author, c.Body))
+					break
+				}
+			}
+		} else {
+			// CI check — find the matching check
+			for _, check := range m.ciChecks {
+				if strings.Contains(selected, check.Name) {
+					var status string
+					if check.Conclusion != "" {
+						status = check.Conclusion
+					} else {
+						status = check.State
+					}
+					content := fmt.Sprintf("Check: %s\nStatus: %s", check.Name, status)
+					if check.URL != "" {
+						content += fmt.Sprintf("\nURL: %s", check.URL)
+					}
+					m.mainPane.SetPlainContent(content)
+					break
+				}
+			}
+		}
 	}
 }
 
@@ -1927,10 +2035,11 @@ func (m *Model) helpContentLines() []string {
 	return []string{
 		"Keybindings:",
 		"",
-		"  [m]          Cycle mode (file -> diff -> commit)",
+		"  [m]          Cycle mode (file -> diff -> commit -> pr)",
 		"  [v] [1]      File view mode",
 		"  [d] [2]      File diff mode",
 		"  [c] [3]      Commit mode",
+		"  [b] [4]      PR view mode (when PR exists)",
 		"",
 		"  [h] [left]   Scroll left (when wrap off)",
 		"  [l] [right]  Scroll right (when wrap off)",

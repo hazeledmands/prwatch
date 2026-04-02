@@ -3,10 +3,11 @@
   PR #42: Add authentication                                                                        
 Keybindings:                                                                                        
                                                                                                     
-  [m]          Cycle mode (file -> diff -> commit)                                                  
+  [m]          Cycle mode (file -> diff -> commit -> pr)                                            
   [v] [1]      File view mode                                                                       
   [d] [2]      File diff mode                                                                       
   [c] [3]      Commit mode                                                                          
+  [b] [4]      PR view mode (when PR exists)                                                        
                                                                                                     
   [h] [left]   Scroll left (when wrap off)                                                          
   [l] [right]  Scroll right (when wrap off)                                                         
@@ -25,6 +26,5 @@ Keybindings:
   [f]          Toggle sidebar visibility                                                            
                                                                                                     
   [w]          Toggle word wrap                                                                     
-  [n]          Toggle line numbers (file view)                                                      
                                                                                                     
                                                                                                     

@@ -9,6 +9,7 @@ type keyMap struct {
 	FileDiffMode   key.Binding
 	FileViewMode   key.Binding
 	CommitMode     key.Binding
+	PRMode         key.Binding
 	FocusLeft      key.Binding
 	FocusRight     key.Binding
 	FocusSidebar   key.Binding
@@ -56,6 +57,9 @@ var keys = keyMap{
 	),
 	CommitMode: key.NewBinding(
 		key.WithKeys("c", "3"),
+	),
+	PRMode: key.NewBinding(
+		key.WithKeys("b", "4"),
 	),
 	FocusLeft: key.NewBinding(
 		key.WithKeys("h", "left"),

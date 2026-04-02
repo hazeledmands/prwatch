@@ -54,6 +54,10 @@ type mockGit struct {
 	allFilesErr     error
 	baseCommits     []git.Commit
 	baseCommitsErr  error
+	prComments      []git.PRComment
+	prCommentsErr   error
+	ciChecks        []git.CICheck
+	ciChecksErr     error
 }
 
 func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
@@ -80,6 +84,12 @@ func (m *mockGit) AllFiles(includeIgnored bool) ([]string, error) {
 }
 func (m *mockGit) BaseCommits(base string, limit int) ([]git.Commit, error) {
 	return m.baseCommits, m.baseCommitsErr
+}
+func (m *mockGit) PRComments() ([]git.PRComment, error) {
+	return m.prComments, m.prCommentsErr
+}
+func (m *mockGit) CIChecks() ([]git.CICheck, error) {
+	return m.ciChecks, m.ciChecksErr
 }
 
 func TestModeSwitching(t *testing.T) {
