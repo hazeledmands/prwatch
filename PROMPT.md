@@ -25,7 +25,7 @@ the UI should update when the size of its bounding box changes. e.g. if the term
 
 the "status bar" should be divided into three sections, one line per each:
 line 1: overall status
-  - name of current mode ([file], [diff], [commits], [help])
+  - name of current mode ([file], [diff], [commits], [pr], [help])
   - name of current directory
   - if in a worktree, the name of the main git tree
 line 2: local git status
@@ -125,6 +125,7 @@ detached HEAD works normally, status bar shows `detached @ <short sha>` instead 
 | [v] or [1] | jump to file-view mode |
 | [d] or [2] | jump to file-diff mode |
 | [c] or [3] | jump to commit mode |
+| [b] or [4] | jump to pr mode |
 
 ### focus & navigation
 | key | action |
@@ -228,7 +229,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 
 ## DEVELOPING
 - when starting, run git status; if there are any changes to the PROMPT.md commit those first
-- check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then remove the bug report.
+- check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then put the bug report plus a little one-liner about how it was fixed in a log at the bottom of the doc.
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress.
 - use test-driven development.
 - make small, iterative commits to keep your work trackable.
