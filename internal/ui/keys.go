@@ -109,7 +109,7 @@ var keys = keyMap{
 		key.WithKeys("n"),
 	),
 	SearchPrev: key.NewBinding(
-		key.WithKeys("p"),
+		key.WithKeys("p", "N"),
 	),
 	ToggleIgnored: key.NewBinding(
 		key.WithKeys("i"),

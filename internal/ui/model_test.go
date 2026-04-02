@@ -2469,17 +2469,17 @@ func TestSearch_NextPrevNavigation(t *testing.T) {
 	}
 }
 
-func TestSearch_FindsSidebarContent(t *testing.T) {
-	// Spec: "searching should match against the content in either pane"
+func TestSearch_DoesNotMatchSidebar(t *testing.T) {
+	// Spec: "searching should match against the content in the main pane only (not the sidebar)"
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"alpha.go", "beta.go", "gamma.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:   "no match here",
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "no match here",
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -2488,7 +2488,7 @@ func TestSearch_FindsSidebarContent(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Search for "beta" — should match in sidebar
+	// Search for "beta" — should NOT match in sidebar
 	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
 	m = result.(*Model)
 	for _, ch := range "beta" {
@@ -2496,13 +2496,83 @@ func TestSearch_FindsSidebarContent(t *testing.T) {
 		m = result.(*Model)
 	}
 
-	if len(m.searchMatches) == 0 {
-		t.Error("search should find 'beta' in sidebar file list")
+	if len(m.searchMatches) != 0 {
+		t.Errorf("search should not match sidebar content, got %d matches", len(m.searchMatches))
 	}
+}
 
-	// The match should have selected beta.go in the sidebar
-	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Errorf("searching for 'beta' should select beta.go, got %q", m.sidebar.SelectedItem())
+func TestSearch_BackspaceCancelsOnEmpty(t *testing.T) {
+	// Spec: "[backspace] if search text is empty, cancel search"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Enter search, type one char, backspace twice (second empties → cancel)
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "x", Code: 'x'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = result.(*Model)
+
+	if m.searching {
+		t.Error("backspace on empty query should cancel search")
+	}
+	if m.searchQuery != "" {
+		t.Error("search query should be cleared after cancel")
+	}
+}
+
+func TestSearch_EnterCancelsOnEmpty(t *testing.T) {
+	// Spec: "[enter] if search text is empty, cancel search"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Enter search, then press enter immediately with empty query
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+
+	if m.searching {
+		t.Error("enter on empty query should cancel search")
+	}
+	if m.searchConfirmed {
+		t.Error("should not confirm search with empty query")
+	}
+}
+
+func TestSearch_ShiftNPrevResult(t *testing.T) {
+	// Spec: "[p] or [shift]+[n]" for previous search result
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.mainPane.SetContent("match\nline2\nmatch\nline4\nmatch")
+
+	// Search and confirm
+	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	for _, ch := range "match" {
+		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
+		m = result.(*Model)
+	}
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+
+	// Advance forward first
+	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
+	m = result.(*Model)
+
+	// Use shift+N (capital N) to go back
+	result, _ = m.Update(tea.KeyPressMsg{Text: "N", Code: 'N'})
+	m = result.(*Model)
+
+	if m.searchMatchIdx != 0 {
+		t.Errorf("shift+N should go to previous match, got index %d, want 0", m.searchMatchIdx)
 	}
 }
 

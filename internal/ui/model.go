@@ -810,6 +810,10 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.clearSearch()
 		return m, nil
 	case msg.Code == tea.KeyEnter:
+		if m.searchQuery == "" {
+			m.clearSearch()
+			return m, nil
+		}
 		m.searching = false
 		if len(m.searchMatches) > 0 {
 			m.searchConfirmed = true
@@ -818,6 +822,10 @@ func (m *Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case msg.Code == tea.KeyBackspace:
 		if len(m.searchQuery) > 0 {
 			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+		}
+		if m.searchQuery == "" {
+			m.clearSearch()
+			return m, nil
 		}
 		m.updateSearchMatches()
 		return m, nil
@@ -858,17 +866,7 @@ func (m *Model) handleSearchNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) updateSearchMatches() {
 	var matches []searchMatch
 
-	// Search sidebar items
-	if m.searchQuery != "" {
-		q := strings.ToLower(m.searchQuery)
-		for i, item := range m.sidebar.items {
-			if item.kind != itemSeparator && strings.Contains(strings.ToLower(item.label), q) {
-				matches = append(matches, searchMatch{pane: "sidebar", line: i})
-			}
-		}
-	}
-
-	// Search main pane content
+	// Spec: "searching should match against the content in the main pane only (not the sidebar)"
 	for _, line := range m.mainPane.FindMatches(m.searchQuery) {
 		matches = append(matches, searchMatch{pane: "main", line: line})
 	}
