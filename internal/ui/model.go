@@ -347,6 +347,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case gitDataMsg:
+		wasLoading := m.loading
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
@@ -367,6 +368,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.baseCommits = msg.baseCommits
 		m.prComments = msg.prComments
 		m.ciChecks = msg.ciChecks
+		// On first load, default to PR mode if a PR exists and mode hasn't been changed
+		if wasLoading && msg.prInfo.Number > 0 && m.mode == FileViewMode {
+			m.mode = PRViewMode
+		}
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
