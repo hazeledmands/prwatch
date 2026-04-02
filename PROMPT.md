@@ -46,7 +46,8 @@ line 3: github status (not shown if there is no PR)
   - [DRAFT] if in draft mode, [MERGED] if merged
   - review requests and approvals/rejections (as emoji)
   - number of comments
-  - CI status (as an emoji)
+  - CI status as an emoji plus a simple textual indicator (CI failing)
+    - clicking this should jump straight to CI results (the first failure, if any)
 
 ## modes
 
