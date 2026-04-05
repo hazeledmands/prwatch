@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -271,15 +272,25 @@ func schedulePRTick(interval time.Duration) tea.Cmd {
 }
 
 func (m *Model) loadNonGitFiles() tea.Msg {
-	entries, err := os.ReadDir(m.dir)
+	var files []string
+	err := filepath.WalkDir(m.dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if path == m.dir {
+				return err
+			}
+			return nil
+		}
+		if !d.IsDir() {
+			rel, err := filepath.Rel(m.dir, path)
+			if err != nil {
+				return nil
+			}
+			files = append(files, rel)
+		}
+		return nil
+	})
 	if err != nil {
 		return gitDataMsg{err: err}
-	}
-	var files []string
-	for _, e := range entries {
-		if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-			files = append(files, e.Name())
-		}
 	}
 	return gitDataMsg{
 		uncommittedFiles: files,
@@ -1621,6 +1632,20 @@ func (m *Model) updateSidebarItems() {
 	case FileDiffMode:
 		var items []sidebarItem
 		if m.treeMode {
+			// Auto-collapse hidden (dot-prefixed) directories by default
+			allDirs := extractDirs(m.uncommittedFiles)
+			allDirs = append(allDirs, extractDirs(m.committedFiles)...)
+			for _, d := range allDirs {
+				if _, exists := m.collapsedDirs[d]; !exists {
+					base := d
+					if i := strings.LastIndex(d, "/"); i >= 0 {
+						base = d[i+1:]
+					}
+					if strings.HasPrefix(base, ".") {
+						m.collapsedDirs[d] = true
+					}
+				}
+			}
 			items = append(items, buildTreeItems(m.uncommittedFiles, itemDim, m.collapsedDirs)...)
 			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
@@ -1657,6 +1682,26 @@ func (m *Model) updateSidebarItems() {
 		}
 
 		if m.treeMode {
+			// Auto-collapse directories by default
+			dotDirs := extractDirs(m.uncommittedFiles)
+			dotDirs = append(dotDirs, extractDirs(m.committedFiles)...)
+			for _, d := range dotDirs {
+				if _, exists := m.collapsedDirs[d]; !exists {
+					if m.git == nil {
+						// Non-git: collapse all dirs by default (no concept of "changed" files)
+						m.collapsedDirs[d] = true
+					} else {
+						// Git: only auto-collapse hidden (dot-prefixed) directories
+						base := d
+						if i := strings.LastIndex(d, "/"); i >= 0 {
+							base = d[i+1:]
+						}
+						if strings.HasPrefix(base, ".") {
+							m.collapsedDirs[d] = true
+						}
+					}
+				}
+			}
 			items = append(items, buildTreeItems(m.uncommittedFiles, itemDim, m.collapsedDirs)...)
 			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
@@ -1824,7 +1869,7 @@ func (m *Model) updateMainContent() {
 		// Non-git: file-view only, read from disk
 		if m.mode == FileViewMode {
 			file := m.sidebar.SelectedItem()
-			if file == "" {
+			if file == "" || m.sidebar.SelectedIsDir() {
 				m.mainPane.SetPlainContent("")
 				return
 			}

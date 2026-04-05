@@ -13,7 +13,13 @@ import (
 )
 
 func main() {
-	dir, err := os.Getwd()
+	var dir string
+	var err error
+	if len(os.Args) > 1 {
+		dir, err = filepath.Abs(os.Args[1])
+	} else {
+		dir, err = os.Getwd()
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

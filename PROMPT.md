@@ -1,4 +1,10 @@
-create a simple TUI, in the vein of lazygit. it is meant to be run in a directory that's a git branch, possibly in a worktree dir.
+create a simple TUI, in the vein of lazygit. it is meant to be run against a directory that's a git branch, possibly in a worktree dir.
+
+it can be started with:
+
+	prwatch [dir]
+
+if [dir] is provided, then it should run against that directory; if not, it should run against the current working directory.
 
 the UI should show the delta between the merge-base of the current branch and the origin's base branch (like GitHub's three-dot diff). for committed files, diff against HEAD. for uncommitted files, diff against the working tree. the tool should use origin/<base> rather than the local base branch ref to stay consistent with GitHub's view.
 

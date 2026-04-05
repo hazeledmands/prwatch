@@ -2131,21 +2131,46 @@ func TestLoadGitData_Error(t *testing.T) {
 	}
 }
 
-func TestLoadNonGitFiles_SkipsHiddenAndDirs(t *testing.T) {
+func TestLoadNonGitFiles_RecursiveWalk(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "visible.txt"), []byte("hi"), 0644)
 	os.WriteFile(filepath.Join(dir, ".hidden"), []byte("hi"), 0644)
-	os.Mkdir(filepath.Join(dir, "subdir"), 0755)
+	os.MkdirAll(filepath.Join(dir, "subdir", "nested"), 0755)
+	os.WriteFile(filepath.Join(dir, "subdir", "child.txt"), []byte("hi"), 0644)
+	os.WriteFile(filepath.Join(dir, "subdir", "nested", "deep.txt"), []byte("hi"), 0644)
+	os.MkdirAll(filepath.Join(dir, ".dotdir"), 0755)
+	os.WriteFile(filepath.Join(dir, ".dotdir", "secret.txt"), []byte("hi"), 0644)
 
 	m := NewModel(dir, nil)
 	msg := m.loadNonGitFiles()
 	dataMsg := msg.(gitDataMsg)
 
-	if len(dataMsg.uncommittedFiles) != 1 {
-		t.Errorf("expected 1 visible file, got %d: %v", len(dataMsg.uncommittedFiles), dataMsg.uncommittedFiles)
+	expected := map[string]bool{
+		".hidden":                true,
+		".dotdir/secret.txt":     true,
+		"visible.txt":            true,
+		"subdir/child.txt":       true,
+		"subdir/nested/deep.txt": true,
 	}
-	if dataMsg.uncommittedFiles[0] != "visible.txt" {
-		t.Errorf("expected visible.txt, got %q", dataMsg.uncommittedFiles[0])
+	if len(dataMsg.uncommittedFiles) != len(expected) {
+		t.Errorf("expected %d files, got %d: %v", len(expected), len(dataMsg.uncommittedFiles), dataMsg.uncommittedFiles)
+	}
+	for _, f := range dataMsg.uncommittedFiles {
+		if !expected[f] {
+			t.Errorf("unexpected file %q", f)
+		}
+	}
+	for f := range expected {
+		found := false
+		for _, got := range dataMsg.uncommittedFiles {
+			if got == f {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing expected file %q", f)
+		}
 	}
 }
 
