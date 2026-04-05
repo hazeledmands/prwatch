@@ -41,6 +41,9 @@ var (
 					Foreground(lipgloss.Color("#AAA"))
 	sidebarSeparatorStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#555"))
+	sidebarHeaderStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#888")).
+				Bold(true)
 	sidebarDeletedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#F38BA8")) // red for deleted files
 	sidebarDeletedSelectedStyle = lipgloss.NewStyle().

@@ -8,19 +8,14 @@ if [dir] is provided, then it should run against that directory; if not, it shou
 
 the UI should show the delta between the merge-base of the current branch and the origin's base branch (like GitHub's three-dot diff). for committed files, diff against HEAD. for uncommitted files, diff against the working tree. the tool should use origin/<base> rather than the local base branch ref to stay consistent with GitHub's view.
 
-## live refresh
-
-the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
-- if the user has interacted with the app, and there is an update, the app should endeavor to keep the current view as stable as possible (so the currently highlighted file should stay highlighted, and scrolled to the same-ish spot, even while the surrounding content changes)
-
-checking against the github server:
-- we should do this often enough to get fresh data, but not so often that we run into rate limits.
-- respond to rate limits appropriately, backing off as needed
-
 ## layout
 
-the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar -- smaller than the "main" pane on the right. the sidebar should display a list (of either files or commits) and the main pane should display content.
+the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar -- smaller than the "main" pane on the right.
 
+the sidebar will be a list of selectable items, separated into groups.
+each group should be separated by a horizontal rule (non-selectable), and given a heading.
+
+the main pane will display content.
 binary content should never be shown -- instead display [binary content].
 
 while loading, data (such as data from github or a CI system), the display should indicate this rather than displaying inaccurate information. however, it should also display the data it _does_ have immediately, to keep the UI snappy and useful.
@@ -67,7 +62,7 @@ switching between file-diff and file-view should retain the selected file.
 
 ### file-view mode
 
-the left pane should be a list of all files in the directory, and the right pane should be the full file, that highlights the diff for the current changeset.
+the sidebar should be a list of all files in the directory, and the right pane should be the full file, that highlights the diff for the current changeset.
 
 this mode should have a "gutter":
 - [n] should toggle on/off line numbers when displaying full files (defaulting to on)
@@ -105,8 +100,8 @@ sidebar should show:
 
 ### sidebar (both file modes)
 
-the sidebar should be separated into categories, with a horizontal line between each:
-  1. uncommitted files (rendered in a dimmer style)
+the sidebar should be separated into categories:
+  1. uncommitted files
   2. committed files
   3. all files (file-view mode only)
 
@@ -131,6 +126,16 @@ the list of commits should be separated into categories, separated by a dividing
 4. commits after the stuff that's already in the base branch (even before the feature branch began)
 
 if this list is very long, we should do something to limit memory usage here. for now, probably it's okay to cap this list at 1000 entries.
+
+## live refresh
+
+the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
+- if the user has interacted with the app, and there is an update, the app should endeavor to keep the current view as stable as possible (so the currently highlighted file should stay highlighted, and scrolled to the same-ish spot, even while the surrounding content changes)
+
+checking against the github server:
+- we should do this often enough to get fresh data, but not so often that we run into rate limits.
+- respond to rate limits appropriately, backing off as needed
+
 
 ## edge cases
 

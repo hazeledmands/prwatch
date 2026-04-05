@@ -171,8 +171,8 @@ func TestModeSwitching_RetainsSelectedFile(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Select "beta.go" (index 3: wip.go=0, separator=1, alpha.go=2, beta.go=3)
-	m.sidebar.SelectIndex(3)
+	// Select "beta.go" (index 5: Uncommitted=0, wip.go=1, separator=2, Committed=3, alpha.go=4, beta.go=5)
+	m.sidebar.SelectIndex(5)
 	selected := m.sidebar.SelectedItem()
 	if selected != "beta.go" {
 		t.Fatalf("expected beta.go selected, got %q", selected)
@@ -671,20 +671,26 @@ func TestUpdateSidebarItems_FileMode(t *testing.T) {
 
 	m.updateSidebarItems()
 
-	// Verify order: uncommitted first, then separator, then committed
+	// Verify order: header + uncommitted, separator, header + committed
 	items := m.sidebar.items
-	if len(items) != 4 { // 1 uncommitted + separator + 2 committed
-		t.Fatalf("expected 4 items, got %d", len(items))
+	if len(items) != 6 { // header + 1 uncommitted + separator + header + 2 committed
+		t.Fatalf("expected 6 items, got %d", len(items))
 	}
-	if items[0].filePath != "z.go" || items[0].kind != itemDim {
-		t.Errorf("first item should be uncommitted z.go, got filePath=%q kind=%v", items[0].filePath, items[0].kind)
+	if items[0].kind != itemHeader || items[0].label != "Uncommitted" {
+		t.Errorf("first item should be Uncommitted header, got kind=%v label=%q", items[0].kind, items[0].label)
 	}
-	if items[1].kind != itemSeparator {
-		t.Error("second item should be separator")
+	if items[1].filePath != "z.go" || items[1].kind != itemNormal {
+		t.Errorf("second item should be uncommitted z.go, got filePath=%q kind=%v", items[1].filePath, items[1].kind)
+	}
+	if items[2].kind != itemSeparator {
+		t.Error("third item should be separator")
+	}
+	if items[3].kind != itemHeader || items[3].label != "Committed" {
+		t.Errorf("fourth item should be Committed header, got kind=%v label=%q", items[3].kind, items[3].label)
 	}
 	// Tree mode sorts alphabetically, so a.go comes before b.go
-	if items[2].filePath != "a.go" || items[2].kind != itemNormal {
-		t.Errorf("third item should be committed a.go (sorted), got filePath=%q", items[2].filePath)
+	if items[4].filePath != "a.go" || items[4].kind != itemNormal {
+		t.Errorf("fifth item should be committed a.go (sorted), got filePath=%q", items[4].filePath)
 	}
 }
 
@@ -1076,10 +1082,11 @@ func TestHandleKey_DownInSidebar(t *testing.T) {
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
 
+	// Index 1 is a.go (index 0 is Committed header)
 	result, _ := m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
 	m = result.(*Model)
-	if m.sidebar.SelectedIndex() != 1 {
-		t.Errorf("expected selected index 1, got %d", m.sidebar.SelectedIndex())
+	if m.sidebar.SelectedIndex() != 2 {
+		t.Errorf("expected selected index 2, got %d", m.sidebar.SelectedIndex())
 	}
 }
 
@@ -1090,14 +1097,14 @@ func TestHandleKey_UpInSidebar(t *testing.T) {
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
 
-	// Move down first
+	// Move down first (from index 1 to 2)
 	result, _ := m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
 	m = result.(*Model)
-	// Move back up
+	// Move back up (from index 2 to 1)
 	result, _ = m.Update(tea.KeyPressMsg{Text: "k", Code: 'k'})
 	m = result.(*Model)
-	if m.sidebar.SelectedIndex() != 0 {
-		t.Errorf("expected selected index 0, got %d", m.sidebar.SelectedIndex())
+	if m.sidebar.SelectedIndex() != 1 {
+		t.Errorf("expected selected index 1, got %d", m.sidebar.SelectedIndex())
 	}
 }
 
@@ -1128,24 +1135,25 @@ func TestGG_GoToTop_Sidebar(t *testing.T) {
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
 
+	// Items: [Committed header(0), a.go(1), b.go(2), c.go(3)]
 	// Move to last item
 	m.sidebar.SelectLast()
-	if m.sidebar.SelectedIndex() != 2 {
-		t.Fatalf("expected index 2, got %d", m.sidebar.SelectedIndex())
+	if m.sidebar.SelectedIndex() != 3 {
+		t.Fatalf("expected index 3, got %d", m.sidebar.SelectedIndex())
 	}
 
 	// Press g once
 	result, _ := m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
 	m = result.(*Model)
-	if m.sidebar.SelectedIndex() != 2 {
+	if m.sidebar.SelectedIndex() != 3 {
 		t.Error("single g should not move selection")
 	}
 
-	// Press g again (gg)
+	// Press g again (gg) — goes to first selectable (index 1, skipping header)
 	result, _ = m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
 	m = result.(*Model)
-	if m.sidebar.SelectedIndex() != 0 {
-		t.Errorf("gg should go to top, got index %d", m.sidebar.SelectedIndex())
+	if m.sidebar.SelectedIndex() != 1 {
+		t.Errorf("gg should go to first selectable, got index %d", m.sidebar.SelectedIndex())
 	}
 }
 
@@ -1156,9 +1164,10 @@ func TestG_GoToBottom_Sidebar(t *testing.T) {
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
 
+	// Items: [Committed header(0), a.go(1), b.go(2), c.go(3)]
 	result, _ := m.Update(tea.KeyPressMsg{Text: "G", Code: 'G'})
 	m = result.(*Model)
-	if m.sidebar.SelectedIndex() != 2 {
+	if m.sidebar.SelectedIndex() != 3 {
 		t.Errorf("G should go to last item, got index %d", m.sidebar.SelectedIndex())
 	}
 }
@@ -1512,17 +1521,21 @@ func TestMouseWheel_Sidebar(t *testing.T) {
 	m.mode = FileDiffMode
 	m.updateSidebarItems()
 
+	// Items: [Committed header(0), a.go(1), b.go(2), c.go(3)]
+	// Initial selection is first selectable = index 1
+	initialIdx := m.sidebar.SelectedIndex()
+
 	// Scroll down in sidebar — should scroll view, NOT change selection
 	result, _ := m.Update(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelDown})
 	m = result.(*Model)
-	if m.sidebar.SelectedIndex() != 0 {
+	if m.sidebar.SelectedIndex() != initialIdx {
 		t.Errorf("scroll down should not change selection, got %d", m.sidebar.SelectedIndex())
 	}
 
 	// Scroll up — selection should remain unchanged
 	result, _ = m.Update(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})
 	m = result.(*Model)
-	if m.sidebar.SelectedIndex() != 0 {
+	if m.sidebar.SelectedIndex() != initialIdx {
 		t.Errorf("scroll up should not change selection, got %d", m.sidebar.SelectedIndex())
 	}
 }
@@ -2294,8 +2307,8 @@ func TestBug_MouseScrollSidebarKeepsSelection(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Select the second file
-	m.sidebar.SelectIndex(1)
+	// Select the second file (index 2: header at 0, a.go at 1, b.go at 2)
+	m.sidebar.SelectIndex(2)
 	selectedBefore := m.sidebar.SelectedItem()
 	if selectedBefore != "b.go" {
 		t.Fatalf("expected b.go selected, got %q", selectedBefore)
@@ -2767,31 +2780,41 @@ func TestFileViewMode_ThreeCategories(t *testing.T) {
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
-	// Sidebar should have: wip.go (dim), separator, alpha.go, beta.go, separator, main.go, readme.md
+	// Sidebar should have: Uncommitted header, wip.go, separator, Committed header, alpha.go, beta.go,
+	// separator, All Files header, main.go, readme.md
 	items := m.sidebar.items
-	if len(items) != 7 {
-		t.Fatalf("expected 7 sidebar items, got %d: %v", len(items), items)
+	if len(items) != 10 {
+		t.Fatalf("expected 10 sidebar items, got %d: %v", len(items), items)
 	}
-	if items[0].filePath != "wip.go" || items[0].kind != itemDim {
-		t.Errorf("item 0: expected dim wip.go, got filePath=%q kind=%v", items[0].filePath, items[0].kind)
+	if items[0].kind != itemHeader || items[0].label != "Uncommitted" {
+		t.Errorf("item 0: expected Uncommitted header, got kind=%v label=%q", items[0].kind, items[0].label)
 	}
-	if items[1].kind != itemSeparator {
-		t.Errorf("item 1: expected separator, got %v", items[1])
+	if items[1].filePath != "wip.go" || items[1].kind != itemNormal {
+		t.Errorf("item 1: expected normal wip.go, got filePath=%q kind=%v", items[1].filePath, items[1].kind)
 	}
-	if items[2].filePath != "alpha.go" || items[2].kind != itemNormal {
-		t.Errorf("item 2: expected alpha.go, got filePath=%q", items[2].filePath)
+	if items[2].kind != itemSeparator {
+		t.Errorf("item 2: expected separator, got %v", items[2])
 	}
-	if items[3].filePath != "beta.go" {
-		t.Errorf("item 3: expected beta.go, got filePath=%q", items[3].filePath)
+	if items[3].kind != itemHeader || items[3].label != "Committed" {
+		t.Errorf("item 3: expected Committed header, got kind=%v label=%q", items[3].kind, items[3].label)
 	}
-	if items[4].kind != itemSeparator {
-		t.Errorf("item 4: expected separator, got %v", items[4])
+	if items[4].filePath != "alpha.go" || items[4].kind != itemNormal {
+		t.Errorf("item 4: expected alpha.go, got filePath=%q", items[4].filePath)
 	}
-	if items[5].filePath != "main.go" {
-		t.Errorf("item 5: expected main.go, got filePath=%q", items[5].filePath)
+	if items[5].filePath != "beta.go" {
+		t.Errorf("item 5: expected beta.go, got filePath=%q", items[5].filePath)
 	}
-	if items[6].filePath != "readme.md" {
-		t.Errorf("item 6: expected readme.md, got filePath=%q", items[6].filePath)
+	if items[6].kind != itemSeparator {
+		t.Errorf("item 6: expected separator, got %v", items[6])
+	}
+	if items[7].kind != itemHeader || items[7].label != "All Files" {
+		t.Errorf("item 7: expected All Files header, got kind=%v label=%q", items[7].kind, items[7].label)
+	}
+	if items[8].filePath != "main.go" {
+		t.Errorf("item 8: expected main.go, got filePath=%q", items[8].filePath)
+	}
+	if items[9].filePath != "readme.md" {
+		t.Errorf("item 9: expected readme.md, got filePath=%q", items[9].filePath)
 	}
 }
 
@@ -2817,9 +2840,10 @@ func TestFileDiffMode_NoAllFilesCategory(t *testing.T) {
 	m.Update(msg)
 
 	// In file-diff mode, sidebar should only have changed files (no "all files" category)
+	// Items: Uncommitted header, wip.go, separator, Committed header, alpha.go
 	items := m.sidebar.items
-	if len(items) != 3 { // wip.go, separator, alpha.go
-		t.Fatalf("expected 3 sidebar items in diff mode, got %d: %v", len(items), items)
+	if len(items) != 5 {
+		t.Fatalf("expected 5 sidebar items in diff mode, got %d: %v", len(items), items)
 	}
 }
 

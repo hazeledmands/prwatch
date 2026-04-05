@@ -1646,20 +1646,32 @@ func (m *Model) updateSidebarItems() {
 					}
 				}
 			}
-			items = append(items, buildTreeItems(m.uncommittedFiles, itemDim, m.collapsedDirs)...)
-			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
-				items = append(items, sidebarItem{kind: itemSeparator})
+			if len(m.uncommittedFiles) > 0 {
+				items = append(items, sidebarItem{label: "Uncommitted", kind: itemHeader})
+				items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
 			}
-			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
+			if len(m.committedFiles) > 0 {
+				if len(m.uncommittedFiles) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
+				}
+				items = append(items, sidebarItem{label: "Committed", kind: itemHeader})
+				items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
+			}
 		} else {
-			for _, f := range m.uncommittedFiles {
-				items = append(items, sidebarItem{label: f, filePath: f, kind: itemDim})
+			if len(m.uncommittedFiles) > 0 {
+				items = append(items, sidebarItem{label: "Uncommitted", kind: itemHeader})
+				for _, f := range m.uncommittedFiles {
+					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
+				}
 			}
-			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
-				items = append(items, sidebarItem{kind: itemSeparator})
-			}
-			for _, f := range m.committedFiles {
-				items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
+			if len(m.committedFiles) > 0 {
+				if len(m.uncommittedFiles) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
+				}
+				items = append(items, sidebarItem{label: "Committed", kind: itemHeader})
+				for _, f := range m.committedFiles {
+					items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
+				}
 			}
 		}
 		m.sidebar.SetItems(items)
@@ -1702,47 +1714,65 @@ func (m *Model) updateSidebarItems() {
 					}
 				}
 			}
-			items = append(items, buildTreeItems(m.uncommittedFiles, itemDim, m.collapsedDirs)...)
-			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
-				items = append(items, sidebarItem{kind: itemSeparator})
+			if len(m.uncommittedFiles) > 0 {
+				items = append(items, sidebarItem{label: "Uncommitted", kind: itemHeader})
+				items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
 			}
-			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
-			if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
-				items = append(items, sidebarItem{kind: itemSeparator})
-			}
-			// All-files trees default to collapsed (spec: "trees should start out closed")
-			// Use collapsedDirs but auto-collapse dirs not already tracked
-			allFilesDirs := extractDirs(otherFiles)
-			for _, d := range allFilesDirs {
-				if _, exists := m.collapsedDirs[d]; !exists {
-					m.collapsedDirs[d] = true // default closed for all-files
+			if len(m.committedFiles) > 0 {
+				if len(m.uncommittedFiles) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
 				}
+				items = append(items, sidebarItem{label: "Committed", kind: itemHeader})
+				items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
 			}
-			items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind {
-				if m.ignoredFiles[f] {
-					return itemDim
+			if len(otherFiles) > 0 {
+				if len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
 				}
-				return itemNormal
-			})...)
+				items = append(items, sidebarItem{label: "All Files", kind: itemHeader})
+				// All-files trees default to collapsed (spec: "trees should start out closed")
+				// Use collapsedDirs but auto-collapse dirs not already tracked
+				allFilesDirs := extractDirs(otherFiles)
+				for _, d := range allFilesDirs {
+					if _, exists := m.collapsedDirs[d]; !exists {
+						m.collapsedDirs[d] = true // default closed for all-files
+					}
+				}
+				items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind {
+					if m.ignoredFiles[f] {
+						return itemDim
+					}
+					return itemNormal
+				})...)
+			}
 		} else {
-			for _, f := range m.uncommittedFiles {
-				items = append(items, sidebarItem{label: f, filePath: f, kind: itemDim})
-			}
-			if len(m.uncommittedFiles) > 0 && len(m.committedFiles) > 0 {
-				items = append(items, sidebarItem{kind: itemSeparator})
-			}
-			for _, f := range m.committedFiles {
-				items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
-			}
-			if len(otherFiles) > 0 && (len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0) {
-				items = append(items, sidebarItem{kind: itemSeparator})
-			}
-			for _, f := range otherFiles {
-				kind := m.fileItemKind(f, itemNormal)
-				if kind == itemNormal && m.ignoredFiles[f] {
-					kind = itemDim
+			if len(m.uncommittedFiles) > 0 {
+				items = append(items, sidebarItem{label: "Uncommitted", kind: itemHeader})
+				for _, f := range m.uncommittedFiles {
+					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
 				}
-				items = append(items, sidebarItem{label: f, filePath: f, kind: kind})
+			}
+			if len(m.committedFiles) > 0 {
+				if len(m.uncommittedFiles) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
+				}
+				items = append(items, sidebarItem{label: "Committed", kind: itemHeader})
+				for _, f := range m.committedFiles {
+					items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
+				}
+			}
+			if len(otherFiles) > 0 {
+				if len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
+				}
+				items = append(items, sidebarItem{label: "All Files", kind: itemHeader})
+				for _, f := range otherFiles {
+					kind := m.fileItemKind(f, itemNormal)
+					if kind == itemNormal && m.ignoredFiles[f] {
+						kind = itemDim
+					}
+					items = append(items, sidebarItem{label: f, filePath: f, kind: kind})
+				}
 			}
 		}
 		m.sidebar.SetItems(items)

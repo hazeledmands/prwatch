@@ -1,12 +1,12 @@
   file diff commits help · myapp                                                                    
   feature/add-auth → main · 1 uncommitted · 2 commits · No PR                                       
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
-│  README.md                   ││1   # My App                                                      │
-│──────────────────────────────││2 + Authentication docs                                           │
-│  auth.go                     ││3                                                                 │
+│Uncommitted                   ││1   # My App                                                      │
+│  README.md                   ││2 + Authentication docs                                           │
+│──────────────────────────────││3                                                                 │
+│Committed                     ││                                                                  │
+│  auth.go                     ││                                                                  │
 │  config.go                   ││                                                                  │
-│                              ││                                                                  │
-│                              ││                                                                  │
 │                              ││                                                                  │
 │                              ││                                                                  │
 │                              ││                                                                  │

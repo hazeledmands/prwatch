@@ -11,10 +11,15 @@ type sidebarItemKind int
 
 const (
 	itemNormal    sidebarItemKind = iota
-	itemDim                       // uncommitted files — rendered dimmer
+	itemDim                       // hidden/ignored files — rendered dimmer
 	itemSeparator                 // horizontal line, not selectable
 	itemDeleted                   // deleted files — rendered in red
+	itemHeader                    // section title, not selectable
 )
+
+func (k sidebarItemKind) selectable() bool {
+	return k != itemSeparator && k != itemHeader
+}
 
 type sidebarItem struct {
 	label    string
@@ -234,7 +239,7 @@ func (s *sidebar) SelectedIsDir() bool {
 
 func (s *sidebar) SelectNext() {
 	for i := s.selected + 1; i < len(s.items); i++ {
-		if s.items[i].kind != itemSeparator {
+		if s.items[i].kind.selectable() {
 			s.selected = i
 			s.clampOffset()
 			return
@@ -244,7 +249,7 @@ func (s *sidebar) SelectNext() {
 
 func (s *sidebar) SelectPrev() {
 	for i := s.selected - 1; i >= 0; i-- {
-		if s.items[i].kind != itemSeparator {
+		if s.items[i].kind.selectable() {
 			s.selected = i
 			s.clampOffset()
 			return
@@ -254,7 +259,7 @@ func (s *sidebar) SelectPrev() {
 
 func (s *sidebar) SelectFirst() {
 	for i := 0; i < len(s.items); i++ {
-		if s.items[i].kind != itemSeparator {
+		if s.items[i].kind.selectable() {
 			s.selected = i
 			s.clampOffset()
 			return
@@ -264,7 +269,7 @@ func (s *sidebar) SelectFirst() {
 
 func (s *sidebar) SelectLast() {
 	for i := len(s.items) - 1; i >= 0; i-- {
-		if s.items[i].kind != itemSeparator {
+		if s.items[i].kind.selectable() {
 			s.selected = i
 			s.clampOffset()
 			return
@@ -276,7 +281,7 @@ func (s *sidebar) SelectIndex(idx int) {
 	if idx < 0 || idx >= len(s.items) {
 		return
 	}
-	if s.items[idx].kind == itemSeparator {
+	if !s.items[idx].kind.selectable() {
 		return
 	}
 	s.selected = idx
@@ -309,18 +314,18 @@ func (s *sidebar) skipToSelectable() {
 	if s.selected >= len(s.items) {
 		s.selected = len(s.items) - 1
 	}
-	if s.items[s.selected].kind != itemSeparator {
+	if s.items[s.selected].kind.selectable() {
 		return
 	}
 	// Try forward then backward
 	for i := s.selected; i < len(s.items); i++ {
-		if s.items[i].kind != itemSeparator {
+		if s.items[i].kind.selectable() {
 			s.selected = i
 			return
 		}
 	}
 	for i := s.selected; i >= 0; i-- {
-		if s.items[i].kind != itemSeparator {
+		if s.items[i].kind.selectable() {
 			s.selected = i
 			return
 		}
@@ -368,6 +373,15 @@ func (s *sidebar) View(focused bool) string {
 		if item.kind == itemSeparator {
 			sep := strings.Repeat("─", s.width)
 			b.WriteString(sidebarSeparatorStyle.Render(sep))
+			continue
+		}
+
+		if item.kind == itemHeader {
+			label := item.label
+			if s.width > 0 {
+				label = fmt.Sprintf("%-*s", s.width, label)
+			}
+			b.WriteString(sidebarHeaderStyle.Render(label))
 			continue
 		}
 

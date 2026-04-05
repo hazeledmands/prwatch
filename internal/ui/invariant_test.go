@@ -216,7 +216,8 @@ func TestProperty_ClickSidebarSelectsItem(t *testing.T) {
 		sidebarContentRow := statusBarHeight + 1 // first row inside sidebar border
 		sidebarContentCol := 1                   // first col inside sidebar border
 
-		// Build expected file list (tree mode sorts alphabetically)
+		// Build expected item list (tree mode sorts alphabetically)
+		// Includes headers and separators as empty strings (non-clickable)
 		uncommittedSorted := make([]string, len(mock.changedFiles.Uncommitted))
 		copy(uncommittedSorted, mock.changedFiles.Uncommitted)
 		sort.Strings(uncommittedSorted)
@@ -225,18 +226,23 @@ func TestProperty_ClickSidebarSelectsItem(t *testing.T) {
 		sort.Strings(committedSorted)
 
 		var expectedFiles []string
-		hasSeparator := len(uncommittedSorted) > 0 && len(committedSorted) > 0
-		expectedFiles = append(expectedFiles, uncommittedSorted...)
-		if hasSeparator {
-			expectedFiles = append(expectedFiles, "") // placeholder for separator
+		if len(uncommittedSorted) > 0 {
+			expectedFiles = append(expectedFiles, "") // Uncommitted header
+			expectedFiles = append(expectedFiles, uncommittedSorted...)
 		}
-		expectedFiles = append(expectedFiles, committedSorted...)
+		if len(committedSorted) > 0 {
+			if len(uncommittedSorted) > 0 {
+				expectedFiles = append(expectedFiles, "") // separator
+			}
+			expectedFiles = append(expectedFiles, "") // Committed header
+			expectedFiles = append(expectedFiles, committedSorted...)
+		}
 
 		// Click on each visible file
 		visibleCount := min(len(expectedFiles), height-statusBarHeight-2) // minus borders
 		for i := 0; i < visibleCount; i++ {
 			if expectedFiles[i] == "" {
-				continue // skip separator
+				continue // skip header/separator
 			}
 			row := sidebarContentRow + i
 			col := sidebarContentCol
