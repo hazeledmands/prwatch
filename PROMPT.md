@@ -130,6 +130,7 @@ if this list is very long, we should do something to limit memory usage here. fo
 ## live refresh
 
 the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
+- the view should refresh not only when files change on disk, but also when git state changes in ways that don't modify working tree files — for example, pushing commits, fetching, editing the global gitignore, or garbage collection repacking refs. a periodic background poll can serve as a fallback to catch state changes that filesystem watchers miss.
 - if the user has interacted with the app, and there is an update, the app should endeavor to keep the current view as stable as possible (so the currently highlighted file should stay highlighted, and scrolled to the same-ish spot, even while the surrounding content changes)
 
 checking against the github server:

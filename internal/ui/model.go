@@ -33,6 +33,7 @@ func renderMarkdown(md string, _ int) (string, error) {
 const (
 	prRefreshDefault = 2 * time.Minute
 	prRefreshMax     = 15 * time.Minute
+	gitPollInterval  = 5 * time.Second
 )
 
 type searchMatch struct {
@@ -167,6 +168,7 @@ type gitDataMsg struct {
 	reviewRequests   []gitpkg.PRReviewRequest
 	behindCount      int
 	prFetchFailed    bool // true if PR fetch errored (e.g. rate limit) — preserve old PR data
+	localOnly        bool // true if this was a local-only refresh (no API calls attempted)
 	err              error
 }
 
@@ -184,6 +186,7 @@ type prRefreshMsg struct {
 }
 
 type prTickMsg struct{}
+type gitTickMsg struct{}
 
 // maybeFetchRWXLog returns a tea.Cmd to fetch RWX logs if there's a pending check.
 func (m *Model) maybeFetchRWXLog() tea.Cmd {
@@ -262,12 +265,18 @@ func (m *Model) Init() tea.Cmd {
 	if m.git == nil {
 		return m.loadNonGitFiles
 	}
-	return tea.Batch(m.loadGitData, schedulePRTick(m.prInterval))
+	return tea.Batch(m.loadGitData, schedulePRTick(m.prInterval), scheduleGitTick())
 }
 
 func schedulePRTick(interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return prTickMsg{}
+	})
+}
+
+func scheduleGitTick() tea.Cmd {
+	return tea.Tick(gitPollInterval, func(t time.Time) tea.Msg {
+		return gitTickMsg{}
 	})
 }
 
@@ -452,6 +461,82 @@ func (m *Model) loadGitData() tea.Msg {
 	}
 }
 
+// loadLocalGitData refreshes only local git state (no GitHub API calls).
+// Existing PR data in the model is preserved via prFetchFailed.
+func (m *Model) loadLocalGitData() tea.Msg {
+	info, err := m.git.RepoInfo()
+	if err != nil {
+		return gitDataMsg{err: err}
+	}
+
+	base, err := m.git.DetectBase()
+	if err != nil {
+		return gitDataMsg{err: err}
+	}
+
+	files, err := m.git.ChangedFiles(base)
+	if err != nil {
+		return gitDataMsg{err: err}
+	}
+
+	var commits []gitpkg.Commit
+	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
+		commits, err = m.git.AllCommits()
+	} else {
+		commits, err = m.git.Commits(base)
+	}
+	if err != nil {
+		return gitDataMsg{err: err}
+	}
+
+	var behindCount int
+	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
+		baseRef := "origin/main"
+		if m.prInfo.BaseRef != "" {
+			baseRef = "origin/" + m.prInfo.BaseRef
+		} else if info.Upstream != "" {
+			baseRef = info.Upstream
+		}
+		behindCount = m.git.BehindCount(baseRef)
+	}
+
+	var baseCommits []gitpkg.Commit
+	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
+		baseCommits, _ = m.git.BaseCommits(base, 50)
+	}
+
+	allFiles, _ := m.git.AllFiles(m.showIgnored)
+
+	var ignoredSet map[string]bool
+	if m.showIgnored {
+		nonIgnored, _ := m.git.AllFiles(false)
+		nonIgnoredSet := make(map[string]bool, len(nonIgnored))
+		for _, f := range nonIgnored {
+			nonIgnoredSet[f] = true
+		}
+		ignoredSet = make(map[string]bool)
+		for _, f := range allFiles {
+			if !nonIgnoredSet[f] {
+				ignoredSet[f] = true
+			}
+		}
+	}
+
+	return gitDataMsg{
+		repoInfo:         info,
+		base:             base,
+		committedFiles:   files.Committed,
+		uncommittedFiles: files.Uncommitted,
+		deletedFiles:     files.Deleted,
+		allFiles:         allFiles,
+		ignoredFiles:     ignoredSet,
+		commits:          commits,
+		baseCommits:      baseCommits,
+		behindCount:      behindCount,
+		localOnly:        true, // preserve existing PR data
+	}
+}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	result, cmd := m.update(msg)
 	rm := result.(*Model)
@@ -480,20 +565,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.repoInfo = msg.repoInfo
-		// If PR fetch failed (e.g. rate limit), preserve existing PR data
-		if msg.prFetchFailed {
-			m.prError = "GitHub API error"
-		} else {
-			m.prError = ""
-		}
-		if !msg.prFetchFailed {
-			m.prInfo = msg.prInfo
-			m.ciStatus = msg.ciStatus
-			m.prReviews = msg.prReviews
-			m.prReviewRequests = msg.reviewRequests
-			m.prCommentCount = msg.prCommentCount
-			m.prComments = msg.prComments
-			m.ciChecks = msg.ciChecks
+		// Local-only refresh: preserve all existing PR data and error state
+		// PR fetch failed: preserve PR data but flag the error
+		// Otherwise: update PR data normally
+		if !msg.localOnly {
+			if msg.prFetchFailed {
+				m.prError = "GitHub API error"
+			} else {
+				m.prError = ""
+				m.prInfo = msg.prInfo
+				m.ciStatus = msg.ciStatus
+				m.prReviews = msg.prReviews
+				m.prReviewRequests = msg.reviewRequests
+				m.prCommentCount = msg.prCommentCount
+				m.prComments = msg.prComments
+				m.ciChecks = msg.ciChecks
+			}
 		}
 		m.base = msg.base
 		m.committedFiles = msg.committedFiles
@@ -553,6 +640,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, schedulePRTick(m.prInterval)
 		}
 		return m, tea.Batch(m.loadPRStatus, schedulePRTick(m.prInterval))
+
+	case gitTickMsg:
+		if m.git == nil {
+			return m, scheduleGitTick()
+		}
+		return m, tea.Batch(m.loadLocalGitData, scheduleGitTick())
 
 	case RefreshMsg:
 		if m.git == nil {
