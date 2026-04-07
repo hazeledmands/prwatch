@@ -71,8 +71,28 @@ func (m *mockGit) DetectBase() (string, error)           { return m.base, m.base
 func (m *mockGit) ChangedFiles(base string) (git.ChangedFilesResult, error) {
 	return m.changedFiles, m.changedErr
 }
-func (m *mockGit) Commits(base string) ([]git.Commit, error) { return m.commits, m.commitsErr }
-func (m *mockGit) AllCommits() ([]git.Commit, error)         { return m.allCommits, m.allCommitsErr }
+func (m *mockGit) Commits(base string, skip, limit int) ([]git.Commit, error) {
+	if skip >= len(m.commits) {
+		return nil, m.commitsErr
+	}
+	end := skip + limit
+	if end > len(m.commits) {
+		end = len(m.commits)
+	}
+	return m.commits[skip:end], m.commitsErr
+}
+func (m *mockGit) AllCommits(skip, limit int) ([]git.Commit, error) {
+	if skip >= len(m.allCommits) {
+		return nil, m.allCommitsErr
+	}
+	end := skip + limit
+	if end > len(m.allCommits) {
+		end = len(m.allCommits)
+	}
+	return m.allCommits[skip:end], m.allCommitsErr
+}
+func (m *mockGit) CommitCount() (int, error)                 { return len(m.allCommits), m.allCommitsErr }
+func (m *mockGit) CommitCountRange(base string) (int, error) { return len(m.commits), m.commitsErr }
 func (m *mockGit) FileDiffCommitted(base, file string) (string, error) {
 	return m.fileDiff, m.fileDiffErr
 }
@@ -4274,6 +4294,141 @@ func TestCommitMode_BaseCommitsCategory4(t *testing.T) {
 	}
 	if !hasBaseCommit {
 		t.Error("commit mode should include base branch commits in category 4")
+	}
+}
+
+func TestCommitMode_LoadMoreAppearsWhenMoreCommits(t *testing.T) {
+	// Create more commits than the page size
+	var allCommits []git.Commit
+	for i := range 150 {
+		allCommits = append(allCommits, git.Commit{
+			SHA:     fmt.Sprintf("aaa%04d", i),
+			Subject: fmt.Sprintf("commit %d", i),
+		})
+	}
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:   "main",
+			RepoName: "repo",
+		},
+		base:         "abc123",
+		commits:      allCommits[:1],
+		changedFiles: git.ChangedFilesResult{},
+		allCommits:   allCommits,
+	}
+
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Should have loaded first page (100 commits)
+	if len(m.commits) != 100 {
+		t.Fatalf("expected 100 commits loaded, got %d", len(m.commits))
+	}
+	// commitCount should reflect the true total
+	if m.commitCount != 150 {
+		t.Errorf("expected commitCount=150, got %d", m.commitCount)
+	}
+
+	// Switch to commit mode and check for "load more" in sidebar
+	m.mode = CommitMode
+	m.updateSidebarItems()
+
+	hasLoadMore := false
+	for _, item := range m.sidebar.items {
+		if strings.HasPrefix(item.label, "load more") {
+			hasLoadMore = true
+			if !strings.Contains(item.label, "50 remaining") {
+				t.Errorf("load more label = %q, want '50 remaining'", item.label)
+			}
+		}
+	}
+	if !hasLoadMore {
+		t.Error("expected 'load more' sidebar item when more commits available")
+	}
+
+	// Trigger load more
+	moreMsg := m.loadMoreCommits()
+	m.Update(moreMsg)
+
+	// Now all 150 should be loaded
+	if len(m.commits) != 150 {
+		t.Fatalf("after load more, expected 150 commits, got %d", len(m.commits))
+	}
+
+	// "load more" should be gone
+	m.updateSidebarItems()
+	for _, item := range m.sidebar.items {
+		if strings.HasPrefix(item.label, "load more") {
+			t.Error("'load more' should not appear when all commits are loaded")
+		}
+	}
+}
+
+func TestCommitMode_NoLoadMoreWhenAllFit(t *testing.T) {
+	commits := []git.Commit{
+		{SHA: "aaa0001", Subject: "one"},
+		{SHA: "aaa0002", Subject: "two"},
+	}
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:   "main",
+			RepoName: "repo",
+		},
+		base:         "abc123",
+		commits:      commits[:1],
+		changedFiles: git.ChangedFilesResult{},
+		allCommits:   commits,
+	}
+
+	m := NewModel("/tmp", mg)
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.mode = CommitMode
+	m.updateSidebarItems()
+
+	for _, item := range m.sidebar.items {
+		if strings.HasPrefix(item.label, "load more") {
+			t.Error("'load more' should not appear when all commits fit in first page")
+		}
+	}
+}
+
+func TestStatusBar_ShowsTrueCommitCount(t *testing.T) {
+	// When there are 150 total commits but only 100 loaded,
+	// status bar should show "150 commits" not "100 commits"
+	var allCommits []git.Commit
+	for i := range 150 {
+		allCommits = append(allCommits, git.Commit{
+			SHA:     fmt.Sprintf("bbb%04d", i),
+			Subject: fmt.Sprintf("commit %d", i),
+		})
+	}
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:   "main",
+			RepoName: "repo",
+		},
+		base:         "abc123",
+		commits:      allCommits[:1],
+		changedFiles: git.ChangedFilesResult{},
+		allCommits:   allCommits,
+	}
+
+	m := NewModel("/tmp", mg)
+	m.width = 120
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Render and check status bar
+	view := m.View()
+	if !strings.Contains(view.Content, "150 commits") {
+		t.Errorf("status bar should show '150 commits' (true count), got view containing commitCount=%d", m.commitCount)
 	}
 }
 

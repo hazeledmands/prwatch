@@ -58,6 +58,8 @@ const (
 	MainFocus
 )
 
+const commitPageSize = 100
+
 // GitDataSource provides the git operations needed by the UI model.
 // Implemented by *git.Git; mockable for testing.
 type GitDataSource interface {
@@ -68,8 +70,10 @@ type GitDataSource interface {
 	PRCommentCount() (int, error)
 	DetectBase() (string, error)
 	ChangedFiles(base string) (gitpkg.ChangedFilesResult, error)
-	Commits(base string) ([]gitpkg.Commit, error)
-	AllCommits() ([]gitpkg.Commit, error)
+	Commits(base string, skip, limit int) ([]gitpkg.Commit, error)
+	AllCommits(skip, limit int) ([]gitpkg.Commit, error)
+	CommitCount() (int, error)
+	CommitCountRange(base string) (int, error)
 	FileDiffCommitted(base, file string) (string, error)
 	FileDiffUncommitted(file string) (string, error)
 	FileContent(file string) (string, error)
@@ -104,6 +108,8 @@ type Model struct {
 	allFiles            []string        // all files in the repo (for file-view mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
 	commits             []gitpkg.Commit
+	commitCount         int                // true total commit count (from rev-list --count)
+	commitsLoaded       int                // how many commits have been loaded so far
 	behindCount         int                // how many commits behind base
 	baseCommits         []gitpkg.Commit    // commits from the base branch (for commit mode category 4)
 	prComments          []gitpkg.PRComment // PR comments for PR-view mode
@@ -162,6 +168,7 @@ type gitDataMsg struct {
 	allFiles         []string
 	ignoredFiles     map[string]bool
 	commits          []gitpkg.Commit
+	commitCount      int
 	baseCommits      []gitpkg.Commit
 	prComments       []gitpkg.PRComment
 	ciChecks         []gitpkg.CICheck
@@ -173,6 +180,10 @@ type gitDataMsg struct {
 }
 
 type RefreshMsg struct{}
+
+type moreCommitsMsg struct {
+	commits []gitpkg.Commit
+}
 
 type prRefreshMsg struct {
 	prInfo         gitpkg.PRInfoResult
@@ -390,15 +401,21 @@ func (m *Model) loadGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
-	// Spec: on the base branch or detached HEAD, show full commit history
+	// Fetch first page of commits and total count
 	var commits []gitpkg.Commit
+	var commitCount int
 	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
-		commits, err = m.git.AllCommits()
+		commits, err = m.git.AllCommits(0, commitPageSize)
+		if err != nil {
+			return gitDataMsg{err: err}
+		}
+		commitCount, _ = m.git.CommitCount()
 	} else {
-		commits, err = m.git.Commits(base)
-	}
-	if err != nil {
-		return gitDataMsg{err: err}
+		commits, err = m.git.Commits(base, 0, commitPageSize)
+		if err != nil {
+			return gitDataMsg{err: err}
+		}
+		commitCount, _ = m.git.CommitCountRange(base)
 	}
 
 	// Compute behind count: how many commits on the base branch we don't have
@@ -452,6 +469,7 @@ func (m *Model) loadGitData() tea.Msg {
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		commits:          commits,
+		commitCount:      commitCount,
 		baseCommits:      baseCommits,
 		behindCount:      behindCount,
 		prComments:       prComments,
@@ -480,13 +498,19 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	}
 
 	var commits []gitpkg.Commit
+	var commitCount int
 	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
-		commits, err = m.git.AllCommits()
+		commits, err = m.git.AllCommits(0, commitPageSize)
+		if err != nil {
+			return gitDataMsg{err: err}
+		}
+		commitCount, _ = m.git.CommitCount()
 	} else {
-		commits, err = m.git.Commits(base)
-	}
-	if err != nil {
-		return gitDataMsg{err: err}
+		commits, err = m.git.Commits(base, 0, commitPageSize)
+		if err != nil {
+			return gitDataMsg{err: err}
+		}
+		commitCount, _ = m.git.CommitCountRange(base)
 	}
 
 	var behindCount int
@@ -531,10 +555,27 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		commits:          commits,
+		commitCount:      commitCount,
 		baseCommits:      baseCommits,
 		behindCount:      behindCount,
 		localOnly:        true, // preserve existing PR data
 	}
+}
+
+func (m *Model) loadMoreCommits() tea.Msg {
+	skip := m.commitsLoaded
+	info := m.repoInfo
+	var commits []gitpkg.Commit
+	var err error
+	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
+		commits, err = m.git.AllCommits(skip, commitPageSize)
+	} else {
+		commits, err = m.git.Commits(m.base, skip, commitPageSize)
+	}
+	if err != nil {
+		return nil
+	}
+	return moreCommitsMsg{commits: commits}
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -589,12 +630,21 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.allFiles = msg.allFiles
 		m.ignoredFiles = msg.ignoredFiles
 		m.commits = msg.commits
+		m.commitCount = msg.commitCount
+		m.commitsLoaded = len(msg.commits)
 		m.baseCommits = msg.baseCommits
 		m.behindCount = msg.behindCount
 		// On first load, default to PR mode if a PR exists and mode hasn't been changed
 		if wasLoading && m.prInfo.Number > 0 && m.mode == FileViewMode {
 			m.mode = PRViewMode
 		}
+		m.updateSidebarItems()
+		m.updateMainContent()
+		return m, nil
+
+	case moreCommitsMsg:
+		m.commits = append(m.commits, msg.commits...)
+		m.commitsLoaded = len(m.commits)
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
@@ -1311,6 +1361,10 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// Content starts after status bar (2 lines) + top border (1 line) = row 3
 		itemIdx := contentY - 1 + m.sidebar.offset
 		m.sidebar.SelectIndex(itemIdx)
+		// "Load more" in commit mode triggers pagination
+		if m.mode == CommitMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
+			return m, m.loadMoreCommits
+		}
 		// If a directory was clicked in tree mode, toggle collapse
 		if m.treeMode && m.sidebar.SelectedIsDir() {
 			dir := m.sidebar.SelectedItem()
@@ -1367,6 +1421,10 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.focus == SidebarFocus {
+		// "Load more" in commit mode triggers pagination
+		if m.mode == CommitMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
+			return m, m.loadMoreCommits
+		}
 		// Enter behaves like Right in tree mode
 		return m.handleSidebarRight()
 	}
@@ -1907,6 +1965,18 @@ func (m *Model) updateSidebarItems() {
 			}
 		}
 
+		// "Load more" entry if there are more commits to load
+		if m.commitsLoaded < m.commitCount {
+			if len(items) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			remaining := m.commitCount - m.commitsLoaded
+			items = append(items, sidebarItem{
+				label: fmt.Sprintf("load more (%d remaining)", remaining),
+				kind:  itemDim,
+			})
+		}
+
 		// Category 4: Base branch commits (already in base, before the feature branch)
 		if len(m.baseCommits) > 0 {
 			if len(items) > 0 {
@@ -2089,6 +2159,11 @@ func (m *Model) updateMainContent() {
 			m.mainPane.SetContent("")
 			return
 		}
+		// Check if this is the "load more" entry
+		if strings.HasPrefix(selected, "load more") {
+			m.mainPane.SetPlainContent("Loading more commits...")
+			return
+		}
 		// Check if this is the "uncommitted changes" entry
 		if strings.HasPrefix(selected, "uncommitted changes") {
 			// Show combined diff of all uncommitted files in a single git call
@@ -2243,7 +2318,7 @@ func (m *Model) View() tea.View {
 		mode:           m.mode,
 		confirming:     m.confirming,
 		uncommitCount:  len(m.uncommittedFiles),
-		commitCount:    len(m.commits),
+		commitCount:    m.commitCount,
 		behindCount:    m.behindCount,
 		showHelp:       m.showHelp,
 		hoverX:         m.hoverX,
