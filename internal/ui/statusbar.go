@@ -88,7 +88,11 @@ func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line
 		result += "\n" + l3
 	} else if data.prError != "" {
 		// Show error on line 3 when no PR data available
-		errLine := statusBarDimStyle.Width(width).Render(" " + data.prError)
+		errText := " " + data.prError
+		if lipgloss.Width(errText) > width-2 {
+			errText = truncateToWidth(errText, width-2)
+		}
+		errLine := statusBarDimStyle.Width(width).Render(errText)
 		result += "\n" + errLine
 	}
 
@@ -288,6 +292,10 @@ func renderLine3(width int, data statusBarData) (string, []line3Label) {
 	}
 
 	bar := strings.Join(textParts, " · ")
+	// Truncate if too wide for the content area (width - 2 padding)
+	if lipgloss.Width(bar) > width-2 {
+		bar = truncateToWidth(bar, width-2)
+	}
 	return statusBarDimStyle.Width(width).Render(bar), labels
 }
 

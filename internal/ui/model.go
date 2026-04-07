@@ -638,6 +638,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if wasLoading && m.prInfo.Number > 0 && m.mode == FileViewMode {
 			m.mode = PRViewMode
 		}
+		// Recalculate layout — status bar height may have changed
+		m.updateLayout()
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
@@ -660,6 +662,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Double the interval on rate limit, up to max
 			m.prInterval = min(m.prInterval*2, prRefreshMax)
 			m.prError = "GitHub API rate limited"
+			m.updateLayout()
 			return m, nil
 		}
 		// Successful fetch — reset to default interval and clear error
@@ -672,6 +675,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prCommentCount = msg.commentCount
 		m.ciChecks = msg.ciChecks
 		m.prComments = msg.prComments
+		m.updateLayout()
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
