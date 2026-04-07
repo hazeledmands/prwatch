@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -11,6 +12,10 @@ import (
 	"github.com/hazeledmands/prwatch/internal/git"
 	"pgregory.net/rapid"
 )
+
+// ---------------------------------------------------------------------------
+// Scenario generators
+// ---------------------------------------------------------------------------
 
 // genMockGit generates random but valid mockGit instances for property testing.
 func genMockGit(t *rapid.T) *mockGit {
@@ -77,6 +82,253 @@ func genMockGit(t *rapid.T) *mockGit {
 	}
 }
 
+// genScenario generates a broader range of UI states than genMockGit alone.
+// It can produce non-git directories, repos with PRs, reviews, CI, base
+// commits, etc.
+func genScenario(t *rapid.T) (*mockGit, Mode) {
+	isGit := rapid.Float64Range(0, 1).Draw(t, "isGit") > 0.1 // 90% git, 10% non-git
+	if !isGit {
+		return nil, FileViewMode
+	}
+
+	mock := genMockGit(t)
+
+	// Optionally add PR reviews
+	if mock.prInfo.Number > 0 && rapid.Bool().Draw(t, "hasReviews") {
+		nReviews := rapid.IntRange(1, 3).Draw(t, "nReviews")
+		for i := range nReviews {
+			state := rapid.SampledFrom([]string{"APPROVED", "CHANGES_REQUESTED", "COMMENTED"}).Draw(t, fmt.Sprintf("reviewState%d", i))
+			mock.reviews = append(mock.reviews, git.PRReview{
+				Author: fmt.Sprintf("reviewer%d", i),
+				State:  state,
+			})
+		}
+	}
+
+	// Optionally add PR comments
+	if mock.prInfo.Number > 0 && rapid.Bool().Draw(t, "hasComments") {
+		nComments := rapid.IntRange(1, 5).Draw(t, "nComments")
+		mock.commentCount = nComments
+		for i := range nComments {
+			mock.prComments = append(mock.prComments, git.PRComment{
+				Author: fmt.Sprintf("commenter%d", i),
+				Body:   fmt.Sprintf("comment body %d", i),
+			})
+		}
+	}
+
+	// Optionally simulate GitHub API error (triggers 3-line status bar)
+	if rapid.Bool().Draw(t, "hasAPIError") {
+		mock.prInfoErr = fmt.Errorf("API rate limit exceeded")
+	}
+
+	// Optionally add base commits (category 4 in commit mode)
+	if rapid.Bool().Draw(t, "hasBaseCommits") {
+		nBase := rapid.IntRange(1, 10).Draw(t, "nBaseCommits")
+		for i := range nBase {
+			mock.baseCommits = append(mock.baseCommits, git.Commit{
+				SHA:     fmt.Sprintf("base%04d", i),
+				Subject: fmt.Sprintf("base commit %d", i),
+			})
+		}
+	}
+
+	// Pick a mode that makes sense for the scenario
+	maxMode := 2 // FileView, FileDiff, Commit
+	if mock.prInfo.Number > 0 {
+		maxMode = 3 // also PRView
+	}
+	mode := Mode(rapid.IntRange(0, maxMode).Draw(t, "mode"))
+
+	return mock, mode
+}
+
+// ---------------------------------------------------------------------------
+// Action generator
+// ---------------------------------------------------------------------------
+
+// genAction generates a random user interaction (key press, mouse click,
+// mouse scroll, or terminal resize) appropriate for the current model state.
+func genAction(t *rapid.T, m *Model, step int) tea.Msg {
+	tag := fmt.Sprintf("action%d", step)
+
+	// Weight categories: keys are most common, mouse less so, resize rare
+	category := rapid.SampledFrom([]string{
+		"key", "key", "key", "key", "key",
+		"mouse_click", "mouse_click",
+		"mouse_scroll",
+		"resize",
+	}).Draw(t, tag+"_cat")
+
+	switch category {
+	case "key":
+		return genKeyPress(t, tag)
+	case "mouse_click":
+		return genMouseClick(t, tag, m)
+	case "mouse_scroll":
+		return genMouseScroll(t, tag, m)
+	case "resize":
+		return genResize(t, tag)
+	}
+	return genKeyPress(t, tag) // fallback
+}
+
+func genKeyPress(t *rapid.T, tag string) tea.KeyPressMsg {
+	type keyDef struct {
+		text string
+		code rune
+	}
+
+	// All the interesting keys, excluding quit (we don't want to exit)
+	allKeys := []keyDef{
+		// Mode switching
+		{"m", 'm'}, {"v", 'v'}, {"d", 'd'}, {"c", 'c'}, {"b", 'b'},
+		{"1", '1'}, {"2", '2'}, {"3", '3'}, {"4", '4'},
+		// Navigation
+		{"j", 'j'}, {"k", 'k'}, {"g", 'g'}, {"G", 'G'},
+		{"h", 'h'}, {"l", 'l'},
+		// Focus
+		{",", ','}, {".", '.'},
+		// Toggles
+		{"t", 't'}, {"f", 'f'}, {"w", 'w'}, {"i", 'i'},
+		{"D", 'D'},
+		// Sidebar resize
+		{"+", '+'}, {"-", '-'},
+		// Diff navigation
+		{"J", 'J'}, {"K", 'K'},
+		// Leaf navigation
+		{"N", 'N'}, {"P", 'P'},
+		// Refresh
+		{"r", 'r'},
+		// Help
+		{"?", '?'},
+	}
+
+	idx := rapid.IntRange(0, len(allKeys)-1).Draw(t, tag+"_key")
+	k := allKeys[idx]
+	return tea.KeyPressMsg{Text: k.text, Code: k.code}
+}
+
+func genSpecialKey(t *rapid.T, tag string) tea.KeyPressMsg {
+	specials := []rune{
+		tea.KeyEnter,
+		tea.KeyTab,
+		tea.KeyUp,
+		tea.KeyDown,
+		tea.KeyLeft,
+		tea.KeyRight,
+		tea.KeyPgUp,
+		tea.KeyPgDown,
+	}
+	idx := rapid.IntRange(0, len(specials)-1).Draw(t, tag+"_special")
+	return tea.KeyPressMsg{Code: specials[idx]}
+}
+
+func genMouseClick(t *rapid.T, tag string, m *Model) tea.MouseClickMsg {
+	x := rapid.IntRange(0, max(1, m.width-1)).Draw(t, tag+"_x")
+	y := rapid.IntRange(0, max(1, m.height-1)).Draw(t, tag+"_y")
+	return tea.MouseClickMsg{
+		X:      x,
+		Y:      y,
+		Button: tea.MouseLeft,
+	}
+}
+
+func genMouseScroll(t *rapid.T, tag string, m *Model) tea.MouseWheelMsg {
+	x := rapid.IntRange(0, max(1, m.width-1)).Draw(t, tag+"_x")
+	y := rapid.IntRange(0, max(1, m.height-1)).Draw(t, tag+"_y")
+	btn := rapid.SampledFrom([]tea.MouseButton{tea.MouseWheelUp, tea.MouseWheelDown}).Draw(t, tag+"_dir")
+	return tea.MouseWheelMsg{
+		X:      x,
+		Y:      y,
+		Button: btn,
+	}
+}
+
+func genResize(t *rapid.T, tag string) tea.WindowSizeMsg {
+	return tea.WindowSizeMsg{
+		Width:  rapid.IntRange(40, 200).Draw(t, tag+"_w"),
+		Height: rapid.IntRange(10, 60).Draw(t, tag+"_h"),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Invariant checks
+// ---------------------------------------------------------------------------
+
+// checkRenderInvariants renders the model and verifies that the output has
+// exactly height lines, each exactly width display-cells wide, with no panics.
+func checkRenderInvariants(t *rapid.T, m *Model, context string) {
+	t.Helper()
+	v := m.View()
+	output := v.Content
+	width := m.width
+	height := m.height
+
+	lines := strings.Split(output, "\n")
+	if len(lines) != height {
+		t.Fatalf("%s: expected %d lines, got %d (width=%d, mode=%d)",
+			context, height, len(lines), width, m.mode)
+	}
+
+	stripped := stripANSI(output)
+	strippedLines := strings.Split(stripped, "\n")
+	for i, line := range strippedLines {
+		w := displayWidth(line)
+		if w != width {
+			t.Fatalf("%s: line %d has display width %d, expected %d\nline: %q",
+				context, i+1, w, width, line)
+		}
+	}
+}
+
+// checkSidebarInvariants verifies the sidebar selection is valid.
+func checkSidebarInvariants(t *rapid.T, m *Model, context string) {
+	t.Helper()
+	items := m.sidebar.items
+	if len(items) == 0 {
+		return
+	}
+	sel := m.sidebar.SelectedIndex()
+	if sel < 0 || sel >= len(items) {
+		t.Fatalf("%s: sidebar selection %d out of range [0, %d)",
+			context, sel, len(items))
+	}
+	if !items[sel].kind.selectable() {
+		t.Fatalf("%s: sidebar selection %d is on non-selectable item (kind=%d, label=%q)",
+			context, sel, items[sel].kind, items[sel].label)
+	}
+}
+
+// checkBottomBorder verifies the last line of rendered output contains
+// box-drawing bottom-border characters (╰). Skipped for help overlay,
+// confirm dialog, loading state, error state, and hidden sidebar.
+func checkBottomBorder(t *rapid.T, m *Model, context string) {
+	t.Helper()
+	if m.showHelp || m.confirming || m.loading || m.err != nil || m.sidebarHidden {
+		return
+	}
+	v := m.View()
+	stripped := stripANSI(v.Content)
+	lines := strings.Split(stripped, "\n")
+	lastLine := lines[len(lines)-1]
+	if !strings.Contains(lastLine, "╰") {
+		t.Fatalf("%s: last line should contain bottom border (╰) but got: %q",
+			context, lastLine)
+	}
+}
+
+func checkAllInvariants(t *rapid.T, m *Model, context string) {
+	t.Helper()
+	checkRenderInvariants(t, m, context)
+	checkSidebarInvariants(t, m, context)
+	checkBottomBorder(t, m, context)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 // displayWidth returns the display width of a string, accounting for
 // multi-byte UTF-8 characters. East Asian wide characters are counted as 2.
 func displayWidth(s string) int {
@@ -112,6 +364,65 @@ func renderModel(mock *mockGit, mode Mode, width, height int) string {
 	m.mode = mode
 	return m.RenderOnce(width, height)
 }
+
+// initModel creates a model from a scenario, loads data, and sets dimensions.
+func initModel(mock *mockGit, mode Mode, width, height int) *Model {
+	dir := "/tmp/test-repo"
+	if mock == nil {
+		// Non-git mode needs a real directory to walk
+		d, err := os.MkdirTemp("", "prwatch-test-*")
+		if err == nil {
+			dir = d
+		}
+	}
+	m := NewModel(dir, mock)
+	m.width = width
+	m.height = height
+	m.updateLayout()
+
+	// Load data synchronously
+	var msg tea.Msg
+	if mock != nil {
+		msg = m.loadGitData()
+	} else {
+		msg = m.loadNonGitFiles()
+	}
+	m.Update(msg)
+	m.mode = mode
+	m.updateSidebarItems()
+	m.updateMainContent()
+	return m
+}
+
+// applyAction sends a message to the model and handles synchronous follow-up
+// commands (like loadMoreCommits). Returns the updated model.
+func applyAction(m *Model, msg tea.Msg) *Model {
+	result, cmd := m.Update(msg)
+	m = result.(*Model)
+
+	// Execute synchronous commands (at most one level deep to avoid loops).
+	// Only follow up on messages we know are safe in test context — skip
+	// commands that would do I/O (exec editor, git refresh, etc.)
+	if cmd != nil {
+		func() {
+			defer func() { recover() }() // guard against panics from I/O commands
+			followUp := cmd()
+			if followUp == nil {
+				return
+			}
+			switch followUp.(type) {
+			case moreCommitsMsg, gitDataMsg:
+				result, _ = m.Update(followUp)
+				m = result.(*Model)
+			}
+		}()
+	}
+	return m
+}
+
+// ---------------------------------------------------------------------------
+// Existing property tests (preserved)
+// ---------------------------------------------------------------------------
 
 func TestProperty_LineCountEqualsTerminalHeight(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
@@ -382,6 +693,49 @@ func TestProperty_ConfirmQuitLineCount(t *testing.T) {
 
 		if len(lines) != height {
 			t.Fatalf("confirm quit: expected %d lines, got %d", height, len(lines))
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// New: multi-step interaction property test
+// ---------------------------------------------------------------------------
+
+func TestProperty_InteractionInvariants(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		mock, mode := genScenario(t)
+		width := rapid.IntRange(40, 200).Draw(t, "width")
+		height := rapid.IntRange(10, 60).Draw(t, "height")
+
+		m := initModel(mock, mode, width, height)
+
+		// Check invariants after initial load
+		checkAllInvariants(t, m, "after init")
+
+		// Run random interactions
+		nSteps := rapid.IntRange(1, 30).Draw(t, "nSteps")
+		for step := range nSteps {
+			// 20% chance of a special key (enter, tab, arrows, pgup/dn)
+			var msg tea.Msg
+			if rapid.Float64Range(0, 1).Draw(t, fmt.Sprintf("special%d", step)) < 0.2 {
+				msg = genSpecialKey(t, fmt.Sprintf("step%d", step))
+			} else {
+				msg = genAction(t, m, step)
+			}
+
+			m = applyAction(m, msg)
+
+			// If the model entered confirming or help, exit them so we keep
+			// exercising the main UI. This avoids getting stuck.
+			if m.confirming {
+				m.confirming = false
+			}
+			if m.showHelp {
+				m.showHelp = false
+			}
+
+			context := fmt.Sprintf("step %d (mode=%d, focus=%d)", step, m.mode, m.focus)
+			checkAllInvariants(t, m, context)
 		}
 	})
 }
