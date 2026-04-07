@@ -380,17 +380,18 @@ func (m *Model) loadGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
-	// Fetch first page of commits and total count
+	// Fetch commits and total count, preserving pagination state
+	pageSize := max(commitPageSize, m.commitsLoaded)
 	var commits []gitpkg.Commit
 	var commitCount int
 	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
-		commits, err = m.git.AllCommits(0, commitPageSize)
+		commits, err = m.git.AllCommits(0, pageSize)
 		if err != nil {
 			return gitDataMsg{err: err}
 		}
 		commitCount, _ = m.git.CommitCount()
 	} else {
-		commits, err = m.git.Commits(base, 0, commitPageSize)
+		commits, err = m.git.Commits(base, 0, pageSize)
 		if err != nil {
 			return gitDataMsg{err: err}
 		}
@@ -476,16 +477,19 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
+	// Preserve pagination: reload at least as many commits as the user has already seen
+	pageSize := max(commitPageSize, m.commitsLoaded)
+
 	var commits []gitpkg.Commit
 	var commitCount int
 	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
-		commits, err = m.git.AllCommits(0, commitPageSize)
+		commits, err = m.git.AllCommits(0, pageSize)
 		if err != nil {
 			return gitDataMsg{err: err}
 		}
 		commitCount, _ = m.git.CommitCount()
 	} else {
-		commits, err = m.git.Commits(base, 0, commitPageSize)
+		commits, err = m.git.Commits(base, 0, pageSize)
 		if err != nil {
 			return gitDataMsg{err: err}
 		}

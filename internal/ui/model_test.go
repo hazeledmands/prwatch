@@ -4297,6 +4297,145 @@ func TestCommitMode_BaseCommitsCategory4(t *testing.T) {
 	}
 }
 
+func TestCommitMode_ClickLoadMoreTriggersPagination(t *testing.T) {
+	// Set up 150 commits on a feature branch so only 100 load initially.
+	var branchCommits []git.Commit
+	for i := range 150 {
+		branchCommits = append(branchCommits, git.Commit{
+			SHA:     fmt.Sprintf("ccc%04d", i),
+			Subject: fmt.Sprintf("commit %d", i),
+		})
+	}
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:   "feature",
+			RepoName: "repo",
+		},
+		base:         "abc123",
+		commits:      branchCommits,
+		changedFiles: git.ChangedFilesResult{},
+	}
+
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	if len(m.commits) != 100 {
+		t.Fatalf("expected 100 commits loaded initially, got %d", len(m.commits))
+	}
+
+	// Switch to commit mode so the sidebar shows commits + "load more"
+	m.mode = CommitMode
+	m.updateSidebarItems()
+
+	// Find the "load more" item index
+	loadMoreIdx := -1
+	for i, item := range m.sidebar.items {
+		if strings.HasPrefix(item.label, "load more") {
+			loadMoreIdx = i
+			break
+		}
+	}
+	if loadMoreIdx < 0 {
+		t.Fatal("expected 'load more' sidebar item")
+	}
+
+	// Scroll the sidebar so "load more" is visible, then compute the click Y.
+	// The mouse handler does: itemIdx = (y - statusBarLines()) - 1 + sidebar.offset
+	// So: y = statusBarLines() + (itemIdx - sidebar.offset) + 1
+	m.sidebar.SelectIndex(loadMoreIdx)
+	clickY := m.statusBarLines() + (loadMoreIdx - m.sidebar.offset) + 1
+	clickX := 5 // anywhere inside the sidebar
+
+	// Drive the full Bubbletea update loop: click → cmd → msg → cmd → ...
+	// This catches infinite cmd chains that wouldn't terminate.
+	var result tea.Model
+	var cmd tea.Cmd
+	result, cmd = m.Update(tea.MouseClickMsg{X: clickX, Y: clickY})
+	m = result.(*Model)
+
+	const maxIterations = 20
+	iterations := 0
+	for cmd != nil {
+		iterations++
+		if iterations > maxIterations {
+			t.Fatalf("update loop did not quiesce after %d iterations — possible infinite cmd chain", maxIterations)
+		}
+		msg := cmd()
+		result, cmd = m.Update(msg)
+		m = result.(*Model)
+	}
+
+	if iterations == 0 {
+		t.Fatal("clicking 'load more' should have produced at least one command")
+	}
+
+	if len(m.commits) != 150 {
+		t.Fatalf("after clicking 'load more', expected 150 commits, got %d", len(m.commits))
+	}
+
+	// "load more" should be gone from the sidebar
+	for _, item := range m.sidebar.items {
+		if strings.HasPrefix(item.label, "load more") {
+			t.Error("'load more' should not appear after all commits are loaded")
+		}
+	}
+
+	// Verify View() completes without hanging (would catch rendering loops)
+	_ = m.View()
+}
+
+func TestCommitMode_RefreshPreservesPagination(t *testing.T) {
+	// After loading more commits, a periodic git refresh should not
+	// reset pagination back to the first page.
+	var branchCommits []git.Commit
+	for i := range 150 {
+		branchCommits = append(branchCommits, git.Commit{
+			SHA:     fmt.Sprintf("ddd%04d", i),
+			Subject: fmt.Sprintf("commit %d", i),
+		})
+	}
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:   "feature",
+			RepoName: "repo",
+		},
+		base:         "abc123",
+		commits:      branchCommits,
+		changedFiles: git.ChangedFilesResult{},
+	}
+
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	if len(m.commits) != 100 {
+		t.Fatalf("expected 100 commits initially, got %d", len(m.commits))
+	}
+
+	// Load more commits
+	moreMsg := m.loadMoreCommits()
+	m.Update(moreMsg)
+
+	if len(m.commits) != 150 {
+		t.Fatalf("expected 150 commits after load more, got %d", len(m.commits))
+	}
+
+	// Simulate a periodic git tick refresh (loadLocalGitData)
+	refreshMsg := m.loadLocalGitData()
+	m.Update(refreshMsg)
+
+	if len(m.commits) != 150 {
+		t.Fatalf("periodic refresh reset commits from 150 to %d — pagination state was lost", len(m.commits))
+	}
+}
+
 func TestCommitMode_LoadMoreAppearsWhenMoreCommits(t *testing.T) {
 	// Create more commits than the page size
 	var allCommits []git.Commit
