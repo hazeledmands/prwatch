@@ -64,10 +64,8 @@ const commitPageSize = 100
 // Implemented by *git.Git; mockable for testing.
 type GitDataSource interface {
 	RepoInfo() (gitpkg.RepoInfoResult, error)
-	PRInfo() (gitpkg.PRInfoResult, error)
-	PRChecks() (gitpkg.CIStatusResult, error)
-	PRReviews() ([]gitpkg.PRReview, error)
-	PRCommentCount() (int, error)
+	PRAll() (gitpkg.PRAllResult, error)
+	PRChecksAll() (gitpkg.PRChecksResult, error)
 	DetectBase() (string, error)
 	ChangedFiles(base string) (gitpkg.ChangedFilesResult, error)
 	Commits(base string, skip, limit int) ([]gitpkg.Commit, error)
@@ -81,9 +79,6 @@ type GitDataSource interface {
 	AllFiles(includeIgnored bool) ([]string, error)
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
 	BehindCount(baseRef string) int
-	PRComments() ([]gitpkg.PRComment, error)
-	CIChecks() ([]gitpkg.CICheck, error)
-	PRReviewRequests() ([]gitpkg.PRReviewRequest, error)
 	RWXResults(runID string) (*gitpkg.RWXResult, error)
 	RWXTaskLog(taskID string) (string, error)
 }
@@ -318,33 +313,23 @@ func (m *Model) loadNonGitFiles() tea.Msg {
 }
 
 func (m *Model) loadPRStatus() tea.Msg {
-	prInfo, err := m.git.PRInfo()
+	prAll, err := m.git.PRAll()
 	if err != nil {
 		// Any PR fetch error (rate limit, network, auth) — signal to preserve old data
 		return prRefreshMsg{rateLimited: true}
 	}
-	var ciStatus gitpkg.CIStatusResult
-	var reviews []gitpkg.PRReview
-	var reviewRequests []gitpkg.PRReviewRequest
-	var commentCount int
-	var ciChecks []gitpkg.CICheck
-	var prComments []gitpkg.PRComment
-	if prInfo.Number > 0 {
-		ciStatus, _ = m.git.PRChecks()
-		reviews, _ = m.git.PRReviews()
-		reviewRequests, _ = m.git.PRReviewRequests()
-		commentCount, _ = m.git.PRCommentCount()
-		ciChecks, _ = m.git.CIChecks()
-		prComments, _ = m.git.PRComments()
+	var checksResult gitpkg.PRChecksResult
+	if prAll.Info.Number > 0 {
+		checksResult, _ = m.git.PRChecksAll()
 	}
 	return prRefreshMsg{
-		prInfo:         prInfo,
-		ciStatus:       ciStatus,
-		reviews:        reviews,
-		reviewRequests: reviewRequests,
-		commentCount:   commentCount,
-		ciChecks:       ciChecks,
-		prComments:     prComments,
+		prInfo:         prAll.Info,
+		ciStatus:       checksResult.Status,
+		reviews:        prAll.Reviews,
+		reviewRequests: prAll.ReviewRequests,
+		commentCount:   prAll.CommentCount,
+		ciChecks:       checksResult.Checks,
+		prComments:     prAll.Comments,
 	}
 }
 
@@ -372,23 +357,17 @@ func (m *Model) loadGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
-	prInfo, prErr := m.git.PRInfo()
+	prAll, prErr := m.git.PRAll()
 	prFetchFailed := prErr != nil
+	prInfo := prAll.Info
 
-	// Fetch PR details if a PR exists (and fetch succeeded)
+	// Fetch CI checks if a PR exists (and fetch succeeded)
 	var ciStatus gitpkg.CIStatusResult
-	var reviews []gitpkg.PRReview
-	var reviewRequests []gitpkg.PRReviewRequest
-	var commentCount int
-	var prComments []gitpkg.PRComment
 	var ciChecks []gitpkg.CICheck
 	if prInfo.Number > 0 {
-		ciStatus, _ = m.git.PRChecks()
-		reviews, _ = m.git.PRReviews()
-		reviewRequests, _ = m.git.PRReviewRequests()
-		commentCount, _ = m.git.PRCommentCount()
-		prComments, _ = m.git.PRComments()
-		ciChecks, _ = m.git.CIChecks()
+		checksResult, _ := m.git.PRChecksAll()
+		ciStatus = checksResult.Status
+		ciChecks = checksResult.Checks
 	}
 
 	base, err := m.git.DetectBase()
@@ -460,8 +439,8 @@ func (m *Model) loadGitData() tea.Msg {
 		repoInfo:         info,
 		prInfo:           prInfo,
 		ciStatus:         ciStatus,
-		prReviews:        reviews,
-		prCommentCount:   commentCount,
+		prReviews:        prAll.Reviews,
+		prCommentCount:   prAll.CommentCount,
 		base:             base,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
@@ -472,9 +451,9 @@ func (m *Model) loadGitData() tea.Msg {
 		commitCount:      commitCount,
 		baseCommits:      baseCommits,
 		behindCount:      behindCount,
-		prComments:       prComments,
+		prComments:       prAll.Comments,
 		ciChecks:         ciChecks,
-		reviewRequests:   reviewRequests,
+		reviewRequests:   prAll.ReviewRequests,
 		prFetchFailed:    prFetchFailed,
 	}
 }
