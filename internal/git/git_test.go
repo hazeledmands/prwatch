@@ -255,7 +255,7 @@ func TestCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	commits, err := g.Commits(base)
+	commits, err := g.Commits(base, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestCommitPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	commits, err := g.Commits(base)
+	commits, err := g.Commits(base, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +395,7 @@ func TestCommits_OnMainBranch(t *testing.T) {
 	}
 
 	// On main, range is empty so should fallback to last 10 commits
-	commits, err := g.Commits(base)
+	commits, err := g.Commits(base, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +638,7 @@ func TestCommits_FallbackToRecentHistory(t *testing.T) {
 
 	// Use HEAD as base — range HEAD..HEAD is empty
 	sha, _ := g.DetectBase()
-	commits, err := g.Commits(sha)
+	commits, err := g.Commits(sha, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -790,7 +790,7 @@ func TestFileDiffUncommitted_NonExistentFile(t *testing.T) {
 
 func TestCommits_Error(t *testing.T) {
 	g := git.New(t.TempDir()) // not a git repo
-	_, err := g.Commits("fakebase")
+	_, err := g.Commits("fakebase", 0, 100)
 	if err == nil {
 		t.Error("expected error for non-git dir")
 	}
@@ -1135,7 +1135,7 @@ func TestAllCommits(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.New(dir)
 
-	commits, err := g.AllCommits()
+	commits, err := g.AllCommits(0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1145,6 +1145,86 @@ func TestAllCommits(t *testing.T) {
 	}
 	if commits[0].Subject != "add feature" {
 		t.Errorf("first commit subject = %q, want %q", commits[0].Subject, "add feature")
+	}
+}
+
+func TestAllCommits_Pagination(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	// First page: limit 1
+	page1, err := g.AllCommits(0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page1) != 1 {
+		t.Fatalf("expected 1 commit, got %d", len(page1))
+	}
+	if page1[0].Subject != "add feature" {
+		t.Errorf("page1[0] = %q, want %q", page1[0].Subject, "add feature")
+	}
+
+	// Second page: skip 1, limit 1
+	page2, err := g.AllCommits(1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page2) != 1 {
+		t.Fatalf("expected 1 commit, got %d", len(page2))
+	}
+	if page2[0].Subject != "initial commit" {
+		t.Errorf("page2[0] = %q, want %q", page2[0].Subject, "initial commit")
+	}
+
+	// Past the end: skip 2, limit 1
+	page3, err := g.AllCommits(2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page3) != 0 {
+		t.Fatalf("expected 0 commits, got %d", len(page3))
+	}
+}
+
+func TestCommitCount(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	count, err := g.CommitCount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 commits, got %d", count)
+	}
+}
+
+func TestCommitCountRange(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	count, err := g.CommitCountRange("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Feature branch has 1 commit ahead of main
+	if count != 1 {
+		t.Errorf("expected 1 commit in range, got %d", count)
+	}
+}
+
+func TestCommitCountRange_OnMain(t *testing.T) {
+	dir := setupTestRepo(t)
+	runGit(t, dir, "checkout", "main")
+	g := git.New(dir)
+
+	count, err := g.CommitCountRange("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// On main itself, range is empty so falls back to total count (1 commit on main)
+	if count != 1 {
+		t.Errorf("expected 1 commit (fallback to total), got %d", count)
 	}
 }
 

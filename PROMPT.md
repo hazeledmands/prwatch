@@ -36,7 +36,8 @@ line 2: local git status (not shown if this is not a git repo)
   - name of current branch and merge base, if any (eg: `foo -> main`, or just `main`)
   - number of uncommitted files (12 uncommitted)
   - number of unpushed commits (2 unpushed)
-  - number of commits after base (3 commits) -- or just the number of commits if we're in the main branch
+  - number of commits after base (3 commits) -- or just the number of commits if we're in the main branch.
+    this should always be the true total count (e.g. via `git rev-list --count`), not the number of commits currently loaded.
     clicking this should switch to [commits] mode
   - number of commits that this branch is behind base, if any (4 behind)
   - if no PR, "No PR"
@@ -125,7 +126,7 @@ the list of commits should be separated into categories, separated by a dividing
 3. commits in the current branch / PR that have been pushed to the origin
 4. commits after the stuff that's already in the base branch (even before the feature branch began)
 
-if this list is very long, we should do something to limit memory usage here. for now, probably it's okay to cap this list at 1000 entries.
+if this list is very long, we should paginate it. load the first 100 commits initially, then load the next 100 when the user scrolls to the end of the list. show a "load more" entry at the bottom of the list while more commits are available.
 
 ## live refresh
 
