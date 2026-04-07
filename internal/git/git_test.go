@@ -324,17 +324,17 @@ func TestRepoInfo_DetachedHead(t *testing.T) {
 	}
 }
 
-func TestPRInfo_NoPR(t *testing.T) {
+func TestPRAll_NoPR(t *testing.T) {
 	dir := setupTestRepo(t)
 	// Mock gh to return "no pull requests found" — avoids hitting real GitHub API
 	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no pull requests found for branch")))
 
-	info, err := g.PRInfo()
+	result, err := g.PRAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Number != 0 {
-		t.Errorf("expected no PR, got #%d", info.Number)
+	if result.Info.Number != 0 {
+		t.Errorf("expected no PR, got #%d", result.Info.Number)
 	}
 }
 
@@ -668,34 +668,46 @@ func TestRepoInfo_Worktree(t *testing.T) {
 	}
 }
 
-func TestPRInfo_WithMockGH(t *testing.T) {
+func TestPRAll_WithMockGH(t *testing.T) {
 	dir := setupTestRepo(t)
-	jsonResp := `{"number":42,"title":"Test PR","url":"https://github.com/test/repo/pull/42","state":"OPEN","baseRefName":"main"}`
+	jsonResp := `{"number":42,"title":"Test PR","url":"https://github.com/test/repo/pull/42","state":"OPEN","baseRefName":"main","reviews":[{"author":{"login":"alice"},"state":"APPROVED"}],"reviewRequests":[{"__typename":"User","login":"bob"}],"comments":[{"author":{"login":"carol"},"body":"lgtm"}]}`
 	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
 
-	info, err := g.PRInfo()
+	result, err := g.PRAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Number != 42 {
-		t.Errorf("expected PR #42, got #%d", info.Number)
+	if result.Info.Number != 42 {
+		t.Errorf("expected PR #42, got #%d", result.Info.Number)
 	}
-	if info.Title != "Test PR" {
-		t.Errorf("title = %q, want 'Test PR'", info.Title)
+	if result.Info.Title != "Test PR" {
+		t.Errorf("title = %q, want 'Test PR'", result.Info.Title)
 	}
-	if info.URL != "https://github.com/test/repo/pull/42" {
-		t.Errorf("url = %q", info.URL)
+	if result.Info.URL != "https://github.com/test/repo/pull/42" {
+		t.Errorf("url = %q", result.Info.URL)
 	}
-	if info.BaseRef != "main" {
-		t.Errorf("baseRef = %q, want 'main'", info.BaseRef)
+	if result.Info.BaseRef != "main" {
+		t.Errorf("baseRef = %q, want 'main'", result.Info.BaseRef)
+	}
+	if len(result.Reviews) != 1 || result.Reviews[0].Author != "alice" || result.Reviews[0].State != "APPROVED" {
+		t.Errorf("reviews = %+v, want [{alice APPROVED}]", result.Reviews)
+	}
+	if len(result.ReviewRequests) != 1 || result.ReviewRequests[0].Name != "bob" {
+		t.Errorf("reviewRequests = %+v, want [{bob false}]", result.ReviewRequests)
+	}
+	if result.CommentCount != 1 {
+		t.Errorf("commentCount = %d, want 1", result.CommentCount)
+	}
+	if len(result.Comments) != 1 || result.Comments[0].Author != "carol" || result.Comments[0].Body != "lgtm" {
+		t.Errorf("comments = %+v, want [{carol lgtm}]", result.Comments)
 	}
 }
 
-func TestPRInfo_InvalidJSON(t *testing.T) {
+func TestPRAll_InvalidJSON(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.NewWithRunner(dir, mockGHRunner("not json", nil))
 
-	_, err := g.PRInfo()
+	_, err := g.PRAll()
 	if err == nil {
 		t.Fatal("expected error for invalid JSON, got nil")
 	}
@@ -704,16 +716,16 @@ func TestPRInfo_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestPRInfo_GHError(t *testing.T) {
+func TestPRAll_GHError(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("gh not found")))
 
-	info, err := g.PRInfo()
+	result, err := g.PRAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Number != 0 {
-		t.Errorf("expected 0, got #%d", info.Number)
+	if result.Info.Number != 0 {
+		t.Errorf("expected 0, got #%d", result.Info.Number)
 	}
 }
 
@@ -762,11 +774,11 @@ func TestDefaultCmdRunner_Error(t *testing.T) {
 	// Mock gh to simulate "not a git repository" — avoids hitting real GitHub API
 	dir := t.TempDir()
 	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("not a git repository")))
-	info, err := g.PRInfo()
+	result, err := g.PRAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Number != 0 {
+	if result.Info.Number != 0 {
 		t.Error("expected empty PR info")
 	}
 }
@@ -849,156 +861,169 @@ func TestDetectBase_GHReturnsEmpty(t *testing.T) {
 	}
 }
 
-func TestPRChecks_Success(t *testing.T) {
+func TestPRChecksAll_Success(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"build","state":"SUCCESS","bucket":"pass","link":"https://ci.example.com/1"}]`
 	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
 
-	ci, err := g.PRChecks()
+	result, err := g.PRChecksAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ci.State != "SUCCESS" {
-		t.Errorf("expected SUCCESS, got %q", ci.State)
+	if result.Status.State != "SUCCESS" {
+		t.Errorf("expected SUCCESS, got %q", result.Status.State)
+	}
+	if len(result.Checks) != 1 {
+		t.Fatalf("expected 1 check, got %d", len(result.Checks))
+	}
+	if result.Checks[0].Name != "build" {
+		t.Errorf("check name = %q, want build", result.Checks[0].Name)
 	}
 }
 
-func TestPRChecks_Failure(t *testing.T) {
+func TestPRChecksAll_Failure(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"build","state":"FAILURE","bucket":"fail","link":"https://ci.example.com/2"},{"name":"lint","state":"SUCCESS","bucket":"pass","link":""}]`
 	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
 
-	ci, err := g.PRChecks()
+	result, err := g.PRChecksAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ci.State != "FAILURE" {
-		t.Errorf("expected FAILURE, got %q", ci.State)
+	if result.Status.State != "FAILURE" {
+		t.Errorf("expected FAILURE, got %q", result.Status.State)
 	}
-	if ci.URL != "https://ci.example.com/2" {
-		t.Errorf("expected failure URL, got %q", ci.URL)
+	if result.Status.URL != "https://ci.example.com/2" {
+		t.Errorf("expected failure URL, got %q", result.Status.URL)
+	}
+	if len(result.Checks) != 2 {
+		t.Errorf("expected 2 checks, got %d", len(result.Checks))
 	}
 }
 
-func TestPRChecks_Pending(t *testing.T) {
+func TestPRChecksAll_Pending(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"build","state":"IN_PROGRESS","bucket":"pending","link":"https://ci.example.com/3"}]`
 	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
 
-	ci, err := g.PRChecks()
+	result, err := g.PRChecksAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ci.State != "PENDING" {
-		t.Errorf("expected PENDING, got %q", ci.State)
+	if result.Status.State != "PENDING" {
+		t.Errorf("expected PENDING, got %q", result.Status.State)
 	}
 }
 
-func TestPRChecks_Error(t *testing.T) {
+func TestPRChecksAll_Error(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no PR")))
 
-	ci, err := g.PRChecks()
+	result, err := g.PRChecksAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ci.State != "" {
-		t.Errorf("expected empty state, got %q", ci.State)
+	if result.Status.State != "" {
+		t.Errorf("expected empty state, got %q", result.Status.State)
 	}
 }
 
-func TestPRChecks_InvalidJSON(t *testing.T) {
+func TestPRChecksAll_InvalidJSON(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.NewWithRunner(dir, mockGHRunner("not json", nil))
 
-	ci, err := g.PRChecks()
+	result, err := g.PRChecksAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ci.State != "" {
-		t.Errorf("expected empty state for invalid json, got %q", ci.State)
+	if result.Status.State != "" {
+		t.Errorf("expected empty state for invalid json, got %q", result.Status.State)
 	}
 }
 
-func TestPRChecks_EmptyArray(t *testing.T) {
+func TestPRChecksAll_EmptyArray(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.NewWithRunner(dir, mockGHRunner("[]", nil))
 
-	ci, err := g.PRChecks()
+	result, err := g.PRChecksAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ci.State != "SUCCESS" {
-		t.Errorf("empty checks should be SUCCESS, got %q", ci.State)
+	if result.Status.State != "SUCCESS" {
+		t.Errorf("empty checks should be SUCCESS, got %q", result.Status.State)
 	}
 }
 
-func TestPRReviews_Success(t *testing.T) {
+func TestPRAll_Reviews(t *testing.T) {
 	dir := setupTestRepo(t)
-	reviewJSON := "{\"author\":\"alice\",\"state\":\"APPROVED\"}\n{\"author\":\"bob\",\"state\":\"CHANGES_REQUESTED\"}"
-	g := git.NewWithRunner(dir, mockGHRunner(reviewJSON, nil))
+	jsonResp := `{"number":1,"reviews":[{"author":{"login":"alice"},"state":"APPROVED"},{"author":{"login":"bob"},"state":"CHANGES_REQUESTED"}]}`
+	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
 
-	reviews, err := g.PRReviews()
+	result, err := g.PRAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reviews) != 2 {
-		t.Fatalf("expected 2 reviews, got %d", len(reviews))
+	if len(result.Reviews) != 2 {
+		t.Fatalf("expected 2 reviews, got %d", len(result.Reviews))
 	}
-	if reviews[0].Author != "alice" {
-		t.Errorf("expected alice, got %q", reviews[0].Author)
+	if result.Reviews[0].Author != "alice" {
+		t.Errorf("expected alice, got %q", result.Reviews[0].Author)
 	}
 }
 
-func TestPRReviews_Error(t *testing.T) {
+func TestPRAll_ReviewRequests(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no PR")))
+	jsonResp := `{"number":1,"reviewRequests":[{"__typename":"User","login":"alice"},{"__typename":"Team","name":"Storage Reviewers"}]}`
+	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
 
-	reviews, err := g.PRReviews()
+	result, err := g.PRAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reviews != nil {
-		t.Error("expected nil reviews on error")
+	if len(result.ReviewRequests) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(result.ReviewRequests))
+	}
+	if result.ReviewRequests[0].Name != "alice" || result.ReviewRequests[0].IsTeam {
+		t.Errorf("first request: got %+v, want user alice", result.ReviewRequests[0])
+	}
+	if result.ReviewRequests[1].Name != "Storage Reviewers" || !result.ReviewRequests[1].IsTeam {
+		t.Errorf("second request: got %+v, want team Storage Reviewers", result.ReviewRequests[1])
 	}
 }
 
-func TestPRReviews_InvalidJSON(t *testing.T) {
+func TestPRAll_Comments(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("not json\nalso not json", nil))
+	jsonResp := `{"number":1,"comments":[{"author":{"login":"alice"},"body":"looks good"},{"author":{"login":"bob"},"body":"needs work"}]}`
+	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
 
-	reviews, err := g.PRReviews()
+	result, err := g.PRAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reviews) != 0 {
-		t.Errorf("expected 0 reviews for invalid json, got %d", len(reviews))
+	if result.CommentCount != 2 {
+		t.Errorf("expected 2 comments, got %d", result.CommentCount)
+	}
+	if len(result.Comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(result.Comments))
+	}
+	if result.Comments[0].Author != "alice" {
+		t.Errorf("first comment author = %q, want %q", result.Comments[0].Author, "alice")
+	}
+	if result.Comments[1].Body != "needs work" {
+		t.Errorf("second comment body = %q, want %q", result.Comments[1].Body, "needs work")
 	}
 }
 
-func TestPRCommentCount_Success(t *testing.T) {
+func TestPRAll_ErrorReturnsNil(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("5", nil))
+	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no pull requests found")))
 
-	count, err := g.PRCommentCount()
+	result, err := g.PRAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 5 {
-		t.Errorf("expected 5 comments, got %d", count)
-	}
-}
-
-func TestPRCommentCount_Error(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no PR")))
-
-	count, err := g.PRCommentCount()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Errorf("expected 0 comments on error, got %d", count)
+	if result.Info.Number != 0 {
+		t.Error("expected empty PR info on 'no PR' error")
 	}
 }
 
@@ -1244,143 +1269,17 @@ func TestBaseCommits(t *testing.T) {
 	}
 }
 
-func TestPRComments(t *testing.T) {
-	dir := setupTestRepo(t)
-	commentsJSON := `{"author":"alice","body":"looks good"}
-{"author":"bob","body":"needs work"}`
-	g := git.NewWithRunner(dir, mockGHRunner(commentsJSON, nil))
-
-	comments, err := g.PRComments()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(comments) != 2 {
-		t.Fatalf("expected 2 comments, got %d", len(comments))
-	}
-	if comments[0].Author != "alice" {
-		t.Errorf("first comment author = %q, want %q", comments[0].Author, "alice")
-	}
-	if comments[1].Body != "needs work" {
-		t.Errorf("second comment body = %q, want %q", comments[1].Body, "needs work")
-	}
-}
-
-func TestPRComments_Error(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("gh failed")))
-
-	comments, err := g.PRComments()
-	if err != nil {
-		t.Errorf("PRComments should return nil on error, got %v", err)
-	}
-	if comments != nil {
-		t.Errorf("expected nil comments on error, got %v", comments)
-	}
-}
-
-func TestCIChecks(t *testing.T) {
-	dir := setupTestRepo(t)
-	checksJSON := `[{"name":"build","state":"SUCCESS","bucket":"pass","link":"https://ci.example.com/1"},{"name":"lint","state":"FAILURE","bucket":"fail","link":"https://ci.example.com/2"}]`
-	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
-
-	checks, err := g.CIChecks()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(checks))
-	}
-	if checks[0].Name != "build" || checks[0].Bucket != "pass" {
-		t.Errorf("unexpected first check: %+v", checks[0])
-	}
-	if checks[1].Name != "lint" || checks[1].Bucket != "fail" {
-		t.Errorf("unexpected second check: %+v", checks[1])
-	}
-}
-
-func TestCIChecks_Error(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("gh failed")))
-
-	checks, err := g.CIChecks()
-	if err != nil {
-		t.Errorf("CIChecks should return nil on error, got %v", err)
-	}
-	if checks != nil {
-		t.Errorf("expected nil checks on error, got %v", checks)
-	}
-}
-
-func TestCIChecks_InvalidJSON(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("not json", nil))
-
-	checks, err := g.CIChecks()
-	if err != nil {
-		t.Errorf("CIChecks should return nil on invalid JSON, got %v", err)
-	}
-	if checks != nil {
-		t.Errorf("expected nil checks on invalid JSON, got %v", checks)
-	}
-}
-
-func TestPRChecks_ActionRequired(t *testing.T) {
+func TestPRChecksAll_ActionRequired(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"deploy","state":"COMPLETED","bucket":"cancel","link":"https://ci.example.com/4"}]`
 	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
 
-	ci, err := g.PRChecks()
+	result, err := g.PRChecksAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ci.State != "FAILURE" {
-		t.Errorf("action_required should be FAILURE, got %q", ci.State)
-	}
-}
-
-func TestPRReviewRequests(t *testing.T) {
-	dir := setupTestRepo(t)
-	requestsJSON := `{"reviewRequests":[{"__typename":"User","login":"alice"},{"__typename":"Team","name":"Storage Reviewers","slug":"org/storage-reviewers"}]}`
-	g := git.NewWithRunner(dir, mockGHRunner(requestsJSON, nil))
-
-	requests, err := g.PRReviewRequests()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(requests) != 2 {
-		t.Fatalf("expected 2 requests, got %d", len(requests))
-	}
-	if requests[0].Name != "alice" || requests[0].IsTeam {
-		t.Errorf("first request: got %+v, want user alice", requests[0])
-	}
-	if requests[1].Name != "Storage Reviewers" || !requests[1].IsTeam {
-		t.Errorf("second request: got %+v, want team Storage Reviewers", requests[1])
-	}
-}
-
-func TestPRReviewRequests_Error(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("gh failed")))
-
-	requests, err := g.PRReviewRequests()
-	if err != nil {
-		t.Error("should return nil on error")
-	}
-	if requests != nil {
-		t.Error("should return nil requests on error")
-	}
-}
-
-func TestPRReviewRequests_Empty(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner(`{"reviewRequests":[]}`, nil))
-
-	requests, err := g.PRReviewRequests()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(requests) != 0 {
-		t.Errorf("expected 0 requests, got %d", len(requests))
+	if result.Status.State != "FAILURE" {
+		t.Errorf("action_required should be FAILURE, got %q", result.Status.State)
 	}
 }
 

@@ -132,6 +132,21 @@ type PRReviewRequest struct {
 	IsTeam bool
 }
 
+// PRAllResult holds everything from a single consolidated gh pr view call.
+type PRAllResult struct {
+	Info           PRInfoResult
+	Reviews        []PRReview
+	ReviewRequests []PRReviewRequest
+	Comments       []PRComment
+	CommentCount   int
+}
+
+// PRChecksResult holds both the raw CI checks and the aggregated status.
+type PRChecksResult struct {
+	Checks []CICheck
+	Status CIStatusResult
+}
+
 func (g *Git) run(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = g.dir
@@ -531,10 +546,12 @@ func (g *Git) AllFiles(includeIgnored bool) ([]string, error) {
 	return files, nil
 }
 
-// PRInfo fetches PR info via gh CLI. Returns zero-value PRInfoResult if no PR exists.
+// PRAll fetches all PR data in a single gh pr view call.
+// Returns zero-value PRAllResult if no PR exists.
 // Returns an error if the gh command fails for reasons other than "no PR" (e.g. rate limiting, auth issues).
-func (g *Git) PRInfo() (PRInfoResult, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "number,title,url,state,baseRefName,isDraft,reviewDecision,body,labels,assignees,milestone,mergedBy")
+func (g *Git) PRAll() (PRAllResult, error) {
+	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json",
+		"number,title,url,state,baseRefName,isDraft,reviewDecision,body,labels,assignees,milestone,mergedBy,reviews,reviewRequests,comments")
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		// These errors mean genuinely no PR or no remote — not a transient failure
@@ -547,94 +564,50 @@ func (g *Git) PRInfo() (PRInfoResult, error) {
 			strings.Contains(errMsg, "could not determine") ||
 			strings.Contains(errMsg, "gh not found") ||
 			strings.Contains(errMsg, "executable file not found") {
-			return PRInfoResult{}, nil
+			return PRAllResult{}, nil
 		}
 		// Everything else (rate limit, auth, network) is a real error
-		return PRInfoResult{}, err
-	}
-	var result PRInfoResult
-	if err := json.Unmarshal([]byte(out), &result); err != nil {
-		return PRInfoResult{}, fmt.Errorf("parsing PR info: %w", err)
-	}
-	return result, nil
-}
-
-// PRChecks fetches CI check status for the current PR.
-func (g *Git) PRChecks() (CIStatusResult, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,bucket,link")
-	if err != nil {
-		return CIStatusResult{}, nil
+		return PRAllResult{}, err
 	}
 
-	var checks []CICheck
-	if err := json.Unmarshal([]byte(out), &checks); err != nil {
-		return CIStatusResult{}, nil
-	}
-
-	// Aggregate: if any failed, overall is FAILURE; if any pending, PENDING; else SUCCESS
-	result := CIStatusResult{State: "SUCCESS"}
-	for _, c := range checks {
-		if c.Bucket == "fail" || c.Bucket == "cancel" {
-			result.State = "FAILURE"
-			result.URL = c.URL
-			return result, nil
-		}
-		if c.Bucket == "pending" {
-			result.State = "PENDING"
-			if result.URL == "" {
-				result.URL = c.URL
-			}
-		}
-	}
-	if len(checks) > 0 && result.URL == "" {
-		result.URL = checks[0].URL
-	}
-	return result, nil
-}
-
-// PRReviews fetches review information for the current PR.
-func (g *Git) PRReviews() ([]PRReview, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "reviews", "-q", ".reviews[] | {author: .author.login, state: .state}")
-	if err != nil {
-		return nil, nil
-	}
-
-	// gh outputs NDJSON, one object per line
-	var reviews []PRReview
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var r PRReview
-		if err := json.Unmarshal([]byte(line), &r); err != nil {
-			continue
-		}
-		reviews = append(reviews, r)
-	}
-	return reviews, nil
-}
-
-// PRReviewRequests fetches pending review requests for the current PR.
-func (g *Git) PRReviewRequests() ([]PRReviewRequest, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "reviewRequests")
-	if err != nil {
-		return nil, nil
-	}
-
-	var result struct {
+	// Parse the combined JSON response
+	var raw struct {
+		PRInfoResult
+		Reviews []struct {
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			State string `json:"state"`
+		} `json:"reviews"`
 		ReviewRequests []struct {
 			TypeName string `json:"__typename"`
 			Login    string `json:"login"` // for User
 			Name     string `json:"name"`  // for Team
 		} `json:"reviewRequests"`
+		Comments []struct {
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			Body string `json:"body"`
+		} `json:"comments"`
 	}
-	if err := json.Unmarshal([]byte(out), &result); err != nil {
-		return nil, nil
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return PRAllResult{}, fmt.Errorf("parsing PR info: %w", err)
 	}
 
-	var requests []PRReviewRequest
-	for _, rr := range result.ReviewRequests {
+	result := PRAllResult{
+		Info:         raw.PRInfoResult,
+		CommentCount: len(raw.Comments),
+	}
+
+	for _, r := range raw.Reviews {
+		result.Reviews = append(result.Reviews, PRReview{
+			Author: r.Author.Login,
+			State:  r.State,
+		})
+	}
+
+	for _, rr := range raw.ReviewRequests {
 		name := rr.Login
 		isTeam := false
 		if rr.TypeName == "Team" {
@@ -642,10 +615,52 @@ func (g *Git) PRReviewRequests() ([]PRReviewRequest, error) {
 			isTeam = true
 		}
 		if name != "" {
-			requests = append(requests, PRReviewRequest{Name: name, IsTeam: isTeam})
+			result.ReviewRequests = append(result.ReviewRequests, PRReviewRequest{Name: name, IsTeam: isTeam})
 		}
 	}
-	return requests, nil
+
+	for _, c := range raw.Comments {
+		result.Comments = append(result.Comments, PRComment{
+			Author: c.Author.Login,
+			Body:   c.Body,
+		})
+	}
+
+	return result, nil
+}
+
+// PRChecksAll fetches CI checks in a single gh pr checks call, returning
+// both the individual checks and an aggregated status summary.
+func (g *Git) PRChecksAll() (PRChecksResult, error) {
+	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,bucket,link")
+	if err != nil {
+		return PRChecksResult{}, nil
+	}
+
+	var checks []CICheck
+	if err := json.Unmarshal([]byte(out), &checks); err != nil {
+		return PRChecksResult{}, nil
+	}
+
+	// Aggregate: if any failed, overall is FAILURE; if any pending, PENDING; else SUCCESS
+	status := CIStatusResult{State: "SUCCESS"}
+	for _, c := range checks {
+		if c.Bucket == "fail" || c.Bucket == "cancel" {
+			status.State = "FAILURE"
+			status.URL = c.URL
+			return PRChecksResult{Checks: checks, Status: status}, nil
+		}
+		if c.Bucket == "pending" {
+			status.State = "PENDING"
+			if status.URL == "" {
+				status.URL = c.URL
+			}
+		}
+	}
+	if len(checks) > 0 && status.URL == "" {
+		status.URL = checks[0].URL
+	}
+	return PRChecksResult{Checks: checks, Status: status}, nil
 }
 
 // gitRemoteToHTTPS converts a git remote URL to an HTTPS URL.
@@ -667,51 +682,6 @@ func gitRemoteToHTTPS(remote string) string {
 	}
 
 	return ""
-}
-
-// PRCommentCount fetches the number of comments on the current PR.
-func (g *Git) PRCommentCount() (int, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "comments", "-q", ".comments | length")
-	if err != nil {
-		return 0, nil
-	}
-	var count int
-	fmt.Sscanf(strings.TrimSpace(out), "%d", &count)
-	return count, nil
-}
-
-// PRComments fetches comments on the current PR.
-func (g *Git) PRComments() ([]PRComment, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "comments", "-q", ".comments[] | {author: .author.login, body: .body}")
-	if err != nil {
-		return nil, nil
-	}
-	var comments []PRComment
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var c PRComment
-		if err := json.Unmarshal([]byte(line), &c); err != nil {
-			continue
-		}
-		comments = append(comments, c)
-	}
-	return comments, nil
-}
-
-// CIChecks fetches individual CI check results for the current PR.
-func (g *Git) CIChecks() ([]CICheck, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,bucket,link")
-	if err != nil {
-		return nil, nil
-	}
-	var checks []CICheck
-	if err := json.Unmarshal([]byte(out), &checks); err != nil {
-		return nil, nil
-	}
-	return checks, nil
 }
 
 // IsRWXURL returns true if the URL points to an RWX CI run.
