@@ -69,12 +69,6 @@ var (
 				Foreground(lipgloss.Color("#1E1E2E")).
 				Padding(0, 1)
 
-	// Mode indicator — explicit background matches statusBarStyle to prevent color bleeding
-	modeActiveStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(statusBarBg)
-	modeActiveHoverStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(statusBarBg).Underline(true)
-	modeInactiveStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D0C8E8")).Background(statusBarBg)
-	modeHoverStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Background(statusBarBg).Underline(true)
-
 	// Status bar PR line
 	statusBarPRStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("#45475A")).

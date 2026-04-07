@@ -99,6 +99,40 @@ func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line
 	return result, labels, line3Labels
 }
 
+// ANSI SGR sequences for inline mode styling. We use these instead of
+// lipgloss.Render on individual mode labels because Render appends \e[0m
+// (full reset) which clears the background color set by the outer
+// statusBarStyle, leaving dark gaps between mode names.
+const (
+	ansiWhiteFg = "\x1b[38;2;250;250;250m" // #FAFAFA
+	ansiDimFg   = "\x1b[38;2;208;200;232m" // #D0C8E8
+	ansiBoldOn  = "\x1b[1m"
+	ansiBoldOff = "\x1b[22m"
+	ansiUlOn    = "\x1b[4m"
+	ansiUlOff   = "\x1b[24m"
+)
+
+// styleModeInline applies foreground/bold/underline attributes to a mode label
+// without emitting a full ANSI reset, so the outer statusBarStyle background
+// is preserved.
+func styleModeInline(text string, active, hovered bool) string {
+	var b strings.Builder
+	if active {
+		b.WriteString(ansiBoldOn)
+		b.WriteString(ansiWhiteFg)
+	} else {
+		b.WriteString(ansiDimFg)
+	}
+	if hovered {
+		b.WriteString(ansiUlOn)
+	}
+	b.WriteString(text)
+	// Reset to baseline state: no bold, no underline, white foreground.
+	// No \x1b[0m — that would kill the background.
+	b.WriteString(ansiBoldOff + ansiUlOff + ansiWhiteFg)
+	return b.String()
+}
+
 // renderLine1: overall status — mode, directory, worktree
 // Returns the rendered line and the clickable mode label positions.
 func renderLine1(width int, data statusBarData) (string, []modeLabel) {
@@ -137,20 +171,13 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 
 		// Help mode is "active" when help overlay is shown
 		isActive := m.mode == data.mode || (m.mode == HelpMode && data.showHelp)
-		if isActive {
-			if isHovered {
-				modeItems = append(modeItems, modeActiveHoverStyle.Render(displayText))
-			} else {
-				modeItems = append(modeItems, modeActiveStyle.Render(displayText))
-			}
-		} else {
-			if isHovered {
-				hoverMode = m.mode
-				modeItems = append(modeItems, modeHoverStyle.Render(displayText))
-			} else {
-				modeItems = append(modeItems, modeInactiveStyle.Render(displayText))
-			}
+		if !isActive && isHovered {
+			hoverMode = m.mode
 		}
+		// Style mode text using inline ANSI attributes (bold, underline,
+		// foreground) instead of lipgloss Render, which emits a full \e[0m
+		// reset that kills the outer statusBarStyle background between items.
+		modeItems = append(modeItems, styleModeInline(displayText, isActive, isHovered))
 
 		pos += displayWidth + 1 // +1 for space separator
 	}
