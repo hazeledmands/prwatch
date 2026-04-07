@@ -2178,8 +2178,9 @@ func (m *Model) updateMainContent() {
 
 func (m *Model) updateLayout() {
 	statusBarHeight := statusBarLineCount(statusBarData{
-		info: m.repoInfo,
-		pr:   m.prInfo,
+		info:    m.repoInfo,
+		pr:      m.prInfo,
+		prError: m.prError,
 	})
 	contentHeight := max(0, m.height-statusBarHeight-2) // borders
 

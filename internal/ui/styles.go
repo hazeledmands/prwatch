@@ -3,9 +3,12 @@ package ui
 import "charm.land/lipgloss/v2"
 
 var (
+	// Common colors
+	statusBarBg = lipgloss.Color("#7D56F4")
+
 	// Status bar
 	statusBarStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#7D56F4")).
+			Background(statusBarBg).
 			Foreground(lipgloss.Color("#FAFAFA")).
 			Padding(0, 1)
 
@@ -66,11 +69,11 @@ var (
 				Foreground(lipgloss.Color("#1E1E2E")).
 				Padding(0, 1)
 
-	// Mode indicator
-	modeActiveStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA"))
-	modeActiveHoverStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Underline(true)
-	modeInactiveStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D0C8E8"))
-	modeHoverStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Underline(true)
+	// Mode indicator — explicit background matches statusBarStyle to prevent color bleeding
+	modeActiveStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(statusBarBg)
+	modeActiveHoverStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(statusBarBg).Underline(true)
+	modeInactiveStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D0C8E8")).Background(statusBarBg)
+	modeHoverStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Background(statusBarBg).Underline(true)
 
 	// Status bar PR line
 	statusBarPRStyle = lipgloss.NewStyle().

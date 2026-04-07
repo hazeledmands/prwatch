@@ -1,6 +1,7 @@
 ## New Bugs
 
-(none)
+- I've had some back-and-forth on this one a few times, but the background color of the top status bar line is confusing and inconsistent to me! see bugreport/header_colors.png to see what I mean.
+- the bottom of the window cuts off the bottom of the content!
 
 ## Fixed Bugs
 
