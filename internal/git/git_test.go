@@ -11,6 +11,24 @@ import (
 	"github.com/hazeledmands/prwatch/internal/git"
 )
 
+// noGH creates a Git instance that stubs out gh/rwx commands so tests
+// never hit the real GitHub API. Use instead of noGH(dir) for tests
+// that don't need to test gh interaction.
+func noGH(dir string) *git.Git {
+	return git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+		if name == "gh" || name == "rwx" {
+			return "", fmt.Errorf("stubbed out in tests")
+		}
+		cmd := exec.Command(name, args...)
+		cmd.Dir = d
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(out)), nil
+	})
+}
+
 // mockGHRunner returns a CmdRunner that intercepts "gh" calls with mock responses
 // and delegates everything else to the real exec.Command.
 func mockGHRunner(ghResponse string, ghErr error) git.CmdRunner {
@@ -79,7 +97,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 
 func TestRepoInfo(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	info, err := g.RepoInfo()
 	if err != nil {
@@ -95,7 +113,7 @@ func TestRepoInfo(t *testing.T) {
 
 func TestDetectBase(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -112,7 +130,7 @@ func TestDetectBase(t *testing.T) {
 
 func TestChangedFiles_CommittedOnly(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -136,7 +154,7 @@ func TestChangedFiles_CommittedOnly(t *testing.T) {
 
 func TestChangedFiles_UncommittedOnly(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -163,7 +181,7 @@ func TestChangedFiles_UncommittedOnly(t *testing.T) {
 
 func TestChangedFiles_FileInBothGoesToUncommitted(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -196,7 +214,7 @@ func TestChangedFiles_FileInBothGoesToUncommitted(t *testing.T) {
 
 func TestFileDiffCommitted(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -214,7 +232,7 @@ func TestFileDiffCommitted(t *testing.T) {
 
 func TestFileDiffUncommitted(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	// Modify a tracked file
 	writeFile(t, dir, "feature.go", "package feature\n\nvar x = 1\n")
@@ -230,7 +248,7 @@ func TestFileDiffUncommitted(t *testing.T) {
 
 func TestFileDiffUncommitted_UntrackedFile(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	writeFile(t, dir, "newfile.go", "package newfile\n")
 
@@ -248,7 +266,7 @@ func TestFileDiffUncommitted_UntrackedFile(t *testing.T) {
 
 func TestCommits(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -272,7 +290,7 @@ func TestCommits(t *testing.T) {
 
 func TestCommitPatch(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -295,13 +313,13 @@ func TestCommitPatch(t *testing.T) {
 
 func TestIsRepo(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 	if !g.IsRepo() {
 		t.Error("expected IsRepo=true for git repo")
 	}
 
 	nonGitDir := t.TempDir()
-	g2 := git.New(nonGitDir)
+	g2 := noGH(nonGitDir)
 	if g2.IsRepo() {
 		t.Error("expected IsRepo=false for non-git dir")
 	}
@@ -310,7 +328,7 @@ func TestIsRepo(t *testing.T) {
 func TestRepoInfo_DetachedHead(t *testing.T) {
 	dir := setupTestRepo(t)
 	runGit(t, dir, "checkout", "--detach")
-	g := git.New(dir)
+	g := noGH(dir)
 
 	info, err := g.RepoInfo()
 	if err != nil {
@@ -340,7 +358,7 @@ func TestPRAll_NoPR(t *testing.T) {
 
 func TestFileContent(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	// Read an existing committed file
 	content, err := g.FileContent("feature.go")
@@ -354,7 +372,7 @@ func TestFileContent(t *testing.T) {
 
 func TestFileContent_WorkingTreeChanges(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	// Modify the file in the working tree
 	writeFile(t, dir, "feature.go", "package feature\n\nvar modified = true\n")
@@ -371,7 +389,7 @@ func TestFileContent_WorkingTreeChanges(t *testing.T) {
 
 func TestFileContent_UntrackedFile(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	writeFile(t, dir, "newfile.go", "package newfile\n")
 
@@ -387,7 +405,7 @@ func TestFileContent_UntrackedFile(t *testing.T) {
 func TestCommits_OnMainBranch(t *testing.T) {
 	dir := setupTestRepo(t)
 	runGit(t, dir, "checkout", "main")
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -407,7 +425,7 @@ func TestCommits_OnMainBranch(t *testing.T) {
 func TestDetectBase_OnMainBranch(t *testing.T) {
 	dir := setupTestRepo(t)
 	runGit(t, dir, "checkout", "main")
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -421,7 +439,7 @@ func TestDetectBase_OnMainBranch(t *testing.T) {
 func TestDetectBase_DetachedHead(t *testing.T) {
 	dir := setupTestRepo(t)
 	runGit(t, dir, "checkout", "--detach")
-	g := git.New(dir)
+	g := noGH(dir)
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -434,7 +452,7 @@ func TestDetectBase_DetachedHead(t *testing.T) {
 
 func TestChangedFiles_Sorted(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	// Add multiple files out of order
 	writeFile(t, dir, "zebra.go", "package z\n")
@@ -483,7 +501,7 @@ func TestDetectBase_NoMainBranch(t *testing.T) {
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-m", "feature commit")
 
-	g := git.New(dir)
+	g := noGH(dir)
 	base, err := g.DetectBase()
 	if err != nil {
 		t.Fatal(err)
@@ -515,7 +533,7 @@ func TestDetectBase_FallbackToHEAD(t *testing.T) {
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-m", "second")
 
-	g := git.New(dir)
+	g := noGH(dir)
 	base, err := g.DetectBase()
 	if err != nil {
 		t.Fatal(err)
@@ -562,7 +580,7 @@ func TestDetectBase_WithOrigin(t *testing.T) {
 	runGit(t, cloneDir, "add", ".")
 	runGit(t, cloneDir, "commit", "-m", "feature")
 
-	g := git.New(cloneDir)
+	g := noGH(cloneDir)
 	base, err := g.DetectBase()
 	if err != nil {
 		t.Fatal(err)
@@ -604,7 +622,7 @@ func TestDetectBase_WithOriginMaster(t *testing.T) {
 	runGit(t, cloneDir, "add", ".")
 	runGit(t, cloneDir, "commit", "-m", "feature")
 
-	g := git.New(cloneDir)
+	g := noGH(cloneDir)
 	base, err := g.DetectBase()
 	if err != nil {
 		t.Fatal(err)
@@ -616,7 +634,7 @@ func TestDetectBase_WithOriginMaster(t *testing.T) {
 
 func TestFileContent_FallbackToHEAD(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	// Delete the file from working tree but it exists in HEAD
 	os.Remove(filepath.Join(dir, "feature.go"))
@@ -634,7 +652,7 @@ func TestCommits_FallbackToRecentHistory(t *testing.T) {
 	// When on the same branch as base (base..HEAD is empty), should show recent commits
 	dir := setupTestRepo(t)
 	runGit(t, dir, "checkout", "main")
-	g := git.New(dir)
+	g := noGH(dir)
 
 	// Use HEAD as base — range HEAD..HEAD is empty
 	sha, _ := g.DetectBase()
@@ -655,7 +673,7 @@ func TestRepoInfo_Worktree(t *testing.T) {
 	wtDir := filepath.Join(t.TempDir(), "wt")
 	runGit(t, dir, "worktree", "add", wtDir, "hazel/test/feature")
 
-	g := git.New(wtDir)
+	g := noGH(wtDir)
 	info, err := g.RepoInfo()
 	if err != nil {
 		t.Fatal(err)
@@ -784,7 +802,7 @@ func TestDefaultCmdRunner_Error(t *testing.T) {
 }
 
 func TestRepoInfo_NonGitDir(t *testing.T) {
-	g := git.New(t.TempDir())
+	g := noGH(t.TempDir())
 	_, err := g.RepoInfo()
 	if err == nil {
 		t.Error("expected error for non-git dir")
@@ -793,7 +811,7 @@ func TestRepoInfo_NonGitDir(t *testing.T) {
 
 func TestFileDiffUncommitted_NonExistentFile(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 	_, err := g.FileDiffUncommitted("nonexistent_file.xyz")
 	if err == nil {
 		t.Error("expected error for nonexistent file")
@@ -801,7 +819,7 @@ func TestFileDiffUncommitted_NonExistentFile(t *testing.T) {
 }
 
 func TestCommits_Error(t *testing.T) {
-	g := git.New(t.TempDir()) // not a git repo
+	g := noGH(t.TempDir()) // not a git repo
 	_, err := g.Commits("fakebase", 0, 100)
 	if err == nil {
 		t.Error("expected error for non-git dir")
@@ -1092,7 +1110,7 @@ func TestRepoInfo_WithUpstream(t *testing.T) {
 	runGit(t, cloneDir, "commit", "-m", "initial")
 	runGit(t, cloneDir, "push", "origin", "main")
 
-	g := git.New(cloneDir)
+	g := noGH(cloneDir)
 	info, err := g.RepoInfo()
 	if err != nil {
 		t.Fatal(err)
@@ -1107,7 +1125,7 @@ func TestRepoInfo_WithUpstream(t *testing.T) {
 
 func TestAllFiles(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	// Add an untracked file and a gitignored file
 	writeFile(t, dir, "untracked.go", "package u\n")
@@ -1175,7 +1193,7 @@ func TestAllFiles(t *testing.T) {
 
 func TestBehindCount(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	// Feature branch is 0 commits behind main (main has only initial commit)
 	count := g.BehindCount("main")
@@ -1198,7 +1216,7 @@ func TestBehindCount(t *testing.T) {
 
 func TestAllCommits(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	commits, err := g.AllCommits(0, 100)
 	if err != nil {
@@ -1215,7 +1233,7 @@ func TestAllCommits(t *testing.T) {
 
 func TestAllCommits_Pagination(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	// First page: limit 1
 	page1, err := g.AllCommits(0, 1)
@@ -1253,7 +1271,7 @@ func TestAllCommits_Pagination(t *testing.T) {
 
 func TestCommitCount(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	count, err := g.CommitCount()
 	if err != nil {
@@ -1266,7 +1284,7 @@ func TestCommitCount(t *testing.T) {
 
 func TestCommitCountRange(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	count, err := g.CommitCountRange("main")
 	if err != nil {
@@ -1281,7 +1299,7 @@ func TestCommitCountRange(t *testing.T) {
 func TestCommitCountRange_OnMain(t *testing.T) {
 	dir := setupTestRepo(t)
 	runGit(t, dir, "checkout", "main")
-	g := git.New(dir)
+	g := noGH(dir)
 
 	count, err := g.CommitCountRange("main")
 	if err != nil {
@@ -1295,7 +1313,7 @@ func TestCommitCountRange_OnMain(t *testing.T) {
 
 func TestBaseCommits(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	g := noGH(dir)
 
 	commits, err := g.BaseCommits("main", 10)
 	if err != nil {

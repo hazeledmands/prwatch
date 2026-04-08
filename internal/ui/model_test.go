@@ -768,6 +768,43 @@ func TestRefreshMsg_Git(t *testing.T) {
 	}
 }
 
+func TestRefreshMsg_DoesNotCallGHAPI(t *testing.T) {
+	ghCalls := 0
+	runner := func(d string, name string, args ...string) (string, error) {
+		if name == "gh" {
+			ghCalls++
+			return "", fmt.Errorf("no PR")
+		}
+		cmd := exec.Command(name, args...)
+		cmd.Dir = d
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+
+	dir := t.TempDir()
+	exec.Command("git", "-C", dir, "init").Run()
+	exec.Command("git", "-C", dir, "commit", "--allow-empty", "-m", "init").Run()
+
+	g := git.NewWithRunner(dir, runner)
+	m := NewModel(dir, g)
+
+	// Initial load uses gh — reset counter
+	m.loadGitData()
+	ghCalls = 0
+
+	// RefreshMsg (from file watcher) should NOT call gh
+	_, cmd := m.Update(RefreshMsg{})
+	if cmd != nil {
+		cmd() // execute the command (loadLocalGitData)
+	}
+	if ghCalls != 0 {
+		t.Fatalf("RefreshMsg caused %d gh API calls, want 0", ghCalls)
+	}
+}
+
 func TestPRRefreshMsg(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 

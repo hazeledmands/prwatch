@@ -688,7 +688,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.git == nil {
 			return m, m.loadNonGitFiles
 		}
-		return m, m.loadGitData
+		// Use local-only refresh (no GitHub API calls). File watcher
+		// events fire frequently and should not hit the network.
+		// Full PR data is refreshed on the PR tick cycle instead.
+		return m, m.loadLocalGitData
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
