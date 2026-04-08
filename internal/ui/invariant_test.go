@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -256,11 +257,31 @@ func genResize(t *rapid.T, tag string) tea.WindowSizeMsg {
 // Invariant checks
 // ---------------------------------------------------------------------------
 
+// viewWithTimeout calls m.View() but fails the test if rendering takes longer
+// than 1 second, which indicates a hang in layout/width calculation.
+func viewWithTimeout(t *rapid.T, m *Model, context string) tea.View {
+	t.Helper()
+	type result struct{ v tea.View }
+	ch := make(chan result, 1)
+	go func() {
+		ch <- result{m.View()}
+	}()
+	select {
+	case r := <-ch:
+		return r.v
+	case <-time.After(1 * time.Second):
+		t.Fatalf("%s: View() hung for >1s (mode=%d, focus=%d, sidebarWidth=%d, width=%d, height=%d, files=%d, commits=%d)",
+			context, m.mode, m.focus, m.sidebar.width, m.width, m.height,
+			len(m.committedFiles)+len(m.uncommittedFiles), len(m.commits))
+		return tea.View{} // unreachable
+	}
+}
+
 // checkRenderInvariants renders the model and verifies that the output has
 // exactly height lines, each exactly width display-cells wide, with no panics.
 func checkRenderInvariants(t *rapid.T, m *Model, context string) {
 	t.Helper()
-	v := m.View()
+	v := viewWithTimeout(t, m, context)
 	output := v.Content
 	width := m.width
 	height := m.height
@@ -308,7 +329,7 @@ func checkBottomBorder(t *rapid.T, m *Model, context string) {
 	if m.showHelp || m.confirming || m.loading || m.err != nil || m.sidebarHidden {
 		return
 	}
-	v := m.View()
+	v := viewWithTimeout(t, m, context)
 	stripped := stripANSI(v.Content)
 	lines := strings.Split(stripped, "\n")
 	lastLine := lines[len(lines)-1]
@@ -404,20 +425,59 @@ func applyAction(m *Model, msg tea.Msg) *Model {
 	// Only follow up on messages we know are safe in test context — skip
 	// commands that would do I/O (exec editor, git refresh, etc.)
 	if cmd != nil {
-		func() {
-			defer func() { recover() }() // guard against panics from I/O commands
-			followUp := cmd()
-			if followUp == nil {
-				return
-			}
-			switch followUp.(type) {
-			case moreCommitsMsg, gitDataMsg:
-				result, _ = m.Update(followUp)
-				m = result.(*Model)
-			}
-		}()
+		execSafeCmd(m, cmd)
 	}
 	return m
+}
+
+// execSafeCmd runs a command and feeds safe follow-up messages back into the
+// model. It handles tea.BatchMsg by recursing into each sub-command. Commands
+// that would do real I/O (or panic) are silently skipped.
+func execSafeCmd(m *Model, cmd tea.Cmd) {
+	func() {
+		defer func() { recover() }()
+		followUp := cmd()
+		if followUp == nil {
+			return
+		}
+		switch msg := followUp.(type) {
+		case tea.BatchMsg:
+			for _, sub := range msg {
+				if sub != nil {
+					execSafeCmd(m, sub)
+				}
+			}
+		case moreCommitsMsg, gitDataMsg, prRefreshMsg, allFilesMsg:
+			result, cmd2 := m.Update(msg)
+			*m = *(result.(*Model))
+			if cmd2 != nil {
+				execSafeCmd(m, cmd2)
+			}
+		}
+	}()
+}
+
+// applyTicks simulates periodic timer ticks (PR refresh + git refresh) firing
+// and processes their results through the model. This exercises the same code
+// path that runs between user interactions in the real UI.
+//
+// Rather than sending prTickMsg/gitTickMsg (which produce tea.Tick commands
+// that block on real timers), we call the load functions directly and feed
+// their results into Update.
+//
+// hasGit must be passed explicitly because m.git may hold a nil *mockGit inside
+// a non-nil interface, which would pass an m.git == nil check.
+func applyTicks(m *Model, hasGit bool) {
+	if !hasGit {
+		return
+	}
+	for _, msg := range []tea.Msg{m.loadPRStatus(), m.loadLocalGitData()} {
+		result, cmd := m.Update(msg)
+		*m = *(result.(*Model))
+		if cmd != nil {
+			execSafeCmd(m, cmd)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -735,7 +795,25 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			}
 
 			context := fmt.Sprintf("step %d (mode=%d, focus=%d)", step, m.mode, m.focus)
-			checkAllInvariants(t, m, context)
+			checkAllInvariants(t, m, context+" after action")
+
+			// Capture sidebar scroll state before ticks
+			offsetBefore := m.sidebar.offset
+			selectedBefore := m.sidebar.selected
+
+			// Simulate periodic refresh ticks firing between user interactions
+			applyTicks(m, mock != nil)
+			checkAllInvariants(t, m, context+" after ticks")
+
+			// Tick refreshes should not move the sidebar scroll position
+			// when the selection hasn't changed. This is the "jump to
+			// selected" bug: periodic refreshes call updateSidebarItems →
+			// SetItems → clampOffset, which snaps the viewport back to the
+			// selected item even though the user scrolled away.
+			if m.sidebar.selected == selectedBefore && m.sidebar.offset != offsetBefore {
+				t.Fatalf("%s: sidebar offset changed from %d to %d after tick (selected=%d, items=%d)",
+					context, offsetBefore, m.sidebar.offset, m.sidebar.selected, len(m.sidebar.items))
+			}
 		}
 	})
 }

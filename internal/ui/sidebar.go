@@ -205,13 +205,17 @@ func (s *sidebar) SetItems(items []sidebarItem) {
 	}
 	// Ensure selection isn't on a separator
 	s.skipToSelectable()
-	s.clampOffset()
+	// Keep offset in valid range without snapping to the selected item.
+	// clampOffset would scroll-to-selected, which is wrong here: the user
+	// may have scrolled away from the selection and a periodic refresh
+	// shouldn't jump them back.
+	s.clampOffsetBounds()
 }
 
 func (s *sidebar) SetSize(w, h int) {
 	s.width = w
 	s.height = h
-	s.clampOffset()
+	s.clampOffsetBounds()
 }
 
 func (s *sidebar) SelectedIndex() int {
@@ -332,6 +336,8 @@ func (s *sidebar) skipToSelectable() {
 	}
 }
 
+// clampOffset adjusts the scroll offset so the selected item is visible.
+// Use after user navigation (arrow keys, mouse click on item, etc.).
 func (s *sidebar) clampOffset() {
 	visible := s.visibleLines()
 	if visible <= 0 {
@@ -342,6 +348,26 @@ func (s *sidebar) clampOffset() {
 	}
 	if s.selected >= s.offset+visible {
 		s.offset = s.selected - visible + 1
+	}
+}
+
+// clampOffsetBounds keeps the offset within valid range [0, len-visible]
+// without forcing the selected item to be visible. Use after item list
+// updates where we want to preserve the user's scroll position.
+func (s *sidebar) clampOffsetBounds() {
+	if s.offset < 0 {
+		s.offset = 0
+	}
+	visible := s.visibleLines()
+	if visible <= 0 {
+		return
+	}
+	maxOffset := len(s.items) - visible
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if s.offset > maxOffset {
+		s.offset = maxOffset
 	}
 }
 
