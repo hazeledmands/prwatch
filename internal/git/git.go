@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"testing"
 )
 
 // CmdRunner executes an external command and returns its stdout.
@@ -33,6 +34,9 @@ func NewWithRunner(dir string, runner CmdRunner) *Git {
 }
 
 func defaultCmdRunner(dir string, name string, args ...string) (string, error) {
+	if testing.Testing() && (name == "gh" || name == "rwx") {
+		panic(fmt.Sprintf("test called real %s command (use NewWithRunner to stub): %s %s", name, name, strings.Join(args, " ")))
+	}
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
