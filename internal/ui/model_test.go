@@ -12,9 +12,25 @@ import (
 	"github.com/hazeledmands/prwatch/internal/git"
 )
 
+// noGHRunner is a CmdRunner that stubs out gh/rwx commands so UI tests
+// never hit the real GitHub API.
+func noGHRunner(dir string, name string, args ...string) (string, error) {
+	if name == "gh" || name == "rwx" {
+		return "", fmt.Errorf("stubbed out in tests")
+	}
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // testGit returns a dummy git instance so the model operates in git mode.
+// Uses noGHRunner to prevent hitting the GitHub API.
 func testGit() *git.Git {
-	return git.New("/tmp")
+	return git.NewWithRunner("/tmp", noGHRunner)
 }
 
 // initAndLoadGitData calls Init and extracts just the loadGitData result.
@@ -1031,7 +1047,7 @@ func TestLoadGitData_RealRepo(t *testing.T) {
 	exec.Command("git", "-C", dir, "add", ".").Run()
 	exec.Command("git", "-C", dir, "commit", "-m", "add feature").Run()
 
-	g := git.New(dir)
+	g := git.NewWithRunner(dir, noGHRunner)
 	m := NewModel(dir, g)
 
 	cmd := m.Init()
@@ -1075,7 +1091,7 @@ func TestUpdateMainContent_FileViewWithGit(t *testing.T) {
 	exec.Command("git", "-C", dir, "add", ".").Run()
 	exec.Command("git", "-C", dir, "commit", "-m", "add new").Run()
 
-	g := git.New(dir)
+	g := git.NewWithRunner(dir, noGHRunner)
 	m := NewModel(dir, g)
 	m.width = 80
 	m.height = 24
@@ -1889,7 +1905,7 @@ func TestUpdateMainContent_FileDiff_UncommittedFile(t *testing.T) {
 	// Create an uncommitted file
 	os.WriteFile(filepath.Join(dir, "wip.go"), []byte("package wip\n"), 0644)
 
-	g := git.New(dir)
+	g := git.NewWithRunner(dir, noGHRunner)
 	m := NewModel(dir, g)
 	m.width = 80
 	m.height = 24
@@ -2141,7 +2157,7 @@ func TestLoadGitData_EmptyRepo(t *testing.T) {
 		}
 	}
 
-	g := git.New(dir)
+	g := git.NewWithRunner(dir, noGHRunner)
 	m := NewModel(dir, g)
 	msg := m.loadGitData()
 	dataMsg := msg.(gitDataMsg)
@@ -2154,7 +2170,7 @@ func TestLoadGitData_EmptyRepo(t *testing.T) {
 func TestLoadGitData_Error(t *testing.T) {
 	// Use a non-git directory as the git dir — RepoInfo will fail
 	dir := t.TempDir()
-	g := git.New(dir)
+	g := git.NewWithRunner(dir, noGHRunner)
 	m := NewModel(dir, g)
 
 	msg := m.loadGitData()
