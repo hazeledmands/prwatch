@@ -97,7 +97,7 @@ sidebar should show:
 - CI status (one line per CI check)
 
 ### CI logs
-- support RWX as a CI provider. look into RWX as an api, or using the rwx CLI. if the github CI status points to RWX, display the log from RWX instead.
+- support RWX as a CI provider. if the github CI status points to RWX and there are failures, use the rwx CLI tool to display details about the failures (including failing test results).
 
 ### sidebar (both file modes)
 
