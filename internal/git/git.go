@@ -17,8 +17,10 @@ type CmdRunner func(dir string, name string, args ...string) (string, error)
 
 // Git wraps git CLI operations for a specific working directory.
 type Git struct {
-	dir    string
-	runCmd CmdRunner // for running non-git commands (e.g. gh)
+	dir          string
+	runCmd       CmdRunner // for running non-git commands (e.g. gh)
+	cachedGHBase string    // cached result from gh pr view --baseRefName
+	hasGHBase    bool      // true once we've queried gh for the base ref
 }
 
 func New(dir string) *Git {
@@ -261,7 +263,20 @@ func (g *Git) DetectBase() (string, error) {
 }
 
 func (g *Git) ghPRBase() (string, error) {
-	return g.runCmd(g.dir, "gh", "pr", "view", "--json", "baseRefName", "-q", ".baseRefName")
+	if g.hasGHBase {
+		return g.cachedGHBase, nil
+	}
+	base, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "baseRefName", "-q", ".baseRefName")
+	if err != nil {
+		// Cache empty result so we don't keep calling gh when there's no PR.
+		// The cache gets refreshed when PRAll succeeds.
+		g.cachedGHBase = ""
+		g.hasGHBase = true
+		return "", err
+	}
+	g.cachedGHBase = base
+	g.hasGHBase = true
+	return base, nil
 }
 
 // BehindCount returns the number of commits the current branch is behind the
@@ -624,6 +639,12 @@ func (g *Git) PRAll() (PRAllResult, error) {
 			Author: c.Author.Login,
 			Body:   c.Body,
 		})
+	}
+
+	// Update the cached base ref so DetectBase doesn't need to call gh
+	if result.Info.BaseRef != "" {
+		g.cachedGHBase = result.Info.BaseRef
+		g.hasGHBase = true
 	}
 
 	return result, nil

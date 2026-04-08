@@ -861,6 +861,46 @@ func TestDetectBase_GHReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestDetectBase_CachesGHResult(t *testing.T) {
+	dir := setupTestRepo(t)
+	ghCalls := 0
+	runner := func(d string, name string, args ...string) (string, error) {
+		if name == "gh" {
+			ghCalls++
+			return "main", nil
+		}
+		cmd := exec.Command(name, args...)
+		cmd.Dir = d
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	g := git.NewWithRunner(dir, runner)
+
+	// First call should invoke gh
+	base1, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ghCalls != 1 {
+		t.Fatalf("expected 1 gh call after first DetectBase, got %d", ghCalls)
+	}
+
+	// Second call should use cached result, not call gh again
+	base2, err := g.DetectBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ghCalls != 1 {
+		t.Fatalf("expected 1 gh call after second DetectBase (cached), got %d", ghCalls)
+	}
+	if base1 != base2 {
+		t.Fatalf("cached result differs: %q vs %q", base1, base2)
+	}
+}
+
 func TestPRChecksAll_Success(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"build","state":"SUCCESS","bucket":"pass","link":"https://ci.example.com/1"}]`
