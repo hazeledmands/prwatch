@@ -81,6 +81,7 @@ type GitDataSource interface {
 	BehindCount(baseRef string) int
 	RWXResults(runID string) (*gitpkg.RWXResult, error)
 	RWXTaskLog(taskID string) (string, error)
+	RWXTestResults(taskID string) ([]gitpkg.RWXFailedTest, error)
 }
 
 type Model struct {
@@ -220,6 +221,23 @@ func (m *Model) maybeFetchRWXLog() tea.Cmd {
 			content.WriteString(fmt.Sprintf("\nFailed tasks: %d\n", len(results.FailedTasks)))
 			for _, task := range results.FailedTasks {
 				content.WriteString(fmt.Sprintf("\n--- %s ---\n\n", task.Key))
+
+				// Try test-results artifacts first for structured failure output
+				if task.HasArtifacts {
+					failedTests, err := m.git.RWXTestResults(task.TaskID)
+					if err == nil && len(failedTests) > 0 {
+						for _, ft := range failedTests {
+							content.WriteString(fmt.Sprintf("FAIL: %s (%s)\n\n", ft.Name, ft.Scope))
+							if ft.Stdout != "" {
+								content.WriteString(ft.Stdout)
+								content.WriteString("\n")
+							}
+						}
+						continue
+					}
+				}
+
+				// Fall back to raw logs
 				log, err := m.git.RWXTaskLog(task.TaskID)
 				if err != nil {
 					content.WriteString(fmt.Sprintf("Error fetching log: %v\n", err))

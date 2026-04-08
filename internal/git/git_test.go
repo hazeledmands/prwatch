@@ -1396,29 +1396,199 @@ func mockCmdRunner(responses map[string]struct {
 }
 
 func TestRWXResults(t *testing.T) {
-	dir := setupTestRepo(t)
 	rwxOutput := "Run result status: failed\n\n# Failed task:\n\n- ci.lint-go (task-id: c60819ffe21693dda97241c55b0a8f2e)\n"
-	g := git.NewWithRunner(dir, mockCmdRunner(map[string]struct {
-		output string
-		err    error
-	}{
-		"rwx": {output: rwxOutput, err: fmt.Errorf("exit status 1")},
-	}))
 
-	result, err := g.RWXResults("testrun123")
-	if err != nil {
-		t.Fatal(err)
+	t.Run("parses task ID with has-artifacts suffix", func(t *testing.T) {
+		dir := setupTestRepo(t)
+		rwxWithArtifacts := "Run result status: failed\n\n# Failed task:\n\n- ci.test-go (task-id: 0b4cbfc6edc27d1c94ef44e2f916c639) (has artifacts)\n"
+		g := git.NewWithRunner(dir, mockCmdRunner(map[string]struct {
+			output string
+			err    error
+		}{
+			"rwx": {output: rwxWithArtifacts, err: fmt.Errorf("exit status 1")},
+		}))
+
+		result, err := g.RWXResults("testrun123")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.FailedTasks) != 1 {
+			t.Fatalf("expected 1 failed task, got %d", len(result.FailedTasks))
+		}
+		if result.FailedTasks[0].TaskID != "0b4cbfc6edc27d1c94ef44e2f916c639" {
+			t.Errorf("expected clean task ID, got %q", result.FailedTasks[0].TaskID)
+		}
+		if !result.FailedTasks[0].HasArtifacts {
+			t.Error("expected HasArtifacts to be true")
+		}
+	})
+
+	t.Run("parses failed tasks from output", func(t *testing.T) {
+		dir := setupTestRepo(t)
+		g := git.NewWithRunner(dir, mockCmdRunner(map[string]struct {
+			output string
+			err    error
+		}{
+			"rwx": {output: rwxOutput, err: fmt.Errorf("exit status 1")},
+		}))
+
+		result, err := g.RWXResults("testrun123")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != "failed" {
+			t.Errorf("expected status 'failed', got %q", result.Status)
+		}
+		if len(result.FailedTasks) != 1 {
+			t.Fatalf("expected 1 failed task, got %d", len(result.FailedTasks))
+		}
+		if result.FailedTasks[0].Key != "ci.lint-go" {
+			t.Errorf("expected task key 'ci.lint-go', got %q", result.FailedTasks[0].Key)
+		}
+		if result.FailedTasks[0].TaskID != "c60819ffe21693dda97241c55b0a8f2e" {
+			t.Errorf("expected task ID 'c60819ffe21693dda97241c55b0a8f2e', got %q", result.FailedTasks[0].TaskID)
+		}
+		if result.FailedTasks[0].HasArtifacts {
+			t.Error("expected HasArtifacts to be false for task without artifacts")
+		}
+	})
+
+	t.Run("calls rwx runs with correct args", func(t *testing.T) {
+		dir := setupTestRepo(t)
+		var capturedName string
+		var capturedArgs []string
+		g := git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+			capturedName = name
+			capturedArgs = args
+			return rwxOutput, fmt.Errorf("exit status 1")
+		})
+
+		_, _ = g.RWXResults("testrun123")
+
+		if capturedName != "rwx" {
+			t.Errorf("expected command 'rwx', got %q", capturedName)
+		}
+		// The rwx CLI subcommand for viewing run results is "runs", not "results"
+		if len(capturedArgs) < 1 || capturedArgs[0] != "runs" {
+			t.Errorf("expected first arg 'runs', got %v", capturedArgs)
+		}
+	})
+
+	t.Run("parses output even when runner returns error alongside stdout", func(t *testing.T) {
+		// rwx exits 1 for failed runs but still writes parseable output to stdout.
+		// defaultCmdRunner must return that stdout alongside the error so
+		// RWXResults can parse the failed tasks. If stdout is discarded on
+		// error, the UI shows "No failed tasks" for a failed run.
+		dir := setupTestRepo(t)
+
+		// Simulate what defaultCmdRunner SHOULD do: return stdout + error
+		g := git.NewWithRunner(dir, mockCmdRunner(map[string]struct {
+			output string
+			err    error
+		}{
+			"rwx": {output: rwxOutput, err: fmt.Errorf("exit status 1")},
+		}))
+
+		result, err := g.RWXResults("testrun123")
+		if err != nil {
+			t.Fatalf("RWXResults should parse output even on exit 1, got error: %v", err)
+		}
+		if len(result.FailedTasks) == 0 {
+			t.Fatal("expected failed tasks to be parsed from output, got none")
+		}
+	})
+}
+
+func TestDefaultCmdRunner_ReturnsStdoutOnError(t *testing.T) {
+	// defaultCmdRunner must return stdout even when the command exits non-zero.
+	// rwx writes parseable output to stdout and exits 1 for failed runs;
+	// if defaultCmdRunner discards stdout on error, RWXResults can't parse
+	// the failed tasks and the UI misleadingly shows "No failed tasks."
+	//
+	// git.New() uses defaultCmdRunner, and it only panics for "gh"/"rwx",
+	// so we can test its behavior with "bash -c".
+	dir := setupTestRepo(t)
+	g := git.New(dir)
+
+	out, err := g.RunCmd("bash", "-c", "echo hello; exit 1")
+	if err == nil {
+		t.Fatal("expected error from exit 1")
 	}
-	if result.Status != "failed" {
-		t.Errorf("expected status 'failed', got %q", result.Status)
+	if out != "hello" {
+		t.Errorf("expected stdout 'hello' even on non-zero exit, got %q", out)
 	}
-	if len(result.FailedTasks) != 1 {
-		t.Fatalf("expected 1 failed task, got %d", len(result.FailedTasks))
-	}
-	if result.FailedTasks[0].Key != "ci.lint-go" {
-		t.Errorf("expected task key 'ci.lint-go', got %q", result.FailedTasks[0].Key)
-	}
-	if result.FailedTasks[0].TaskID != "c60819ffe21693dda97241c55b0a8f2e" {
-		t.Errorf("expected task ID 'c60819ffe21693dda97241c55b0a8f2e', got %q", result.FailedTasks[0].TaskID)
-	}
+}
+
+func TestRWXTestResults(t *testing.T) {
+	t.Run("downloads and parses failed tests from artifacts", func(t *testing.T) {
+		dir := setupTestRepo(t)
+
+		// Create a fake test-results JSON file to be "downloaded"
+		artifactDir := filepath.Join(dir, "fake-artifacts")
+		os.MkdirAll(artifactDir, 0o755)
+		testResultsJSON := `{
+			"tests": [
+				{"name": "TestPassing", "scope": "pkg/foo", "attempt": {"status": {"kind": "successful"}, "stdout": "ok"}},
+				{"name": "TestFailing", "scope": "pkg/bar", "attempt": {"status": {"kind": "failed"}, "stdout": "=== RUN TestFailing\n    bar_test.go:10: expected 1, got 2\n--- FAIL: TestFailing"}}
+			]
+		}`
+		os.WriteFile(filepath.Join(artifactDir, "test-results.json"), []byte(testResultsJSON), 0o644)
+
+		artifactListJSON := `{"Artifacts":[{"Key":"test-data","Kind":"directory"}]}`
+
+		g := git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+			if name != "rwx" {
+				return "", fmt.Errorf("unexpected command: %s", name)
+			}
+			// rwx artifacts list <task-id> --output json
+			if len(args) >= 2 && args[0] == "artifacts" && args[1] == "list" {
+				return artifactListJSON, nil
+			}
+			// rwx artifacts download <task-id> <key> --auto-extract --output-dir <dir>
+			if len(args) >= 2 && args[0] == "artifacts" && args[1] == "download" {
+				// Copy our fake test-results.json into the output dir
+				outputDir := args[len(args)-1]
+				os.MkdirAll(outputDir, 0o755)
+				data, _ := os.ReadFile(filepath.Join(artifactDir, "test-results.json"))
+				os.WriteFile(filepath.Join(outputDir, "test-results.json"), data, 0o644)
+				return "", nil
+			}
+			return "", fmt.Errorf("unexpected rwx args: %v", args)
+		})
+
+		results, err := g.RWXTestResults("task123")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 failed test, got %d", len(results))
+		}
+		if results[0].Name != "TestFailing" {
+			t.Errorf("expected test name 'TestFailing', got %q", results[0].Name)
+		}
+		if results[0].Scope != "pkg/bar" {
+			t.Errorf("expected scope 'pkg/bar', got %q", results[0].Scope)
+		}
+		if !strings.Contains(results[0].Stdout, "expected 1, got 2") {
+			t.Errorf("expected stdout to contain failure message, got %q", results[0].Stdout)
+		}
+	})
+
+	t.Run("returns empty when no artifacts", func(t *testing.T) {
+		dir := setupTestRepo(t)
+		g := git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+			if len(args) >= 2 && args[0] == "artifacts" && args[1] == "list" {
+				return `{"Artifacts":[]}`, nil
+			}
+			return "", fmt.Errorf("unexpected: %v", args)
+		})
+
+		results, err := g.RWXTestResults("task123")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(results) != 0 {
+			t.Errorf("expected 0 results, got %d", len(results))
+		}
+	})
 }

@@ -139,6 +139,9 @@ func (m *mockGit) RWXResults(runID string) (*git.RWXResult, error) {
 func (m *mockGit) RWXTaskLog(taskID string) (string, error) {
 	return "mock log output", nil
 }
+func (m *mockGit) RWXTestResults(taskID string) ([]git.RWXFailedTest, error) {
+	return nil, nil
+}
 
 func TestModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", testGit())

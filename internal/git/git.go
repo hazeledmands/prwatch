@@ -33,6 +33,11 @@ func NewWithRunner(dir string, runner CmdRunner) *Git {
 	return &Git{dir: dir, runCmd: runner}
 }
 
+// RunCmd exposes the command runner for testing.
+func (g *Git) RunCmd(name string, args ...string) (string, error) {
+	return g.runCmd(g.dir, name, args...)
+}
+
 func defaultCmdRunner(dir string, name string, args ...string) (string, error) {
 	if testing.Testing() && (name == "gh" || name == "rwx") {
 		panic(fmt.Sprintf("test called real %s command (use NewWithRunner to stub): %s %s", name, name, strings.Join(args, " ")))
@@ -44,10 +49,11 @@ func defaultCmdRunner(dir string, name string, args ...string) (string, error) {
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		errMsg := stderr.String()
+		out := strings.TrimSpace(stdout.String())
 		if errMsg != "" {
-			return "", fmt.Errorf("%s: %s", err, strings.TrimSpace(errMsg))
+			return out, fmt.Errorf("%s: %s", err, strings.TrimSpace(errMsg))
 		}
-		return "", err
+		return out, err
 	}
 	return strings.TrimSpace(stdout.String()), nil
 }
@@ -123,8 +129,16 @@ type RWXResult struct {
 
 // RWXFailedTask represents a failed task in an RWX run.
 type RWXFailedTask struct {
-	Key    string
-	TaskID string
+	Key          string
+	TaskID       string
+	HasArtifacts bool
+}
+
+// RWXFailedTest represents a single failed test extracted from RWX test-results artifacts.
+type RWXFailedTest struct {
+	Name   string
+	Scope  string
+	Stdout string
 }
 
 type PRReview struct {
@@ -734,7 +748,7 @@ func ExtractRWXRunID(url string) string {
 
 // RWXResults fetches the result of an RWX run using the rwx CLI.
 func (g *Git) RWXResults(runID string) (*RWXResult, error) {
-	out, err := g.runCmd(g.dir, "rwx", "results", runID, "--output", "text")
+	out, err := g.runCmd(g.dir, "rwx", "runs", runID, "--output", "text")
 	if err != nil {
 		// rwx results exits 1 on failure, but still outputs useful data
 		if out == "" {
@@ -755,10 +769,11 @@ func (g *Git) RWXResults(runID string) (*RWXResult, error) {
 			taskLine := strings.TrimPrefix(line, "- ")
 			parts := strings.SplitN(taskLine, " (task-id: ", 2)
 			if len(parts) == 2 {
-				taskID := strings.TrimSuffix(parts[1], ")")
+				taskID, _, _ := strings.Cut(parts[1], ")")
 				result.FailedTasks = append(result.FailedTasks, RWXFailedTask{
-					Key:    parts[0],
-					TaskID: taskID,
+					Key:          parts[0],
+					TaskID:       taskID,
+					HasArtifacts: strings.Contains(line, "(has artifacts)"),
 				})
 			}
 		}
@@ -798,4 +813,88 @@ func (g *Git) RWXTaskLog(taskID string) (string, error) {
 		}
 	}
 	return content.String(), nil
+}
+
+// RWXTestResults downloads test-results artifacts for a task and returns the failed tests.
+func (g *Git) RWXTestResults(taskID string) ([]RWXFailedTest, error) {
+	// List artifacts to find test-results
+	listOut, err := g.runCmd(g.dir, "rwx", "artifacts", "list", taskID, "--output", "json")
+	if err != nil {
+		return nil, fmt.Errorf("listing artifacts: %w", err)
+	}
+
+	var artifactList struct {
+		Artifacts []struct {
+			Key  string `json:"Key"`
+			Kind string `json:"Kind"`
+		} `json:"Artifacts"`
+	}
+	if err := json.Unmarshal([]byte(listOut), &artifactList); err != nil {
+		return nil, fmt.Errorf("parsing artifact list: %w", err)
+	}
+
+	// Download each artifact and look for test-results JSON files
+	tmpDir, err := os.MkdirTemp("", "prwatch-rwx-artifacts-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	var allFailed []RWXFailedTest
+	for _, artifact := range artifactList.Artifacts {
+		artDir := filepath.Join(tmpDir, artifact.Key)
+		_, err := g.runCmd(g.dir, "rwx", "artifacts", "download", taskID, artifact.Key,
+			"--auto-extract", "--output-dir", artDir)
+		if err != nil {
+			continue
+		}
+
+		// Walk the download dir for JSON files that look like test results
+		filepath.Walk(artDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".json") {
+				return nil
+			}
+			failed, _ := parseTestResultsFile(path)
+			allFailed = append(allFailed, failed...)
+			return nil
+		})
+	}
+
+	return allFailed, nil
+}
+
+// parseTestResultsFile reads an RWX test-results JSON file and extracts failed tests.
+func parseTestResultsFile(path string) ([]RWXFailedTest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var results struct {
+		Tests []struct {
+			Name    string `json:"name"`
+			Scope   string `json:"scope"`
+			Attempt struct {
+				Status struct {
+					Kind string `json:"kind"`
+				} `json:"status"`
+				Stdout string `json:"stdout"`
+			} `json:"attempt"`
+		} `json:"tests"`
+	}
+	if err := json.Unmarshal(data, &results); err != nil {
+		return nil, err
+	}
+
+	var failed []RWXFailedTest
+	for _, t := range results.Tests {
+		if t.Attempt.Status.Kind == "failed" {
+			failed = append(failed, RWXFailedTest{
+				Name:   t.Name,
+				Scope:  t.Scope,
+				Stdout: t.Attempt.Stdout,
+			})
+		}
+	}
+	return failed, nil
 }
