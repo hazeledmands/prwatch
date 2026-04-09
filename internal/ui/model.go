@@ -2405,31 +2405,28 @@ func (m *Model) applyDragHighlight(content string) string {
 	}
 
 	lines := strings.Split(content, "\n")
-	selectStyle := lipgloss.NewStyle().Reverse(true)
 
 	for y := startY; y <= endY && y < len(lines); y++ {
-		stripped := stripANSIForWidth(lines[y])
-		fromX := gutterOffset
-		toX := len(stripped)
+		fromCol := gutterOffset
+		toCol := displayWidthOf(stripANSIForWidth(lines[y]))
 		if y == startY {
-			fromX = startX
+			fromCol = startX
 		}
 		if y == endY {
-			toX = endX + 1
+			toCol = endX + 1
 		}
-		if fromX >= len(stripped) {
+
+		// Split the original line (preserving ANSI codes) at the
+		// highlight column boundaries, so that styling outside the
+		// selection is not disturbed.
+		before, middle, after := splitAtDisplayCols(lines[y], fromCol, toCol)
+		selected := stripANSIForWidth(middle)
+		if selected == "" {
 			continue
 		}
-		if toX > len(stripped) {
-			toX = len(stripped)
-		}
-		if fromX >= toX {
-			continue
-		}
-		before := stripped[:fromX]
-		selected := stripped[fromX:toX]
-		after := stripped[toX:]
-		lines[y] = before + selectStyle.Render(selected) + after
+		// Use raw ANSI escapes: \x1b[7m enables reverse-video,
+		// \x1b[27m disables only reverse-video (preserving other styles).
+		lines[y] = before + "\x1b[7m" + selected + "\x1b[27m" + after
 	}
 	return strings.Join(lines, "\n")
 }
@@ -2464,6 +2461,52 @@ func padToHeight(content string, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+// splitAtDisplayCols splits a line (which may contain ANSI escape codes) into
+// three parts at display column boundaries: before fromCol, between fromCol
+// and toCol, and after toCol. ANSI escape codes are preserved in whichever
+// segment they fall in.
+func splitAtDisplayCols(line string, fromCol, toCol int) (before, middle, after string) {
+	col := 0
+	fromByte := -1
+	toByte := -1
+	inEscape := false
+	for i, r := range line {
+		if inEscape {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			if fromByte < 0 && col >= fromCol {
+				fromByte = i
+			}
+			if toByte < 0 && col >= toCol {
+				toByte = i
+			}
+			inEscape = true
+			continue
+		}
+		if fromByte < 0 && col >= fromCol {
+			fromByte = i
+		}
+		if toByte < 0 && col >= toCol {
+			toByte = i
+		}
+		col += runewidth.RuneWidth(r)
+	}
+	if fromByte < 0 {
+		fromByte = len(line)
+	}
+	if toByte < 0 {
+		toByte = len(line)
+	}
+	if fromByte > toByte {
+		fromByte = toByte
+	}
+	return line[:fromByte], line[fromByte:toByte], line[toByte:]
+}
+
 // stripANSIForWidth removes ANSI escape sequences for width calculation.
 func stripANSIForWidth(s string) string {
 	return ansiStripRE.ReplaceAllString(s, "")
@@ -2478,9 +2521,12 @@ func displayWidthOf(s string) int {
 // copySelection extracts text from the main pane's content (stripping ANSI,
 // gutter, and TUI glyphs) and copies to the system clipboard.
 // Coordinates are screen-relative; we convert to main-pane-content-relative.
-func (m *Model) copySelection() {
+// selectedText extracts the plain text from the current drag selection,
+// stripping ANSI codes, gutter prefixes, and joining word-wrap continuations.
+// Returns empty string if the drag start and end are the same point.
+func (m *Model) selectedText() string {
 	if m.dragStartX == m.dragEndX && m.dragStartY == m.dragEndY {
-		return // No actual drag
+		return "" // No actual drag
 	}
 
 	// Main pane content area starts after:
@@ -2579,7 +2625,11 @@ func (m *Model) copySelection() {
 		}
 	}
 
-	text := selected.String()
+	return selected.String()
+}
+
+func (m *Model) copySelection() {
+	text := m.selectedText()
 	if text == "" {
 		return
 	}
