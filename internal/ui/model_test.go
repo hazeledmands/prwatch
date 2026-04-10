@@ -6047,3 +6047,100 @@ func TestSliceByDisplayCol(t *testing.T) {
 		})
 	}
 }
+
+func TestTreeDefaultStates(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Uncommitted: []string{"src/a.go", "src/b.go"},
+			Committed:   []string{"lib/c.go", "lib/d.go"},
+		},
+		allFiles: []string{"src/a.go", "src/b.go", "lib/c.go", "lib/d.go",
+			"vendor/e.go", "vendor/f.go", "docs/readme.md"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 30
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	// Switch to file-view mode (where all three sections appear)
+	m.mode = FileViewMode
+	m.updateSidebarItems()
+
+	// Uncommitted and committed dirs should NOT be collapsed (start open)
+	if m.collapsedDirs["src"] {
+		t.Error("uncommitted dir 'src' should start open, but is collapsed")
+	}
+	if m.collapsedDirs["lib"] {
+		t.Error("committed dir 'lib' should start open, but is collapsed")
+	}
+
+	// All-files directory trees should start closed
+	if !m.collapsedDirs["vendor"] {
+		t.Error("all-files dir 'vendor' should start collapsed")
+	}
+	if !m.collapsedDirs["docs"] {
+		t.Error("all-files dir 'docs' should start collapsed")
+	}
+}
+
+func TestHorizontalMouseScroll(t *testing.T) {
+	// Use a very long line that's wider than the main pane
+	longLine := strings.Repeat("x", 300)
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"long.go"},
+		},
+		allFiles:    []string{"long.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: longLine,
+		fileDiff:    "diff --git a/long.go b/long.go\n--- a/long.go\n+++ b/long.go\n@@ -0,0 +1 @@\n+" + longLine + "\n",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.updateMainContent()
+
+	// Turn off word wrap to enable horizontal scrolling
+	m.wordWrap = false
+	m.mainPane.SetWordWrap(false)
+	// Re-set content after changing wrap so viewport recalculates
+	m.updateMainContent()
+
+	initialOffset := m.mainPane.xOffset
+
+	// Horizontal mouse scroll right — use x coord in main pane area
+	sidebarW := m.sidebarPixelWidth()
+	mainX := sidebarW + 10
+	result, _ = m.Update(tea.MouseWheelMsg{X: mainX, Y: 5, Button: tea.MouseWheelRight})
+	m = result.(*Model)
+
+	if m.mainPane.xOffset <= initialOffset {
+		t.Errorf("horizontal scroll right should increase xOffset, got %d (was %d)", m.mainPane.xOffset, initialOffset)
+	}
+
+	// Horizontal mouse scroll left
+	saved := m.mainPane.xOffset
+	result, _ = m.Update(tea.MouseWheelMsg{X: mainX, Y: 5, Button: tea.MouseWheelLeft})
+	m = result.(*Model)
+
+	if m.mainPane.xOffset >= saved {
+		t.Errorf("horizontal scroll left should decrease xOffset, got %d (was %d)", m.mainPane.xOffset, saved)
+	}
+}
