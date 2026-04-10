@@ -19,6 +19,7 @@ the main pane will display content.
 binary content should never be shown -- instead display [binary content].
 
 while loading, data (such as data from github or a CI system), the display should indicate this rather than displaying inaccurate information. however, it should also display the data it _does_ have immediately, to keep the UI snappy and useful.
+  - for example, if the program is still downloading results from the GitHub API, it should render the file and diff mode and say "loading from github" on the github header
 
 the UI should update when the size of its bounding box changes. e.g. if the terminal window it is in is resized. wrapped content should re-wrap when the bounding box changes.
 
@@ -46,9 +47,10 @@ line 2: local git status (not shown if this is not a git repo)
   - if no PR, "No PR"
 line 3: github status (not shown if there is no PR)
   - if the github API is returning errors, then put the error message here! otherwise:
-  - name of the current PR
-    - clicking this should jump to the pr mode PR description
   - [DRAFT] if in draft mode, [MERGED] if merged
+    - clicking this should jump to the pr mode PR description
+    - this should be bright and bold and obvious
+  - name of the current PR
     - clicking this should jump to the pr mode PR description
   - review requests and approvals/rejections (as emoji)
     - clicking this should jump straight to the reviews list (if any)
