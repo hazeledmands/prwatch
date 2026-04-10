@@ -6186,3 +6186,78 @@ func TestPRDescriptionShowsDeployments(t *testing.T) {
 		t.Error("PR description should show deployment state PENDING")
 	}
 }
+
+func TestLeftAtScroll0_SwitchesToSidebar(t *testing.T) {
+	mg := testGit()
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.updateMainContent()
+	m.focus = MainFocus
+	m.wordWrap = false
+	m.mainPane.SetWordWrap(false)
+
+	// xOffset is 0 — left arrow should switch focus to sidebar
+	if m.mainPane.xOffset != 0 {
+		t.Fatalf("expected xOffset=0, got %d", m.mainPane.xOffset)
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	m = result.(*Model)
+
+	if m.focus != SidebarFocus {
+		t.Errorf("left at scroll=0 should switch to sidebar, got focus=%d", m.focus)
+	}
+}
+
+func TestLeftWithScroll_ScrollsInsteadOfSwitching(t *testing.T) {
+	longLine := strings.Repeat("x", 300)
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"long.go"},
+		},
+		allFiles:    []string{"long.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:    "diff --git a/long.go b/long.go\n--- a/long.go\n+++ b/long.go\n@@ -0,0 +1 @@\n+" + longLine + "\n",
+		fileContent: longLine,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	m.updateMainContent()
+	m.focus = MainFocus
+	m.wordWrap = false
+	m.mainPane.SetWordWrap(false)
+	m.updateMainContent()
+
+	// Scroll right first
+	m.mainPane.ScrollRight(20)
+	if m.mainPane.xOffset == 0 {
+		t.Fatal("should have scrolled right")
+	}
+
+	// Left arrow should scroll left, not switch focus
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	m = result.(*Model)
+
+	if m.focus != MainFocus {
+		t.Error("left with xOffset>0 should scroll, not switch focus")
+	}
+}
