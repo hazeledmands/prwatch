@@ -145,6 +145,8 @@ type Model struct {
 	dragEndX            int
 	dragEndY            int
 	dragging            bool
+	notification        string       // transient notification text (bottom-left)
+	notificationExpiry  time.Time    // when the notification should disappear
 	loading             bool         // true until first data load completes
 	modeLabels          []modeLabel  // clickable mode label positions from last render
 	line2Labels         []line2Label // clickable positions on git status line
@@ -198,6 +200,7 @@ type prRefreshMsg struct {
 
 type prTickMsg struct{}
 type gitTickMsg struct{}
+type notificationExpiredMsg struct{}
 
 // maybeFetchRWXLog returns a tea.Cmd to fetch RWX logs if there's a pending check.
 func (m *Model) maybeFetchRWXLog() tea.Cmd {
@@ -789,6 +792,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.loadPRStatus, schedulePRTick(m.prInterval))
 
+	case notificationExpiredMsg:
+		m.notification = ""
+		return m, nil
+
 	case gitTickMsg:
 		if m.git == nil {
 			return m, scheduleGitTick()
@@ -1073,8 +1080,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.YankPath):
-		m.yankPath()
-		return m, nil
+		return m, m.yankPath()
 
 	case key.Matches(msg, keys.Refresh):
 		if m.git == nil {
@@ -2636,6 +2642,16 @@ func (m *Model) View() tea.View {
 		}
 	}
 
+	// Show notification on the last line (unless search bar is active)
+	if m.notification != "" && !m.searching && !m.searchConfirmed {
+		lines := strings.Split(padded, "\n")
+		if len(lines) > 0 {
+			lines[len(lines)-1] = sidebarDimStyle.Render(m.notification)
+			padded = strings.Join(lines, "\n")
+			padded = padToHeight(padded, m.width, m.height)
+		}
+	}
+
 	// Apply drag selection highlighting
 	if m.dragging && (m.dragStartX != m.dragEndX || m.dragStartY != m.dragEndY) {
 		padded = m.applyDragHighlight(padded)
@@ -2949,23 +2965,28 @@ func (m *Model) selectedText() string {
 // yankPath copies the current file path to the clipboard.
 // Sidebar focused: copies the relative path of the selected file.
 // Main pane focused: copies path:startLine-endLine for the visible range.
-func (m *Model) yankPath() {
+func (m *Model) yankPath() tea.Cmd {
 	file := m.sidebar.SelectedItem()
 	if file == "" || m.sidebar.SelectedIsDir() {
-		return
+		return nil
 	}
+	var text string
 	if m.focus == SidebarFocus {
-		copyToClipboard(file)
-		return
-	}
-	// Main pane focused: include line range
-	topLine := m.mainPane.ViewportToSourceLine()
-	bottomLine := m.mainPane.ViewportBottomSourceLine()
-	if topLine == bottomLine {
-		copyToClipboard(fmt.Sprintf("%s:%d", file, topLine))
+		text = file
 	} else {
-		copyToClipboard(fmt.Sprintf("%s:%d-%d", file, topLine, bottomLine))
+		topLine := m.mainPane.ViewportToSourceLine()
+		bottomLine := m.mainPane.ViewportBottomSourceLine()
+		if topLine == bottomLine {
+			text = fmt.Sprintf("%s:%d", file, topLine)
+		} else {
+			text = fmt.Sprintf("%s:%d-%d", file, topLine, bottomLine)
+		}
 	}
+	copyToClipboard(text)
+	m.notification = "copied " + text
+	return tea.Tick(4*time.Second, func(time.Time) tea.Msg {
+		return notificationExpiredMsg{}
+	})
 }
 
 func (m *Model) copySelection() {
