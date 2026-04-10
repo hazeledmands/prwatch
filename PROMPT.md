@@ -203,8 +203,10 @@ detached HEAD works normally, status bar shows `detached @ <short sha>` instead 
 ### sidebar tree navigation (sidebar focused, tree mode on)
 | key | action |
 |-----|--------|
-| [left]/[h] | close branch, or go to nearest parent |
-| [right]/[l] or [enter] | open branch, go to nearest child, or (leaf node) switch to main pane |
+| [left]/[h] | collapse directory (if expanded), or go to nearest parent directory |
+| [right]/[l] or [enter] | expand directory (if collapsed), go to first child (if expanded), or (leaf file) switch to main pane |
+
+navigating over directories with any of these keys does not change the main panel content — only landing on a file does.
 
 when not in tree mode, [enter]/[right]/[l] on a sidebar entry switches to the main pane.
 
@@ -213,6 +215,7 @@ when not in tree mode, [enter]/[right]/[l] on a sidebar entry switches to the ma
 |-----|--------|
 | [enter] | file modes: open $EDITOR at current line. commit mode: no-op for now. |
 | [shift]+[n]/[p] | jump to next/previous leaf node in the sidebar, even if the sidebar is not selected |
+| [y] | sidebar focused: copy the relative path of the selected file to the system clipboard. main pane focused: copy the file path plus the line number range currently in view (e.g. `path/to/file.go:42-87`). |
 
 ### file-view specific
 | key | action |
@@ -263,7 +266,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 
 ## mouse behavior
 
-- clicking on files or commits in the sidebar opens them in the main view.
+- clicking on files or commits in the sidebar opens them in the main view. clicking a directory toggles its expand/collapse state without changing the main panel.
 - scrolling independently scrolls the focused view, keeping selections the same.
 - when text is not wrapped, horizontal mouse scroll works too.
 - hovering over clickable elements highlights them with a different background color.
