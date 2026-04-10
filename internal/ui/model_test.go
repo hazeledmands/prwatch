@@ -3356,6 +3356,40 @@ func TestHelpSearch(t *testing.T) {
 	}
 }
 
+func TestHelpSearch_BackspaceCancelsWhenEmpty(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Open help, start search, type a char, then backspace twice
+	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
+	m = result.(*Model)
+	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
+	m = result.(*Model)
+
+	if !m.helpSearching {
+		t.Fatal("help search should be active")
+	}
+
+	// Backspace removes the 'q'
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = result.(*Model)
+	if m.helpSearchQuery != "" {
+		t.Errorf("expected empty query after backspace, got %q", m.helpSearchQuery)
+	}
+	if m.helpSearching {
+		t.Error("backspace on empty help search should cancel search")
+	}
+
+	// Help should still be showing
+	if !m.showHelp {
+		t.Error("help should still be showing after search cancel")
+	}
+}
+
 // Regression: BUG_REPORTS.md says go.mod has 27 lines but file-view only scrolls to 25
 func TestFileView_ScrollToLastLine(t *testing.T) {
 	// Create a 27-line file content

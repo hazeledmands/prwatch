@@ -1196,6 +1196,12 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if len(m.helpSearchQuery) > 0 {
 				m.helpSearchQuery = m.helpSearchQuery[:len(m.helpSearchQuery)-1]
 			}
+			if m.helpSearchQuery == "" {
+				m.helpSearching = false
+				m.helpSearchConfirmed = false
+				m.helpSearchMatches = nil
+				return m, nil
+			}
 			m.updateHelpSearchMatches()
 			return m, nil
 		default:
