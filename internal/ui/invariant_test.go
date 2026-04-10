@@ -313,6 +313,11 @@ func checkRenderInvariants(t *rapid.T, m *Model, context string) {
 			t.Fatalf("%s: line %d has display width %d, expected %d\nline: %q",
 				context, i+1, w, width, line)
 		}
+		// All output must be valid UTF-8 (invalid bytes indicate mid-character byte slicing)
+		if !utf8.ValidString(line) {
+			t.Fatalf("%s: line %d contains invalid UTF-8, likely a byte-slicing bug\nline: %q",
+				context, i+1, line)
+		}
 	}
 }
 
