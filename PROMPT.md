@@ -91,22 +91,25 @@ sidebar should show:
       - tags, assignees, reviewers (and review status for each), projects, milestone
       - PR description with markdown formatting
       - deployments
+      - pressing [enter] when the main panel is highlighted should open a browser to the PR url
 - Comments section header
   - one line per comment: dim index, author name, dim relative timestamp
   - sorted by date descending (most recent first)
   - main panel shows author with timestamp, then the comment body
+    - pressing [enter] when the main panel is highlighted should open a browser to the comment URL
 - horizontal rule
 - Reviews section header
   - one line per review: dim index, state indicator (✓ ✗ c …), author name, dim relative timestamp
   - sorted by date descending (most recent first)
   - main panel shows author with timestamp, review state, body, and inline code-level comments (file:line plus body for each)
-  - inline review comments are fetched via GitHub GraphQL API (gh pr view --json doesn't include them)
+    - inline review comments are fetched via GitHub GraphQL API (gh pr view --json doesn't include them)
+    - pressing [enter] when the main panel is highlighted should open a browser to the review URL
 - horizontal rule
 - CI section header
   - one line per CI check: state indicator, check name, dim relative last updated time
   - sorted by: failures first, then pending, then passing; secondary order preserves GitHub's canonical order
   - main panel shows check name, status, start/completion timestamps, URL, and (for RWX) fetched logs
-  - pressing [enter] when the CI section is highlighted should open a browser to the CI URL
+    - pressing [enter] when the main panel is highlighted should open a browser to the CI URL
 
 ### CI logs
 - support RWX as a CI provider. if the github CI status points to RWX and there are failures, use the rwx CLI tool to display details about the failures (including failing test results).
