@@ -59,6 +59,13 @@ Recent additions:
 - RWX CI log integration: async-fetches run results and failed task logs
 - GitHub API error display on status bar line 3
 
+Recent additions:
+- Adaptive PR refresh: 30s when active, 10m when idle (>10m no UI events) or stale (>24h no server changes)
+- PR description shows dates (created, updated, merged, closed) with relative timestamps
+- Comments and reviews show author with timestamp in main panel
+- CI checks show start/completion timestamps and URL
+- Fixed drag-copy byte-slicing multi-byte characters (emoji)
+
 ## Known Limitations
 
 See INCONSISTENCIES.md for details:
@@ -68,8 +75,8 @@ See INCONSISTENCIES.md for details:
 ## Test Coverage
 
 Target: 90%+ for UI and git packages.
-- `internal/ui`: ~90%
-- `internal/git`: ~87%
-- `internal/watcher`: ~82%
+- `internal/ui`: ~90.6%
+- `internal/git`: ~86.1%
+- `internal/watcher`: ~86.4%
 
-Includes property-based invariant tests (line count, line width, sidebar click) and golden file snapshot tests.
+Includes property-based invariant tests (line count, line width, sidebar click, drag-copy) and 16 golden file snapshot tests.
