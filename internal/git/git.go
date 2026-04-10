@@ -114,6 +114,12 @@ type PRComment struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+type PRDeployment struct {
+	Environment string `json:"environment"`
+	State       string `json:"state"` // ACTIVE, INACTIVE, ERROR, QUEUED, IN_PROGRESS, etc.
+	URL         string `json:"url"`   // deployment URL (logUrl in GraphQL)
+}
+
 type CICheck struct {
 	Name        string    `json:"name"`
 	State       string    `json:"state"`
@@ -177,6 +183,7 @@ type PRAllResult struct {
 	ReviewRequests []PRReviewRequest
 	Comments       []PRComment
 	CommentCount   int
+	Deployments    []PRDeployment
 }
 
 // PRChecksResult holds both the raw CI checks and the aggregated status.
@@ -689,6 +696,11 @@ func (g *Git) PRAll() (PRAllResult, error) {
 		})
 	}
 
+	// Fetch deployments for this PR (best-effort, don't fail if this errors)
+	if deploys, err := g.fetchDeployments(result.Info.Number); err == nil {
+		result.Deployments = deploys
+	}
+
 	// Update the cached base ref so DetectBase doesn't need to call gh
 	if result.Info.BaseRef != "" {
 		g.cachedGHBase = result.Info.BaseRef
@@ -696,6 +708,101 @@ func (g *Git) PRAll() (PRAllResult, error) {
 	}
 
 	return result, nil
+}
+
+// fetchDeployments fetches deployment statuses for a PR using the GitHub GraphQL API.
+// This consolidates with the existing gh api pattern to minimize separate REST calls.
+func (g *Git) fetchDeployments(prNumber int) ([]PRDeployment, error) {
+	// Use GraphQL to get deployment statuses for the PR's head commit.
+	// This avoids a separate REST call for owner/repo resolution.
+	query := fmt.Sprintf(`query {
+		repository(owner: "{owner}", name: "{repo}") {
+			pullRequest(number: %d) {
+				commits(last: 1) {
+					nodes {
+						commit {
+							deployments(last: 10) {
+								nodes {
+									environment
+									state
+									latestStatus {
+										state
+										logUrl
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}`, prNumber)
+
+	// Resolve owner/repo via gh repo view
+	nwoOut, err := g.runCmd(g.dir, "gh", "repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name")
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.SplitN(strings.TrimSpace(nwoOut), "/", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("unexpected repo format: %q", nwoOut)
+	}
+	owner, repo := parts[0], parts[1]
+
+	// Replace placeholders in query
+	query = strings.ReplaceAll(query, "{owner}", owner)
+	query = strings.ReplaceAll(query, "{repo}", repo)
+
+	out, err := g.runCmd(g.dir, "gh", "api", "graphql", "-f", "query="+query)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					Commits struct {
+						Nodes []struct {
+							Commit struct {
+								Deployments struct {
+									Nodes []struct {
+										Environment  string `json:"environment"`
+										State        string `json:"state"`
+										LatestStatus *struct {
+											State  string `json:"state"`
+											LogURL string `json:"logUrl"`
+										} `json:"latestStatus"`
+									} `json:"nodes"`
+								} `json:"deployments"`
+							} `json:"commit"`
+						} `json:"nodes"`
+					} `json:"commits"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		return nil, err
+	}
+
+	var deployments []PRDeployment
+	for _, commitNode := range resp.Data.Repository.PullRequest.Commits.Nodes {
+		for _, d := range commitNode.Commit.Deployments.Nodes {
+			deploy := PRDeployment{
+				Environment: d.Environment,
+				State:       d.State,
+			}
+			if d.LatestStatus != nil {
+				deploy.State = d.LatestStatus.State
+				deploy.URL = d.LatestStatus.LogURL
+			}
+			deployments = append(deployments, deploy)
+		}
+	}
+
+	return deployments, nil
 }
 
 // fetchReviewsGraphQL fetches reviews with their inline comments via the GitHub GraphQL API.

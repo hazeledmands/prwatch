@@ -102,15 +102,16 @@ type Model struct {
 	allFiles            []string        // all files in the repo (for file-view mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
 	commits             []gitpkg.Commit
-	commitCount         int                // true total commit count (from rev-list --count)
-	commitsLoaded       int                // how many commits have been loaded so far
-	behindCount         int                // how many commits behind base
-	baseCommits         []gitpkg.Commit    // commits from the base branch (for commit mode category 4)
-	prComments          []gitpkg.PRComment // PR comments for PR-view mode
-	ciChecks            []gitpkg.CICheck   // CI checks for PR-view mode
-	pendingRWXCheck     *gitpkg.CICheck    // CI check awaiting RWX log fetch
-	rwxLogCache         map[string]string  // cache of RWX logs by check URL
-	lastViewedFile      string             // track the last file shown in file-view for auto-jump
+	commitCount         int                   // true total commit count (from rev-list --count)
+	commitsLoaded       int                   // how many commits have been loaded so far
+	behindCount         int                   // how many commits behind base
+	baseCommits         []gitpkg.Commit       // commits from the base branch (for commit mode category 4)
+	prComments          []gitpkg.PRComment    // PR comments for PR-view mode
+	prDeployments       []gitpkg.PRDeployment // PR deployments for PR-view mode
+	ciChecks            []gitpkg.CICheck      // CI checks for PR-view mode
+	pendingRWXCheck     *gitpkg.CICheck       // CI check awaiting RWX log fetch
+	rwxLogCache         map[string]string     // cache of RWX logs by check URL
+	lastViewedFile      string                // track the last file shown in file-view for auto-jump
 	sidebar             *sidebar
 	mainPane            *mainPane
 	sidebarPct          int // sidebar width as percentage of total width (10-50)
@@ -167,6 +168,7 @@ type gitDataMsg struct {
 	commitCount      int
 	baseCommits      []gitpkg.Commit
 	prComments       []gitpkg.PRComment
+	prDeployments    []gitpkg.PRDeployment
 	ciChecks         []gitpkg.CICheck
 	reviewRequests   []gitpkg.PRReviewRequest
 	behindCount      int
@@ -189,6 +191,7 @@ type prRefreshMsg struct {
 	commentCount   int
 	ciChecks       []gitpkg.CICheck
 	prComments     []gitpkg.PRComment
+	prDeployments  []gitpkg.PRDeployment
 	rateLimited    bool
 }
 
@@ -350,6 +353,7 @@ func (m *Model) loadPRStatus() tea.Msg {
 		commentCount:   prAll.CommentCount,
 		ciChecks:       checksResult.Checks,
 		prComments:     prAll.Comments,
+		prDeployments:  prAll.Deployments,
 	}
 }
 
@@ -536,6 +540,7 @@ func (m *Model) loadGitData() tea.Msg {
 		baseCommits:      baseCommits,
 		behindCount:      behindCount,
 		prComments:       prAll.Comments,
+		prDeployments:    prAll.Deployments,
 		ciChecks:         ciChecks,
 		reviewRequests:   prAll.ReviewRequests,
 		prFetchFailed:    prFetchFailed,
@@ -692,6 +697,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.prReviewRequests = msg.reviewRequests
 				m.prCommentCount = msg.prCommentCount
 				m.prComments = msg.prComments
+				m.prDeployments = msg.prDeployments
 				m.ciChecks = msg.ciChecks
 				m.sortPRData()
 			}
@@ -758,6 +764,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prCommentCount = msg.commentCount
 		m.ciChecks = msg.ciChecks
 		m.prComments = msg.prComments
+		m.prDeployments = msg.prDeployments
 		m.sortPRData()
 		m.updateLayout()
 		m.updateSidebarItems()
@@ -2902,6 +2909,18 @@ func (m *Model) renderPRDescription() string {
 	// Milestone
 	if pr.Milestone.Title != "" {
 		b.WriteString(fmt.Sprintf("Milestone: %s\n", pr.Milestone.Title))
+	}
+
+	// Deployments
+	if len(m.prDeployments) > 0 {
+		b.WriteString("\nDeployments:\n")
+		for _, d := range m.prDeployments {
+			line := fmt.Sprintf("  %s: %s", d.Environment, d.State)
+			if d.URL != "" {
+				line += fmt.Sprintf(" (%s)", d.URL)
+			}
+			b.WriteString(line + "\n")
+		}
 	}
 
 	b.WriteString("\n")

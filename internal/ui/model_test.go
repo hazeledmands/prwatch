@@ -70,6 +70,7 @@ type mockGit struct {
 	baseCommits    []git.Commit
 	baseCommitsErr error
 	prComments     []git.PRComment
+	prDeployments  []git.PRDeployment
 	ciChecks       []git.CICheck
 	reviewRequests []git.PRReviewRequest
 }
@@ -85,6 +86,7 @@ func (m *mockGit) PRAll() (git.PRAllResult, error) {
 		ReviewRequests: m.reviewRequests,
 		Comments:       m.prComments,
 		CommentCount:   m.commentCount,
+		Deployments:    m.prDeployments,
 	}, nil
 }
 func (m *mockGit) PRChecksAll() (git.PRChecksResult, error) {
@@ -6142,5 +6144,52 @@ func TestHorizontalMouseScroll(t *testing.T) {
 
 	if m.mainPane.xOffset >= saved {
 		t.Errorf("horizontal scroll left should decrease xOffset, got %d (was %d)", m.mainPane.xOffset, saved)
+	}
+}
+
+func TestPRDescriptionShowsDeployments(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"a.go"},
+		},
+		allFiles:   []string{"a.go"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		prInfo: git.PRInfoResult{
+			Number: 42, Title: "Deploy test", URL: "https://github.com/x/y/pull/42",
+			State: "OPEN",
+		},
+		prDeployments: []git.PRDeployment{
+			{Environment: "staging", State: "SUCCESS", URL: "https://staging.example.com"},
+			{Environment: "production", State: "PENDING"},
+		},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 30
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	// Should be in PR mode with deployments visible in description
+	if m.mode != PRViewMode {
+		t.Fatalf("expected PR mode, got %d", m.mode)
+	}
+
+	content := m.mainPane.content
+	if !strings.Contains(content, "staging") {
+		t.Error("PR description should show staging deployment")
+	}
+	if !strings.Contains(content, "SUCCESS") {
+		t.Error("PR description should show deployment state SUCCESS")
+	}
+	if !strings.Contains(content, "production") {
+		t.Error("PR description should show production deployment")
+	}
+	if !strings.Contains(content, "PENDING") {
+		t.Error("PR description should show deployment state PENDING")
 	}
 }
