@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
 	"io/fs"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -360,6 +362,69 @@ func isRateLimited(err error) bool {
 	return strings.Contains(msg, "rate limit") || strings.Contains(msg, "403") || strings.Contains(msg, "secondary rate")
 }
 
+// relativeTime returns a short human-readable relative timestamp like "2h ago" or "3d ago".
+func relativeTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	case d < 365*24*time.Hour:
+		return fmt.Sprintf("%dmo ago", int(d.Hours()/(24*30)))
+	default:
+		return fmt.Sprintf("%dy ago", int(d.Hours()/(24*365)))
+	}
+}
+
+// matchNumberedItem checks if selected matches any item's expected label (built by labelFn).
+// Returns (true, index) on match, (false, 0) otherwise.
+func matchNumberedItem[T any](selected string, items []T, labelFn func(int, T) string) (bool, int) {
+	for i, item := range items {
+		if selected == labelFn(i, item) {
+			return true, i
+		}
+	}
+	return false, 0
+}
+
+// sortPRData sorts comments, reviews, and CI checks for display.
+// Comments and reviews: most recent first. CI checks: failures first, then pending, then passing.
+func (m *Model) sortPRData() {
+	slices.SortFunc(m.prComments, func(a, b gitpkg.PRComment) int {
+		return b.CreatedAt.Compare(a.CreatedAt) // descending
+	})
+	slices.SortFunc(m.prReviews, func(a, b gitpkg.PRReview) int {
+		return b.SubmittedAt.Compare(a.SubmittedAt) // descending
+	})
+	slices.SortStableFunc(m.ciChecks, func(a, b gitpkg.CICheck) int {
+		return cmp.Compare(ciBucketOrder(a.Bucket), ciBucketOrder(b.Bucket))
+	})
+}
+
+// ciBucketOrder returns a sort key for CI check buckets: failures first, then pending, then passing.
+func ciBucketOrder(bucket string) int {
+	switch bucket {
+	case "fail", "cancel":
+		return 0
+	case "pending":
+		return 1
+	case "pass":
+		return 2
+	case "skipping":
+		return 3
+	default:
+		return 4
+	}
+}
+
 type allFilesMsg struct {
 	files []string
 }
@@ -622,6 +687,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.prCommentCount = msg.prCommentCount
 				m.prComments = msg.prComments
 				m.ciChecks = msg.ciChecks
+				m.sortPRData()
 			}
 		}
 		m.base = msg.base
@@ -676,6 +742,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prCommentCount = msg.commentCount
 		m.ciChecks = msg.ciChecks
 		m.prComments = msg.prComments
+		m.sortPRData()
 		m.updateLayout()
 		m.updateSidebarItems()
 		m.updateMainContent()
@@ -1630,10 +1697,10 @@ func (m *Model) selectFirstComment() {
 // selectFirstReview selects the first review in the PR mode sidebar.
 func (m *Model) selectFirstReview() {
 	for i, item := range m.sidebar.items {
-		if strings.HasPrefix(item.label, "✓ @") ||
-			strings.HasPrefix(item.label, "✗ @") ||
-			strings.HasPrefix(item.label, "c @") ||
-			strings.HasPrefix(item.label, "… @") {
+		if strings.HasPrefix(item.label, "@") && (strings.Contains(item.prefix, "✓") ||
+			strings.Contains(item.prefix, "✗") ||
+			strings.Contains(item.prefix, "c ") ||
+			strings.Contains(item.prefix, "…")) {
 			m.sidebar.SelectIndex(i)
 			return
 		}
@@ -1806,19 +1873,19 @@ func (m *Model) updateSidebarItems() {
 				}
 			}
 			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: "Uncommitted", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d)", len(m.uncommittedFiles)), kind: itemHeader})
 				items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
 			}
 			if len(m.committedFiles) > 0 {
 				if len(m.uncommittedFiles) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
-				items = append(items, sidebarItem{label: "Committed", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
 				items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
 			}
 		} else {
 			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: "Uncommitted", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d)", len(m.uncommittedFiles)), kind: itemHeader})
 				for _, f := range m.uncommittedFiles {
 					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
 				}
@@ -1827,7 +1894,7 @@ func (m *Model) updateSidebarItems() {
 				if len(m.uncommittedFiles) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
-				items = append(items, sidebarItem{label: "Committed", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
 				for _, f := range m.committedFiles {
 					items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
 				}
@@ -1874,21 +1941,21 @@ func (m *Model) updateSidebarItems() {
 				}
 			}
 			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: "Uncommitted", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d)", len(m.uncommittedFiles)), kind: itemHeader})
 				items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
 			}
 			if len(m.committedFiles) > 0 {
 				if len(m.uncommittedFiles) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
-				items = append(items, sidebarItem{label: "Committed", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
 				items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
 			}
 			if len(otherFiles) > 0 {
 				if len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
-				items = append(items, sidebarItem{label: "All Files", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("All Files (%d)", len(otherFiles)), kind: itemHeader})
 				// All-files trees default to collapsed (spec: "trees should start out closed")
 				// Use collapsedDirs but auto-collapse dirs not already tracked
 				allFilesDirs := extractDirs(otherFiles)
@@ -1906,7 +1973,7 @@ func (m *Model) updateSidebarItems() {
 			}
 		} else {
 			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: "Uncommitted", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d)", len(m.uncommittedFiles)), kind: itemHeader})
 				for _, f := range m.uncommittedFiles {
 					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
 				}
@@ -1915,7 +1982,7 @@ func (m *Model) updateSidebarItems() {
 				if len(m.uncommittedFiles) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
-				items = append(items, sidebarItem{label: "Committed", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
 				for _, f := range m.committedFiles {
 					items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
 				}
@@ -1924,7 +1991,7 @@ func (m *Model) updateSidebarItems() {
 				if len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
-				items = append(items, sidebarItem{label: "All Files", kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("All Files (%d)", len(otherFiles)), kind: itemHeader})
 				for _, f := range otherFiles {
 					kind := m.fileItemKind(f, itemNormal)
 					if kind == itemNormal && m.ignoredFiles[f] {
@@ -1938,19 +2005,28 @@ func (m *Model) updateSidebarItems() {
 	case CommitMode:
 		var items []sidebarItem
 		unpushed := m.repoInfo.AheadCount
+		pushedCount := len(m.commits) - unpushed
+		if pushedCount < 0 {
+			pushedCount = 0
+		}
 
 		// Category 1: Uncommitted changes (if any)
 		if len(m.uncommittedFiles) > 0 {
-			label := fmt.Sprintf("uncommitted changes (%d files)", len(m.uncommittedFiles))
-			items = append(items, sidebarItem{label: label, kind: itemDim})
+			items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d files)", len(m.uncommittedFiles)), kind: itemHeader})
+			items = append(items, sidebarItem{label: "uncommitted changes", kind: itemDim})
 		}
 
 		// Category 2: Unpushed commits (dimmed)
-		if unpushed > 0 {
+		unpushedVisible := unpushed
+		if unpushedVisible > len(m.commits) {
+			unpushedVisible = len(m.commits)
+		}
+		if unpushedVisible > 0 {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
-			for i := 0; i < unpushed && i < len(m.commits); i++ {
+			items = append(items, sidebarItem{label: fmt.Sprintf("Unpushed (%d)", unpushedVisible), kind: itemHeader})
+			for i := 0; i < unpushedVisible; i++ {
 				c := m.commits[i]
 				items = append(items, sidebarItem{
 					label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
@@ -1960,10 +2036,11 @@ func (m *Model) updateSidebarItems() {
 		}
 
 		// Category 3: Pushed branch commits
-		if unpushed < len(m.commits) {
+		if pushedCount > 0 {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
+			items = append(items, sidebarItem{label: fmt.Sprintf("Pushed (%d)", pushedCount), kind: itemHeader})
 			for i := unpushed; i < len(m.commits); i++ {
 				c := m.commits[i]
 				items = append(items, sidebarItem{
@@ -1990,6 +2067,7 @@ func (m *Model) updateSidebarItems() {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
+			items = append(items, sidebarItem{label: fmt.Sprintf("Base (%d)", len(m.baseCommits)), kind: itemHeader})
 			for _, c := range m.baseCommits {
 				items = append(items, sidebarItem{
 					label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
@@ -2007,55 +2085,72 @@ func (m *Model) updateSidebarItems() {
 		items = append(items, sidebarItem{kind: itemSeparator})
 
 		// Comments
+		items = append(items, sidebarItem{label: fmt.Sprintf("Comments (%d)", len(m.prComments)), kind: itemHeader})
 		for i, c := range m.prComments {
-			label := fmt.Sprintf("@%s (#%d)", c.Author, i+1)
-			items = append(items, sidebarItem{label: label, kind: itemNormal})
+			items = append(items, sidebarItem{
+				prefix: fmt.Sprintf("#%d ", len(m.prComments)-i),
+				label:  fmt.Sprintf("@%s", c.Author),
+				suffix: " " + relativeTime(c.CreatedAt),
+				kind:   itemNormal,
+			})
 		}
 		if len(m.prComments) == 0 {
 			items = append(items, sidebarItem{label: "(no comments)", kind: itemDim})
 		}
 
 		// Reviews
-		for _, r := range m.prReviews {
-			var status string
+		items = append(items, sidebarItem{kind: itemSeparator})
+		items = append(items, sidebarItem{label: fmt.Sprintf("Reviews (%d)", len(m.prReviews)), kind: itemHeader})
+		for i, r := range m.prReviews {
+			var emoji string
 			switch r.State {
 			case "APPROVED":
-				status = "✓"
+				emoji = "✓ "
 			case "CHANGES_REQUESTED":
-				status = "✗"
+				emoji = "✗ "
 			case "COMMENTED":
-				status = "c"
+				emoji = "c "
 			default:
-				status = "…"
+				emoji = "… "
 			}
 			items = append(items, sidebarItem{
-				label: fmt.Sprintf("%s @%s", status, r.Author),
-				kind:  itemNormal,
+				prefix: fmt.Sprintf("#%d %s", len(m.prReviews)-i, emoji),
+				label:  fmt.Sprintf("@%s", r.Author),
+				suffix: " " + relativeTime(r.SubmittedAt),
+				kind:   itemNormal,
 			})
 		}
-		if len(m.prReviews) == 0 && len(m.prComments) == 0 {
-			// Only show "(no reviews)" if there are also no comments
-		} else if len(m.prReviews) == 0 {
+		if len(m.prReviews) == 0 {
 			items = append(items, sidebarItem{label: "(no reviews)", kind: itemDim})
 		}
-		items = append(items, sidebarItem{kind: itemSeparator})
 
 		// CI checks
+		items = append(items, sidebarItem{kind: itemSeparator})
+		items = append(items, sidebarItem{label: fmt.Sprintf("CI (%d)", len(m.ciChecks)), kind: itemHeader})
 		for _, check := range m.ciChecks {
-			var prefix string
+			var indicator string
 			switch check.Bucket {
 			case "pass":
-				prefix = "[✓]"
+				indicator = "[✓] "
 			case "fail", "cancel":
-				prefix = "[✗]"
+				indicator = "[✗] "
 			case "pending":
-				prefix = "[…]"
+				indicator = "[…] "
 			case "skipping":
-				prefix = "[-]"
+				indicator = "[-] "
 			default:
-				prefix = "   "
+				indicator = "    "
 			}
-			items = append(items, sidebarItem{label: prefix + " " + check.Name, kind: itemNormal})
+			ts := check.CompletedAt
+			if ts.IsZero() {
+				ts = check.StartedAt
+			}
+			items = append(items, sidebarItem{
+				prefix: indicator,
+				label:  check.Name,
+				suffix: " " + relativeTime(ts),
+				kind:   itemNormal,
+			})
 		}
 		if len(m.ciChecks) == 0 {
 			items = append(items, sidebarItem{label: "(no CI checks)", kind: itemDim})
@@ -2200,36 +2295,36 @@ func (m *Model) updateMainContent() {
 		selected := m.sidebar.SelectedItem()
 		if selected == "Description" {
 			m.mainPane.SetPlainContent(m.renderPRDescription())
-		} else if strings.HasPrefix(selected, "@") {
-			// Comment — find the matching comment
-			for i, c := range m.prComments {
-				expected := fmt.Sprintf("@%s (#%d)", c.Author, i+1)
-				if selected == expected {
-					m.mainPane.SetPlainContent(fmt.Sprintf("@%s:\n\n%s", c.Author, c.Body))
-					break
-				}
+		} else if matched, i := matchNumberedItem(selected, m.prComments, func(j int, c gitpkg.PRComment) string {
+			return fmt.Sprintf("#%d @%s", len(m.prComments)-j, c.Author)
+		}); matched {
+			// Comment
+			c := m.prComments[i]
+			m.mainPane.SetPlainContent(fmt.Sprintf("@%s:\n\n%s", c.Author, c.Body))
+		} else if matched, i := matchNumberedItem(selected, m.prReviews, func(j int, r gitpkg.PRReview) string {
+			var emoji string
+			switch r.State {
+			case "APPROVED":
+				emoji = "✓ "
+			case "CHANGES_REQUESTED":
+				emoji = "✗ "
+			case "COMMENTED":
+				emoji = "c "
+			default:
+				emoji = "… "
 			}
-		} else if strings.HasPrefix(selected, "✓ @") || strings.HasPrefix(selected, "✗ @") ||
-			strings.HasPrefix(selected, "c @") || strings.HasPrefix(selected, "… @") {
-			// Review — show review state
-			for _, r := range m.prReviews {
-				var prefix string
-				switch r.State {
-				case "APPROVED":
-					prefix = "✓"
-				case "CHANGES_REQUESTED":
-					prefix = "✗"
-				case "COMMENTED":
-					prefix = "c"
-				default:
-					prefix = "…"
-				}
-				expected := fmt.Sprintf("%s @%s", prefix, r.Author)
-				if selected == expected {
-					m.mainPane.SetPlainContent(fmt.Sprintf("Review by @%s\nState: %s", r.Author, r.State))
-					break
-				}
+			return fmt.Sprintf("#%d %s@%s", len(m.prReviews)-j, emoji, r.Author)
+		}); matched {
+			// Review
+			r := m.prReviews[i]
+			content := fmt.Sprintf("Review by @%s\nState: %s", r.Author, r.State)
+			if r.Body != "" {
+				content += "\n\n" + r.Body
 			}
+			for _, c := range r.Comments {
+				content += fmt.Sprintf("\n\n--- %s:%d ---\n%s", c.Path, c.Line, c.Body)
+			}
+			m.mainPane.SetPlainContent(content)
 		} else {
 			// CI check — find the matching check
 			for _, check := range m.ciChecks {

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // CmdRunner executes an external command and returns its stdout.
@@ -104,15 +105,18 @@ type PRMilestone struct {
 }
 
 type PRComment struct {
-	Author string `json:"author"`
-	Body   string `json:"body"`
+	Author    string    `json:"author"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type CICheck struct {
-	Name   string `json:"name"`
-	State  string `json:"state"`
-	Bucket string `json:"bucket"` // pass, fail, pending, skipping, cancel
-	URL    string `json:"link"`
+	Name        string    `json:"name"`
+	State       string    `json:"state"`
+	Bucket      string    `json:"bucket"` // pass, fail, pending, skipping, cancel
+	URL         string    `json:"link"`
+	CompletedAt time.Time `json:"completedAt"`
+	StartedAt   time.Time `json:"startedAt"`
 }
 
 type CIStatusResult struct {
@@ -142,8 +146,18 @@ type RWXFailedTest struct {
 }
 
 type PRReview struct {
-	Author string `json:"author"`
-	State  string `json:"state"` // APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING
+	Author      string            `json:"author"`
+	State       string            `json:"state"` // APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING
+	Body        string            `json:"body"`
+	SubmittedAt time.Time         `json:"submittedAt"`
+	Comments    []PRReviewComment `json:"comments"`
+}
+
+// PRReviewComment is an inline code comment attached to a review.
+type PRReviewComment struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Body string `json:"body"`
 }
 
 // PRReviewRequest represents a pending review request on a PR.
@@ -610,7 +624,9 @@ func (g *Git) PRAll() (PRAllResult, error) {
 			Author struct {
 				Login string `json:"login"`
 			} `json:"author"`
-			State string `json:"state"`
+			State       string    `json:"state"`
+			Body        string    `json:"body"`
+			SubmittedAt time.Time `json:"submittedAt"`
 		} `json:"reviews"`
 		ReviewRequests []struct {
 			TypeName string `json:"__typename"`
@@ -621,7 +637,8 @@ func (g *Git) PRAll() (PRAllResult, error) {
 			Author struct {
 				Login string `json:"login"`
 			} `json:"author"`
-			Body string `json:"body"`
+			Body      string    `json:"body"`
+			CreatedAt time.Time `json:"createdAt"`
 		} `json:"comments"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
@@ -633,11 +650,19 @@ func (g *Git) PRAll() (PRAllResult, error) {
 		CommentCount: len(raw.Comments),
 	}
 
-	for _, r := range raw.Reviews {
-		result.Reviews = append(result.Reviews, PRReview{
-			Author: r.Author.Login,
-			State:  r.State,
-		})
+	// Try to fetch reviews with inline comments via GraphQL.
+	// Falls back to the basic review data from gh pr view if this fails.
+	if reviewsWithComments, err := g.fetchReviewsGraphQL(result.Info.Number); err == nil && len(reviewsWithComments) > 0 {
+		result.Reviews = reviewsWithComments
+	} else {
+		for _, r := range raw.Reviews {
+			result.Reviews = append(result.Reviews, PRReview{
+				Author:      r.Author.Login,
+				State:       r.State,
+				Body:        r.Body,
+				SubmittedAt: r.SubmittedAt,
+			})
+		}
 	}
 
 	for _, rr := range raw.ReviewRequests {
@@ -654,8 +679,9 @@ func (g *Git) PRAll() (PRAllResult, error) {
 
 	for _, c := range raw.Comments {
 		result.Comments = append(result.Comments, PRComment{
-			Author: c.Author.Login,
-			Body:   c.Body,
+			Author:    c.Author.Login,
+			CreatedAt: c.CreatedAt,
+			Body:      c.Body,
 		})
 	}
 
@@ -668,10 +694,99 @@ func (g *Git) PRAll() (PRAllResult, error) {
 	return result, nil
 }
 
+// fetchReviewsGraphQL fetches reviews with their inline comments via the GitHub GraphQL API.
+func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
+	// Resolve owner/repo via gh so we don't have to parse git remotes ourselves.
+	nwoOut, err := g.runCmd(g.dir, "gh", "repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name")
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.SplitN(strings.TrimSpace(nwoOut), "/", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("unexpected repo format: %q", nwoOut)
+	}
+	owner, repo := parts[0], parts[1]
+
+	query := fmt.Sprintf(`query {
+  repository(owner: %q, name: %q) {
+    pullRequest(number: %d) {
+      reviews(first: 50) {
+        nodes {
+          author { login }
+          state
+          body
+          submittedAt
+          comments(first: 100) {
+            nodes {
+              path
+              line
+              body
+            }
+          }
+        }
+      }
+    }
+  }
+}`, owner, repo, prNumber)
+
+	out, err := g.runCmd(g.dir, "gh", "api", "graphql", "-f", "query="+query)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					Reviews struct {
+						Nodes []struct {
+							Author struct {
+								Login string `json:"login"`
+							} `json:"author"`
+							State       string    `json:"state"`
+							Body        string    `json:"body"`
+							SubmittedAt time.Time `json:"submittedAt"`
+							Comments    struct {
+								Nodes []struct {
+									Path string `json:"path"`
+									Line int    `json:"line"`
+									Body string `json:"body"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+					} `json:"reviews"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		return nil, err
+	}
+
+	var reviews []PRReview
+	for _, r := range resp.Data.Repository.PullRequest.Reviews.Nodes {
+		review := PRReview{
+			Author:      r.Author.Login,
+			State:       r.State,
+			Body:        r.Body,
+			SubmittedAt: r.SubmittedAt,
+		}
+		for _, c := range r.Comments.Nodes {
+			review.Comments = append(review.Comments, PRReviewComment{
+				Path: c.Path,
+				Line: c.Line,
+				Body: c.Body,
+			})
+		}
+		reviews = append(reviews, review)
+	}
+	return reviews, nil
+}
+
 // PRChecksAll fetches CI checks in a single gh pr checks call, returning
 // both the individual checks and an aggregated status summary.
 func (g *Git) PRChecksAll() (PRChecksResult, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,bucket,link")
+	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,bucket,link,completedAt,startedAt")
 	if err != nil {
 		return PRChecksResult{}, nil
 	}

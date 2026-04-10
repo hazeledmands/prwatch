@@ -1014,7 +1014,7 @@ func TestPRChecksAll_EmptyArray(t *testing.T) {
 
 func TestPRAll_Reviews(t *testing.T) {
 	dir := setupTestRepo(t)
-	jsonResp := `{"number":1,"reviews":[{"author":{"login":"alice"},"state":"APPROVED"},{"author":{"login":"bob"},"state":"CHANGES_REQUESTED"}]}`
+	jsonResp := `{"number":1,"reviews":[{"author":{"login":"alice"},"state":"APPROVED","body":"looks great"},{"author":{"login":"bob"},"state":"CHANGES_REQUESTED","body":"needs fixes"}]}`
 	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
 
 	result, err := g.PRAll()
@@ -1026,6 +1026,55 @@ func TestPRAll_Reviews(t *testing.T) {
 	}
 	if result.Reviews[0].Author != "alice" {
 		t.Errorf("expected alice, got %q", result.Reviews[0].Author)
+	}
+	if result.Reviews[0].Body != "looks great" {
+		t.Errorf("expected body 'looks great', got %q", result.Reviews[0].Body)
+	}
+	if result.Reviews[1].Body != "needs fixes" {
+		t.Errorf("expected body 'needs fixes', got %q", result.Reviews[1].Body)
+	}
+}
+
+func TestPRAll_ReviewsWithGraphQLComments(t *testing.T) {
+	dir := setupTestRepo(t)
+	prViewResp := `{"number":1,"reviews":[{"author":{"login":"alice"},"state":"COMMENTED","body":"see comments"}]}`
+	graphQLResp := `{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"alice"},"state":"COMMENTED","body":"see comments","comments":{"nodes":[{"path":"main.go","line":42,"body":"nit: rename this"},{"path":"main.go","line":100,"body":"consider error handling"}]}}]}}}}}`
+
+	g := git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+		if name == "gh" && len(args) > 0 && args[0] == "api" {
+			return graphQLResp, nil
+		}
+		if name == "gh" && len(args) > 0 && args[0] == "repo" {
+			return "testowner/testrepo", nil
+		}
+		if name == "gh" {
+			return prViewResp, nil
+		}
+		return "", fmt.Errorf("unexpected command: %s", name)
+	})
+
+	result, err := g.PRAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Reviews) != 1 {
+		t.Fatalf("expected 1 review, got %d", len(result.Reviews))
+	}
+	r := result.Reviews[0]
+	if r.Author != "alice" {
+		t.Errorf("expected alice, got %q", r.Author)
+	}
+	if r.Body != "see comments" {
+		t.Errorf("expected body 'see comments', got %q", r.Body)
+	}
+	if len(r.Comments) != 2 {
+		t.Fatalf("expected 2 review comments, got %d", len(r.Comments))
+	}
+	if r.Comments[0].Path != "main.go" || r.Comments[0].Line != 42 {
+		t.Errorf("unexpected first comment: %+v", r.Comments[0])
+	}
+	if r.Comments[1].Body != "consider error handling" {
+		t.Errorf("unexpected second comment body: %q", r.Comments[1].Body)
 	}
 }
 

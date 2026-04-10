@@ -19,6 +19,18 @@ import (
 // Scenario generators
 // ---------------------------------------------------------------------------
 
+// emojiPool contains emoji that have various display widths to stress-test rendering.
+var emojiPool = []string{"🔥", "✅", "🚀", "💬", "⚡", "🐛", "📦", "🎉", "✨", "🤖", "❌", "⏳"}
+
+// maybeEmoji returns the input string with an emoji occasionally appended (~30% chance).
+func maybeEmoji(t *rapid.T, tag string, s string) string {
+	if rapid.Float64Range(0, 1).Draw(t, tag+"_emoji") < 0.3 {
+		e := rapid.SampledFrom(emojiPool).Draw(t, tag+"_emojiVal")
+		return s + e
+	}
+	return s
+}
+
 // genMockGit generates random but valid mockGit instances for property testing.
 func genMockGit(t *rapid.T) *mockGit {
 	nCommitted := rapid.IntRange(0, 20).Draw(t, "nCommitted")
@@ -37,7 +49,7 @@ func genMockGit(t *rapid.T) *mockGit {
 	for i := range commits {
 		commits[i] = git.Commit{
 			SHA:     fmt.Sprintf("%07d", i),
-			Subject: fmt.Sprintf("commit message %d", i),
+			Subject: maybeEmoji(t, fmt.Sprintf("commit%d", i), fmt.Sprintf("commit message %d", i)),
 		}
 	}
 
@@ -52,7 +64,7 @@ func genMockGit(t *rapid.T) *mockGit {
 	if prNum > 0 {
 		prInfo = git.PRInfoResult{
 			Number:  prNum,
-			Title:   "Test PR",
+			Title:   maybeEmoji(t, "prTitle", "Test PR"),
 			URL:     "https://github.com/org/repo/pull/42",
 			IsDraft: rapid.Bool().Draw(t, "isDraft"),
 		}
@@ -78,9 +90,9 @@ func genMockGit(t *rapid.T) *mockGit {
 		},
 		commits:     commits,
 		allCommits:  commits,
-		fileDiff:    "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new\n",
-		fileContent: "line1\nline2\nline3\n",
-		commitPatch: "commit 0000000\n\n    msg\n\ndiff\n+added\n",
+		fileDiff:    maybeEmoji(t, "fileDiff", "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new"),
+		fileContent: maybeEmoji(t, "fileContent", "line1\nline2\nline3"),
+		commitPatch: maybeEmoji(t, "commitPatch", "commit 0000000\n\n    msg\n\ndiff\n+added"),
 	}
 }
 
@@ -101,7 +113,7 @@ func genScenario(t *rapid.T) (*mockGit, Mode) {
 		for i := range nReviews {
 			state := rapid.SampledFrom([]string{"APPROVED", "CHANGES_REQUESTED", "COMMENTED"}).Draw(t, fmt.Sprintf("reviewState%d", i))
 			mock.reviews = append(mock.reviews, git.PRReview{
-				Author: fmt.Sprintf("reviewer%d", i),
+				Author: maybeEmoji(t, fmt.Sprintf("reviewer%d", i), fmt.Sprintf("reviewer%d", i)),
 				State:  state,
 			})
 		}
@@ -113,8 +125,8 @@ func genScenario(t *rapid.T) (*mockGit, Mode) {
 		mock.commentCount = nComments
 		for i := range nComments {
 			mock.prComments = append(mock.prComments, git.PRComment{
-				Author: fmt.Sprintf("commenter%d", i),
-				Body:   fmt.Sprintf("comment body %d", i),
+				Author: maybeEmoji(t, fmt.Sprintf("commenter%d", i), fmt.Sprintf("commenter%d", i)),
+				Body:   maybeEmoji(t, fmt.Sprintf("commentBody%d", i), fmt.Sprintf("comment body %d", i)),
 			})
 		}
 	}
@@ -130,7 +142,7 @@ func genScenario(t *rapid.T) (*mockGit, Mode) {
 		for i := range nBase {
 			mock.baseCommits = append(mock.baseCommits, git.Commit{
 				SHA:     fmt.Sprintf("base%04d", i),
-				Subject: fmt.Sprintf("base commit %d", i),
+				Subject: maybeEmoji(t, fmt.Sprintf("base%d", i), fmt.Sprintf("base commit %d", i)),
 			})
 		}
 	}
@@ -352,33 +364,17 @@ func checkAllInvariants(t *rapid.T, m *Model, context string) {
 // ---------------------------------------------------------------------------
 
 // displayWidth returns the display width of a string, accounting for
-// multi-byte UTF-8 characters. East Asian wide characters are counted as 2.
+// multi-byte UTF-8 characters, emoji, and East Asian wide characters.
 func displayWidth(s string) int {
 	w := 0
 	for _, r := range s {
-		switch {
-		case r == '\t':
+		if r == '\t' {
 			w += 8 // tab stop
-		case utf8.RuneLen(r) > 1 && isWide(r):
-			w += 2
-		default:
-			w++
+		} else {
+			w += runewidth.RuneWidth(r)
 		}
 	}
 	return w
-}
-
-// isWide returns true for East Asian wide characters.
-func isWide(r rune) bool {
-	// CJK Unified Ideographs and common wide ranges
-	return (r >= 0x1100 && r <= 0x115F) ||
-		(r >= 0x2E80 && r <= 0xA4CF) ||
-		(r >= 0xAC00 && r <= 0xD7A3) ||
-		(r >= 0xF900 && r <= 0xFAFF) ||
-		(r >= 0xFE10 && r <= 0xFE6F) ||
-		(r >= 0xFF01 && r <= 0xFF60) ||
-		(r >= 0xFFE0 && r <= 0xFFE6) ||
-		(r >= 0x20000 && r <= 0x2FA1F)
 }
 
 // splitLineAtCols splits a line (which may contain ANSI escape codes) into
@@ -633,17 +629,23 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 		// Category 1: uncommitted changes
 		uncommitted := mock.changedFiles.Uncommitted
 		if len(uncommitted) > 0 {
+			expected = append(expected, expectedItem{isSeparator: true}) // header (non-selectable)
 			expected = append(expected, expectedItem{
-				label: fmt.Sprintf("uncommitted changes (%d files)", len(uncommitted)),
+				label: "uncommitted changes",
 			})
 		}
 
 		// Category 2: unpushed commits (dimmed)
-		if unpushed > 0 {
+		unpushedVisible := unpushed
+		if unpushedVisible > len(mock.commits) {
+			unpushedVisible = len(mock.commits)
+		}
+		if unpushedVisible > 0 {
 			if len(expected) > 0 {
 				expected = append(expected, expectedItem{isSeparator: true})
 			}
-			for i := 0; i < unpushed && i < len(mock.commits); i++ {
+			expected = append(expected, expectedItem{isSeparator: true}) // header
+			for i := 0; i < unpushedVisible; i++ {
 				c := mock.commits[i]
 				expected = append(expected, expectedItem{
 					label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
@@ -652,10 +654,15 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 		}
 
 		// Category 3: pushed commits
-		if unpushed < len(mock.commits) {
+		pushedCount := len(mock.commits) - unpushed
+		if pushedCount < 0 {
+			pushedCount = 0
+		}
+		if pushedCount > 0 {
 			if len(expected) > 0 {
 				expected = append(expected, expectedItem{isSeparator: true})
 			}
+			expected = append(expected, expectedItem{isSeparator: true}) // header
 			for i := unpushed; i < len(mock.commits); i++ {
 				c := mock.commits[i]
 				expected = append(expected, expectedItem{

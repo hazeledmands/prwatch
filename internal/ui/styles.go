@@ -100,4 +100,14 @@ var (
 	sidebarUncommittedHoverStyle = lipgloss.NewStyle().
 					Background(lipgloss.Color("#2A2A2A")).
 					Foreground(lipgloss.Color("#AAA"))
+
+	// Dim styles for prefix/suffix within sidebar items
+	sidebarDimStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888"))
+	sidebarSelectedDimStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#333")).
+				Foreground(lipgloss.Color("#AAA"))
+	sidebarHoverDimStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#2A2A2A")).
+				Foreground(lipgloss.Color("#AAA"))
 )

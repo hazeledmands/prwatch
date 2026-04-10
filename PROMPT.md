@@ -13,7 +13,7 @@ the UI should show the delta between the merge-base of the current branch and th
 the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar -- smaller than the "main" pane on the right.
 
 the sidebar will be a list of selectable items, separated into groups.
-each group should be separated by a horizontal rule (non-selectable), and given a heading.
+each group should be separated by a horizontal rule (non-selectable), and given a heading that includes a parenthesized count of items in the section.
 
 the main pane will display content.
 binary content should never be shown -- instead display [binary content].
@@ -90,11 +90,20 @@ sidebar should show:
       - tags, assignees, reviewers (and review status for each), projects, milestone
       - PR description with markdown formatting
       - deployments
+- Comments section header
+  - one line per comment: dim index, author name, dim relative timestamp
+  - sorted by date descending (most recent first)
+  - main panel shows the comment body
 - horizontal rule
-- comments (one line per comment)
-- reviews (one line per review)
+- Reviews section header
+  - one line per review: dim index, state indicator (✓ ✗ c …), author name, dim relative timestamp
+  - sorted by date descending (most recent first)
+  - main panel shows review state, body, and inline code-level comments (file:line plus body for each)
+  - inline review comments are fetched via GitHub GraphQL API (gh pr view --json doesn't include them)
 - horizontal rule
-- CI status (one line per CI check)
+- CI section header
+  - one line per CI check: state indicator, check name, dim relative last updated time
+  - sorted by: failures first, then pending, then passing; secondary order preserves GitHub's canonical order
 
 ### CI logs
 - support RWX as a CI provider. if the github CI status points to RWX and there are failures, use the rwx CLI tool to display details about the failures (including failing test results).
@@ -120,11 +129,11 @@ tree view (enabled by default): files should be grouped under directories, and s
 ### commit mode
 
 the left pane should be a list of commits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
-the list of commits should be separated into categories, separated by a dividing horizontal line:
-1. unpushed changes (not technically a commit, if there are any they should all be grouped together under one line)
-2. commits that have not yet been pushed to the origin (should be a dimmed color).
-3. commits in the current branch / PR that have been pushed to the origin
-4. commits after the stuff that's already in the base branch (even before the feature branch began)
+the list of commits should be separated into categories, each with a section header and horizontal rule separator:
+1. Uncommitted — uncommitted changes (not technically a commit, if there are any they should all be grouped together under one line)
+2. Unpushed — commits that have not yet been pushed to the origin (should be a dimmed color).
+3. Pushed — commits in the current branch / PR that have been pushed to the origin
+4. Base — commits after the stuff that's already in the base branch (even before the feature branch began)
 
 if this list is very long, we should paginate it. load the first 100 commits initially, then load the next 100 when the user scrolls to the end of the list. show a "load more" entry at the bottom of the list while more commits are available.
 

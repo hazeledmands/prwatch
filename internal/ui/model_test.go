@@ -715,7 +715,7 @@ func TestUpdateSidebarItems_FileMode(t *testing.T) {
 	if len(items) != 6 { // header + 1 uncommitted + separator + header + 2 committed
 		t.Fatalf("expected 6 items, got %d", len(items))
 	}
-	if items[0].kind != itemHeader || items[0].label != "Uncommitted" {
+	if items[0].kind != itemHeader || !strings.HasPrefix(items[0].label, "Uncommitted") {
 		t.Errorf("first item should be Uncommitted header, got kind=%v label=%q", items[0].kind, items[0].label)
 	}
 	if items[1].filePath != "z.go" || items[1].kind != itemNormal {
@@ -724,7 +724,7 @@ func TestUpdateSidebarItems_FileMode(t *testing.T) {
 	if items[2].kind != itemSeparator {
 		t.Error("third item should be separator")
 	}
-	if items[3].kind != itemHeader || items[3].label != "Committed" {
+	if items[3].kind != itemHeader || !strings.HasPrefix(items[3].label, "Committed") {
 		t.Errorf("fourth item should be Committed header, got kind=%v label=%q", items[3].kind, items[3].label)
 	}
 	// Tree mode sorts alphabetically, so a.go comes before b.go
@@ -743,11 +743,14 @@ func TestUpdateSidebarItems_CommitMode(t *testing.T) {
 
 	m.updateSidebarItems()
 
-	if len(m.sidebar.items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(m.sidebar.items))
+	if len(m.sidebar.items) != 3 { // header + 2 commits
+		t.Fatalf("expected 3 items, got %d", len(m.sidebar.items))
 	}
-	if !strings.Contains(m.sidebar.items[0].label, "first") {
-		t.Error("first item should contain commit subject")
+	if m.sidebar.items[0].kind != itemHeader {
+		t.Error("first item should be a header")
+	}
+	if !strings.Contains(m.sidebar.items[1].label, "first") {
+		t.Error("second item should contain commit subject")
 	}
 }
 
@@ -2514,24 +2517,30 @@ func TestCommitMode_UnpushedCommitsDimmedWithSeparator(t *testing.T) {
 	m.updateSidebarItems()
 
 	items := m.sidebar.items
-	// Should be: 2 unpushed (dim), 1 separator, 2 pushed (normal)
-	if len(items) != 5 {
-		t.Fatalf("expected 5 sidebar items (2 dim + 1 sep + 2 normal), got %d", len(items))
+	// Should be: header + 2 unpushed (dim) + separator + header + 2 pushed (normal)
+	if len(items) != 7 {
+		t.Fatalf("expected 7 sidebar items, got %d", len(items))
 	}
-	if items[0].kind != itemDim {
-		t.Errorf("item 0 should be dim (unpushed), got kind %d", items[0].kind)
+	if items[0].kind != itemHeader || !strings.HasPrefix(items[0].label, "Unpushed") {
+		t.Errorf("item 0 should be Unpushed header, got kind %d label %q", items[0].kind, items[0].label)
 	}
 	if items[1].kind != itemDim {
 		t.Errorf("item 1 should be dim (unpushed), got kind %d", items[1].kind)
 	}
-	if items[2].kind != itemSeparator {
-		t.Errorf("item 2 should be separator, got kind %d", items[2].kind)
+	if items[2].kind != itemDim {
+		t.Errorf("item 2 should be dim (unpushed), got kind %d", items[2].kind)
 	}
-	if items[3].kind != itemNormal {
-		t.Errorf("item 3 should be normal (pushed), got kind %d", items[3].kind)
+	if items[3].kind != itemSeparator {
+		t.Errorf("item 3 should be separator, got kind %d", items[3].kind)
 	}
-	if items[4].kind != itemNormal {
-		t.Errorf("item 4 should be normal (pushed), got kind %d", items[4].kind)
+	if items[4].kind != itemHeader || !strings.HasPrefix(items[4].label, "Pushed") {
+		t.Errorf("item 4 should be Pushed header, got kind %d label %q", items[4].kind, items[4].label)
+	}
+	if items[5].kind != itemNormal {
+		t.Errorf("item 5 should be normal (pushed), got kind %d", items[5].kind)
+	}
+	if items[6].kind != itemNormal {
+		t.Errorf("item 6 should be normal (pushed), got kind %d", items[6].kind)
 	}
 }
 
@@ -2862,7 +2871,7 @@ func TestFileViewMode_ThreeCategories(t *testing.T) {
 	if len(items) != 10 {
 		t.Fatalf("expected 10 sidebar items, got %d: %v", len(items), items)
 	}
-	if items[0].kind != itemHeader || items[0].label != "Uncommitted" {
+	if items[0].kind != itemHeader || !strings.HasPrefix(items[0].label, "Uncommitted") {
 		t.Errorf("item 0: expected Uncommitted header, got kind=%v label=%q", items[0].kind, items[0].label)
 	}
 	if items[1].filePath != "wip.go" || items[1].kind != itemNormal {
@@ -2871,7 +2880,7 @@ func TestFileViewMode_ThreeCategories(t *testing.T) {
 	if items[2].kind != itemSeparator {
 		t.Errorf("item 2: expected separator, got %v", items[2])
 	}
-	if items[3].kind != itemHeader || items[3].label != "Committed" {
+	if items[3].kind != itemHeader || !strings.HasPrefix(items[3].label, "Committed") {
 		t.Errorf("item 3: expected Committed header, got kind=%v label=%q", items[3].kind, items[3].label)
 	}
 	if items[4].filePath != "alpha.go" || items[4].kind != itemNormal {
@@ -2883,7 +2892,7 @@ func TestFileViewMode_ThreeCategories(t *testing.T) {
 	if items[6].kind != itemSeparator {
 		t.Errorf("item 6: expected separator, got %v", items[6])
 	}
-	if items[7].kind != itemHeader || items[7].label != "All Files" {
+	if items[7].kind != itemHeader || !strings.HasPrefix(items[7].label, "All Files") {
 		t.Errorf("item 7: expected All Files header, got kind=%v label=%q", items[7].kind, items[7].label)
 	}
 	if items[8].filePath != "main.go" {

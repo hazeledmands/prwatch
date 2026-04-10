@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"charm.land/lipgloss/v2"
+	runewidth "github.com/mattn/go-runewidth"
 )
 
 type sidebarItemKind int
@@ -23,6 +26,8 @@ func (k sidebarItemKind) selectable() bool {
 
 type sidebarItem struct {
 	label    string
+	prefix   string // rendered dim, before the label
+	suffix   string // rendered dim, after the label (right-aligned if space)
 	kind     sidebarItemKind
 	filePath string // actual file path (for file items)
 	isDir    bool   // true for directory entries in tree mode
@@ -230,7 +235,7 @@ func (s *sidebar) SelectedItem() string {
 	if item.filePath != "" {
 		return item.filePath
 	}
-	return item.label
+	return item.prefix + item.label
 }
 
 // SelectedIsDir returns true if the selected item is a directory.
@@ -411,41 +416,92 @@ func (s *sidebar) View(focused bool) string {
 			continue
 		}
 
-		label := item.label
-		if s.width > 0 && len(label) > s.width {
-			label = label[:s.width]
-		}
-		if s.width > 0 {
-			label = fmt.Sprintf("%-*s", s.width, label)
-		}
-
+		// Pick styles based on selection/hover state and item kind.
+		var labelStyle, dimStyle lipgloss.Style
 		if i == s.selected {
 			switch item.kind {
 			case itemDim:
-				b.WriteString(sidebarUncommittedSelectedStyle.Render(label))
+				labelStyle = sidebarUncommittedSelectedStyle
 			case itemDeleted:
-				b.WriteString(sidebarDeletedSelectedStyle.Render(label))
+				labelStyle = sidebarDeletedSelectedStyle
 			default:
-				b.WriteString(sidebarSelectedItemStyle.Render(label))
+				labelStyle = sidebarSelectedItemStyle
 			}
+			dimStyle = sidebarSelectedDimStyle
 		} else if i == s.hoverIndex {
 			switch item.kind {
 			case itemDim:
-				b.WriteString(sidebarUncommittedHoverStyle.Render(label))
+				labelStyle = sidebarUncommittedHoverStyle
 			case itemDeleted:
-				b.WriteString(sidebarDeletedHoverStyle.Render(label))
+				labelStyle = sidebarDeletedHoverStyle
 			default:
-				b.WriteString(sidebarHoverStyle.Render(label))
+				labelStyle = sidebarHoverStyle
 			}
+			dimStyle = sidebarHoverDimStyle
 		} else {
 			switch item.kind {
 			case itemDim:
-				b.WriteString(sidebarUncommittedStyle.Render(label))
+				labelStyle = sidebarUncommittedStyle
 			case itemDeleted:
-				b.WriteString(sidebarDeletedStyle.Render(label))
+				labelStyle = sidebarDeletedStyle
 			default:
-				b.WriteString(sidebarItemStyle.Render(label))
+				labelStyle = sidebarItemStyle
 			}
+			dimStyle = sidebarDimStyle
+		}
+
+		if item.prefix == "" && item.suffix == "" {
+			// Simple path: single-styled label (unchanged behavior).
+			label := item.label
+			if s.width > 0 && len(label) > s.width {
+				label = label[:s.width]
+			}
+			if s.width > 0 {
+				label = fmt.Sprintf("%-*s", s.width, label)
+			}
+			b.WriteString(labelStyle.Render(label))
+		} else {
+			// Composite label: dim prefix + styled label + dim suffix, padded to width.
+			prefix := item.prefix
+			label := item.label
+			suffix := item.suffix
+
+			prefixW := runewidth.StringWidth(prefix)
+			labelW := runewidth.StringWidth(label)
+			suffixW := runewidth.StringWidth(suffix)
+			contentW := prefixW + labelW + suffixW
+			if s.width > 0 && contentW > s.width {
+				// Truncate: prefix stays, suffix stays if it fits, label shrinks.
+				avail := s.width - prefixW - suffixW
+				if avail < 1 {
+					// Not enough room for suffix; drop it.
+					suffix = ""
+					suffixW = 0
+					avail = s.width - prefixW
+				}
+				if avail < 1 {
+					avail = 1
+				}
+				if labelW > avail {
+					label = runewidth.Truncate(label, avail, "")
+					labelW = runewidth.StringWidth(label)
+				}
+				contentW = prefixW + labelW + suffixW
+			}
+
+			// Build the line with padding between label and suffix.
+			var line strings.Builder
+			line.WriteString(dimStyle.Render(prefix))
+			pad := 0
+			if s.width > 0 {
+				pad = s.width - contentW
+			}
+			line.WriteString(labelStyle.Render(label))
+			if pad > 0 {
+				line.WriteString(labelStyle.Render(strings.Repeat(" ", pad)))
+			}
+			line.WriteString(dimStyle.Render(suffix))
+			b.WriteString(line.String())
 		}
 	}
 
