@@ -5943,3 +5943,30 @@ func TestClickComments_JumpsToFirstComment(t *testing.T) {
 		t.Errorf("should select first comment, got %q", selected)
 	}
 }
+
+func TestSliceByDisplayCol(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		from, to int
+		want     string
+	}{
+		{"ascii", "hello world", 0, 5, "hello"},
+		{"ascii mid", "hello world", 6, 11, "world"},
+		{"emoji start", "🔥abc", 0, 2, "🔥"},
+		{"emoji skip", "🔥abc", 2, 5, "abc"},
+		{"multi emoji", "🔥🎉x", 0, 4, "🔥🎉"},
+		{"multi emoji skip first", "🔥🎉x", 2, 5, "🎉x"},
+		{"empty range", "abc", 2, 2, ""},
+		{"past end", "abc", 0, 10, "abc"},
+		{"from past end", "abc", 5, 10, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sliceByDisplayCol(tt.input, tt.from, tt.to)
+			if got != tt.want {
+				t.Errorf("sliceByDisplayCol(%q, %d, %d) = %q, want %q", tt.input, tt.from, tt.to, got, tt.want)
+			}
+		})
+	}
+}

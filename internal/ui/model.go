@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -2627,6 +2628,35 @@ func displayWidthOf(s string) int {
 	return runewidth.StringWidth(s)
 }
 
+// sliceByDisplayCol extracts a substring from s between display columns
+// [fromCol, toCol). This correctly handles multi-byte and double-width
+// characters, avoiding mid-character byte slicing.
+func sliceByDisplayCol(s string, fromCol, toCol int) string {
+	if fromCol >= toCol {
+		return ""
+	}
+	col := 0
+	startByte := len(s)
+	endByte := len(s)
+	foundStart := false
+	for i, r := range s {
+		if !foundStart && col >= fromCol {
+			startByte = i
+			foundStart = true
+		}
+		w := runewidth.RuneWidth(r)
+		col += w
+		if foundStart && col >= toCol {
+			endByte = i + utf8.RuneLen(r)
+			return s[startByte:endByte]
+		}
+	}
+	if !foundStart {
+		return ""
+	}
+	return s[startByte:endByte]
+}
+
 // copySelection extracts text from the main pane's content (stripping ANSI,
 // gutter, and TUI glyphs) and copies to the system clipboard.
 // Coordinates are screen-relative; we convert to main-pane-content-relative.
@@ -2706,23 +2736,24 @@ func (m *Model) selectedText() string {
 			line = line[gw:]
 		}
 
-		fromX := 0
-		toX := len(line)
+		lineWidth := displayWidthOf(line)
+		fromCol := 0
+		toCol := lineWidth
 		if y == startY {
 			// Adjust startX for gutter/indent removal
-			fromX = max(0, startX-gw)
+			fromCol = max(0, startX-gw)
 		}
 		if y == endY {
-			toX = max(0, endX+1-gw)
+			toCol = max(0, endX+1-gw)
 		}
-		if fromX > len(line) {
-			fromX = len(line)
+		if fromCol > lineWidth {
+			fromCol = lineWidth
 		}
-		if toX > len(line) {
-			toX = len(line)
+		if toCol > lineWidth {
+			toCol = lineWidth
 		}
-		if fromX < toX {
-			selected.WriteString(line[fromX:toX])
+		if fromCol < toCol {
+			selected.WriteString(sliceByDisplayCol(line, fromCol, toCol))
 		}
 		if y < endY {
 			// If the NEXT viewport line is a word-wrap continuation, don't add newline
