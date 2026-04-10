@@ -87,23 +87,25 @@ sidebar should show:
 - description
   - main panel should show:
       - full PR title and status (DRAFT/MERGED)
+      - relevant dates: created, updated, and (if applicable) merged or closed — shown as absolute timestamp with relative time
       - tags, assignees, reviewers (and review status for each), projects, milestone
       - PR description with markdown formatting
       - deployments
 - Comments section header
   - one line per comment: dim index, author name, dim relative timestamp
   - sorted by date descending (most recent first)
-  - main panel shows the comment body
+  - main panel shows author with timestamp, then the comment body
 - horizontal rule
 - Reviews section header
   - one line per review: dim index, state indicator (✓ ✗ c …), author name, dim relative timestamp
   - sorted by date descending (most recent first)
-  - main panel shows review state, body, and inline code-level comments (file:line plus body for each)
+  - main panel shows author with timestamp, review state, body, and inline code-level comments (file:line plus body for each)
   - inline review comments are fetched via GitHub GraphQL API (gh pr view --json doesn't include them)
 - horizontal rule
 - CI section header
   - one line per CI check: state indicator, check name, dim relative last updated time
   - sorted by: failures first, then pending, then passing; secondary order preserves GitHub's canonical order
+  - main panel shows check name, status, start/completion timestamps, URL, and (for RWX) fetched logs
 
 ### CI logs
 - support RWX as a CI provider. if the github CI status points to RWX and there are failures, use the rwx CLI tool to display details about the failures (including failing test results).
@@ -140,11 +142,13 @@ if this list is very long, we should paginate it. load the first 100 commits ini
 ## live refresh
 
 the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
+- avoid repainting the UI unless the state has changed in some way.
 - the view should refresh not only when files change on disk, but also when git state changes in ways that don't modify working tree files — for example, pushing commits, fetching, editing the global gitignore, or garbage collection repacking refs. a periodic background poll can serve as a fallback to catch state changes that filesystem watchers miss.
 - if the user has interacted with the app, and there is an update, the app should endeavor to keep the current view as stable as possible (so the currently highlighted file should stay highlighted, and scrolled to the same-ish spot, even while the surrounding content changes)
 
 checking against the github server:
-- we should do this often enough to get fresh data, but not so often that we run into rate limits.
+- state updates from the server should happen at most every 30s.
+- this automatic refresh interval should decrease to every 10m if there have been no UI events in the last 10m (including mouse movements or window size changes), or if there have been no updates in the state from the remote server in over 24 hours.
 - respond to rate limits appropriately, backing off as needed
 
 
