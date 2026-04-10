@@ -2300,7 +2300,11 @@ func (m *Model) updateMainContent() {
 		}); matched {
 			// Comment
 			c := m.prComments[i]
-			m.mainPane.SetPlainContent(fmt.Sprintf("@%s:\n\n%s", c.Author, c.Body))
+			header := fmt.Sprintf("@%s", c.Author)
+			if !c.CreatedAt.IsZero() {
+				header += fmt.Sprintf("  •  %s (%s)", c.CreatedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(c.CreatedAt))
+			}
+			m.mainPane.SetPlainContent(fmt.Sprintf("%s\n\n%s", header, c.Body))
 		} else if matched, i := matchNumberedItem(selected, m.prReviews, func(j int, r gitpkg.PRReview) string {
 			var emoji string
 			switch r.State {
@@ -2317,7 +2321,11 @@ func (m *Model) updateMainContent() {
 		}); matched {
 			// Review
 			r := m.prReviews[i]
-			content := fmt.Sprintf("Review by @%s\nState: %s", r.Author, r.State)
+			content := fmt.Sprintf("Review by @%s", r.Author)
+			if !r.SubmittedAt.IsZero() {
+				content += fmt.Sprintf("  •  %s (%s)", r.SubmittedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(r.SubmittedAt))
+			}
+			content += fmt.Sprintf("\nState: %s", r.State)
 			if r.Body != "" {
 				content += "\n\n" + r.Body
 			}
@@ -2334,6 +2342,12 @@ func (m *Model) updateMainContent() {
 						status = check.State
 					}
 					content := fmt.Sprintf("Check: %s\nStatus: %s", check.Name, status)
+					if !check.StartedAt.IsZero() {
+						content += fmt.Sprintf("\nStarted: %s (%s)", check.StartedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(check.StartedAt))
+					}
+					if !check.CompletedAt.IsZero() {
+						content += fmt.Sprintf("\nCompleted: %s (%s)", check.CompletedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(check.CompletedAt))
+					}
 					if check.URL != "" {
 						content += fmt.Sprintf("\nURL: %s", check.URL)
 					}
@@ -2760,6 +2774,20 @@ func (m *Model) renderPRDescription() string {
 		b.WriteString(" [CLOSED]")
 	}
 	b.WriteString("\n")
+
+	// Dates
+	if !pr.CreatedAt.IsZero() {
+		b.WriteString(fmt.Sprintf("Created: %s (%s)\n", pr.CreatedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(pr.CreatedAt)))
+	}
+	if !pr.UpdatedAt.IsZero() {
+		b.WriteString(fmt.Sprintf("Updated: %s (%s)\n", pr.UpdatedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(pr.UpdatedAt)))
+	}
+	if pr.State == "MERGED" && !pr.MergedAt.IsZero() {
+		b.WriteString(fmt.Sprintf("Merged: %s (%s)\n", pr.MergedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(pr.MergedAt)))
+	}
+	if pr.State == "CLOSED" && !pr.ClosedAt.IsZero() {
+		b.WriteString(fmt.Sprintf("Closed: %s (%s)\n", pr.ClosedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(pr.ClosedAt)))
+	}
 
 	// Labels
 	if len(pr.Labels) > 0 {

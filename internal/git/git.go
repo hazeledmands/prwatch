@@ -90,6 +90,10 @@ type PRInfoResult struct {
 	Assignees      []PRUser    `json:"assignees"`
 	Milestone      PRMilestone `json:"milestone"`
 	MergedBy       *PRUser     `json:"mergedBy"`
+	CreatedAt      time.Time   `json:"createdAt"`
+	UpdatedAt      time.Time   `json:"updatedAt"`
+	MergedAt       time.Time   `json:"mergedAt"`
+	ClosedAt       time.Time   `json:"closedAt"`
 }
 
 type PRLabel struct {
@@ -598,7 +602,7 @@ func (g *Git) AllFiles(includeIgnored bool) ([]string, error) {
 // Returns an error if the gh command fails for reasons other than "no PR" (e.g. rate limiting, auth issues).
 func (g *Git) PRAll() (PRAllResult, error) {
 	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json",
-		"number,title,url,state,baseRefName,isDraft,reviewDecision,body,labels,assignees,milestone,mergedBy,reviews,reviewRequests,comments")
+		"number,title,url,state,baseRefName,isDraft,reviewDecision,body,labels,assignees,milestone,mergedBy,reviews,reviewRequests,comments,createdAt,updatedAt,mergedAt,closedAt")
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
 		// These errors mean genuinely no PR or no remote — not a transient failure
