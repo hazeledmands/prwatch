@@ -1539,6 +1539,9 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.mode == FileDiffMode || m.mode == FileViewMode {
 		return m, m.openEditor()
 	}
+	if m.mode == PRViewMode {
+		return m, m.openCIURL()
+	}
 	return m, nil
 }
 
@@ -1616,6 +1619,31 @@ func (m *Model) openEditor() tea.Cmd {
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return RefreshMsg{}
 	})
+}
+
+// openCIURL opens the URL of the currently selected CI check in the default browser.
+func (m *Model) openCIURL() tea.Cmd {
+	selected := m.sidebar.SelectedItem()
+	if selected == "" {
+		return nil
+	}
+	for _, check := range m.ciChecks {
+		if strings.Contains(selected, check.Name) && check.URL != "" {
+			var cmd *exec.Cmd
+			switch runtime.GOOS {
+			case "darwin":
+				cmd = exec.Command("open", check.URL)
+			case "linux":
+				cmd = exec.Command("xdg-open", check.URL)
+			default:
+				return nil
+			}
+			return tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return RefreshMsg{}
+			})
+		}
+	}
+	return nil
 }
 
 // buildEditorCmd returns the editor command and arguments for opening a file.

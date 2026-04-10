@@ -6261,3 +6261,53 @@ func TestLeftWithScroll_ScrollsInsteadOfSwitching(t *testing.T) {
 		t.Error("left with xOffset>0 should scroll, not switch focus")
 	}
 }
+
+func TestEnterOnCICheck_OpensURL(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"a.go"},
+		},
+		allFiles:   []string{"a.go"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		prInfo: git.PRInfoResult{
+			Number: 42, Title: "CI test", URL: "https://github.com/x/y/pull/42",
+			State: "OPEN",
+		},
+		ciChecks: []git.CICheck{
+			{Name: "build", Bucket: "pass", State: "completed", URL: "https://ci.example.com/build/1"},
+			{Name: "test", Bucket: "fail", State: "completed", URL: "https://ci.example.com/test/1"},
+		},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 30
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	// Should be in PR mode
+	if m.mode != PRViewMode {
+		t.Fatalf("expected PR mode, got %d", m.mode)
+	}
+
+	// Navigate to CI section: select a CI check in sidebar
+	m.selectFirstCIFailure()
+	selected := m.sidebar.SelectedItem()
+	if !strings.Contains(selected, "test") {
+		t.Fatalf("expected CI check 'test' selected, got %q", selected)
+	}
+
+	// Focus main pane and press enter
+	m.focus = MainFocus
+	m.updateMainContent()
+	cmd := m.openCIURL()
+
+	// The command should not be nil (it should try to open the URL)
+	if cmd == nil {
+		t.Error("enter on CI check with URL should produce a command to open the browser")
+	}
+}
