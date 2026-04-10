@@ -29,7 +29,7 @@ Four modes, switchable with `m` or by clicking the mode bar in the status bar:
 - **File View** (`v` / `1`) -- sidebar lists all files (uncommitted, committed, and all repo files), main pane shows the full file with line numbers and a diff gutter highlighting added/changed/removed lines.
 - **File Diff** (`d` / `2`) -- sidebar lists changed files, main pane shows the unified diff for the selected file.
 - **Commit** (`c` / `3`) -- sidebar lists commits (uncommitted changes, unpushed, pushed, base branch) with category dividers, main pane shows the patch.
-- **PR View** (`b` / `4`) -- when a PR exists, shows PR description, comments, and CI check status. Default mode when a PR is active.
+- **PR View** (`b` / `4`) -- when a PR exists, shows PR description (with markdown rendering), comments, reviews with inline code comments, CI checks (with RWX log support), and deployments. Default mode when a PR is active.
 
 ## Keys
 
@@ -69,7 +69,7 @@ Four modes, switchable with `m` or by clicking the mode bar in the status bar:
 
 ## Live refresh
 
-prwatch watches the working directory and `.git` for changes via fsnotify, refreshing automatically when you make commits or edit files. GitHub PR status refreshes periodically with adaptive rate limiting.
+prwatch watches the working directory and `.git` for changes via fsnotify, refreshing automatically when you make commits or edit files. GitHub PR status refreshes every 30s when you're actively using the tool, slowing to every 10m when idle (no interactions for 10 minutes) or when server data hasn't changed in 24 hours.
 
 ## Non-git directories
 
