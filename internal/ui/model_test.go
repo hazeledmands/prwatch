@@ -34,13 +34,6 @@ func testGit() *git.Git {
 	return git.NewWithRunner("/tmp", noGHRunner)
 }
 
-// initAndLoadGitData calls Init and extracts just the loadGitData result.
-// Use this for tests that need the git data msg directly.
-func initAndLoadGitData(m *Model) gitDataMsg {
-	msg := m.loadGitData()
-	return msg.(gitDataMsg)
-}
-
 // mockGit implements GitDataSource for controlled testing.
 type mockGit struct {
 	repoInfo       git.RepoInfoResult
