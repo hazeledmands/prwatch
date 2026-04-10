@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hazeledmands/prwatch/internal/git"
@@ -3187,29 +3188,71 @@ func TestRateLimitBackoff(t *testing.T) {
 	m.updateLayout()
 
 	initial := m.prInterval
-	if initial != prRefreshDefault {
-		t.Fatalf("expected default interval %v, got %v", prRefreshDefault, initial)
+	if initial != prRefreshActive {
+		t.Fatalf("expected default interval %v, got %v", prRefreshActive, initial)
 	}
 
 	// Simulate rate limit
 	result, _ := m.Update(prRefreshMsg{rateLimited: true})
 	m = result.(*Model)
-	if m.prInterval != prRefreshDefault*2 {
-		t.Errorf("expected interval to double to %v, got %v", prRefreshDefault*2, m.prInterval)
+	if m.prInterval != prRefreshActive*2 {
+		t.Errorf("expected interval to double to %v, got %v", prRefreshActive*2, m.prInterval)
 	}
 
 	// Second rate limit
 	result, _ = m.Update(prRefreshMsg{rateLimited: true})
 	m = result.(*Model)
-	if m.prInterval != prRefreshDefault*4 {
-		t.Errorf("expected interval to quadruple to %v, got %v", prRefreshDefault*4, m.prInterval)
+	if m.prInterval != prRefreshActive*4 {
+		t.Errorf("expected interval to quadruple to %v, got %v", prRefreshActive*4, m.prInterval)
 	}
 
 	// Successful response resets
 	result, _ = m.Update(prRefreshMsg{})
 	m = result.(*Model)
-	if m.prInterval != prRefreshDefault {
-		t.Errorf("expected interval reset to %v, got %v", prRefreshDefault, m.prInterval)
+	if m.prInterval != prRefreshActive {
+		t.Errorf("expected interval reset to %v, got %v", prRefreshActive, m.prInterval)
+	}
+}
+
+func TestAdaptiveRefresh_IdleAndStale(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch: "feat", RepoName: "test", DirName: "test",
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Active user should get active interval
+	m.lastUIEvent = time.Now()
+	m.lastServerChange = time.Now()
+	if got := m.computePRInterval(); got != prRefreshActive {
+		t.Errorf("active user: got %v, want %v", got, prRefreshActive)
+	}
+
+	// Idle user (no UI events for >10m) should get idle interval
+	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.lastServerChange = time.Now()
+	if got := m.computePRInterval(); got != prRefreshIdle {
+		t.Errorf("idle user: got %v, want %v", got, prRefreshIdle)
+	}
+
+	// Stale server data (no changes in >24h) should get idle interval
+	m.lastUIEvent = time.Now()
+	m.lastServerChange = time.Now().Add(-25 * time.Hour)
+	if got := m.computePRInterval(); got != prRefreshIdle {
+		t.Errorf("stale data: got %v, want %v", got, prRefreshIdle)
+	}
+
+	// Both idle and stale
+	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.lastServerChange = time.Now().Add(-25 * time.Hour)
+	if got := m.computePRInterval(); got != prRefreshIdle {
+		t.Errorf("idle+stale: got %v, want %v", got, prRefreshIdle)
 	}
 }
 

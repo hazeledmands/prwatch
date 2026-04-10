@@ -34,8 +34,11 @@ func renderMarkdown(md string, _ int) (string, error) {
 }
 
 const (
-	prRefreshDefault = 2 * time.Minute
-	prRefreshMax     = 15 * time.Minute
+	prRefreshActive  = 30 * time.Second // refresh interval when user is active
+	prRefreshIdle    = 10 * time.Minute // refresh interval when idle
+	prRefreshMax     = 15 * time.Minute // max backoff on rate limit
+	prIdleThreshold  = 10 * time.Minute // no UI events for this long = idle
+	prStaleThreshold = 24 * time.Hour   // no server changes for this long = stale
 	gitPollInterval  = 5 * time.Second
 )
 
@@ -142,6 +145,8 @@ type Model struct {
 	searchMatchIdx      int           // current match index
 	hoverX, hoverY      int           // last mouse position for hover highlighting
 	prInterval          time.Duration // adaptive PR refresh interval
+	lastUIEvent         time.Time     // last user interaction (keys, mouse, resize)
+	lastServerChange    time.Time     // last time server data actually changed
 	dragStartX          int           // drag start position (-1 = not dragging)
 	dragStartY          int
 	dragEndX            int
@@ -268,23 +273,25 @@ func NewModel(dir string, g GitDataSource) *Model {
 		mode = FileViewMode
 	}
 	return &Model{
-		git:           g,
-		dir:           dir,
-		mode:          mode,
-		focus:         SidebarFocus,
-		sidebar:       newSidebar(),
-		mainPane:      newMainPane(),
-		sidebarPct:    30, // default 30% of width
-		showIgnored:   true,
-		treeMode:      true,
-		collapsedDirs: make(map[string]bool),
-		rwxLogCache:   make(map[string]string),
-		wordWrap:      true,
-		lineNumbers:   true,
-		prInterval:    prRefreshDefault,
-		loading:       g != nil,
-		dragStartX:    -1,
-		dragStartY:    -1,
+		git:              g,
+		dir:              dir,
+		mode:             mode,
+		focus:            SidebarFocus,
+		sidebar:          newSidebar(),
+		mainPane:         newMainPane(),
+		sidebarPct:       30, // default 30% of width
+		showIgnored:      true,
+		treeMode:         true,
+		collapsedDirs:    make(map[string]bool),
+		rwxLogCache:      make(map[string]string),
+		wordWrap:         true,
+		lineNumbers:      true,
+		prInterval:       prRefreshActive,
+		lastUIEvent:      time.Now(),
+		lastServerChange: time.Now(),
+		loading:          g != nil,
+		dragStartX:       -1,
+		dragStartY:       -1,
 	}
 }
 
@@ -658,6 +665,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Track user activity for adaptive refresh
+	switch msg.(type) {
+	case tea.KeyMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.WindowSizeMsg:
+		m.lastUIEvent = time.Now()
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -733,8 +746,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateLayout()
 			return m, nil
 		}
-		// Successful fetch — reset to default interval and clear error
-		m.prInterval = prRefreshDefault
+		// Track whether the server data actually changed
+		if msg.prInfo.Number != m.prInfo.Number ||
+			msg.prInfo.Title != m.prInfo.Title ||
+			msg.prInfo.State != m.prInfo.State ||
+			msg.prInfo.ReviewDecision != m.prInfo.ReviewDecision ||
+			msg.ciStatus.State != m.ciStatus.State ||
+			msg.commentCount != m.prCommentCount ||
+			len(msg.reviews) != len(m.prReviews) {
+			m.lastServerChange = time.Now()
+		}
+		// Successful fetch — reset interval based on activity and clear error
+		m.prInterval = m.computePRInterval()
 		m.prError = ""
 		m.prInfo = msg.prInfo
 		m.ciStatus = msg.ciStatus
@@ -759,6 +782,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prTickMsg:
+		// Recompute interval on each tick based on current activity state
+		m.prInterval = m.computePRInterval()
 		if m.git == nil {
 			return m, schedulePRTick(m.prInterval)
 		}
@@ -2367,6 +2392,18 @@ func (m *Model) updateMainContent() {
 			}
 		}
 	}
+}
+
+// computePRInterval returns the appropriate PR refresh interval based on
+// user activity and server data freshness.
+func (m *Model) computePRInterval() time.Duration {
+	now := time.Now()
+	idle := now.Sub(m.lastUIEvent) >= prIdleThreshold
+	stale := now.Sub(m.lastServerChange) >= prStaleThreshold
+	if idle || stale {
+		return prRefreshIdle
+	}
+	return prRefreshActive
 }
 
 func (m *Model) updateLayout() {
