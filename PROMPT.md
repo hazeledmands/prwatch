@@ -136,6 +136,7 @@ tree view (enabled by default): files should be grouped under directories, and s
 - files and subdirectories in directories can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter].
 - for uncommitted files and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
 - special case: if there is only one leaf node in the tree, display the whole relevant subtree on the same line, kind of like when tree mode is disabled.
+- cursor vs. pinned file: the sidebar cursor moves freely over files and directories, but the main panel only updates when the cursor lands on a file. navigating over directories (keys or click) keeps the previous file's content visible. the sidebar should visually distinguish the cursor position from the pinned (currently viewing) file when they differ.
 
 ### commit mode
 

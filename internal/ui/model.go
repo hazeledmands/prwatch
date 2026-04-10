@@ -2284,9 +2284,12 @@ func (m *Model) updateMainContent() {
 		// Non-git: file-view only, read from disk
 		if m.mode == FileViewMode {
 			file := m.sidebar.SelectedItem()
-			if file == "" || m.sidebar.SelectedIsDir() {
+			if file == "" {
 				m.mainPane.SetPlainContent("")
 				return
+			}
+			if m.sidebar.SelectedIsDir() {
+				return // preserve current main panel content
 			}
 			content, err := os.ReadFile(filepath.Join(m.dir, file))
 			if err != nil {
@@ -2308,9 +2311,12 @@ func (m *Model) updateMainContent() {
 	switch m.mode {
 	case FileDiffMode:
 		file := m.sidebar.SelectedItem()
-		if file == "" || m.sidebar.SelectedIsDir() {
+		if file == "" {
 			m.mainPane.SetContent("")
 			return
+		}
+		if m.sidebar.SelectedIsDir() {
+			return // preserve current main panel content
 		}
 		var diff string
 		var err error
@@ -2331,10 +2337,13 @@ func (m *Model) updateMainContent() {
 
 	case FileViewMode:
 		file := m.sidebar.SelectedItem()
-		if file == "" || m.sidebar.SelectedIsDir() {
+		if file == "" {
 			m.mainPane.SetPlainContent("")
 			m.mainPane.ClearDiffAnnotations()
 			return
+		}
+		if m.sidebar.SelectedIsDir() {
+			return // preserve current main panel content
 		}
 		content, err := m.git.FileContent(file)
 		if err != nil {

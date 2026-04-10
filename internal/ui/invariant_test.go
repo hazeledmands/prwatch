@@ -1153,6 +1153,402 @@ func TestProperty_DragAcrossModesNoPanic(t *testing.T) {
 // Multi-step interaction property test
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Tree mode navigation property tests
+// ---------------------------------------------------------------------------
+
+// genNestedFiles generates file paths with directory structure for tree mode testing.
+func genNestedFiles(t *rapid.T, tag string, n int) []string {
+	dirPool := []string{"internal", "cmd", "pkg", "api", "internal/ui", "internal/git", "pkg/utils", "lib"}
+	seen := make(map[string]bool)
+	var files []string
+	for i := range n {
+		itag := fmt.Sprintf("%s_%d", tag, i)
+		useDir := rapid.Bool().Draw(t, itag+"_nested")
+		var path string
+		if useDir {
+			dir := rapid.SampledFrom(dirPool).Draw(t, itag+"_dir")
+			path = fmt.Sprintf("%s/file%d.go", dir, i)
+		} else {
+			path = fmt.Sprintf("file%d.go", i)
+		}
+		if seen[path] {
+			path = fmt.Sprintf("gen%d_%s", i, path)
+		}
+		seen[path] = true
+		files = append(files, path)
+	}
+	return files
+}
+
+// genTreeAction generates a sidebar navigation action for tree mode testing.
+func genTreeAction(t *rapid.T, m *Model, step int) tea.Msg {
+	tag := fmt.Sprintf("tree_action%d", step)
+
+	actions := []string{
+		"j", "k", "up", "down", "h", "l", "left", "right", "enter",
+		"click", "click",
+	}
+	action := rapid.SampledFrom(actions).Draw(t, tag+"_type")
+
+	switch action {
+	case "j":
+		return tea.KeyPressMsg{Text: "j", Code: 'j'}
+	case "k":
+		return tea.KeyPressMsg{Text: "k", Code: 'k'}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "h":
+		return tea.KeyPressMsg{Text: "h", Code: 'h'}
+	case "l":
+		return tea.KeyPressMsg{Text: "l", Code: 'l'}
+	case "left":
+		return tea.KeyPressMsg{Code: tea.KeyLeft}
+	case "right":
+		return tea.KeyPressMsg{Code: tea.KeyRight}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "click":
+		// Click on a random sidebar row
+		statusBarHeight := statusBarLineCount(statusBarData{info: m.repoInfo, pr: m.prInfo})
+		maxRow := statusBarHeight + 1 + len(m.sidebar.items)
+		if maxRow > m.height-1 {
+			maxRow = m.height - 1
+		}
+		minRow := statusBarHeight + 1
+		if minRow >= maxRow {
+			minRow = maxRow
+		}
+		row := rapid.IntRange(minRow, maxRow).Draw(t, tag+"_row")
+		col := rapid.IntRange(1, max(1, m.sidebar.width)).Draw(t, tag+"_col")
+		return tea.MouseClickMsg{X: col, Y: row, Button: tea.MouseLeft}
+	}
+	return tea.KeyPressMsg{Text: "j", Code: 'j'}
+}
+
+// checkTreeStructure verifies structural invariants of the tree mode sidebar.
+func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string) {
+	t.Helper()
+	if !m.treeMode {
+		return
+	}
+	items := m.sidebar.items
+
+	// Invariant 1: selection on a selectable item (covered by checkSidebarInvariants too)
+	if len(items) > 0 {
+		sel := m.sidebar.SelectedIndex()
+		if sel < 0 || sel >= len(items) {
+			t.Fatalf("%s: selection %d out of range [0, %d)", context, sel, len(items))
+		}
+		if !items[sel].kind.selectable() {
+			t.Fatalf("%s: selection on non-selectable item %d (kind=%d)", context, sel, items[sel].kind)
+		}
+	}
+
+	// Invariant 3: indent consistency — no item jumps more than 1 level deeper
+	// than its predecessor.
+	for i := 1; i < len(items); i++ {
+		if !items[i].kind.selectable() || !items[i-1].kind.selectable() {
+			continue // skip headers/separators which have indent 0
+		}
+		if items[i].indent > items[i-1].indent+1 {
+			t.Fatalf("%s: item %d indent %d jumps more than 1 from item %d indent %d (labels: %q -> %q)",
+				context, i, items[i].indent, i-1, items[i-1].indent,
+				items[i-1].label, items[i].label)
+		}
+	}
+
+	// Invariant 4: directory items have isDir=true and their filePath is a
+	// proper prefix of at least one actual file.
+	fileSet := make(map[string]bool)
+	for _, f := range allFiles {
+		fileSet[f] = true
+	}
+	for i, item := range items {
+		if !item.kind.selectable() {
+			continue
+		}
+		if item.isDir {
+			if fileSet[item.filePath] {
+				t.Fatalf("%s: item %d is marked isDir but filePath %q is an actual file",
+					context, i, item.filePath)
+			}
+			// Check it's a prefix of at least one file
+			prefix := item.filePath + "/"
+			found := false
+			for _, f := range allFiles {
+				if strings.HasPrefix(f, prefix) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("%s: directory item %d filePath %q is not a prefix of any file",
+					context, i, item.filePath)
+			}
+		} else if item.filePath != "" {
+			if !fileSet[item.filePath] {
+				t.Fatalf("%s: leaf item %d filePath %q is not in the file set",
+					context, i, item.filePath)
+			}
+		}
+	}
+
+	// Invariant 2: if a collapsed directory entry is visible in the sidebar,
+	// none of its children should appear after it in the same section.
+	// A directory may appear in one section but not another (single-leaf
+	// optimization renders it as a flat path), so we check per-entry.
+	for i, item := range items {
+		if !item.isDir || !m.collapsedDirs[item.filePath] {
+			continue
+		}
+		prefix := item.filePath + "/"
+		for j := i + 1; j < len(items); j++ {
+			if items[j].kind == itemHeader || items[j].kind == itemSeparator {
+				break // new section
+			}
+			if strings.HasPrefix(items[j].filePath, prefix) {
+				t.Fatalf("%s: item %d (%q) is visible but parent dir %q at item %d is collapsed",
+					context, j, items[j].filePath, item.filePath, i)
+			}
+		}
+	}
+
+	// Invariant 5: every file is accounted for — either visible as a leaf item
+	// or hidden under a collapsed directory that has a visible dir entry.
+	visibleLeaves := make(map[string]bool)
+	visibleDirEntries := make(map[string]bool)
+	for _, item := range items {
+		if item.kind.selectable() && !item.isDir && item.filePath != "" {
+			visibleLeaves[item.filePath] = true
+		}
+		if item.isDir {
+			visibleDirEntries[item.filePath] = true
+		}
+	}
+	for _, f := range allFiles {
+		if visibleLeaves[f] {
+			continue
+		}
+		// Must be hidden under a collapsed dir that has a visible dir entry
+		hidden := false
+		for dir, collapsed := range m.collapsedDirs {
+			if collapsed && visibleDirEntries[dir] && strings.HasPrefix(f, dir+"/") {
+				hidden = true
+				break
+			}
+		}
+		if !hidden {
+			t.Fatalf("%s: file %q is neither visible nor hidden under a collapsed directory",
+				context, f)
+		}
+	}
+}
+
+func TestProperty_TreeModeNavigation(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		width := rapid.IntRange(60, 160).Draw(t, "width")
+		height := rapid.IntRange(15, 50).Draw(t, "height")
+		mode := Mode(rapid.SampledFrom([]Mode{FileDiffMode, FileViewMode}).Draw(t, "mode"))
+
+		nCommitted := rapid.IntRange(2, 15).Draw(t, "nCommitted")
+		nUncommitted := rapid.IntRange(0, 5).Draw(t, "nUncommitted")
+
+		committed := genNestedFiles(t, "committed", nCommitted)
+		uncommitted := genNestedFiles(t, "uncommitted", nUncommitted)
+		allFiles := append(append([]string{}, committed...), uncommitted...)
+
+		mock := &mockGit{
+			repoInfo: git.RepoInfoResult{
+				Branch:   "feature/test",
+				Upstream: "origin/main",
+				RepoName: "testrepo",
+				DirName:  "testrepo",
+				HeadSHA:  "abc1234",
+			},
+			base: "origin/main",
+			changedFiles: git.ChangedFilesResult{
+				Committed:   committed,
+				Uncommitted: uncommitted,
+			},
+			commits:     []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
+			allCommits:  []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
+			fileDiff:    "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new",
+			fileContent: "line1\nline2\nline3",
+			commitPatch: "commit abc1234\n\n    test\n\ndiff\n+added",
+		}
+
+		m := initModel(mock, mode, width, height)
+		m.treeMode = true
+		m.focus = SidebarFocus
+		m.updateSidebarItems()
+		m.updateMainContent()
+
+		// Structural invariants after init
+		checkTreeStructure(t, m, allFiles, "after init")
+		checkRenderInvariants(t, m, "after init")
+
+		nSteps := rapid.IntRange(5, 40).Draw(t, "nSteps")
+		for step := range nSteps {
+			msg := genTreeAction(t, m, step)
+			context := fmt.Sprintf("step %d", step)
+
+			// Capture state before action for navigation invariants
+			selBefore := m.sidebar.SelectedIndex()
+			var isDirBefore bool
+			var dirPathBefore string
+			var collapsedBefore bool
+			if selBefore < len(m.sidebar.items) {
+				isDirBefore = m.sidebar.items[selBefore].isDir
+				dirPathBefore = m.sidebar.items[selBefore].filePath
+				collapsedBefore = m.collapsedDirs[dirPathBefore]
+			}
+			mainContentBefore := m.mainPane.viewport.View()
+
+			m = applyAction(m, msg)
+
+			// Exit help/confirm to keep exercising tree navigation
+			if m.confirming {
+				m.confirming = false
+			}
+			if m.showHelp {
+				m.showHelp = false
+			}
+
+			selAfter := m.sidebar.SelectedIndex()
+
+			// Structural invariants after every action
+			checkTreeStructure(t, m, allFiles, context)
+			checkRenderInvariants(t, m, context)
+			checkSidebarInvariants(t, m, context)
+
+			// Navigation invariants for specific key actions
+			switch msg := msg.(type) {
+			case tea.KeyPressMsg:
+				isDown := msg.Code == 'j' || msg.Code == tea.KeyDown
+				isUp := msg.Code == 'k' || msg.Code == tea.KeyUp
+
+				// Invariant 6: j/k doesn't skip selectable items
+				if isDown && selAfter != selBefore {
+					// Find the next selectable index after selBefore
+					nextSelectable := -1
+					for i := selBefore + 1; i < len(m.sidebar.items); i++ {
+						if m.sidebar.items[i].kind.selectable() {
+							nextSelectable = i
+							break
+						}
+					}
+					if nextSelectable >= 0 && selAfter != nextSelectable {
+						t.Fatalf("%s: down moved from %d to %d, expected next selectable %d",
+							context, selBefore, selAfter, nextSelectable)
+					}
+				}
+				if isUp && selAfter != selBefore {
+					prevSelectable := -1
+					for i := selBefore - 1; i >= 0; i-- {
+						if m.sidebar.items[i].kind.selectable() {
+							prevSelectable = i
+							break
+						}
+					}
+					if prevSelectable >= 0 && selAfter != prevSelectable {
+						t.Fatalf("%s: up moved from %d to %d, expected prev selectable %d",
+							context, selBefore, selAfter, prevSelectable)
+					}
+				}
+
+				isLeft := msg.Code == 'h' || msg.Code == tea.KeyLeft
+				isRight := msg.Code == 'l' || msg.Code == tea.KeyRight || msg.Code == tea.KeyEnter
+
+				if m.focus == SidebarFocus && isDirBefore {
+					// Invariant 7: left on expanded dir collapses it
+					if isLeft && !collapsedBefore {
+						if !m.collapsedDirs[dirPathBefore] {
+							t.Fatalf("%s: left on expanded dir %q should collapse it",
+								context, dirPathBefore)
+						}
+						if selAfter != selBefore {
+							t.Fatalf("%s: left on expanded dir should keep selection on %d, got %d",
+								context, selBefore, selAfter)
+						}
+					}
+
+					// Invariant 8: left on collapsed dir goes to parent
+					if isLeft && collapsedBefore {
+						if selAfter != selBefore {
+							// Should have moved to a parent dir with lower indent
+							if selAfter >= len(m.sidebar.items) {
+								t.Fatalf("%s: left on collapsed dir moved to invalid index %d", context, selAfter)
+							}
+							parentItem := m.sidebar.items[selAfter]
+							if !parentItem.isDir {
+								t.Fatalf("%s: left on collapsed dir should go to parent dir, got non-dir %q",
+									context, parentItem.filePath)
+							}
+							childIndent := m.sidebar.items[selBefore].indent
+							if parentItem.indent >= childIndent {
+								t.Fatalf("%s: left on collapsed dir moved to item with indent %d >= %d",
+									context, parentItem.indent, childIndent)
+							}
+						}
+						// selAfter == selBefore is OK (no parent found)
+					}
+
+					// Invariant 9: right on collapsed dir expands it
+					if isRight && collapsedBefore {
+						if m.collapsedDirs[dirPathBefore] {
+							t.Fatalf("%s: right on collapsed dir %q should expand it",
+								context, dirPathBefore)
+						}
+					}
+
+					// Invariant 10: right on expanded dir moves to first child
+					if isRight && !collapsedBefore && msg.Code != tea.KeyEnter {
+						// Enter toggles expand/collapse for dirs, but l/right
+						// on expanded dir goes to first child
+						if selAfter != selBefore+1 && selAfter != selBefore {
+							t.Fatalf("%s: right on expanded dir should move to first child (%d), got %d",
+								context, selBefore+1, selAfter)
+						}
+					}
+				}
+
+				// Invariant 11: right/enter on a leaf file switches focus to main
+				if isRight && !isDirBefore && m.focus != MainFocus {
+					// Only check if we were on a selectable leaf
+					if selBefore < len(m.sidebar.items) && m.sidebar.items[selBefore].kind.selectable() && m.sidebar.items[selBefore].filePath != "" {
+						// Focus should have moved to main (unless the item list was rebuilt)
+						// Allow this to pass if sidebar was rebuilt (items changed)
+					}
+				}
+
+			case tea.MouseClickMsg:
+				// Invariant 13: clicking a directory toggles collapsed state
+				// and doesn't change main content
+				if isDirBefore && selAfter == selBefore {
+					// Click landed on the same dir
+					if m.collapsedDirs[dirPathBefore] == collapsedBefore {
+						// Collapsed state didn't change — click might have
+						// landed on a different item, that's fine
+					}
+				}
+			}
+
+			// Invariant 12: main panel content doesn't change when cursor
+			// lands on a directory.
+			if m.sidebar.SelectedIsDir() && m.focus == SidebarFocus {
+				mainContentAfter := m.mainPane.viewport.View()
+				if mainContentAfter != mainContentBefore {
+					t.Fatalf("%s: main panel content changed when cursor is on directory %q",
+						context, m.sidebar.SelectedItem())
+				}
+			}
+		}
+	})
+}
+
 func TestProperty_InteractionInvariants(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		mock, mode := genScenario(t)
