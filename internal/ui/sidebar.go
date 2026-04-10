@@ -451,13 +451,17 @@ func (s *sidebar) View(focused bool) string {
 		}
 
 		if item.prefix == "" && item.suffix == "" {
-			// Simple path: single-styled label (unchanged behavior).
+			// Simple path: single-styled label.
 			label := item.label
-			if s.width > 0 && len(label) > s.width {
-				label = label[:s.width]
+			if s.width > 0 && runewidth.StringWidth(label) > s.width {
+				label = runewidth.Truncate(label, s.width, "")
 			}
 			if s.width > 0 {
-				label = fmt.Sprintf("%-*s", s.width, label)
+				// Pad with spaces to fill sidebar width
+				pad := s.width - runewidth.StringWidth(label)
+				if pad > 0 {
+					label += strings.Repeat(" ", pad)
+				}
 			}
 			b.WriteString(labelStyle.Render(label))
 		} else {

@@ -25,14 +25,6 @@ import (
 // ansiStripRE matches ANSI escape sequences (SGR and OSC 8 hyperlinks).
 var ansiStripRE = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\]8;;[^\x1b]*\x1b\\`)
 
-// renderMarkdown converts markdown text to terminal-formatted text.
-// Note: glamour (charmbracelet/glamour) has dependency conflicts with the
-// current bubbletea/v2 ecosystem, so we display markdown as-is for now.
-// See INCONSISTENCIES.md.
-func renderMarkdown(md string, _ int) (string, error) {
-	return md, nil
-}
-
 const (
 	prRefreshActive  = 30 * time.Second // refresh interval when user is active
 	prRefreshIdle    = 10 * time.Minute // refresh interval when idle
@@ -2336,7 +2328,11 @@ func (m *Model) updateMainContent() {
 			if !c.CreatedAt.IsZero() {
 				header += fmt.Sprintf("  •  %s (%s)", c.CreatedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(c.CreatedAt))
 			}
-			m.mainPane.SetPlainContent(fmt.Sprintf("%s\n\n%s", header, c.Body))
+			body := c.Body
+			if rendered, err := renderMarkdown(body, m.mainPane.width); err == nil {
+				body = rendered
+			}
+			m.mainPane.SetPlainContent(fmt.Sprintf("%s\n\n%s", header, body))
 		} else if matched, i := matchNumberedItem(selected, m.prReviews, func(j int, r gitpkg.PRReview) string {
 			var emoji string
 			switch r.State {
@@ -2359,7 +2355,11 @@ func (m *Model) updateMainContent() {
 			}
 			content += fmt.Sprintf("\nState: %s", r.State)
 			if r.Body != "" {
-				content += "\n\n" + r.Body
+				body := r.Body
+				if rendered, err := renderMarkdown(body, m.mainPane.width); err == nil {
+					body = rendered
+				}
+				content += "\n\n" + body
 			}
 			for _, c := range r.Comments {
 				content += fmt.Sprintf("\n\n--- %s:%d ---\n%s", c.Path, c.Line, c.Body)
@@ -2906,7 +2906,7 @@ func (m *Model) renderPRDescription() string {
 
 	b.WriteString("\n")
 
-	// Render body as markdown using glamour
+	// Render body as markdown
 	if pr.Body != "" {
 		rendered, err := renderMarkdown(pr.Body, m.mainPane.width)
 		if err != nil {
