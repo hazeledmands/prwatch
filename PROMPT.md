@@ -106,6 +106,7 @@ sidebar should show:
   - one line per CI check: state indicator, check name, dim relative last updated time
   - sorted by: failures first, then pending, then passing; secondary order preserves GitHub's canonical order
   - main panel shows check name, status, start/completion timestamps, URL, and (for RWX) fetched logs
+  - pressing [enter] when the CI section is highlighted should open a browser to the CI URL
 
 ### CI logs
 - support RWX as a CI provider. if the github CI status points to RWX and there are failures, use the rwx CLI tool to display details about the failures (including failing test results).
