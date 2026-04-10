@@ -4,7 +4,7 @@
 
 **Architecture:** Bubbletea v2 Elm architecture (Model → Update → View). Git CLI for data, fsnotify for live updates. Three visual components (status bar, sidebar, main pane) composed in a root model.
 
-**Tech Stack:** Go, bubbletea v2, bubbles v2 (viewport, key), lipgloss v2, fsnotify
+**Tech Stack:** Go, bubbletea v2, bubbles v2 (viewport, key), lipgloss v2, fsnotify, goldmark
 
 ---
 
@@ -24,6 +24,8 @@ prwatch/
 │   └── ui/
 │       ├── model.go           # Root bubbletea model, mode/focus state, key dispatch
 │       ├── model_test.go      # Unit tests for Update logic
+│       ├── markdown.go        # Goldmark-based markdown → ANSI renderer
+│       ├── markdown_test.go   # Markdown rendering tests
 │       ├── statusbar.go       # Status bar rendering (3 lines: status, git, PR) with clickable regions
 │       ├── sidebar.go         # Sidebar: tree view, file/commit/PR item lists
 │       ├── sidebar_test.go    # Sidebar selection/navigation tests
@@ -51,31 +53,26 @@ Core features (all original tasks complete):
 - Main pane with diff coloring, word wrap, gutter, search
 - File watcher with debounced live refresh
 - Mouse support: clicks, scrolling, drag-to-copy, hover
-
-Recent additions:
 - Clickable status bar: mode labels (line 1), commit count (line 2), PR elements (line 3)
-- Review requests displayed in status bar (👀 emoji)
+- Review requests displayed in status bar
 - CI status with text labels and clickable jump to CI results
 - RWX CI log integration: async-fetches run results and failed task logs
-- GitHub API error display on status bar line 3
-
-Recent additions:
-- Adaptive PR refresh: 30s when active, 10m when idle (>10m no UI events) or stale (>24h no server changes)
-- PR description shows dates (created, updated, merged, closed) with relative timestamps
-- Comments and reviews show author with timestamp in main panel
+- Adaptive PR refresh: 30s when active, 10m when idle or stale
+- PR description with dates, markdown rendering (goldmark), and deployments
+- Comments and reviews show author with timestamp + markdown rendering
 - CI checks show start/completion timestamps and URL
-- Fixed drag-copy byte-slicing multi-byte characters (emoji)
+- PR deployments fetched via GitHub GraphQL API
 
-## Known Limitations
+## Previously Known Limitations (now resolved)
 
-See INCONSISTENCIES.md for details:
-- PR description shown as plain text (glamour/bubbletea v2 dependency conflict)
-- Deployments not shown (gh CLI doesn't expose deployment data)
+- PR description markdown: resolved by using goldmark + custom ANSI renderer
+- PR deployments: resolved by using GitHub GraphQL API via `gh api graphql`
+- Sidebar emoji truncation: resolved by switching to runewidth-aware truncation
 
 ## Test Coverage
 
 Target: 90%+ for UI and git packages.
-- `internal/ui`: ~90.6%
+- `internal/ui`: ~90.8%
 - `internal/git`: ~86.1%
 - `internal/watcher`: ~86.4%
 
