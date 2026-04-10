@@ -21,8 +21,9 @@ type statusBarData struct {
 	confirming       bool
 	uncommitCount    int
 	commitCount      int
-	behindCount      int // commits behind base branch
-	changedFileCount int // total changed files (committed + uncommitted)
+	behindCount      int  // commits behind base branch
+	changedFileCount int  // total changed files (committed + uncommitted)
+	prLoading        bool // true if PR data is still being fetched
 	showHelp         bool
 	hoverX           int // mouse hover position for highlighting
 	hoverY           int
@@ -71,8 +72,8 @@ func statusBarLineCount(data statusBarData) int {
 	if data.info.RepoName != "" || data.info.Branch != "" {
 		count++ // line 2: git status
 	}
-	if data.pr.Number > 0 || data.prError != "" {
-		count++ // line 3: PR status or error
+	if data.pr.Number > 0 || data.prError != "" || data.prLoading {
+		count++ // line 3: PR status, error, or loading
 	}
 	return count
 }
@@ -104,6 +105,13 @@ func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line
 		l3, l3Labels := renderLine3(width, data)
 		line3Labels = l3Labels
 		result += "\n" + l3
+	} else if data.prLoading {
+		// Show loading indicator while PR data is being fetched
+		loadText := " Loading from GitHub…"
+		if lipgloss.Width(loadText) > width-2 {
+			loadText = truncateToWidth(loadText, width-2)
+		}
+		result += "\n" + statusBarDimStyle.Width(width).Render(loadText)
 	} else if data.prError != "" {
 		// Show error on line 3 when no PR data available
 		errText := " " + data.prError
@@ -312,19 +320,24 @@ func renderLine3(width int, data statusBarData) (string, []line3Label) {
 	var parts []part
 	var labels []line3Label
 
+	// Draft/Merged status first (bright, bold, obvious)
+	if data.pr.IsDraft {
+		parts = append(parts, part{" \x1b[1;38;2;249;226;175m[DRAFT]\x1b[0;38;2;205;214;244;48;2;69;71;90m", line3Description})
+	}
+	if data.pr.State == "MERGED" {
+		parts = append(parts, part{" \x1b[1;38;2;166;227;161m[MERGED]\x1b[0;38;2;205;214;244;48;2;69;71;90m", line3Description})
+	}
+
 	// PR link
 	prLink := fmt.Sprintf("PR #%d: %s", data.pr.Number, data.pr.Title)
 	if data.pr.URL != "" {
 		prLink = makeHyperlink(data.pr.URL, prLink)
 	}
-	parts = append(parts, part{" " + prLink, line3Description})
-
-	if data.pr.IsDraft {
-		parts = append(parts, part{"[DRAFT]", line3Description})
+	prefix := " "
+	if len(parts) > 0 {
+		prefix = ""
 	}
-	if data.pr.State == "MERGED" {
-		parts = append(parts, part{"[MERGED]", line3Description})
-	}
+	parts = append(parts, part{prefix + prLink, line3Description})
 
 	// Reviews and review requests
 	reviewStr := renderReviews(data.reviews, data.reviewRequests, data.pr.ReviewDecision)

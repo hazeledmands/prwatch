@@ -1388,7 +1388,7 @@ func (m *Model) clearSearch() {
 }
 
 func (m *Model) statusBarLines() int {
-	return statusBarLineCount(statusBarData{info: m.repoInfo, pr: m.prInfo})
+	return statusBarLineCount(statusBarData{info: m.repoInfo, pr: m.prInfo, prLoading: m.loading && m.git != nil})
 }
 
 func (m *Model) sidebarPixelWidth() int {
@@ -2509,9 +2509,10 @@ func (m *Model) computePRInterval() time.Duration {
 
 func (m *Model) updateLayout() {
 	statusBarHeight := statusBarLineCount(statusBarData{
-		info:    m.repoInfo,
-		pr:      m.prInfo,
-		prError: m.prError,
+		info:      m.repoInfo,
+		pr:        m.prInfo,
+		prError:   m.prError,
+		prLoading: m.loading && m.git != nil,
 	})
 	contentHeight := max(0, m.height-statusBarHeight-2) // borders
 
@@ -2577,6 +2578,7 @@ func (m *Model) View() tea.View {
 		commitCount:      m.commitCount,
 		behindCount:      m.behindCount,
 		changedFileCount: len(m.committedFiles) + len(m.uncommittedFiles),
+		prLoading:        m.loading && m.git != nil,
 		showHelp:         m.showHelp,
 		hoverX:           m.hoverX,
 		hoverY:           m.hoverY,
