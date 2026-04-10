@@ -112,6 +112,7 @@ type PRComment struct {
 	Author    string    `json:"author"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
+	URL       string    `json:"url"`
 }
 
 type PRDeployment struct {
@@ -160,6 +161,7 @@ type PRReview struct {
 	State       string            `json:"state"` // APPROVED, CHANGES_REQUESTED, COMMENTED, PENDING
 	Body        string            `json:"body"`
 	SubmittedAt time.Time         `json:"submittedAt"`
+	URL         string            `json:"url"`
 	Comments    []PRReviewComment `json:"comments"`
 }
 
@@ -650,6 +652,7 @@ func (g *Git) PRAll() (PRAllResult, error) {
 			} `json:"author"`
 			Body      string    `json:"body"`
 			CreatedAt time.Time `json:"createdAt"`
+			URL       string    `json:"url"`
 		} `json:"comments"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
@@ -693,6 +696,7 @@ func (g *Git) PRAll() (PRAllResult, error) {
 			Author:    c.Author.Login,
 			CreatedAt: c.CreatedAt,
 			Body:      c.Body,
+			URL:       c.URL,
 		})
 	}
 
@@ -827,6 +831,7 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
           state
           body
           submittedAt
+          url
           comments(first: 100) {
             nodes {
               path
@@ -857,6 +862,7 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
 							State       string    `json:"state"`
 							Body        string    `json:"body"`
 							SubmittedAt time.Time `json:"submittedAt"`
+							URL         string    `json:"url"`
 							Comments    struct {
 								Nodes []struct {
 									Path string `json:"path"`
@@ -881,6 +887,7 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
 			State:       r.State,
 			Body:        r.Body,
 			SubmittedAt: r.SubmittedAt,
+			URL:         r.URL,
 		}
 		for _, c := range r.Comments.Nodes {
 			review.Comments = append(review.Comments, PRReviewComment{

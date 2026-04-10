@@ -1540,7 +1540,7 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 		return m, m.openEditor()
 	}
 	if m.mode == PRViewMode {
-		return m, m.openCIURL()
+		return m, m.openPRItemURL()
 	}
 	return m, nil
 }
@@ -1621,29 +1621,72 @@ func (m *Model) openEditor() tea.Cmd {
 	})
 }
 
-// openCIURL opens the URL of the currently selected CI check in the default browser.
-func (m *Model) openCIURL() tea.Cmd {
+// openPRItemURL opens the URL for the currently selected PR sidebar item in the browser.
+// Handles: PR description, comments, reviews, and CI checks.
+func (m *Model) openPRItemURL() tea.Cmd {
 	selected := m.sidebar.SelectedItem()
 	if selected == "" {
 		return nil
 	}
-	for _, check := range m.ciChecks {
-		if strings.Contains(selected, check.Name) && check.URL != "" {
-			var cmd *exec.Cmd
-			switch runtime.GOOS {
-			case "darwin":
-				cmd = exec.Command("open", check.URL)
-			case "linux":
-				cmd = exec.Command("xdg-open", check.URL)
-			default:
-				return nil
+
+	var url string
+
+	// Check if it's the Description item
+	if selected == "Description" {
+		url = m.prInfo.URL
+	}
+
+	// Check comments
+	if url == "" {
+		for _, c := range m.prComments {
+			if strings.Contains(selected, c.Author) && c.URL != "" {
+				url = c.URL
+				break
 			}
-			return tea.ExecProcess(cmd, func(err error) tea.Msg {
-				return RefreshMsg{}
-			})
 		}
 	}
-	return nil
+
+	// Check reviews
+	if url == "" {
+		for _, r := range m.prReviews {
+			if strings.Contains(selected, r.Author) && r.URL != "" {
+				url = r.URL
+				break
+			}
+		}
+	}
+
+	// Check CI checks
+	if url == "" {
+		for _, check := range m.ciChecks {
+			if strings.Contains(selected, check.Name) && check.URL != "" {
+				url = check.URL
+				break
+			}
+		}
+	}
+
+	if url == "" {
+		return nil
+	}
+
+	return m.openInBrowser(url)
+}
+
+// openInBrowser opens a URL in the default system browser.
+func (m *Model) openInBrowser(url string) tea.Cmd {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		return nil
+	}
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return RefreshMsg{}
+	})
 }
 
 // buildEditorCmd returns the editor command and arguments for opening a file.

@@ -6304,10 +6304,88 @@ func TestEnterOnCICheck_OpensURL(t *testing.T) {
 	// Focus main pane and press enter
 	m.focus = MainFocus
 	m.updateMainContent()
-	cmd := m.openCIURL()
+	cmd := m.openPRItemURL()
 
 	// The command should not be nil (it should try to open the URL)
 	if cmd == nil {
 		t.Error("enter on CI check with URL should produce a command to open the browser")
+	}
+}
+
+func TestEnterOnPRDescription_OpensURL(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"a.go"},
+		},
+		allFiles:   []string{"a.go"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		prInfo: git.PRInfoResult{
+			Number: 42, Title: "URL test", URL: "https://github.com/x/y/pull/42",
+			State: "OPEN",
+		},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 30
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	// Select the Description item
+	m.sidebar.SelectFirst()
+	selected := m.sidebar.SelectedItem()
+	if selected != "Description" {
+		t.Fatalf("expected 'Description' selected, got %q", selected)
+	}
+
+	m.focus = MainFocus
+	cmd := m.openPRItemURL()
+	if cmd == nil {
+		t.Error("enter on PR description should open browser to PR URL")
+	}
+}
+
+func TestEnterOnComment_OpensURL(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"a.go"},
+		},
+		allFiles:   []string{"a.go"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		prInfo: git.PRInfoResult{
+			Number: 42, Title: "URL test", URL: "https://github.com/x/y/pull/42",
+			State: "OPEN",
+		},
+		prComments: []git.PRComment{
+			{Author: "alice", Body: "looks good", URL: "https://github.com/x/y/pull/42#issuecomment-1"},
+		},
+		commentCount: 1,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 30
+
+	msg := m.loadGitData()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	// Select the comment
+	m.selectFirstComment()
+	selected := m.sidebar.SelectedItem()
+	if !strings.Contains(selected, "alice") {
+		t.Fatalf("expected comment by alice selected, got %q", selected)
+	}
+
+	m.focus = MainFocus
+	cmd := m.openPRItemURL()
+	if cmd == nil {
+		t.Error("enter on comment with URL should open browser")
 	}
 }
