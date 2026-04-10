@@ -40,6 +40,9 @@ line 2: local git status (not shown if this is not a git repo)
     this should always be the true total count (e.g. via `git rev-list --count`), not the number of commits currently loaded.
     clicking this should switch to [commits] mode
   - number of commits that this branch is behind base, if any (4 behind)
+    clicking this should switch to [commits] mode
+  - number of changed files in this branch, if any (16 changed files)
+    clicking this should switch to file view mode
   - if no PR, "No PR"
 line 3: github status (not shown if there is no PR)
   - if the github API is returning errors, then put the error message here! otherwise:
