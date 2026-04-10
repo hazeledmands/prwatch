@@ -118,10 +118,33 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 		for _, name := range dirNames {
 			child := node.children[name]
 
-			// Spec: if there is only one leaf node, display the whole subtree on one line
-			if leafCount(child) == 1 {
-				// Find the single leaf by traversing down
-				cur := child
+			// Compact single-child directory chains: if a directory's only
+			// child is another directory, merge them into one entry
+			// (e.g. "foo/bar/baz/" instead of separate "foo/", "bar/", "baz/").
+			displayName := name
+			compacted := child
+			for {
+				var cdirs, cfiles int
+				var onlyChild *treeNode
+				for _, c := range compacted.children {
+					if c.isFile && len(c.children) == 0 {
+						cfiles++
+					} else {
+						cdirs++
+						onlyChild = c
+					}
+				}
+				if cdirs == 1 && cfiles == 0 {
+					displayName += "/" + onlyChild.name
+					compacted = onlyChild
+				} else {
+					break
+				}
+			}
+
+			// Single leaf: display the remaining path from compacted dir on one line, no directory entry
+			if leafCount(compacted) == 1 {
+				cur := compacted
 				for {
 					var nextDir *treeNode
 					var leafNode *treeNode
@@ -133,8 +156,10 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 						}
 					}
 					if leafNode != nil {
-						// Found the leaf — render as flat path
-						label := strings.Repeat("  ", indent) + "  " + leafNode.path
+						// Show path relative to parent: compacted dir name + remaining subdirs + filename
+						relPath := strings.TrimPrefix(leafNode.path, compacted.path+"/")
+						displayLabel := displayName + "/" + relPath
+						label := strings.Repeat("  ", indent) + "  " + displayLabel
 						items = append(items, sidebarItem{
 							label:    label,
 							kind:     leafNode.kind,
@@ -151,22 +176,20 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 				continue
 			}
 
-			prefix := ""
-			if collapsed[child.path] {
+			prefix := "▼"
+			if collapsed[compacted.path] {
 				prefix = "▶"
-			} else {
-				prefix = "▼"
 			}
-			label := strings.Repeat("  ", indent) + prefix + " " + name + "/"
+			label := strings.Repeat("  ", indent) + prefix + " " + displayName + "/"
 			items = append(items, sidebarItem{
 				label:    label,
 				kind:     kind,
-				filePath: child.path,
+				filePath: compacted.path,
 				isDir:    true,
 				indent:   indent,
 			})
-			if !collapsed[child.path] {
-				flatten(child, indent+1)
+			if !collapsed[compacted.path] {
+				flatten(compacted, indent+1)
 			}
 		}
 		for _, name := range fileNames {

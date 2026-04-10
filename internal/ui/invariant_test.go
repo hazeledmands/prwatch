@@ -1316,6 +1316,35 @@ func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string)
 		}
 	}
 
+	// Invariant 6b: no uncompacted single-child directory chains. If a visible
+	// expanded directory's only immediate child is another directory, they
+	// should have been compacted into one entry (e.g. "foo/bar/" not "foo/" + "bar/").
+	for i, item := range items {
+		if !item.isDir || m.collapsedDirs[item.filePath] {
+			continue
+		}
+		// Count immediate children (items at indent+1 before next same/lower indent or section break)
+		var children []int
+		for j := i + 1; j < len(items); j++ {
+			if items[j].kind == itemHeader || items[j].kind == itemSeparator {
+				break
+			}
+			if !items[j].kind.selectable() {
+				continue
+			}
+			if items[j].indent <= item.indent {
+				break // back to same or higher level
+			}
+			if items[j].indent == item.indent+1 {
+				children = append(children, j)
+			}
+		}
+		if len(children) == 1 && items[children[0]].isDir {
+			t.Fatalf("%s: directory %q at item %d has a single child directory %q at item %d — these should be compacted into one entry",
+				context, item.filePath, i, items[children[0]].filePath, children[0])
+		}
+	}
+
 	// Invariant 5: every file is accounted for — either visible as a leaf item
 	// or hidden under a collapsed directory that has a visible dir entry.
 	visibleLeaves := make(map[string]bool)
