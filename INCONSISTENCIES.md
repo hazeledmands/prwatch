@@ -12,6 +12,8 @@ plain text until the dependency conflict is resolved upstream.
 2. Use a lighter-weight markdown renderer (e.g. `goldmark` to parse → custom ANSI renderer) that doesn't depend on lipgloss v1.
 3. Implement minimal markdown formatting manually (bold, italic, headers, code blocks, lists) using ANSI escape codes.
 
+User chose: 2: let's just use a lighter weight library.
+
 ## PR deployments
 
 The spec mentions "deployments" in the PR view description panel. The GitHub CLI
@@ -22,6 +24,8 @@ using the GitHub REST/GraphQL API directly. Flagging for future implementation.
 1. Use `gh api` to query the GitHub Deployments API (`GET /repos/{owner}/{repo}/deployments?sha={head_sha}`) and parse the JSON response.
 2. Use the GraphQL API via `gh api graphql` to fetch deployment statuses as part of the PR query.
 3. Skip deployments entirely if the project doesn't use GitHub Deployments (many teams use external CD).
+
+User chose: no problem using gh api, we do it elsewhere. just keep in mind rate limits, and try to consolidate requests if you can
 
 ## Copy selection with word wrap (RESOLVED)
 
