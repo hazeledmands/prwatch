@@ -273,11 +273,13 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
   - when ANSI codes are stripped out, every line should be the width of the terminal
   - total line count exactly equals the terminal height
   - clicking on an element (x-y coordinates based on the render) should do the thing it's supposed to
+- when possible if there is a bug or failure, look at ways that the property-based tests could have caught the failure, and change the generators or add a new property accordingly
 
 ## DEVELOPING
 - when starting, run git status; if there are any changes to the PROMPT.md commit those first
 - check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then put the bug report plus a little one-liner about how it was fixed in a log at the bottom of the doc.
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress. If PLAN.md seems outdated -- clean it up so that it doesn't take up unnecessary context for future agents.
+- re-check this file occasionally to see if the user has made changes to it. if there are uncommitted changes to this file, commit them and follow the newly updated instructions
 - use test-driven development.
 - make small, iterative commits to keep your work trackable.
 - before starting work on any new feature or bug fix, create a new git branch. when work is complete on that branch, merge it back into main.
@@ -288,6 +290,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 - if everything looks good, audit the code for things that could possibly be refactored for clarity, consistency, maintainability or other forms of code quality.
 - there should be tests that cover every behavior listed in this prompt file. if a behavior is described here, there should be a test asserting it works.
 - if anything in this spec is ambiguous, contradictory, or impossible to implement as written, make a reasonable choice and then flag it in INCONSISTENCIES.md so the human-in-the-loop can clarify.
+  - for each inconsistency, provide a short list of proposed paths forward to address them
 
 ## DOCUMENTATION
 - the readme file should be up-to-date and provide a relatively concise overview of what this tool is meant to do.
