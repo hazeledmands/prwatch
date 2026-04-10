@@ -5087,7 +5087,7 @@ func TestStatusBar_PRMode(t *testing.T) {
 		pr:   git.PRInfoResult{Number: 42, Title: "Test PR"},
 		mode: PRViewMode,
 	}
-	bar, _, _ := renderStatusBar(80, data)
+	bar, _, _, _ := renderStatusBar(80, data)
 	if !strings.Contains(bar, "pr") {
 		t.Error("PR mode should show pr in mode bar")
 	}
@@ -5714,7 +5714,7 @@ func TestCIStatusBar_ShowsTextLabel(t *testing.T) {
 		pr:       git.PRInfoResult{Number: 1, Title: "test"},
 		ciStatus: git.CIStatusResult{State: "FAILURE"},
 	}
-	bar, _, _ := renderStatusBar(120, data)
+	bar, _, _, _ := renderStatusBar(120, data)
 	if !strings.Contains(bar, "CI failing") {
 		t.Errorf("status bar should show 'CI failing' text, got: %s", bar)
 	}
@@ -5726,7 +5726,7 @@ func TestCIStatusBar_PassingText(t *testing.T) {
 		pr:       git.PRInfoResult{Number: 1, Title: "test"},
 		ciStatus: git.CIStatusResult{State: "SUCCESS"},
 	}
-	bar, _, _ := renderStatusBar(120, data)
+	bar, _, _, _ := renderStatusBar(120, data)
 	if !strings.Contains(bar, "CI passing") {
 		t.Errorf("status bar should show 'CI passing' text, got: %s", bar)
 	}

@@ -10,21 +10,22 @@ import (
 
 // statusBarData holds all the data needed to render the status bar.
 type statusBarData struct {
-	info           git.RepoInfoResult
-	pr             git.PRInfoResult
-	ciStatus       git.CIStatusResult
-	reviews        []git.PRReview
-	reviewRequests []git.PRReviewRequest
-	commentCount   int
-	prError        string // error message for GitHub API issues
-	mode           Mode
-	confirming     bool
-	uncommitCount  int
-	commitCount    int
-	behindCount    int // commits behind base branch
-	showHelp       bool
-	hoverX         int // mouse hover position for highlighting
-	hoverY         int
+	info             git.RepoInfoResult
+	pr               git.PRInfoResult
+	ciStatus         git.CIStatusResult
+	reviews          []git.PRReview
+	reviewRequests   []git.PRReviewRequest
+	commentCount     int
+	prError          string // error message for GitHub API issues
+	mode             Mode
+	confirming       bool
+	uncommitCount    int
+	commitCount      int
+	behindCount      int // commits behind base branch
+	changedFileCount int // total changed files (committed + uncommitted)
+	showHelp         bool
+	hoverX           int // mouse hover position for highlighting
+	hoverY           int
 }
 
 // modeLabel tracks the position and mode of a clickable mode label.
@@ -32,6 +33,20 @@ type modeLabel struct {
 	mode  Mode
 	start int // x offset within the rendered line (after padding)
 	end   int // exclusive x offset
+}
+
+// line2Target identifies what a click on line 2 should do.
+type line2Target int
+
+const (
+	line2CommitMode line2Target = iota
+	line2FileViewMode
+)
+
+type line2Label struct {
+	target line2Target
+	start  int
+	end    int
 }
 
 // line3Target identifies what a click on line 3 should jump to.
@@ -62,22 +77,25 @@ func statusBarLineCount(data statusBarData) int {
 	return count
 }
 
-func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line3Label) {
+func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line2Label, []line3Label) {
 	if data.confirming {
 		msg := " Quit? Press q/Q to confirm, any other key to cancel"
 		pad := width - lipgloss.Width(msg)
 		if pad > 0 {
 			msg += strings.Repeat(" ", pad)
 		}
-		return statusBarConfirmStyle.Width(width).Render(msg), nil, nil
+		return statusBarConfirmStyle.Width(width).Render(msg), nil, nil, nil
 	}
 
 	line1, labels := renderLine1(width, data)
 	result := line1
 
 	// Line 2: only show for git repos
+	var line2Labels []line2Label
 	if data.info.RepoName != "" || data.info.Branch != "" {
-		result += "\n" + renderLine2(width, data)
+		l2, l2Labels := renderLine2(width, data)
+		line2Labels = l2Labels
+		result += "\n" + l2
 	}
 
 	// Line 3: only show if there's a PR
@@ -96,7 +114,7 @@ func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line
 		result += "\n" + errLine
 	}
 
-	return result, labels, line3Labels
+	return result, labels, line2Labels, line3Labels
 }
 
 // ANSI SGR sequences for inline mode styling. We use these instead of
@@ -210,7 +228,7 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 }
 
 // renderLine2: local git status — branch, uncommitted, unpushed, commits
-func renderLine2(width int, data statusBarData) string {
+func renderLine2(width int, data statusBarData) (string, []line2Label) {
 	info := data.info
 
 	// Branch and merge base
@@ -236,31 +254,52 @@ func renderLine2(width int, data statusBarData) string {
 		}
 	}
 
-	var parts []string
-	parts = append(parts, " "+branchDisplay)
+	type part struct {
+		text   string
+		target line2Target
+	}
+	var parts []part
+	var labels []line2Label
+
+	parts = append(parts, part{" " + branchDisplay, line2CommitMode})
 
 	if data.uncommitCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d uncommitted", data.uncommitCount))
+		parts = append(parts, part{fmt.Sprintf("%d uncommitted", data.uncommitCount), line2FileViewMode})
 	}
 	if info.AheadCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d unpushed", info.AheadCount))
+		parts = append(parts, part{fmt.Sprintf("%d unpushed", info.AheadCount), line2CommitMode})
 	}
 	if data.commitCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d commits", data.commitCount))
+		parts = append(parts, part{fmt.Sprintf("%d commits", data.commitCount), line2CommitMode})
+	}
+	if data.changedFileCount > 0 {
+		parts = append(parts, part{fmt.Sprintf("%d changed files", data.changedFileCount), line2FileViewMode})
 	}
 	if data.behindCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d behind", data.behindCount))
+		parts = append(parts, part{fmt.Sprintf("%d behind", data.behindCount), line2CommitMode})
 	}
 	if data.pr.Number == 0 && data.prError == "" {
-		parts = append(parts, "No PR")
+		parts = append(parts, part{"No PR", line2CommitMode})
 	}
 
-	bar := strings.Join(parts, " · ")
-	// Truncate if too wide for the content area (width - 2 padding)
+	// Build bar and track positions (statusBarPRStyle has Padding(0,1), pos starts at 1)
+	pos := 1
+	var textParts []string
+	for i, p := range parts {
+		displayWidth := lipgloss.Width(p.text)
+		labels = append(labels, line2Label{target: p.target, start: pos, end: pos + displayWidth})
+		textParts = append(textParts, p.text)
+		pos += displayWidth
+		if i < len(parts)-1 {
+			pos += 3 // " · " separator
+		}
+	}
+
+	bar := strings.Join(textParts, " · ")
 	if lipgloss.Width(bar) > width-2 {
 		bar = truncateToWidth(bar, width-2)
 	}
-	return statusBarPRStyle.Width(width).Render(bar)
+	return statusBarPRStyle.Width(width).Render(bar), labels
 }
 
 // renderLine3: github status — PR, draft, reviews, comments, CI

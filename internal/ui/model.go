@@ -147,6 +147,7 @@ type Model struct {
 	dragging            bool
 	loading             bool         // true until first data load completes
 	modeLabels          []modeLabel  // clickable mode label positions from last render
+	line2Labels         []line2Label // clickable positions on git status line
 	line3Labels         []line3Label // clickable positions on PR status line
 	err                 error
 }
@@ -1416,7 +1417,23 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 			}
 		}
 	case 1:
-		// Line 2: local git status — clicking commits area switches to commit mode
+		// Line 2: local git status — click on specific elements
+		for _, label := range m.line2Labels {
+			if x >= label.start && x < label.end {
+				switch label.target {
+				case line2CommitMode:
+					if len(m.commits) > 0 {
+						m.mode = CommitMode
+					}
+				case line2FileViewMode:
+					m.mode = FileViewMode
+				}
+				m.updateSidebarItems()
+				m.updateMainContent()
+				return m, nil
+			}
+		}
+		// Fallback: anywhere on line 2 goes to commit mode
 		if len(m.commits) > 0 {
 			m.mode = CommitMode
 			m.updateSidebarItems()
@@ -2546,24 +2563,26 @@ func (m *Model) View() tea.View {
 		return v
 	}
 
-	bar, labels, l3Labels := renderStatusBar(m.width, statusBarData{
-		info:           m.repoInfo,
-		pr:             m.prInfo,
-		ciStatus:       m.ciStatus,
-		reviews:        m.prReviews,
-		reviewRequests: m.prReviewRequests,
-		prError:        m.prError,
-		commentCount:   m.prCommentCount,
-		mode:           m.mode,
-		confirming:     m.confirming,
-		uncommitCount:  len(m.uncommittedFiles),
-		commitCount:    m.commitCount,
-		behindCount:    m.behindCount,
-		showHelp:       m.showHelp,
-		hoverX:         m.hoverX,
-		hoverY:         m.hoverY,
+	bar, labels, l2Labels, l3Labels := renderStatusBar(m.width, statusBarData{
+		info:             m.repoInfo,
+		pr:               m.prInfo,
+		ciStatus:         m.ciStatus,
+		reviews:          m.prReviews,
+		reviewRequests:   m.prReviewRequests,
+		prError:          m.prError,
+		commentCount:     m.prCommentCount,
+		mode:             m.mode,
+		confirming:       m.confirming,
+		uncommitCount:    len(m.uncommittedFiles),
+		commitCount:      m.commitCount,
+		behindCount:      m.behindCount,
+		changedFileCount: len(m.committedFiles) + len(m.uncommittedFiles),
+		showHelp:         m.showHelp,
+		hoverX:           m.hoverX,
+		hoverY:           m.hoverY,
 	})
 	m.modeLabels = labels
+	m.line2Labels = l2Labels
 	m.line3Labels = l3Labels
 
 	var result string
