@@ -214,6 +214,8 @@ func genKeyPress(t *rapid.T, tag string) tea.KeyPressMsg {
 		{"N", 'N'}, {"P", 'P'},
 		// Refresh
 		{"r", 'r'},
+		// Yank path
+		{"y", 'y'},
 		// Help
 		{"?", '?'},
 	}
@@ -1187,7 +1189,7 @@ func genTreeAction(t *rapid.T, m *Model, step int) tea.Msg {
 
 	actions := []string{
 		"j", "k", "up", "down", "h", "l", "left", "right", "enter",
-		"click", "click",
+		"click", "click", "y",
 	}
 	action := rapid.SampledFrom(actions).Draw(t, tag+"_type")
 
@@ -1210,6 +1212,8 @@ func genTreeAction(t *rapid.T, m *Model, step int) tea.Msg {
 		return tea.KeyPressMsg{Code: tea.KeyRight}
 	case "enter":
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "y":
+		return tea.KeyPressMsg{Text: "y", Code: 'y'}
 	case "click":
 		// Click on a random sidebar row
 		statusBarHeight := statusBarLineCount(statusBarData{info: m.repoInfo, pr: m.prInfo})
@@ -1550,6 +1554,18 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 					if selBefore < len(m.sidebar.items) && m.sidebar.items[selBefore].kind.selectable() && m.sidebar.items[selBefore].filePath != "" {
 						// Focus should have moved to main (unless the item list was rebuilt)
 						// Allow this to pass if sidebar was rebuilt (items changed)
+					}
+				}
+
+				// Invariant 14: [y] does not change selection or main panel content
+				if msg.Code == 'y' {
+					if selAfter != selBefore {
+						t.Fatalf("%s: [y] changed selection from %d to %d",
+							context, selBefore, selAfter)
+					}
+					mainContentAfter := m.mainPane.viewport.View()
+					if mainContentAfter != mainContentBefore {
+						t.Fatalf("%s: [y] changed main panel content", context)
 					}
 				}
 

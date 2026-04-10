@@ -1072,6 +1072,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.jumpToNextLeaf(-1)
 		return m, nil
 
+	case key.Matches(msg, keys.YankPath):
+		m.yankPath()
+		return m, nil
+
 	case key.Matches(msg, keys.Refresh):
 		if m.git == nil {
 			return m, m.loadNonGitFiles
@@ -2942,13 +2946,38 @@ func (m *Model) selectedText() string {
 	return selected.String()
 }
 
+// yankPath copies the current file path to the clipboard.
+// Sidebar focused: copies the relative path of the selected file.
+// Main pane focused: copies path:startLine-endLine for the visible range.
+func (m *Model) yankPath() {
+	file := m.sidebar.SelectedItem()
+	if file == "" || m.sidebar.SelectedIsDir() {
+		return
+	}
+	if m.focus == SidebarFocus {
+		copyToClipboard(file)
+		return
+	}
+	// Main pane focused: include line range
+	topLine := m.mainPane.ViewportToSourceLine()
+	bottomLine := m.mainPane.ViewportBottomSourceLine()
+	if topLine == bottomLine {
+		copyToClipboard(fmt.Sprintf("%s:%d", file, topLine))
+	} else {
+		copyToClipboard(fmt.Sprintf("%s:%d-%d", file, topLine, bottomLine))
+	}
+}
+
 func (m *Model) copySelection() {
 	text := m.selectedText()
 	if text == "" {
 		return
 	}
+	copyToClipboard(text)
+}
 
-	// Copy to system clipboard
+// copyToClipboard copies the given text to the system clipboard.
+func copyToClipboard(text string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -3097,6 +3126,7 @@ func (m *Model) helpContentLines() []string {
 		"  [K] [S-up]   Jump to previous diff hunk (file view)",
 		"",
 		"  [enter]      Open file in $EDITOR / switch to main pane",
+		"  [y]          Copy file path (sidebar) or path:lines (main pane)",
 		"  [/]          Search (type to match, enter to confirm)",
 		"  [n]          Next search result (after search)",
 		"  [p]          Previous search result (after search)",

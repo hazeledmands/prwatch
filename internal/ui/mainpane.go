@@ -563,6 +563,56 @@ func (m *mainPane) ViewportToSourceLine() int {
 	return len(formattedLines)
 }
 
+// ViewportBottomSourceLine returns the source line number at the bottom of the
+// visible viewport.
+func (m *mainPane) ViewportBottomSourceLine() int {
+	bottomOffset := m.viewport.YOffset() + m.height - 1
+	if bottomOffset < 0 {
+		bottomOffset = 0
+	}
+	if m.sourceToFormatLine == nil || len(m.sourceToFormatLine) == 0 {
+		return bottomOffset + 1
+	}
+	reverseMap := make(map[int]int, len(m.sourceToFormatLine))
+	for src, fmt := range m.sourceToFormatLine {
+		reverseMap[fmt] = src
+	}
+
+	if !m.wordWrap || m.width <= 0 {
+		if src, ok := reverseMap[bottomOffset]; ok {
+			return src
+		}
+		best := 1
+		for formattedIdx, srcLine := range reverseMap {
+			if formattedIdx <= bottomOffset && srcLine > best {
+				best = srcLine
+			}
+		}
+		return best
+	}
+
+	formattedLines := strings.Split(m.formattedContent, "\n")
+	viewportLine := 0
+	lastSrc := 1
+	for i, line := range formattedLines {
+		lineW := ansiAwareIterate(line, func(r rune, w int) {})
+		var linesUsed int
+		if lineW > m.width {
+			linesUsed = (lineW + m.width - 1) / m.width
+		} else {
+			linesUsed = 1
+		}
+		if src, ok := reverseMap[i]; ok {
+			lastSrc = src
+		}
+		if viewportLine+linesUsed > bottomOffset {
+			return lastSrc
+		}
+		viewportLine += linesUsed
+	}
+	return lastSrc
+}
+
 // highlightSearch applies a contrasting background to matching text in each line.
 func highlightSearch(content, query string) string {
 	if query == "" {

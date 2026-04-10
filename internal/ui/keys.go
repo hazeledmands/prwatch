@@ -39,6 +39,7 @@ type keyMap struct {
 	ToggleTree     key.Binding
 	NextLeaf       key.Binding
 	PrevLeaf       key.Binding
+	YankPath       key.Binding
 }
 
 var keys = keyMap{
@@ -149,5 +150,8 @@ var keys = keyMap{
 	),
 	PrevLeaf: key.NewBinding(
 		key.WithKeys("P"), // Shift+P
+	),
+	YankPath: key.NewBinding(
+		key.WithKeys("y"),
 	),
 }
