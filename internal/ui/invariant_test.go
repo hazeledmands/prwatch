@@ -776,10 +776,20 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		if visibleRows <= 0 {
 			return
 		}
-		minY := contentStartY
-		maxY := contentStartY + visibleRows - 1
+		// Allow the drag to extend below content lines into the
+		// padding area of the main pane. The main pane occupies
+		// height - statusRows - 2 (borders) rows on screen.
+		mainPaneRows := height - statusRows - 2
+		if mainPaneRows <= 0 {
+			return
+		}
+		// Allow drag to start anywhere on screen (including the heading)
+		// and extend past the content into padding below. This exercises
+		// clamping in both directions.
+		minY := 0
+		maxY := contentStartY + mainPaneRows - 1
 
-		// Pick random drag start and end within the content area
+		// Pick random drag start and end anywhere on screen
 		y1 := rapid.IntRange(minY, maxY).Draw(t, "y1")
 		y2 := rapid.IntRange(y1, maxY).Draw(t, "y2")
 		x1 := rapid.IntRange(minX, maxX).Draw(t, "x1")
@@ -821,6 +831,12 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			hlStartX, hlEndX = hlEndX, hlStartX
 		}
 		if hlStartX < gutterOffset {
+			hlStartX = gutterOffset
+		}
+		// Mirror the production clamping: highlight is restricted to the
+		// main pane content area (below status bar + top border).
+		if hlStartY < contentStartY {
+			hlStartY = contentStartY
 			hlStartX = gutterOffset
 		}
 
@@ -1029,6 +1045,57 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 					t.Fatalf("drag changed styling after highlight on line %d:\n  base: %q\n  drag: %q",
 						row, baseAfter, dragAfter)
 				}
+			}
+		}
+
+		// Invariant 6: the highlight must not extend into blank padding
+		// beyond the actual content on each line. applyDragHighlight runs
+		// on padded output, so if the drag extends past the content, the
+		// reverse-video region should be clipped to the content boundary.
+		// We compare the rightmost highlighted column against the content
+		// boundary (last non-space column) from the baseline view.
+		for row := hlStartY; row <= hlEndY && row < len(dragRawLines); row++ {
+			dragLine := dragRawLines[row]
+			if !strings.Contains(dragLine, "\x1b[7m") {
+				continue // no highlight on this row
+			}
+
+			// Find the rightmost column where reverse-video ends.
+			// The highlight is: ... \x1b[7m<content>\x1b[27m ...
+			// We measure the display-column position of the reverse-off
+			// marker, which is one past the last highlighted column.
+			revOff := strings.Index(dragLine, "\x1b[27m")
+			if revOff < 0 {
+				continue
+			}
+			// Count display columns up to revOff, skipping ANSI escapes.
+			hlRightCol := 0
+			inEsc := false
+			for i, r := range dragLine {
+				if i >= revOff {
+					break
+				}
+				if inEsc {
+					if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+						inEsc = false
+					}
+					continue
+				}
+				if r == '\x1b' {
+					inEsc = true
+					continue
+				}
+				hlRightCol += runewidth.RuneWidth(r)
+			}
+
+			// Content boundary: rightmost non-space display column in the
+			// baseline (un-highlighted) line.
+			baseLine := stripANSIForWidth(baseRawLines[row])
+			contentRightCol := displayWidth(strings.TrimRight(baseLine, " "))
+
+			if hlRightCol > contentRightCol {
+				t.Fatalf("highlight extends into padding on line %d: highlight reaches column %d but content ends at column %d\n  wrap=%v lineNums=%v drag=(%d,%d)->(%d,%d)",
+					row, hlRightCol, contentRightCol, wordWrap, lineNumbers, x1, y1, x2, y2)
 			}
 		}
 	})

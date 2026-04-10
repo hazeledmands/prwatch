@@ -2648,6 +2648,9 @@ func (m *Model) applyDragHighlight(content string) string {
 		sidebarW = m.sidebarPixelWidth()
 	}
 	// Content starts after sidebar + main pane border + gutter
+	statusRows := m.statusBarLines()
+	topBorder := 1
+	contentStartY := statusRows + topBorder
 	gutterOffset := sidebarW + 1 + m.mainPane.gutterWidth // +1 for border
 	if startX < gutterOffset {
 		startX = gutterOffset
@@ -2655,17 +2658,37 @@ func (m *Model) applyDragHighlight(content string) string {
 	if endX >= m.width {
 		endX = m.width - 1
 	}
+	// Clamp Y range to the main pane content area (below status bar + border)
+	if startY < contentStartY {
+		startY = contentStartY
+		startX = gutterOffset
+	}
 
 	lines := strings.Split(content, "\n")
 
+	// Right border of the main pane is the last column before the edge.
+	rightBorderCol := m.width - 1
+
 	for y := startY; y <= endY && y < len(lines); y++ {
 		fromCol := gutterOffset
-		toCol := displayWidthOf(stripANSIForWidth(lines[y]))
+		// Clamp the highlight to the actual content on this line,
+		// excluding trailing padding spaces inside the main pane border.
+		// Extract just the main pane content area (between gutter and
+		// right border), strip ANSI, trim trailing spaces, and use the
+		// resulting width to compute the content end column.
+		stripped := stripANSIForWidth(lines[y])
+		mainContent := sliceByDisplayCol(stripped, gutterOffset, rightBorderCol)
+		trimmed := strings.TrimRight(mainContent, " ")
+		contentEndCol := gutterOffset + displayWidthOf(trimmed)
+		toCol := contentEndCol
 		if y == startY {
 			fromCol = startX
 		}
 		if y == endY {
-			toCol = endX + 1
+			toCol = min(endX+1, contentEndCol)
+		}
+		if fromCol >= toCol {
+			continue
 		}
 
 		// Split the original line (preserving ANSI codes) at the
