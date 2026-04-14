@@ -1,0 +1,180 @@
+# 2026/04/14 16:40:21.797221 [TestProperty_DragSelectsCorrectText] [rapid] draw width: 60
+# 2026/04/14 16:40:21.797235 [TestProperty_DragSelectsCorrectText] [rapid] draw height: 20
+# 2026/04/14 16:40:21.797244 [TestProperty_DragSelectsCorrectText] [rapid] draw lineNumbers: false
+# 2026/04/14 16:40:21.797252 [TestProperty_DragSelectsCorrectText] [rapid] draw wordWrap: false
+# 2026/04/14 16:40:21.797260 [TestProperty_DragSelectsCorrectText] [rapid] draw nLines: 3
+# 2026/04/14 16:40:21.797276 [TestProperty_DragSelectsCorrectText] [rapid] draw nCommitted: 0
+# 2026/04/14 16:40:21.797284 [TestProperty_DragSelectsCorrectText] [rapid] draw nUncommitted: 0
+# 2026/04/14 16:40:21.797292 [TestProperty_DragSelectsCorrectText] [rapid] draw nCommits: 12
+# 2026/04/14 16:40:21.797306 [TestProperty_DragSelectsCorrectText] [rapid] draw commit0_emoji: 1
+# 2026/04/14 16:40:21.797338 [TestProperty_DragSelectsCorrectText] [rapid] draw commit1_emoji: 1
+# 2026/04/14 16:40:21.797354 [TestProperty_DragSelectsCorrectText] [rapid] draw commit2_emoji: 1
+# 2026/04/14 16:40:21.797372 [TestProperty_DragSelectsCorrectText] [rapid] draw commit3_emoji: 1
+# 2026/04/14 16:40:21.797386 [TestProperty_DragSelectsCorrectText] [rapid] draw commit4_emoji: 1
+# 2026/04/14 16:40:21.797400 [TestProperty_DragSelectsCorrectText] [rapid] draw commit5_emoji: 1
+# 2026/04/14 16:40:21.797415 [TestProperty_DragSelectsCorrectText] [rapid] draw commit6_emoji: 1
+# 2026/04/14 16:40:21.797429 [TestProperty_DragSelectsCorrectText] [rapid] draw commit7_emoji: 1
+# 2026/04/14 16:40:21.797442 [TestProperty_DragSelectsCorrectText] [rapid] draw commit8_emoji: 1
+# 2026/04/14 16:40:21.797458 [TestProperty_DragSelectsCorrectText] [rapid] draw commit9_emoji: 1
+# 2026/04/14 16:40:21.797473 [TestProperty_DragSelectsCorrectText] [rapid] draw commit10_emoji: 1
+# 2026/04/14 16:40:21.797486 [TestProperty_DragSelectsCorrectText] [rapid] draw commit11_emoji: 1
+# 2026/04/14 16:40:21.797495 [TestProperty_DragSelectsCorrectText] [rapid] draw branch: "main"
+# 2026/04/14 16:40:21.797502 [TestProperty_DragSelectsCorrectText] [rapid] draw detached: false
+# 2026/04/14 16:40:21.797510 [TestProperty_DragSelectsCorrectText] [rapid] draw prNum: 0
+# 2026/04/14 16:40:21.797516 [TestProperty_DragSelectsCorrectText] [rapid] draw aheadCount: 0
+# 2026/04/14 16:40:21.797523 [TestProperty_DragSelectsCorrectText] [rapid] draw fileDiff_emoji: 1
+# 2026/04/14 16:40:21.797532 [TestProperty_DragSelectsCorrectText] [rapid] draw fileContent_emoji: 1
+# 2026/04/14 16:40:21.797542 [TestProperty_DragSelectsCorrectText] [rapid] draw commitPatch_emoji: 1
+# 2026/04/14 16:40:21.798145 [TestProperty_DragSelectsCorrectText] [rapid] draw y1: 15
+# 2026/04/14 16:40:21.798154 [TestProperty_DragSelectsCorrectText] [rapid] draw y2: 19
+# 2026/04/14 16:40:21.798161 [TestProperty_DragSelectsCorrectText] [rapid] draw x1: 24
+# 2026/04/14 16:40:21.798168 [TestProperty_DragSelectsCorrectText] [rapid] draw x2: 24
+# 2026/04/14 16:40:21.810602 [TestProperty_DragSelectsCorrectText] drag highlight applied to border row 19
+#   wrap=false lineNums=false drag=(24,15)->(24,19)
+# 
+v0.4.8#14177789310748388322
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x5
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x9867f1f40f739
+0xc
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x3723723723724
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x9867f1f40f739
+0xf
+0x0
+0x6b74f03291620
+0x4
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

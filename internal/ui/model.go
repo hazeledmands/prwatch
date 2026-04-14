@@ -2691,10 +2691,14 @@ func (m *Model) applyDragHighlight(content string) string {
 	if endX >= m.width {
 		endX = m.width - 1
 	}
-	// Clamp Y range to the main pane content area (below status bar + border)
+	// Clamp Y range to the main pane content area (between borders)
+	contentEndY := m.height - 2 // last row before bottom border
 	if startY < contentStartY {
 		startY = contentStartY
 		startX = gutterOffset
+	}
+	if endY > contentEndY {
+		endY = contentEndY
 	}
 
 	lines := strings.Split(content, "\n")

@@ -790,7 +790,7 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		// and extend past the content into padding below. This exercises
 		// clamping in both directions.
 		minY := 0
-		maxY := contentStartY + mainPaneRows - 1
+		maxY := height - 1 // include the bottom border row
 
 		// Pick random drag start and end anywhere on screen
 		y1 := rapid.IntRange(minY, maxY).Draw(t, "y1")
@@ -1099,6 +1099,20 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			if hlRightCol > contentRightCol {
 				t.Fatalf("highlight extends into padding on line %d: highlight reaches column %d but content ends at column %d\n  wrap=%v lineNums=%v drag=(%d,%d)->(%d,%d)",
 					row, hlRightCol, contentRightCol, wordWrap, lineNumbers, x1, y1, x2, y2)
+			}
+		}
+		// Invariant 7: the border rows (top and bottom of the main pane)
+		// must never be highlighted. The top border is at contentStartY-1
+		// and the bottom border is at contentStartY + mainPaneRows.
+		bottomBorderRow := contentStartY + mainPaneRows
+		topBorderRow := contentStartY - 1
+		for _, borderRow := range []int{topBorderRow, bottomBorderRow} {
+			if borderRow < 0 || borderRow >= len(dragRawLines) {
+				continue
+			}
+			if strings.Contains(dragRawLines[borderRow], "\x1b[7m") {
+				t.Fatalf("drag highlight applied to border row %d\n  wrap=%v lineNums=%v drag=(%d,%d)->(%d,%d)",
+					borderRow, wordWrap, lineNumbers, x1, y1, x2, y2)
 			}
 		}
 	})
