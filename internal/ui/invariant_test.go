@@ -343,10 +343,11 @@ func checkSidebarInvariants(t *rapid.T, m *Model, context string) {
 
 // checkBottomBorder verifies the last line of rendered output contains
 // box-drawing bottom-border characters (╰). Skipped for help overlay,
-// confirm dialog, loading state, error state, and hidden sidebar.
+// confirm dialog, loading state, error state, hidden sidebar, and
+// active notifications (which temporarily replace the bottom border).
 func checkBottomBorder(t *rapid.T, m *Model, context string) {
 	t.Helper()
-	if m.showHelp || m.confirming || m.loading || m.err != nil || m.sidebarHidden {
+	if m.showHelp || m.confirming || m.loading || m.err != nil || m.sidebarHidden || m.notification != "" {
 		return
 	}
 	v := viewWithTimeout(t, m, context)
