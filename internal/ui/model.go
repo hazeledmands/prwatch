@@ -900,6 +900,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Quit confirmation handling
 	if m.confirming {
+		if msg.Code == tea.KeyEscape {
+			m.confirming = false
+			return m, nil
+		}
 		if key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.QuitImmediate) {
 			return m, tea.Quit
 		}
