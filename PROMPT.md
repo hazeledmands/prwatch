@@ -287,6 +287,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
   - total line count exactly equals the terminal height
   - clicking on an element (x-y coordinates based on the render) should do the thing it's supposed to
 - when possible if there is a bug or failure, look at ways that the property-based tests could have caught the failure, and change the generators or add a new property accordingly
+- property-based test failure files (`testdata/rapid/**/*.fail`) should be committed to version control so that rapid replays them as regression cases on future runs. delete `.fail` files only if the test signature has changed and rapid reports them as "no longer valid".
 
 ## DEVELOPING
 - when starting, run git status; if there are any changes to the PROMPT.md commit those first
