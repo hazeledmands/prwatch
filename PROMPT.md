@@ -309,15 +309,6 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 ## DOCUMENTATION
 - the readme file should be up-to-date and provide a relatively concise overview of what this tool is meant to do.
 
-## DEBUG LOGGING
-
-Set `PRWATCH_DEBUG_LOG=/path/to/file` to enable verbose debug logging. When set, prwatch writes timestamped log entries to the specified file covering:
-- Incoming message types that trigger updates (gitDataMsg, RefreshMsg, gitTickMsg, etc.)
-- Collapse state changes in the sidebar tree (directory path, old/new value, call site)
-- Selection and scroll position changes after sidebar rebuilds
-
-This is useful for diagnosing issues like directories snapping open/closed unexpectedly. The log is append-only and no-op when the env var is unset.
-
 ## EXAMPLES
 Take a look at EXAMPLES.md (should be in .gitignore since these examples may contain sensitive data) for some links to PRs and CI logs that you can use as example cases.
 

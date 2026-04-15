@@ -74,3 +74,13 @@ prwatch watches the working directory and `.git` for changes via fsnotify, refre
 ## Non-git directories
 
 When run outside a git repo, prwatch shows file-view mode only with the directory contents.
+
+## Debug logging
+
+Set `PRWATCH_DEBUG_LOG` to a file path to enable verbose debug logging:
+
+```
+PRWATCH_DEBUG_LOG=/tmp/prwatch-debug.log prwatch
+```
+
+Logs incoming message types (data refreshes, file watcher events, ticks), collapse state changes in the sidebar tree, and selection/scroll position changes after sidebar rebuilds. No-op when unset.
