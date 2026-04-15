@@ -2062,14 +2062,14 @@ func (m *Model) updateSidebarItems() {
 						// Non-git: collapse all dirs by default (no concept of "changed" files)
 						m.collapsedDirs[d] = true
 					} else {
-						// Git: only auto-collapse hidden (dot-prefixed) directories
+						// Git: auto-collapse hidden (dot-prefixed) directories,
+						// explicitly expand others so the "All Files" section's
+						// default-closed logic doesn't override them.
 						base := d
 						if i := strings.LastIndex(d, "/"); i >= 0 {
 							base = d[i+1:]
 						}
-						if strings.HasPrefix(base, ".") {
-							m.collapsedDirs[d] = true
-						}
+						m.collapsedDirs[d] = strings.HasPrefix(base, ".")
 					}
 				}
 			}

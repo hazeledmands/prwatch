@@ -45,6 +45,18 @@ func genMockGit(t *rapid.T) *mockGit {
 	for i := range uncommitted {
 		uncommitted[i] = fmt.Sprintf("new%d.go", i)
 	}
+	// Generate unchanged files that only appear in the "All Files" section
+	nOther := rapid.IntRange(0, 15).Draw(t, "nOtherFiles")
+	otherFiles := make([]string, nOther)
+	for i := range otherFiles {
+		otherFiles[i] = fmt.Sprintf("other%d.go", i)
+	}
+	// allFiles is a superset: changed files + unchanged files
+	allFiles := make([]string, 0, nCommitted+nUncommitted+nOther)
+	allFiles = append(allFiles, committed...)
+	allFiles = append(allFiles, uncommitted...)
+	allFiles = append(allFiles, otherFiles...)
+
 	commits := make([]git.Commit, nCommits)
 	for i := range commits {
 		commits[i] = git.Commit{
@@ -90,6 +102,7 @@ func genMockGit(t *rapid.T) *mockGit {
 		},
 		commits:     commits,
 		allCommits:  commits,
+		allFiles:    allFiles,
 		fileDiff:    maybeEmoji(t, "fileDiff", "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new"),
 		fileContent: maybeEmoji(t, "fileContent", "line1\nline2\nline3"),
 		commitPatch: maybeEmoji(t, "commitPatch", "commit 0000000\n\n    msg\n\ndiff\n+added"),
@@ -1395,6 +1408,68 @@ func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string)
 	}
 }
 
+// checkInitialCollapseState verifies that directories in the "All Files"
+// section start collapsed and directories in other sections start expanded.
+// Dirs that appear in both committed/uncommitted AND "All Files" follow the
+// committed/uncommitted rule (expanded), since the collapse state is shared.
+// It inspects the rendered sidebar items (▶ = collapsed, ▼ = expanded) rather
+// than m.collapsedDirs, because the shared map can be mutated by later sections
+// after earlier sections have already been built.
+func checkInitialCollapseState(t *rapid.T, m *Model, context string) {
+	t.Helper()
+	if !m.treeMode {
+		return
+	}
+	// Build set of dirs from committed/uncommitted files so we can exempt
+	// shared dirs in the "All Files" section from the must-be-collapsed rule.
+	changedDirs := make(map[string]bool)
+	for _, f := range m.committedFiles {
+		for d := f; ; {
+			if i := strings.LastIndex(d, "/"); i >= 0 {
+				d = d[:i]
+				changedDirs[d] = true
+			} else {
+				break
+			}
+		}
+	}
+	for _, f := range m.uncommittedFiles {
+		for d := f; ; {
+			if i := strings.LastIndex(d, "/"); i >= 0 {
+				d = d[:i]
+				changedDirs[d] = true
+			} else {
+				break
+			}
+		}
+	}
+
+	section := ""
+	for _, item := range m.sidebar.items {
+		if item.kind == itemHeader {
+			section = item.label
+			continue
+		}
+		if !item.isDir {
+			continue
+		}
+		isAllFiles := strings.HasPrefix(section, "All Files")
+		renderedCollapsed := strings.Contains(item.label, "▶")
+		renderedExpanded := strings.Contains(item.label, "▼")
+		if !renderedCollapsed && !renderedExpanded {
+			continue // single-leaf optimization or other non-standard rendering
+		}
+		if isAllFiles && !renderedCollapsed && !changedDirs[item.filePath] {
+			t.Fatalf("%s: directory %q in %q section should start collapsed (▶) but shows expanded (▼)",
+				context, item.filePath, section)
+		}
+		if !isAllFiles && !renderedExpanded {
+			t.Fatalf("%s: directory %q in %q section should start expanded (▼) but shows collapsed (▶)",
+				context, item.filePath, section)
+		}
+	}
+}
+
 func TestProperty_TreeModeNavigation(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 160).Draw(t, "width")
@@ -1406,7 +1481,20 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 
 		committed := genNestedFiles(t, "committed", nCommitted)
 		uncommitted := genNestedFiles(t, "uncommitted", nUncommitted)
-		allFiles := append(append([]string{}, committed...), uncommitted...)
+		nOther := rapid.IntRange(0, 10).Draw(t, "nOtherFiles")
+		otherFiles := genNestedFiles(t, "other", nOther)
+		mockAllFiles := make([]string, 0, len(committed)+len(uncommitted)+len(otherFiles))
+		mockAllFiles = append(mockAllFiles, committed...)
+		mockAllFiles = append(mockAllFiles, uncommitted...)
+		mockAllFiles = append(mockAllFiles, otherFiles...)
+		// The set of files the sidebar must account for depends on mode:
+		// FileDiffMode only shows committed+uncommitted; FileViewMode shows all.
+		var sidebarFiles []string
+		if mode == FileViewMode {
+			sidebarFiles = mockAllFiles
+		} else {
+			sidebarFiles = append(append([]string{}, committed...), uncommitted...)
+		}
 
 		mock := &mockGit{
 			repoInfo: git.RepoInfoResult{
@@ -1421,6 +1509,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 				Committed:   committed,
 				Uncommitted: uncommitted,
 			},
+			allFiles:    mockAllFiles,
 			commits:     []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
 			allCommits:  []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
 			fileDiff:    "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new",
@@ -1435,7 +1524,8 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		m.updateMainContent()
 
 		// Structural invariants after init
-		checkTreeStructure(t, m, allFiles, "after init")
+		checkTreeStructure(t, m, sidebarFiles, "after init")
+		checkInitialCollapseState(t, m, "after init")
 		checkRenderInvariants(t, m, "after init")
 
 		nSteps := rapid.IntRange(5, 40).Draw(t, "nSteps")
@@ -1468,7 +1558,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			selAfter := m.sidebar.SelectedIndex()
 
 			// Structural invariants after every action
-			checkTreeStructure(t, m, allFiles, context)
+			checkTreeStructure(t, m, sidebarFiles, context)
 			checkRenderInvariants(t, m, context)
 			checkSidebarInvariants(t, m, context)
 
