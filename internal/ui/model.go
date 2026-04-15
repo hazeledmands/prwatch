@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,6 +84,7 @@ type GitDataSource interface {
 }
 
 type Model struct {
+	debugLog            *log.Logger
 	git                 GitDataSource
 	mode                Mode
 	focus               Focus
@@ -271,7 +273,18 @@ func NewModel(dir string, g GitDataSource) *Model {
 	if g == nil {
 		mode = FileViewMode
 	}
+
+	var debugLog *log.Logger
+	if path := os.Getenv("PRWATCH_DEBUG_LOG"); path != "" {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err == nil {
+			debugLog = log.New(f, "", log.Ltime|log.Lmicroseconds)
+			debugLog.Println("=== prwatch debug log started ===")
+		}
+	}
+
 	return &Model{
+		debugLog:         debugLog,
 		git:              g,
 		dir:              dir,
 		mode:             mode,
@@ -670,6 +683,21 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg.(type) {
 	case tea.KeyMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.WindowSizeMsg:
 		m.lastUIEvent = time.Now()
+	}
+
+	if m.debugLog != nil {
+		switch msg.(type) {
+		case gitDataMsg:
+			m.debugLog.Printf("[msg] gitDataMsg")
+		case allFilesMsg:
+			m.debugLog.Printf("[msg] allFilesMsg")
+		case RefreshMsg:
+			m.debugLog.Printf("[msg] RefreshMsg (file watcher)")
+		case gitTickMsg:
+			m.debugLog.Printf("[msg] gitTickMsg")
+		case prTickMsg:
+			m.debugLog.Printf("[msg] prTickMsg")
+		}
 	}
 
 	switch msg := msg.(type) {
@@ -1987,6 +2015,55 @@ func (m *Model) isCommittedFile(file string) bool {
 }
 
 func (m *Model) updateSidebarItems() {
+	// Snapshot collapse state and sidebar before the update for debug diffing.
+	var collapseBefore map[string]bool
+	var selectedBefore int
+	var selectedItemBefore string
+	var offsetBefore int
+	if m.debugLog != nil {
+		collapseBefore = make(map[string]bool, len(m.collapsedDirs))
+		for d, v := range m.collapsedDirs {
+			collapseBefore[d] = v
+		}
+		selectedBefore = m.sidebar.SelectedIndex()
+		selectedItemBefore = m.sidebar.SelectedItem()
+		offsetBefore = m.sidebar.offset
+	}
+	defer func() {
+		if m.debugLog == nil {
+			return
+		}
+		_, file, line, _ := runtime.Caller(1)
+		caller := fmt.Sprintf("%s:%d", filepath.Base(file), line)
+
+		// Log collapse state changes
+		for d, v := range m.collapsedDirs {
+			if collapseBefore[d] != v {
+				m.debugLog.Printf("[collapse-change] %s: %q: %v -> %v (caller=%s mode=%d tree=%v)",
+					"after", d, collapseBefore[d], v, caller, m.mode, m.treeMode)
+			}
+		}
+		// Log dirs removed from collapse map (shouldn't happen, but just in case)
+		for d, v := range collapseBefore {
+			if _, exists := m.collapsedDirs[d]; !exists {
+				m.debugLog.Printf("[collapse-removed] %s: %q was %v (caller=%s mode=%d tree=%v)",
+					"after", d, v, caller, m.mode, m.treeMode)
+			}
+		}
+		// Log selection/scroll changes
+		selectedAfter := m.sidebar.SelectedIndex()
+		selectedItemAfter := m.sidebar.SelectedItem()
+		offsetAfter := m.sidebar.offset
+		if selectedAfter != selectedBefore || selectedItemAfter != selectedItemBefore {
+			m.debugLog.Printf("[selection-change] %d(%q) -> %d(%q) (caller=%s mode=%d tree=%v)",
+				selectedBefore, selectedItemBefore, selectedAfter, selectedItemAfter, caller, m.mode, m.treeMode)
+		}
+		if offsetAfter != offsetBefore {
+			m.debugLog.Printf("[scroll-change] offset %d -> %d (caller=%s mode=%d tree=%v)",
+				offsetBefore, offsetAfter, caller, m.mode, m.treeMode)
+		}
+	}()
+
 	switch m.mode {
 	case FileDiffMode:
 		var items []sidebarItem
