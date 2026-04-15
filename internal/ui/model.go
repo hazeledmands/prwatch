@@ -686,17 +686,42 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.debugLog != nil {
-		switch msg.(type) {
-		case gitDataMsg:
-			m.debugLog.Printf("[msg] gitDataMsg")
-		case allFilesMsg:
-			m.debugLog.Printf("[msg] allFilesMsg")
-		case RefreshMsg:
-			m.debugLog.Printf("[msg] RefreshMsg (file watcher)")
+		switch msg := msg.(type) {
+		// UI actions
+		case tea.KeyPressMsg:
+			m.debugLog.Printf("[key] code=%d text=%q", msg.Code, msg.Text)
+		case tea.MouseClickMsg:
+			m.debugLog.Printf("[mouse-click] x=%d y=%d button=%d", msg.X, msg.Y, msg.Button)
+		case tea.MouseWheelMsg:
+			m.debugLog.Printf("[mouse-wheel] x=%d y=%d button=%d", msg.X, msg.Y, msg.Button)
+		case tea.MouseMotionMsg:
+			m.debugLog.Printf("[mouse-motion] x=%d y=%d", msg.X, msg.Y)
+		case tea.MouseReleaseMsg:
+			m.debugLog.Printf("[mouse-release] x=%d y=%d", msg.X, msg.Y)
+		case tea.WindowSizeMsg:
+			m.debugLog.Printf("[resize] width=%d height=%d", msg.Width, msg.Height)
+		// Timer fires
 		case gitTickMsg:
-			m.debugLog.Printf("[msg] gitTickMsg")
+			m.debugLog.Printf("[timer] gitTick")
 		case prTickMsg:
-			m.debugLog.Printf("[msg] prTickMsg")
+			m.debugLog.Printf("[timer] prTick")
+		case notificationExpiredMsg:
+			m.debugLog.Printf("[timer] notificationExpired")
+		// Filesystem changes
+		case RefreshMsg:
+			m.debugLog.Printf("[fs] RefreshMsg (file watcher)")
+		// Data loads
+		case gitDataMsg:
+			m.debugLog.Printf("[data] gitDataMsg localOnly=%v committed=%d uncommitted=%d allFiles=%d",
+				msg.localOnly, len(msg.committedFiles), len(msg.uncommittedFiles), len(msg.allFiles))
+		case allFilesMsg:
+			m.debugLog.Printf("[data] allFilesMsg files=%d", len(msg.files))
+		case moreCommitsMsg:
+			m.debugLog.Printf("[data] moreCommitsMsg commits=%d", len(msg.commits))
+		case prRefreshMsg:
+			m.debugLog.Printf("[data] prRefreshMsg rateLimited=%v", msg.rateLimited)
+		case rwxLogMsg:
+			m.debugLog.Printf("[data] rwxLogMsg")
 		}
 	}
 
@@ -2650,6 +2675,11 @@ func (m *Model) RenderOnce(width, height int) string {
 }
 
 func (m *Model) View() tea.View {
+	if m.debugLog != nil {
+		m.debugLog.Printf("[render] mode=%d focus=%d tree=%v items=%d selected=%d offset=%d",
+			m.mode, m.focus, m.treeMode, len(m.sidebar.items), m.sidebar.selected, m.sidebar.offset)
+	}
+
 	var v tea.View
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
