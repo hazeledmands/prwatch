@@ -290,6 +290,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 - property-based test failure files (`testdata/rapid/**/*.fail`) should be committed to version control so that rapid replays them as regression cases on future runs. delete `.fail` files only if the test signature has changed and rapid reports them as "no longer valid".
 
 ## DEVELOPING
+- `PRWATCH_DEBUG_LOG` enables verbose debug logging to a file. it should log all UI actions, timer fires, filesystem changes, signals from the OS, and re-renders.
 - when starting, run git status; if there are any changes to the PROMPT.md commit those first
 - check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then put the bug report plus a little one-liner about how it was fixed in a log at the bottom of the doc.
 - this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress. If PLAN.md seems outdated -- clean it up so that it doesn't take up unnecessary context for future agents.
