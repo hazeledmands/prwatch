@@ -1695,6 +1695,57 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 						context, m.sidebar.SelectedItem())
 				}
 			}
+
+			// Simulate periodic refresh ticks between user interactions.
+			// Capture tree state before ticks to verify stability.
+			collapseSnapshot := make(map[string]bool, len(m.collapsedDirs))
+			for d, v := range m.collapsedDirs {
+				collapseSnapshot[d] = v
+			}
+			selectedBeforeTick := m.sidebar.SelectedIndex()
+			offsetBeforeTick := m.sidebar.offset
+			selectedItemBefore := m.sidebar.SelectedItem()
+			mainBeforeTick := m.mainPane.viewport.View()
+
+			applyTicks(m, true)
+
+			// Structural invariants still hold after ticks
+			checkTreeStructure(t, m, sidebarFiles, context+" after ticks")
+			checkRenderInvariants(t, m, context+" after ticks")
+			checkSidebarInvariants(t, m, context+" after ticks")
+
+			// Invariant 15: ticks must not change collapse state
+			for d, v := range m.collapsedDirs {
+				if collapseSnapshot[d] != v {
+					t.Fatalf("%s after ticks: collapse state of %q changed from %v to %v",
+						context, d, collapseSnapshot[d], v)
+				}
+			}
+			for d, v := range collapseSnapshot {
+				if m.collapsedDirs[d] != v {
+					t.Fatalf("%s after ticks: collapse state of %q changed from %v to %v",
+						context, d, v, m.collapsedDirs[d])
+				}
+			}
+
+			// Invariant 16: ticks must not change selection or scroll position
+			if m.sidebar.SelectedIndex() != selectedBeforeTick {
+				t.Fatalf("%s after ticks: selection changed from %d to %d",
+					context, selectedBeforeTick, m.sidebar.SelectedIndex())
+			}
+			if m.sidebar.SelectedItem() != selectedItemBefore {
+				t.Fatalf("%s after ticks: selected item changed from %q to %q",
+					context, selectedItemBefore, m.sidebar.SelectedItem())
+			}
+			if m.sidebar.offset != offsetBeforeTick {
+				t.Fatalf("%s after ticks: sidebar offset changed from %d to %d",
+					context, offsetBeforeTick, m.sidebar.offset)
+			}
+
+			// Invariant 17: ticks must not change main panel content
+			if m.mainPane.viewport.View() != mainBeforeTick {
+				t.Fatalf("%s after ticks: main panel content changed", context)
+			}
 		}
 	})
 }
