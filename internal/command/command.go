@@ -34,11 +34,20 @@ func (a *execAdapter) SetStdin(r io.Reader)  { a.cmd.Stdin = r }
 func (a *execAdapter) SetStdout(w io.Writer) { a.cmd.Stdout = w }
 func (a *execAdapter) SetStderr(w io.Writer) { a.cmd.Stderr = w }
 
+// blockedInTests lists commands that must never be executed during tests.
+// gh/rwx: external API calls. pbcopy/xclip: system clipboard side effects.
+var blockedInTests = map[string]bool{
+	"gh":     true,
+	"rwx":    true,
+	"pbcopy": true,
+	"xclip":  true,
+}
+
 // DefaultFactory creates commands via os/exec. When running under go test,
-// it panics if asked to create a command for "gh" or "rwx" to prevent
-// accidental API calls.
+// it panics if asked to create a blocked command to prevent accidental
+// API calls or system side effects.
 func DefaultFactory(name string, args ...string) Command {
-	if testing.Testing() && (name == "gh" || name == "rwx") {
+	if testing.Testing() && blockedInTests[name] {
 		panic(fmt.Sprintf("test called real %s command (use a stub factory): %s %s", name, name, strings.Join(args, " ")))
 	}
 	return &execAdapter{cmd: exec.Command(name, args...)}

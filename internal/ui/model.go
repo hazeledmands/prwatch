@@ -271,6 +271,10 @@ type rwxLogMsg struct {
 	err      error
 }
 
+// defaultCmdFactory is the command factory used by NewModel. Tests in the
+// same package can override this to prevent accidental exec calls.
+var defaultCmdFactory command.Factory = command.DefaultFactory
+
 func NewModel(dir string, g GitDataSource) *Model {
 	mode := FileViewMode
 	if g == nil {
@@ -289,7 +293,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 	return &Model{
 		debugLog:         debugLog,
 		git:              g,
-		cmdFactory:       command.DefaultFactory,
+		cmdFactory:       defaultCmdFactory,
 		dir:              dir,
 		mode:             mode,
 		focus:            SidebarFocus,

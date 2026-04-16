@@ -14,10 +14,17 @@ import (
 	"github.com/hazeledmands/prwatch/internal/git"
 )
 
-// noGHFactory is a Factory that stubs out gh/rwx commands so UI tests
-// never hit the real GitHub API.
+func init() {
+	// Override the default factory for all UI tests so that NewModel never
+	// wires in a factory that could call blocked commands (gh, rwx, pbcopy, xclip).
+	// Tests that need real git commands still get them via DefaultFactory delegation.
+	defaultCmdFactory = noGHFactory
+}
+
+// noGHFactory is a Factory that stubs out blocked external commands so UI tests
+// never hit the real GitHub API or system clipboard.
 func noGHFactory(name string, args ...string) command.Command {
-	if name == "gh" || name == "rwx" {
+	if name == "gh" || name == "rwx" || name == "pbcopy" || name == "xclip" {
 		return command.StubCommand("", fmt.Errorf("stubbed out in tests"))
 	}
 	return command.DefaultFactory(name, args...)
