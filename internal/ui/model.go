@@ -463,6 +463,16 @@ func (m *Model) loadGitData() tea.Msg {
 		return gitDataMsg{err: err}
 	}
 
+	// Empty repo (no commits yet): skip diff/commit operations that require HEAD
+	if info.IsEmpty {
+		allFiles, _ := m.git.AllFiles(m.showIgnored)
+		return gitDataMsg{
+			repoInfo:         info,
+			uncommittedFiles: allFiles,
+			allFiles:         allFiles,
+		}
+	}
+
 	prAll, prErr := m.git.PRAll()
 	prFetchFailed := prErr != nil
 	prInfo := prAll.Info
@@ -573,6 +583,17 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	info, err := m.git.RepoInfo()
 	if err != nil {
 		return gitDataMsg{err: err}
+	}
+
+	// Empty repo (no commits yet): skip diff/commit operations that require HEAD
+	if info.IsEmpty {
+		allFiles, _ := m.git.AllFiles(m.showIgnored)
+		return gitDataMsg{
+			repoInfo:         info,
+			uncommittedFiles: allFiles,
+			allFiles:         allFiles,
+			localOnly:        true,
+		}
 	}
 
 	base, err := m.git.DetectBase()

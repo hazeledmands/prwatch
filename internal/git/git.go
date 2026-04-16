@@ -68,7 +68,8 @@ type RepoInfoResult struct {
 	Worktree       string // empty if not in a worktree
 	HeadSHA        string
 	IsDetachedHead bool
-	AheadCount     int // commits ahead of upstream
+	IsEmpty        bool // true if repo has no commits yet (unborn HEAD)
+	AheadCount     int  // commits ahead of upstream
 }
 
 type Commit struct {
@@ -213,9 +214,15 @@ func (g *Git) IsRepo() bool {
 }
 
 func (g *Git) RepoInfo() (RepoInfoResult, error) {
+	var isEmpty bool
 	branch, err := g.run("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		return RepoInfoResult{}, err
+		// Empty repo (no commits): rev-parse fails but symbolic-ref works
+		branch, err = g.run("symbolic-ref", "--short", "HEAD")
+		if err != nil {
+			return RepoInfoResult{}, err
+		}
+		isEmpty = true
 	}
 
 	toplevel, err := g.run("rev-parse", "--show-toplevel")
@@ -262,6 +269,7 @@ func (g *Git) RepoInfo() (RepoInfoResult, error) {
 		Worktree:       worktree,
 		HeadSHA:        headSHA,
 		IsDetachedHead: branch == "HEAD",
+		IsEmpty:        isEmpty,
 		AheadCount:     aheadCount,
 	}, nil
 }
