@@ -35,7 +35,7 @@ line 1: overall status
   - if not a git repo, "Not a git repo"
 line 2: local git status (not shown if this is not a git repo)
   - name of current branch and merge base, if any (eg: `foo -> main`, or just `main`)
-  - number of uncommitted files (12 uncommitted)
+  - number of uncommitted files — both new/unstaged and staged (12 uncommitted)
   - number of unpushed commits (2 unpushed)
   - number of commits after base (3 commits) -- or just the number of commits if we're in the main branch.
     this should always be the true total count (e.g. via `git rev-list --count`), not the number of commits currently loaded.
@@ -122,9 +122,10 @@ sidebar should show:
 ### sidebar (both file modes)
 
 the sidebar should be separated into categories:
-  1. uncommitted files
-  2. committed files
-  3. all files (file-view mode only)
+  1. new changes — untracked or unstaged files
+  2. staged — staged but uncommitted files
+  3. committed files
+  4. all files (file-view mode only)
 
 order within these categories should be alphabetical.
 deleted files should still show up in this view, but they should be red.
@@ -134,7 +135,7 @@ tree view (enabled by default): files should be grouped under directories, and s
 - directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
 - [t] should toggle this mode on/off
 - files and subdirectories in directories can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter].
-- for uncommitted files and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
+- for new changes, staged files, and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
 - compact directories: when a chain of directories each have only one child (e.g. `foo/bar/baz/`), collapse them into a single line showing the combined path. this applies even if the leafmost directory contains multiple files — the combined directory entry is expandable/collapsible as a single unit. if the entire chain leads to a single file with no sibling directories, display the whole path including the filename on one line (no directory entry).
 - cursor vs. pinned file: the sidebar cursor moves freely over files and directories, but the main panel only updates when the cursor lands on a file. navigating over directories (keys or click) keeps the previous file's content visible. the sidebar should visually distinguish the cursor position from the pinned (currently viewing) file when they differ.
 
@@ -142,10 +143,11 @@ tree view (enabled by default): files should be grouped under directories, and s
 
 the left pane should be a list of commits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
 the list of commits should be separated into categories, each with a section header and horizontal rule separator:
-1. Uncommitted — uncommitted changes (not technically a commit, if there are any they should all be grouped together under one line)
-2. Unpushed — commits that have not yet been pushed to the origin (should be a dimmed color).
-3. Pushed — commits in the current branch / PR that have been pushed to the origin
-4. Base — commits after the stuff that's already in the base branch (even before the feature branch began)
+1. New Changes — untracked or unstaged changes (not technically a commit, if there are any they should all be grouped together under one line)
+2. Staged — staged but uncommitted changes (grouped together under one line, like new changes)
+3. Unpushed — commits that have not yet been pushed to the origin (should be a dimmed color).
+4. Pushed — commits in the current branch / PR that have been pushed to the origin
+5. Base — commits after the stuff that's already in the base branch (even before the feature branch began)
 
 if this list is very long, we should paginate it. load the first 100 commits initially, then load the next 100 when the user scrolls to the end of the list. show a "load more" entry at the bottom of the list while more commits are available.
 

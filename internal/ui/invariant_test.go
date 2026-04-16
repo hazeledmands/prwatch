@@ -35,6 +35,7 @@ func maybeEmoji(t *rapid.T, tag string, s string) string {
 func genMockGit(t *rapid.T) *mockGit {
 	nCommitted := rapid.IntRange(0, 20).Draw(t, "nCommitted")
 	nUncommitted := rapid.IntRange(0, 10).Draw(t, "nUncommitted")
+	nStaged := rapid.IntRange(0, 5).Draw(t, "nStaged")
 	nCommits := rapid.IntRange(0, 20).Draw(t, "nCommits")
 
 	committed := make([]string, nCommitted)
@@ -45,6 +46,10 @@ func genMockGit(t *rapid.T) *mockGit {
 	for i := range uncommitted {
 		uncommitted[i] = fmt.Sprintf("new%d.go", i)
 	}
+	staged := make([]string, nStaged)
+	for i := range staged {
+		staged[i] = fmt.Sprintf("staged%d.go", i)
+	}
 	// Generate unchanged files that only appear in the "All Files" section
 	nOther := rapid.IntRange(0, 15).Draw(t, "nOtherFiles")
 	otherFiles := make([]string, nOther)
@@ -52,9 +57,10 @@ func genMockGit(t *rapid.T) *mockGit {
 		otherFiles[i] = fmt.Sprintf("other%d.go", i)
 	}
 	// allFiles is a superset: changed files + unchanged files
-	allFiles := make([]string, 0, nCommitted+nUncommitted+nOther)
+	allFiles := make([]string, 0, nCommitted+nUncommitted+nStaged+nOther)
 	allFiles = append(allFiles, committed...)
 	allFiles = append(allFiles, uncommitted...)
+	allFiles = append(allFiles, staged...)
 	allFiles = append(allFiles, otherFiles...)
 
 	commits := make([]git.Commit, nCommits)
@@ -99,6 +105,7 @@ func genMockGit(t *rapid.T) *mockGit {
 		changedFiles: git.ChangedFilesResult{
 			Committed:   committed,
 			Uncommitted: uncommitted,
+			Staged:      staged,
 		},
 		commits:     commits,
 		allCommits:  commits,
@@ -300,7 +307,7 @@ func viewWithTimeout(t *rapid.T, m *Model, context string) tea.View {
 	case <-time.After(1 * time.Second):
 		t.Fatalf("%s: View() hung for >1s (mode=%d, focus=%d, sidebarWidth=%d, width=%d, height=%d, files=%d, commits=%d)",
 			context, m.mode, m.focus, m.sidebar.width, m.width, m.height,
-			len(m.committedFiles)+len(m.uncommittedFiles), len(m.commits))
+			len(m.committedFiles)+len(m.uncommittedFiles)+len(m.stagedFiles), len(m.commits))
 		return tea.View{} // unreachable
 	}
 }
@@ -549,7 +556,7 @@ func TestProperty_ClickSidebarSelectsItem(t *testing.T) {
 		mock := genMockGit(t)
 
 		// Only test if there are files to click
-		totalFiles := len(mock.changedFiles.Committed) + len(mock.changedFiles.Uncommitted)
+		totalFiles := len(mock.changedFiles.Committed) + len(mock.changedFiles.Uncommitted) + len(mock.changedFiles.Staged)
 		if totalFiles == 0 {
 			return
 		}
@@ -574,17 +581,27 @@ func TestProperty_ClickSidebarSelectsItem(t *testing.T) {
 		uncommittedSorted := make([]string, len(mock.changedFiles.Uncommitted))
 		copy(uncommittedSorted, mock.changedFiles.Uncommitted)
 		sort.Strings(uncommittedSorted)
+		stagedSorted := make([]string, len(mock.changedFiles.Staged))
+		copy(stagedSorted, mock.changedFiles.Staged)
+		sort.Strings(stagedSorted)
 		committedSorted := make([]string, len(mock.changedFiles.Committed))
 		copy(committedSorted, mock.changedFiles.Committed)
 		sort.Strings(committedSorted)
 
 		var expectedFiles []string
 		if len(uncommittedSorted) > 0 {
-			expectedFiles = append(expectedFiles, "") // Uncommitted header
+			expectedFiles = append(expectedFiles, "") // New Changes header
 			expectedFiles = append(expectedFiles, uncommittedSorted...)
 		}
+		if len(stagedSorted) > 0 {
+			if len(expectedFiles) > 0 {
+				expectedFiles = append(expectedFiles, "") // separator
+			}
+			expectedFiles = append(expectedFiles, "") // Staged header
+			expectedFiles = append(expectedFiles, stagedSorted...)
+		}
 		if len(committedSorted) > 0 {
-			if len(uncommittedSorted) > 0 {
+			if len(expectedFiles) > 0 {
 				expectedFiles = append(expectedFiles, "") // separator
 			}
 			expectedFiles = append(expectedFiles, "") // Committed header
@@ -647,16 +664,26 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 		}
 		var expected []expectedItem
 
-		// Category 1: uncommitted changes
-		uncommitted := mock.changedFiles.Uncommitted
-		if len(uncommitted) > 0 {
+		// Category 1: new changes (unstaged/untracked)
+		if len(mock.changedFiles.Uncommitted) > 0 {
 			expected = append(expected, expectedItem{isSeparator: true}) // header (non-selectable)
 			expected = append(expected, expectedItem{
-				label: "uncommitted changes",
+				label: "new changes",
 			})
 		}
 
-		// Category 2: unpushed commits (dimmed)
+		// Category 2: staged changes
+		if len(mock.changedFiles.Staged) > 0 {
+			if len(expected) > 0 {
+				expected = append(expected, expectedItem{isSeparator: true})
+			}
+			expected = append(expected, expectedItem{isSeparator: true}) // header
+			expected = append(expected, expectedItem{
+				label: "staged changes",
+			})
+		}
+
+		// Category 3: unpushed commits (dimmed)
 		unpushedVisible := unpushed
 		if unpushedVisible > len(mock.commits) {
 			unpushedVisible = len(mock.commits)
@@ -674,7 +701,7 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 			}
 		}
 
-		// Category 3: pushed commits
+		// Category 4: pushed commits
 		pushedCount := len(mock.commits) - unpushed
 		if pushedCount < 0 {
 			pushedCount = 0
@@ -1443,6 +1470,16 @@ func checkInitialCollapseState(t *rapid.T, m *Model, context string) {
 			}
 		}
 	}
+	for _, f := range m.stagedFiles {
+		for d := f; ; {
+			if i := strings.LastIndex(d, "/"); i >= 0 {
+				d = d[:i]
+				changedDirs[d] = true
+			} else {
+				break
+			}
+		}
+	}
 
 	section := ""
 	for _, item := range m.sidebar.items {
@@ -1478,22 +1515,25 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 
 		nCommitted := rapid.IntRange(2, 15).Draw(t, "nCommitted")
 		nUncommitted := rapid.IntRange(0, 5).Draw(t, "nUncommitted")
+		nStaged := rapid.IntRange(0, 3).Draw(t, "nStaged")
 
 		committed := genNestedFiles(t, "committed", nCommitted)
 		uncommitted := genNestedFiles(t, "uncommitted", nUncommitted)
+		staged := genNestedFiles(t, "staged", nStaged)
 		nOther := rapid.IntRange(0, 10).Draw(t, "nOtherFiles")
 		otherFiles := genNestedFiles(t, "other", nOther)
-		mockAllFiles := make([]string, 0, len(committed)+len(uncommitted)+len(otherFiles))
+		mockAllFiles := make([]string, 0, len(committed)+len(uncommitted)+len(staged)+len(otherFiles))
 		mockAllFiles = append(mockAllFiles, committed...)
 		mockAllFiles = append(mockAllFiles, uncommitted...)
+		mockAllFiles = append(mockAllFiles, staged...)
 		mockAllFiles = append(mockAllFiles, otherFiles...)
 		// The set of files the sidebar must account for depends on mode:
-		// FileDiffMode only shows committed+uncommitted; FileViewMode shows all.
+		// FileDiffMode only shows committed+uncommitted+staged; FileViewMode shows all.
 		var sidebarFiles []string
 		if mode == FileViewMode {
 			sidebarFiles = mockAllFiles
 		} else {
-			sidebarFiles = append(append([]string{}, committed...), uncommitted...)
+			sidebarFiles = append(append(append([]string{}, committed...), uncommitted...), staged...)
 		}
 
 		mock := &mockGit{
@@ -1508,6 +1548,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			changedFiles: git.ChangedFilesResult{
 				Committed:   committed,
 				Uncommitted: uncommitted,
+				Staged:      staged,
 			},
 			allFiles:    mockAllFiles,
 			commits:     []git.Commit{{SHA: "abc1234", Subject: "test commit"}},

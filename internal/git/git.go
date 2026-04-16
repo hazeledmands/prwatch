@@ -339,7 +339,8 @@ func (g *Git) BehindCount(baseRef string) int {
 // ChangedFilesResult separates committed and uncommitted file changes.
 type ChangedFilesResult struct {
 	Committed   []string // files changed in base..HEAD only
-	Uncommitted []string // files with working tree changes
+	Uncommitted []string // unstaged or untracked files (new changes)
+	Staged      []string // staged but uncommitted files
 	Deleted     []string // files deleted in base..HEAD (subset of Committed)
 }
 
@@ -360,14 +361,26 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 		}
 	}
 
-	// Get uncommitted changes (staged + unstaged + untracked)
-	uncommittedSet := make(map[string]bool)
-	out, err = g.run("diff", "--name-only", "HEAD")
+	// Get staged changes (index vs HEAD)
+	stagedSet := make(map[string]bool)
+	out, err = g.run("diff", "--name-only", "--cached", "HEAD")
 	if err == nil {
 		for _, f := range strings.Split(out, "\n") {
 			f = strings.TrimSpace(f)
 			if f != "" {
-				uncommittedSet[f] = true
+				stagedSet[f] = true
+			}
+		}
+	}
+
+	// Get unstaged changes (working tree vs index)
+	unstagedSet := make(map[string]bool)
+	out, err = g.run("diff", "--name-only")
+	if err == nil {
+		for _, f := range strings.Split(out, "\n") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				unstagedSet[f] = true
 			}
 		}
 	}
@@ -377,21 +390,35 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 		for _, f := range strings.Split(out, "\n") {
 			f = strings.TrimSpace(f)
 			if f != "" {
-				uncommittedSet[f] = true
+				unstagedSet[f] = true
 			}
 		}
 	}
 
-	// Files in both go to uncommitted only
-	var committed, uncommitted []string
+	// Files in both committed and any local change go to the local bucket only
+	allLocalSet := make(map[string]bool)
+	for f := range stagedSet {
+		allLocalSet[f] = true
+	}
+	for f := range unstagedSet {
+		allLocalSet[f] = true
+	}
+
+	var committed, uncommitted, staged []string
 	for f := range committedSet {
-		if uncommittedSet[f] {
-			continue // will be in uncommitted list
+		if allLocalSet[f] {
+			continue // will be in staged or uncommitted list
 		}
 		committed = append(committed, f)
 	}
-	for f := range uncommittedSet {
+	for f := range unstagedSet {
 		uncommitted = append(uncommitted, f)
+	}
+	for f := range stagedSet {
+		if unstagedSet[f] {
+			continue // file is in both — show in uncommitted (new changes) only
+		}
+		staged = append(staged, f)
 	}
 
 	// Detect deleted files (in base..HEAD)
@@ -415,11 +442,13 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 
 	sort.Strings(committed)
 	sort.Strings(uncommitted)
+	sort.Strings(staged)
 	sort.Strings(deleted)
 
 	return ChangedFilesResult{
 		Committed:   committed,
 		Uncommitted: uncommitted,
+		Staged:      staged,
 		Deleted:     deleted,
 	}, nil
 }

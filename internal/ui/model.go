@@ -99,7 +99,8 @@ type Model struct {
 	prError             string // error message for PR/GitHub API issues
 	prCommentCount      int
 	committedFiles      []string
-	uncommittedFiles    []string
+	uncommittedFiles    []string        // unstaged/untracked (new changes)
+	stagedFiles         []string        // staged but uncommitted
 	deletedFiles        []string        // files deleted in base..HEAD
 	allFiles            []string        // all files in the repo (for file-view mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
@@ -166,6 +167,7 @@ type gitDataMsg struct {
 	base             string
 	committedFiles   []string
 	uncommittedFiles []string
+	stagedFiles      []string
 	deletedFiles     []string
 	allFiles         []string
 	ignoredFiles     map[string]bool
@@ -549,6 +551,7 @@ func (m *Model) loadGitData() tea.Msg {
 		base:             base,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
+		stagedFiles:      files.Staged,
 		deletedFiles:     files.Deleted,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
@@ -639,6 +642,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		base:             base,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
+		stagedFiles:      files.Staged,
 		deletedFiles:     files.Deleted,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
@@ -762,6 +766,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.base = msg.base
 		m.committedFiles = msg.committedFiles
 		m.uncommittedFiles = msg.uncommittedFiles
+		m.stagedFiles = msg.stagedFiles
 		m.deletedFiles = msg.deletedFiles
 		m.allFiles = msg.allFiles
 		m.ignoredFiles = msg.ignoredFiles
@@ -1866,6 +1871,11 @@ func (m *Model) isUncommittedFile(file string) bool {
 			return true
 		}
 	}
+	for _, f := range m.stagedFiles {
+		if f == file {
+			return true
+		}
+	}
 	return false
 }
 
@@ -2095,6 +2105,7 @@ func (m *Model) updateSidebarItems() {
 		if m.treeMode {
 			// Auto-collapse hidden (dot-prefixed) directories by default
 			allDirs := extractDirs(m.uncommittedFiles)
+			allDirs = append(allDirs, extractDirs(m.stagedFiles)...)
 			allDirs = append(allDirs, extractDirs(m.committedFiles)...)
 			for _, d := range allDirs {
 				if _, exists := m.collapsedDirs[d]; !exists {
@@ -2108,11 +2119,18 @@ func (m *Model) updateSidebarItems() {
 				}
 			}
 			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d)", len(m.uncommittedFiles)), kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
 				items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
 			}
+			if len(m.stagedFiles) > 0 {
+				if len(items) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
+				}
+				items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
+				items = append(items, buildTreeItems(m.stagedFiles, itemNormal, m.collapsedDirs)...)
+			}
 			if len(m.committedFiles) > 0 {
-				if len(m.uncommittedFiles) > 0 {
+				if len(items) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
 				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
@@ -2120,13 +2138,22 @@ func (m *Model) updateSidebarItems() {
 			}
 		} else {
 			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d)", len(m.uncommittedFiles)), kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
 				for _, f := range m.uncommittedFiles {
 					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
 				}
 			}
+			if len(m.stagedFiles) > 0 {
+				if len(items) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
+				}
+				items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
+				for _, f := range m.stagedFiles {
+					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
+				}
+			}
 			if len(m.committedFiles) > 0 {
-				if len(m.uncommittedFiles) > 0 {
+				if len(items) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
 				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
@@ -2139,9 +2166,12 @@ func (m *Model) updateSidebarItems() {
 
 	case FileViewMode:
 		var items []sidebarItem
-		// Compute other files (not in committed or uncommitted)
+		// Compute other files (not in committed, staged, or uncommitted)
 		changedSet := make(map[string]bool)
 		for _, f := range m.uncommittedFiles {
+			changedSet[f] = true
+		}
+		for _, f := range m.stagedFiles {
 			changedSet[f] = true
 		}
 		for _, f := range m.committedFiles {
@@ -2157,6 +2187,7 @@ func (m *Model) updateSidebarItems() {
 		if m.treeMode {
 			// Auto-collapse directories by default
 			dotDirs := extractDirs(m.uncommittedFiles)
+			dotDirs = append(dotDirs, extractDirs(m.stagedFiles)...)
 			dotDirs = append(dotDirs, extractDirs(m.committedFiles)...)
 			for _, d := range dotDirs {
 				if _, exists := m.collapsedDirs[d]; !exists {
@@ -2176,18 +2207,25 @@ func (m *Model) updateSidebarItems() {
 				}
 			}
 			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d)", len(m.uncommittedFiles)), kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
 				items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
 			}
+			if len(m.stagedFiles) > 0 {
+				if len(items) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
+				}
+				items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
+				items = append(items, buildTreeItems(m.stagedFiles, itemNormal, m.collapsedDirs)...)
+			}
 			if len(m.committedFiles) > 0 {
-				if len(m.uncommittedFiles) > 0 {
+				if len(items) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
 				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
 				items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
 			}
 			if len(otherFiles) > 0 {
-				if len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0 {
+				if len(items) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
 				items = append(items, sidebarItem{label: fmt.Sprintf("All Files (%d)", len(otherFiles)), kind: itemHeader})
@@ -2208,13 +2246,22 @@ func (m *Model) updateSidebarItems() {
 			}
 		} else {
 			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d)", len(m.uncommittedFiles)), kind: itemHeader})
+				items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
 				for _, f := range m.uncommittedFiles {
 					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
 				}
 			}
+			if len(m.stagedFiles) > 0 {
+				if len(items) > 0 {
+					items = append(items, sidebarItem{kind: itemSeparator})
+				}
+				items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
+				for _, f := range m.stagedFiles {
+					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
+				}
+			}
 			if len(m.committedFiles) > 0 {
-				if len(m.uncommittedFiles) > 0 {
+				if len(items) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
 				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
@@ -2223,7 +2270,7 @@ func (m *Model) updateSidebarItems() {
 				}
 			}
 			if len(otherFiles) > 0 {
-				if len(m.uncommittedFiles) > 0 || len(m.committedFiles) > 0 {
+				if len(items) > 0 {
 					items = append(items, sidebarItem{kind: itemSeparator})
 				}
 				items = append(items, sidebarItem{label: fmt.Sprintf("All Files (%d)", len(otherFiles)), kind: itemHeader})
@@ -2245,13 +2292,22 @@ func (m *Model) updateSidebarItems() {
 			pushedCount = 0
 		}
 
-		// Category 1: Uncommitted changes (if any)
+		// Category 1: New changes (unstaged/untracked)
 		if len(m.uncommittedFiles) > 0 {
-			items = append(items, sidebarItem{label: fmt.Sprintf("Uncommitted (%d files)", len(m.uncommittedFiles)), kind: itemHeader})
-			items = append(items, sidebarItem{label: "uncommitted changes", kind: itemDim})
+			items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d files)", len(m.uncommittedFiles)), kind: itemHeader})
+			items = append(items, sidebarItem{label: "new changes", kind: itemDim})
 		}
 
-		// Category 2: Unpushed commits (dimmed)
+		// Category 2: Staged changes
+		if len(m.stagedFiles) > 0 {
+			if len(items) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d files)", len(m.stagedFiles)), kind: itemHeader})
+			items = append(items, sidebarItem{label: "staged changes", kind: itemDim})
+		}
+
+		// Category 3: Unpushed commits (dimmed)
 		unpushedVisible := unpushed
 		if unpushedVisible > len(m.commits) {
 			unpushedVisible = len(m.commits)
@@ -2270,7 +2326,7 @@ func (m *Model) updateSidebarItems() {
 			}
 		}
 
-		// Category 3: Pushed branch commits
+		// Category 4: Pushed branch commits
 		if pushedCount > 0 {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
@@ -2297,7 +2353,7 @@ func (m *Model) updateSidebarItems() {
 			})
 		}
 
-		// Category 4: Base branch commits (already in base, before the feature branch)
+		// Category 5: Base branch commits (already in base, before the feature branch)
 		if len(m.baseCommits) > 0 {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
@@ -2511,9 +2567,9 @@ func (m *Model) updateMainContent() {
 			m.mainPane.SetPlainContent("Loading more commits...")
 			return
 		}
-		// Check if this is the "uncommitted changes" entry
-		if strings.HasPrefix(selected, "uncommitted changes") {
-			// Show combined diff of all uncommitted files in a single git call
+		// Check if this is the "new changes" or "staged changes" entry
+		if selected == "new changes" || selected == "staged changes" {
+			// Show combined diff of all uncommitted/staged files
 			diff, _ := m.git.FileDiffUncommitted("")
 			m.mainPane.SetContent(diff)
 			return
@@ -2704,10 +2760,10 @@ func (m *Model) View() tea.View {
 		commentCount:     m.prCommentCount,
 		mode:             m.mode,
 		confirming:       m.confirming,
-		uncommitCount:    len(m.uncommittedFiles),
+		uncommitCount:    len(m.uncommittedFiles) + len(m.stagedFiles),
 		commitCount:      m.commitCount,
 		behindCount:      m.behindCount,
-		changedFileCount: len(m.committedFiles) + len(m.uncommittedFiles),
+		changedFileCount: len(m.committedFiles) + len(m.uncommittedFiles) + len(m.stagedFiles),
 		prLoading:        m.loading && m.git != nil,
 		showHelp:         m.showHelp,
 		hoverX:           m.hoverX,

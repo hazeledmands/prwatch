@@ -2,8 +2,8 @@
   feature/add-auth → main · 1 uncommitted · 2 commits · 3 changed files                             
   PR #42: Add authentication                                                                        
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
-│Uncommitted (1 files)         ││diff --git a/README.md b/README.md                                │
-│uncommitted changes           ││--- a/README.md                                                   │
+│New Changes (1 files)         ││diff --git a/README.md b/README.md                                │
+│new changes                   ││--- a/README.md                                                   │
 │──────────────────────────────││+++ b/README.md                                                   │
 │Pushed (2)                    ││@@ -1,3 +1,4 @@                                                   │
 │abc1234 Add auth middleware   ││ # My App                                                         │

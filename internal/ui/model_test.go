@@ -706,16 +706,16 @@ func TestUpdateSidebarItems_FileMode(t *testing.T) {
 
 	m.updateSidebarItems()
 
-	// Verify order: header + uncommitted, separator, header + committed
+	// Verify order: header + new changes, separator, header + committed
 	items := m.sidebar.items
-	if len(items) != 6 { // header + 1 uncommitted + separator + header + 2 committed
+	if len(items) != 6 { // header + 1 new change + separator + header + 2 committed
 		t.Fatalf("expected 6 items, got %d", len(items))
 	}
-	if items[0].kind != itemHeader || !strings.HasPrefix(items[0].label, "Uncommitted") {
-		t.Errorf("first item should be Uncommitted header, got kind=%v label=%q", items[0].kind, items[0].label)
+	if items[0].kind != itemHeader || !strings.HasPrefix(items[0].label, "New Changes") {
+		t.Errorf("first item should be New Changes header, got kind=%v label=%q", items[0].kind, items[0].label)
 	}
 	if items[1].filePath != "z.go" || items[1].kind != itemNormal {
-		t.Errorf("second item should be uncommitted z.go, got filePath=%q kind=%v", items[1].filePath, items[1].kind)
+		t.Errorf("second item should be new change z.go, got filePath=%q kind=%v", items[1].filePath, items[1].kind)
 	}
 	if items[2].kind != itemSeparator {
 		t.Error("third item should be separator")
@@ -2861,14 +2861,14 @@ func TestFileViewMode_ThreeCategories(t *testing.T) {
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
-	// Sidebar should have: Uncommitted header, wip.go, separator, Committed header, alpha.go, beta.go,
+	// Sidebar should have: New Changes header, wip.go, separator, Committed header, alpha.go, beta.go,
 	// separator, All Files header, main.go, readme.md
 	items := m.sidebar.items
 	if len(items) != 10 {
 		t.Fatalf("expected 10 sidebar items, got %d: %v", len(items), items)
 	}
-	if items[0].kind != itemHeader || !strings.HasPrefix(items[0].label, "Uncommitted") {
-		t.Errorf("item 0: expected Uncommitted header, got kind=%v label=%q", items[0].kind, items[0].label)
+	if items[0].kind != itemHeader || !strings.HasPrefix(items[0].label, "New Changes") {
+		t.Errorf("item 0: expected New Changes header, got kind=%v label=%q", items[0].kind, items[0].label)
 	}
 	if items[1].filePath != "wip.go" || items[1].kind != itemNormal {
 		t.Errorf("item 1: expected normal wip.go, got filePath=%q kind=%v", items[1].filePath, items[1].kind)
@@ -2921,7 +2921,7 @@ func TestFileDiffMode_NoAllFilesCategory(t *testing.T) {
 	m.Update(msg)
 
 	// In file-diff mode, sidebar should only have changed files (no "all files" category)
-	// Items: Uncommitted header, wip.go, separator, Committed header, alpha.go
+	// Items: New Changes header, wip.go, separator, Committed header, alpha.go
 	items := m.sidebar.items
 	if len(items) != 5 {
 		t.Fatalf("expected 5 sidebar items in diff mode, got %d: %v", len(items), items)
