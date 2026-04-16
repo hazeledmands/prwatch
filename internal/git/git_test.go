@@ -1,49 +1,36 @@
 package git_test
 
 import (
+	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/hazeledmands/prwatch/internal/command"
 	"github.com/hazeledmands/prwatch/internal/git"
 )
 
 // noGH creates a Git instance that stubs out gh/rwx commands so tests
-// never hit the real GitHub API. Use instead of noGH(dir) for tests
-// that don't need to test gh interaction.
+// never hit the real GitHub API.
 func noGH(dir string) *git.Git {
-	return git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+	return git.NewWithFactory(dir, func(name string, args ...string) command.Command {
 		if name == "gh" || name == "rwx" {
-			return "", fmt.Errorf("stubbed out in tests")
+			return command.StubCommand("", fmt.Errorf("stubbed out in tests"))
 		}
-		cmd := exec.Command(name, args...)
-		cmd.Dir = d
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(out)), nil
+		return command.DefaultFactory(name, args...)
 	})
 }
 
-// mockGHRunner returns a CmdRunner that intercepts "gh" calls with mock responses
-// and delegates everything else to the real exec.Command.
-func mockGHRunner(ghResponse string, ghErr error) git.CmdRunner {
-	return func(dir string, name string, args ...string) (string, error) {
+// mockGHFactory returns a Factory that intercepts "gh" calls with mock responses
+// and delegates everything else to DefaultFactory.
+func mockGHFactory(ghResponse string, ghErr error) command.Factory {
+	return func(name string, args ...string) command.Command {
 		if name == "gh" {
-			return ghResponse, ghErr
+			return command.StubCommand(ghResponse, ghErr)
 		}
-		// Fall back to real execution for non-gh commands
-		cmd := exec.Command(name, args...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(out)), nil
+		return command.DefaultFactory(name, args...)
 	}
 }
 
@@ -58,10 +45,12 @@ func setupTestRepo(t *testing.T) string {
 		{"git", "config", "user.name", "Test"},
 	}
 	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup %v: %s %v", args, out, err)
+		cmd := command.DefaultFactory(args[0], args[1:]...)
+		cmd.SetDir(dir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup %v: %s %v", args, stderr.String(), err)
 		}
 	}
 
@@ -88,10 +77,12 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %s %v", args, out, err)
+	cmd := command.DefaultFactory("git", args...)
+	cmd.SetDir(dir)
+	var stderr bytes.Buffer
+	cmd.SetStderr(&stderr)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git %v: %s %v", args, stderr.String(), err)
 	}
 }
 
@@ -345,7 +336,7 @@ func TestRepoInfo_DetachedHead(t *testing.T) {
 func TestPRAll_NoPR(t *testing.T) {
 	dir := setupTestRepo(t)
 	// Mock gh to return "no pull requests found" — avoids hitting real GitHub API
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no pull requests found for branch")))
+	g := git.NewWithFactory(dir, mockGHFactory("", fmt.Errorf("no pull requests found for branch")))
 
 	result, err := g.PRAll()
 	if err != nil {
@@ -487,10 +478,12 @@ func TestDetectBase_NoMainBranch(t *testing.T) {
 		{"git", "config", "user.name", "Test"},
 	}
 	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup %v: %s %v", args, out, err)
+		cmd := command.DefaultFactory(args[0], args[1:]...)
+		cmd.SetDir(dir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup %v: %s %v", args, stderr.String(), err)
 		}
 	}
 	writeFile(t, dir, "README.md", "# hello\n")
@@ -520,10 +513,12 @@ func TestDetectBase_FallbackToHEAD(t *testing.T) {
 		{"git", "config", "user.name", "Test"},
 	}
 	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup %v: %s %v", args, out, err)
+		cmd := command.DefaultFactory(args[0], args[1:]...)
+		cmd.SetDir(dir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup %v: %s %v", args, stderr.String(), err)
 		}
 	}
 	writeFile(t, dir, "README.md", "# hello\n")
@@ -550,18 +545,22 @@ func TestDetectBase_WithOrigin(t *testing.T) {
 		{"git", "init", "--initial-branch=main", "--bare"},
 	}
 	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = originDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup origin %v: %s %v", args, out, err)
+		cmd := command.DefaultFactory(args[0], args[1:]...)
+		cmd.SetDir(originDir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup origin %v: %s %v", args, stderr.String(), err)
 		}
 	}
 
 	// Clone it
 	cloneDir := t.TempDir()
-	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
-	if out, err := cloneCmd.CombinedOutput(); err != nil {
-		t.Fatalf("clone: %s %v", out, err)
+	cloneCmd := command.DefaultFactory("git", "clone", originDir, cloneDir)
+	var cloneErr bytes.Buffer
+	cloneCmd.SetStderr(&cloneErr)
+	if err := cloneCmd.Run(); err != nil {
+		t.Fatalf("clone: %s %v", cloneErr.String(), err)
 	}
 
 	// Set up user config
@@ -597,17 +596,21 @@ func TestDetectBase_WithOriginMaster(t *testing.T) {
 		{"git", "init", "--initial-branch=master", "--bare"},
 	}
 	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = originDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup origin %v: %s %v", args, out, err)
+		cmd := command.DefaultFactory(args[0], args[1:]...)
+		cmd.SetDir(originDir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup origin %v: %s %v", args, stderr.String(), err)
 		}
 	}
 
 	cloneDir := t.TempDir()
-	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
-	if out, err := cloneCmd.CombinedOutput(); err != nil {
-		t.Fatalf("clone: %s %v", out, err)
+	cloneCmd := command.DefaultFactory("git", "clone", originDir, cloneDir)
+	var cloneErr bytes.Buffer
+	cloneCmd.SetStderr(&cloneErr)
+	if err := cloneCmd.Run(); err != nil {
+		t.Fatalf("clone: %s %v", cloneErr.String(), err)
 	}
 
 	runGit(t, cloneDir, "config", "user.email", "test@test.com")
@@ -689,7 +692,7 @@ func TestRepoInfo_Worktree(t *testing.T) {
 func TestPRAll_WithMockGH(t *testing.T) {
 	dir := setupTestRepo(t)
 	jsonResp := `{"number":42,"title":"Test PR","url":"https://github.com/test/repo/pull/42","state":"OPEN","baseRefName":"main","reviews":[{"author":{"login":"alice"},"state":"APPROVED"}],"reviewRequests":[{"__typename":"User","login":"bob"}],"comments":[{"author":{"login":"carol"},"body":"lgtm"}]}`
-	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
+	g := git.NewWithFactory(dir, mockGHFactory(jsonResp, nil))
 
 	result, err := g.PRAll()
 	if err != nil {
@@ -723,7 +726,7 @@ func TestPRAll_WithMockGH(t *testing.T) {
 
 func TestPRAll_InvalidJSON(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("not json", nil))
+	g := git.NewWithFactory(dir, mockGHFactory("not json", nil))
 
 	_, err := g.PRAll()
 	if err == nil {
@@ -736,7 +739,7 @@ func TestPRAll_InvalidJSON(t *testing.T) {
 
 func TestPRAll_GHError(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("gh not found")))
+	g := git.NewWithFactory(dir, mockGHFactory("", fmt.Errorf("gh not found")))
 
 	result, err := g.PRAll()
 	if err != nil {
@@ -750,7 +753,7 @@ func TestPRAll_GHError(t *testing.T) {
 func TestDetectBase_WithGHPRBase(t *testing.T) {
 	dir := setupTestRepo(t)
 	// Mock gh to return "main" as PR base
-	g := git.NewWithRunner(dir, mockGHRunner("main", nil))
+	g := git.NewWithFactory(dir, mockGHFactory("main", nil))
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -764,19 +767,7 @@ func TestDetectBase_WithGHPRBase(t *testing.T) {
 func TestDetectBase_GHReturnsNonExistentBranch(t *testing.T) {
 	dir := setupTestRepo(t)
 	// Mock gh to return a branch that doesn't exist as origin ref or local ref
-	runner := func(d string, name string, args ...string) (string, error) {
-		if name == "gh" {
-			return "nonexistent-branch-xyz", nil
-		}
-		cmd := exec.Command(name, args...)
-		cmd.Dir = d
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(out)), nil
-	}
-	g := git.NewWithRunner(dir, runner)
+	g := git.NewWithFactory(dir, mockGHFactory("nonexistent-branch-xyz", nil))
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -791,7 +782,7 @@ func TestDetectBase_GHReturnsNonExistentBranch(t *testing.T) {
 func TestDefaultCmdRunner_Error(t *testing.T) {
 	// Mock gh to simulate "not a git repository" — avoids hitting real GitHub API
 	dir := t.TempDir()
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("not a git repository")))
+	g := git.NewWithFactory(dir, mockGHFactory("", fmt.Errorf("not a git repository")))
 	result, err := g.PRAll()
 	if err != nil {
 		t.Fatal(err)
@@ -833,16 +824,20 @@ func TestDetectBase_GHWithOriginRef(t *testing.T) {
 		{"git", "init", "--initial-branch=main", "--bare"},
 	}
 	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = originDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup origin %v: %s %v", args, out, err)
+		cmd := command.DefaultFactory(args[0], args[1:]...)
+		cmd.SetDir(originDir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup origin %v: %s %v", args, stderr.String(), err)
 		}
 	}
 	cloneDir := t.TempDir()
-	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
-	if out, err := cloneCmd.CombinedOutput(); err != nil {
-		t.Fatalf("clone: %s %v", out, err)
+	cloneCmd := command.DefaultFactory("git", "clone", originDir, cloneDir)
+	var cloneErr bytes.Buffer
+	cloneCmd.SetStderr(&cloneErr)
+	if err := cloneCmd.Run(); err != nil {
+		t.Fatalf("clone: %s %v", cloneErr.String(), err)
 	}
 	runGit(t, cloneDir, "config", "user.email", "test@test.com")
 	runGit(t, cloneDir, "config", "user.name", "Test")
@@ -856,7 +851,7 @@ func TestDetectBase_GHWithOriginRef(t *testing.T) {
 	runGit(t, cloneDir, "commit", "-m", "feature")
 
 	// Mock gh to return "main" — origin/main exists in this repo
-	g := git.NewWithRunner(cloneDir, mockGHRunner("main", nil))
+	g := git.NewWithFactory(cloneDir, mockGHFactory("main", nil))
 	base, err := g.DetectBase()
 	if err != nil {
 		t.Fatal(err)
@@ -868,7 +863,7 @@ func TestDetectBase_GHWithOriginRef(t *testing.T) {
 
 func TestDetectBase_GHReturnsEmpty(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("", nil))
+	g := git.NewWithFactory(dir, mockGHFactory("", nil))
 
 	base, err := g.DetectBase()
 	if err != nil {
@@ -882,20 +877,13 @@ func TestDetectBase_GHReturnsEmpty(t *testing.T) {
 func TestDetectBase_CachesGHResult(t *testing.T) {
 	dir := setupTestRepo(t)
 	ghCalls := 0
-	runner := func(d string, name string, args ...string) (string, error) {
+	g := git.NewWithFactory(dir, func(name string, args ...string) command.Command {
 		if name == "gh" {
 			ghCalls++
-			return "main", nil
+			return command.StubCommand("main", nil)
 		}
-		cmd := exec.Command(name, args...)
-		cmd.Dir = d
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(out)), nil
-	}
-	g := git.NewWithRunner(dir, runner)
+		return command.DefaultFactory(name, args...)
+	})
 
 	// First call should invoke gh
 	base1, err := g.DetectBase()
@@ -922,7 +910,7 @@ func TestDetectBase_CachesGHResult(t *testing.T) {
 func TestPRChecksAll_Success(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"build","state":"SUCCESS","bucket":"pass","link":"https://ci.example.com/1"}]`
-	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
+	g := git.NewWithFactory(dir, mockGHFactory(checksJSON, nil))
 
 	result, err := g.PRChecksAll()
 	if err != nil {
@@ -942,7 +930,7 @@ func TestPRChecksAll_Success(t *testing.T) {
 func TestPRChecksAll_Failure(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"build","state":"FAILURE","bucket":"fail","link":"https://ci.example.com/2"},{"name":"lint","state":"SUCCESS","bucket":"pass","link":""}]`
-	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
+	g := git.NewWithFactory(dir, mockGHFactory(checksJSON, nil))
 
 	result, err := g.PRChecksAll()
 	if err != nil {
@@ -962,7 +950,7 @@ func TestPRChecksAll_Failure(t *testing.T) {
 func TestPRChecksAll_Pending(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"build","state":"IN_PROGRESS","bucket":"pending","link":"https://ci.example.com/3"}]`
-	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
+	g := git.NewWithFactory(dir, mockGHFactory(checksJSON, nil))
 
 	result, err := g.PRChecksAll()
 	if err != nil {
@@ -975,7 +963,7 @@ func TestPRChecksAll_Pending(t *testing.T) {
 
 func TestPRChecksAll_Error(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no PR")))
+	g := git.NewWithFactory(dir, mockGHFactory("", fmt.Errorf("no PR")))
 
 	result, err := g.PRChecksAll()
 	if err != nil {
@@ -988,7 +976,7 @@ func TestPRChecksAll_Error(t *testing.T) {
 
 func TestPRChecksAll_InvalidJSON(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("not json", nil))
+	g := git.NewWithFactory(dir, mockGHFactory("not json", nil))
 
 	result, err := g.PRChecksAll()
 	if err != nil {
@@ -1001,7 +989,7 @@ func TestPRChecksAll_InvalidJSON(t *testing.T) {
 
 func TestPRChecksAll_EmptyArray(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("[]", nil))
+	g := git.NewWithFactory(dir, mockGHFactory("[]", nil))
 
 	result, err := g.PRChecksAll()
 	if err != nil {
@@ -1015,7 +1003,7 @@ func TestPRChecksAll_EmptyArray(t *testing.T) {
 func TestPRAll_Reviews(t *testing.T) {
 	dir := setupTestRepo(t)
 	jsonResp := `{"number":1,"reviews":[{"author":{"login":"alice"},"state":"APPROVED","body":"looks great"},{"author":{"login":"bob"},"state":"CHANGES_REQUESTED","body":"needs fixes"}]}`
-	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
+	g := git.NewWithFactory(dir, mockGHFactory(jsonResp, nil))
 
 	result, err := g.PRAll()
 	if err != nil {
@@ -1040,17 +1028,17 @@ func TestPRAll_ReviewsWithGraphQLComments(t *testing.T) {
 	prViewResp := `{"number":1,"reviews":[{"author":{"login":"alice"},"state":"COMMENTED","body":"see comments"}]}`
 	graphQLResp := `{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"alice"},"state":"COMMENTED","body":"see comments","comments":{"nodes":[{"path":"main.go","line":42,"body":"nit: rename this"},{"path":"main.go","line":100,"body":"consider error handling"}]}}]}}}}}`
 
-	g := git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+	g := git.NewWithFactory(dir, func(name string, args ...string) command.Command {
 		if name == "gh" && len(args) > 0 && args[0] == "api" {
-			return graphQLResp, nil
+			return command.StubCommand(graphQLResp, nil)
 		}
 		if name == "gh" && len(args) > 0 && args[0] == "repo" {
-			return "testowner/testrepo", nil
+			return command.StubCommand("testowner/testrepo", nil)
 		}
 		if name == "gh" {
-			return prViewResp, nil
+			return command.StubCommand(prViewResp, nil)
 		}
-		return "", fmt.Errorf("unexpected command: %s", name)
+		return command.StubCommand("", fmt.Errorf("unexpected command: %s", name))
 	})
 
 	result, err := g.PRAll()
@@ -1081,7 +1069,7 @@ func TestPRAll_ReviewsWithGraphQLComments(t *testing.T) {
 func TestPRAll_ReviewRequests(t *testing.T) {
 	dir := setupTestRepo(t)
 	jsonResp := `{"number":1,"reviewRequests":[{"__typename":"User","login":"alice"},{"__typename":"Team","name":"Storage Reviewers"}]}`
-	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
+	g := git.NewWithFactory(dir, mockGHFactory(jsonResp, nil))
 
 	result, err := g.PRAll()
 	if err != nil {
@@ -1101,7 +1089,7 @@ func TestPRAll_ReviewRequests(t *testing.T) {
 func TestPRAll_Comments(t *testing.T) {
 	dir := setupTestRepo(t)
 	jsonResp := `{"number":1,"comments":[{"author":{"login":"alice"},"body":"looks good"},{"author":{"login":"bob"},"body":"needs work"}]}`
-	g := git.NewWithRunner(dir, mockGHRunner(jsonResp, nil))
+	g := git.NewWithFactory(dir, mockGHFactory(jsonResp, nil))
 
 	result, err := g.PRAll()
 	if err != nil {
@@ -1123,7 +1111,7 @@ func TestPRAll_Comments(t *testing.T) {
 
 func TestPRAll_ErrorReturnsNil(t *testing.T) {
 	dir := setupTestRepo(t)
-	g := git.NewWithRunner(dir, mockGHRunner("", fmt.Errorf("no pull requests found")))
+	g := git.NewWithFactory(dir, mockGHFactory("", fmt.Errorf("no pull requests found")))
 
 	result, err := g.PRAll()
 	if err != nil {
@@ -1141,16 +1129,20 @@ func TestRepoInfo_WithUpstream(t *testing.T) {
 		{"git", "init", "--initial-branch=main", "--bare"},
 	}
 	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = originDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup origin %v: %s %v", args, out, err)
+		cmd := command.DefaultFactory(args[0], args[1:]...)
+		cmd.SetDir(originDir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup origin %v: %s %v", args, stderr.String(), err)
 		}
 	}
 	cloneDir := t.TempDir()
-	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
-	if out, err := cloneCmd.CombinedOutput(); err != nil {
-		t.Fatalf("clone: %s %v", out, err)
+	cloneCmd := command.DefaultFactory("git", "clone", originDir, cloneDir)
+	var cloneErr bytes.Buffer
+	cloneCmd.SetStderr(&cloneErr)
+	if err := cloneCmd.Run(); err != nil {
+		t.Fatalf("clone: %s %v", cloneErr.String(), err)
 	}
 	runGit(t, cloneDir, "config", "user.email", "test@test.com")
 	runGit(t, cloneDir, "config", "user.name", "Test")
@@ -1379,7 +1371,7 @@ func TestBaseCommits(t *testing.T) {
 func TestPRChecksAll_ActionRequired(t *testing.T) {
 	dir := setupTestRepo(t)
 	checksJSON := `[{"name":"deploy","state":"COMPLETED","bucket":"cancel","link":"https://ci.example.com/4"}]`
-	g := git.NewWithRunner(dir, mockGHRunner(checksJSON, nil))
+	g := git.NewWithFactory(dir, mockGHFactory(checksJSON, nil))
 
 	result, err := g.PRChecksAll()
 	if err != nil {
@@ -1424,23 +1416,16 @@ func TestExtractRWXRunID(t *testing.T) {
 	}
 }
 
-// mockCmdRunner returns a CmdRunner that intercepts commands by name with mock responses.
-func mockCmdRunner(responses map[string]struct {
+// mockCmdFactory returns a Factory that intercepts commands by name with mock responses.
+func mockCmdFactory(responses map[string]struct {
 	output string
 	err    error
-}) git.CmdRunner {
-	return func(dir string, name string, args ...string) (string, error) {
+}) command.Factory {
+	return func(name string, args ...string) command.Command {
 		if resp, ok := responses[name]; ok {
-			return resp.output, resp.err
+			return command.StubCommand(resp.output, resp.err)
 		}
-		// Fall back to real execution for unmatched commands
-		cmd := exec.Command(name, args...)
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(out)), nil
+		return command.DefaultFactory(name, args...)
 	}
 }
 
@@ -1450,7 +1435,7 @@ func TestRWXResults(t *testing.T) {
 	t.Run("parses task ID with has-artifacts suffix", func(t *testing.T) {
 		dir := setupTestRepo(t)
 		rwxWithArtifacts := "Run result status: failed\n\n# Failed task:\n\n- ci.test-go (task-id: 0b4cbfc6edc27d1c94ef44e2f916c639) (has artifacts)\n"
-		g := git.NewWithRunner(dir, mockCmdRunner(map[string]struct {
+		g := git.NewWithFactory(dir, mockCmdFactory(map[string]struct {
 			output string
 			err    error
 		}{
@@ -1474,7 +1459,7 @@ func TestRWXResults(t *testing.T) {
 
 	t.Run("parses failed tasks from output", func(t *testing.T) {
 		dir := setupTestRepo(t)
-		g := git.NewWithRunner(dir, mockCmdRunner(map[string]struct {
+		g := git.NewWithFactory(dir, mockCmdFactory(map[string]struct {
 			output string
 			err    error
 		}{
@@ -1506,10 +1491,10 @@ func TestRWXResults(t *testing.T) {
 		dir := setupTestRepo(t)
 		var capturedName string
 		var capturedArgs []string
-		g := git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+		g := git.NewWithFactory(dir, func(name string, args ...string) command.Command {
 			capturedName = name
 			capturedArgs = args
-			return rwxOutput, fmt.Errorf("exit status 1")
+			return command.StubCommand(rwxOutput, fmt.Errorf("exit status 1"))
 		})
 
 		_, _ = g.RWXResults("testrun123")
@@ -1531,7 +1516,7 @@ func TestRWXResults(t *testing.T) {
 		dir := setupTestRepo(t)
 
 		// Simulate what defaultCmdRunner SHOULD do: return stdout + error
-		g := git.NewWithRunner(dir, mockCmdRunner(map[string]struct {
+		g := git.NewWithFactory(dir, mockCmdFactory(map[string]struct {
 			output string
 			err    error
 		}{
@@ -1548,23 +1533,29 @@ func TestRWXResults(t *testing.T) {
 	})
 }
 
-func TestDefaultCmdRunner_ReturnsStdoutOnError(t *testing.T) {
-	// defaultCmdRunner must return stdout even when the command exits non-zero.
+func TestRunExternal_ReturnsStdoutOnError(t *testing.T) {
+	// runExternal must return stdout even when the command exits non-zero.
 	// rwx writes parseable output to stdout and exits 1 for failed runs;
-	// if defaultCmdRunner discards stdout on error, RWXResults can't parse
+	// if runExternal discards stdout on error, RWXResults can't parse
 	// the failed tasks and the UI misleadingly shows "No failed tasks."
 	//
-	// git.New() uses defaultCmdRunner, and it only panics for "gh"/"rwx",
-	// so we can test its behavior with "bash -c".
+	// We test this indirectly via RWXResults with a factory that returns
+	// both stdout and an error, mimicking how rwx exits 1 with output.
 	dir := setupTestRepo(t)
-	g := git.New(dir)
+	rwxOutput := "Run result status: failed\n\n# Failed task:\n\n- ci.lint-go (task-id: abc123)\n"
+	g := git.NewWithFactory(dir, mockCmdFactory(map[string]struct {
+		output string
+		err    error
+	}{
+		"rwx": {output: rwxOutput, err: fmt.Errorf("exit status 1")},
+	}))
 
-	out, err := g.RunCmd("bash", "-c", "echo hello; exit 1")
-	if err == nil {
-		t.Fatal("expected error from exit 1")
+	result, err := g.RWXResults("testrun123")
+	if err != nil {
+		t.Fatalf("RWXResults should handle exit 1 with stdout, got error: %v", err)
 	}
-	if out != "hello" {
-		t.Errorf("expected stdout 'hello' even on non-zero exit, got %q", out)
+	if len(result.FailedTasks) == 0 {
+		t.Fatal("expected failed tasks parsed from stdout, got none")
 	}
 }
 
@@ -1585,13 +1576,13 @@ func TestRWXTestResults(t *testing.T) {
 
 		artifactListJSON := `{"Artifacts":[{"Key":"test-data","Kind":"directory"}]}`
 
-		g := git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+		g := git.NewWithFactory(dir, func(name string, args ...string) command.Command {
 			if name != "rwx" {
-				return "", fmt.Errorf("unexpected command: %s", name)
+				return command.StubCommand("", fmt.Errorf("unexpected command: %s", name))
 			}
 			// rwx artifacts list <task-id> --output json
 			if len(args) >= 2 && args[0] == "artifacts" && args[1] == "list" {
-				return artifactListJSON, nil
+				return command.StubCommand(artifactListJSON, nil)
 			}
 			// rwx artifacts download <task-id> <key> --auto-extract --output-dir <dir>
 			if len(args) >= 2 && args[0] == "artifacts" && args[1] == "download" {
@@ -1600,9 +1591,9 @@ func TestRWXTestResults(t *testing.T) {
 				os.MkdirAll(outputDir, 0o755)
 				data, _ := os.ReadFile(filepath.Join(artifactDir, "test-results.json"))
 				os.WriteFile(filepath.Join(outputDir, "test-results.json"), data, 0o644)
-				return "", nil
+				return command.StubCommand("", nil)
 			}
-			return "", fmt.Errorf("unexpected rwx args: %v", args)
+			return command.StubCommand("", fmt.Errorf("unexpected rwx args: %v", args))
 		})
 
 		results, err := g.RWXTestResults("task123")
@@ -1625,11 +1616,11 @@ func TestRWXTestResults(t *testing.T) {
 
 	t.Run("returns empty when no artifacts", func(t *testing.T) {
 		dir := setupTestRepo(t)
-		g := git.NewWithRunner(dir, func(d string, name string, args ...string) (string, error) {
+		g := git.NewWithFactory(dir, func(name string, args ...string) command.Command {
 			if len(args) >= 2 && args[0] == "artifacts" && args[1] == "list" {
-				return `{"Artifacts":[]}`, nil
+				return command.StubCommand(`{"Artifacts":[]}`, nil)
 			}
-			return "", fmt.Errorf("unexpected: %v", args)
+			return command.StubCommand("", fmt.Errorf("unexpected: %v", args))
 		})
 
 		results, err := g.RWXTestResults("task123")

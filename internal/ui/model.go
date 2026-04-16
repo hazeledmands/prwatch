@@ -3,10 +3,10 @@ package ui
 import (
 	"cmp"
 	"fmt"
+	"github.com/hazeledmands/prwatch/internal/command"
 	"io/fs"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -86,6 +86,7 @@ type GitDataSource interface {
 type Model struct {
 	debugLog            *log.Logger
 	git                 GitDataSource
+	cmdFactory          command.Factory
 	mode                Mode
 	focus               Focus
 	width               int
@@ -288,6 +289,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 	return &Model{
 		debugLog:         debugLog,
 		git:              g,
+		cmdFactory:       command.DefaultFactory,
 		dir:              dir,
 		mode:             mode,
 		focus:            SidebarFocus,
@@ -1724,9 +1726,9 @@ func (m *Model) openEditor() tea.Cmd {
 	}
 
 	editor, args := m.buildEditorCmd(file)
-	cmd := exec.Command(editor, args...)
-	cmd.Dir = m.dir
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+	cmd := m.cmdFactory(editor, args...)
+	cmd.SetDir(m.dir)
+	return tea.Exec(cmd, func(err error) tea.Msg {
 		return RefreshMsg{}
 	})
 }
@@ -1785,16 +1787,16 @@ func (m *Model) openPRItemURL() tea.Cmd {
 
 // openInBrowser opens a URL in the default system browser.
 func (m *Model) openInBrowser(url string) tea.Cmd {
-	var cmd *exec.Cmd
+	var cmd command.Command
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = m.cmdFactory("open", url)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = m.cmdFactory("xdg-open", url)
 	default:
 		return nil
 	}
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+	return tea.Exec(cmd, func(err error) tea.Msg {
 		return RefreshMsg{}
 	})
 }
@@ -3174,7 +3176,7 @@ func (m *Model) yankPath() tea.Cmd {
 			text = fmt.Sprintf("%s:%d-%d", file, topLine, bottomLine)
 		}
 	}
-	copyToClipboard(text)
+	m.copyToClipboard(text)
 	m.notification = "copied " + text
 	return tea.Tick(4*time.Second, func(time.Time) tea.Msg {
 		return notificationExpiredMsg{}
@@ -3186,21 +3188,21 @@ func (m *Model) copySelection() {
 	if text == "" {
 		return
 	}
-	copyToClipboard(text)
+	m.copyToClipboard(text)
 }
 
 // copyToClipboard copies the given text to the system clipboard.
-func copyToClipboard(text string) {
-	var cmd *exec.Cmd
+func (m *Model) copyToClipboard(text string) {
+	var cmd command.Command
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("pbcopy")
+		cmd = m.cmdFactory("pbcopy")
 	case "linux":
-		cmd = exec.Command("xclip", "-selection", "clipboard")
+		cmd = m.cmdFactory("xclip", "-selection", "clipboard")
 	default:
 		return
 	}
-	cmd.Stdin = strings.NewReader(text)
+	cmd.SetStdin(strings.NewReader(text))
 	cmd.Run() //nolint: ignore clipboard errors
 }
 

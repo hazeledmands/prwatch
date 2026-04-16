@@ -1,37 +1,32 @@
 package ui
 
 import (
+	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hazeledmands/prwatch/internal/command"
 	"github.com/hazeledmands/prwatch/internal/git"
 )
 
-// noGHRunner is a CmdRunner that stubs out gh/rwx commands so UI tests
+// noGHFactory is a Factory that stubs out gh/rwx commands so UI tests
 // never hit the real GitHub API.
-func noGHRunner(dir string, name string, args ...string) (string, error) {
+func noGHFactory(name string, args ...string) command.Command {
 	if name == "gh" || name == "rwx" {
-		return "", fmt.Errorf("stubbed out in tests")
+		return command.StubCommand("", fmt.Errorf("stubbed out in tests"))
 	}
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
+	return command.DefaultFactory(name, args...)
 }
 
 // testGit returns a dummy git instance so the model operates in git mode.
-// Uses noGHRunner to prevent hitting the GitHub API.
+// Uses noGHFactory to prevent hitting the GitHub API.
 func testGit() *git.Git {
-	return git.NewWithRunner("/tmp", noGHRunner)
+	return git.NewWithFactory("/tmp", noGHFactory)
 }
 
 // mockGit implements GitDataSource for controlled testing.
@@ -772,25 +767,19 @@ func TestRefreshMsg_Git(t *testing.T) {
 
 func TestRefreshMsg_DoesNotCallGHAPI(t *testing.T) {
 	ghCalls := 0
-	runner := func(d string, name string, args ...string) (string, error) {
+	factory := func(name string, args ...string) command.Command {
 		if name == "gh" {
 			ghCalls++
-			return "", fmt.Errorf("no PR")
+			return command.StubCommand("", fmt.Errorf("no PR"))
 		}
-		cmd := exec.Command(name, args...)
-		cmd.Dir = d
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(out)), nil
+		return command.DefaultFactory(name, args...)
 	}
 
 	dir := t.TempDir()
-	exec.Command("git", "-C", dir, "init").Run()
-	exec.Command("git", "-C", dir, "commit", "--allow-empty", "-m", "init").Run()
+	command.DefaultFactory("git", "-C", dir, "init").Run()
+	command.DefaultFactory("git", "-C", dir, "commit", "--allow-empty", "-m", "init").Run()
 
-	g := git.NewWithRunner(dir, runner)
+	g := git.NewWithFactory(dir, factory)
 	m := NewModel(dir, g)
 
 	// Initial load uses gh — reset counter
@@ -1072,21 +1061,23 @@ func TestLoadGitData_RealRepo(t *testing.T) {
 		{[]string{"git", "config", "user.name", "Test"}},
 	}
 	for _, c := range cmds {
-		cmd := exec.Command(c.args[0], c.args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup %v: %s %v", c.args, out, err)
+		cmd := command.DefaultFactory(c.args[0], c.args[1:]...)
+		cmd.SetDir(dir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup %v: %s %v", c.args, stderr.String(), err)
 		}
 	}
 	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# hello\n"), 0644)
-	exec.Command("git", "-C", dir, "add", ".").Run()
-	exec.Command("git", "-C", dir, "commit", "-m", "initial").Run()
-	exec.Command("git", "-C", dir, "checkout", "-b", "feature").Run()
+	command.DefaultFactory("git", "-C", dir, "add", ".").Run()
+	command.DefaultFactory("git", "-C", dir, "commit", "-m", "initial").Run()
+	command.DefaultFactory("git", "-C", dir, "checkout", "-b", "feature").Run()
 	os.WriteFile(filepath.Join(dir, "feature.go"), []byte("package f\n"), 0644)
-	exec.Command("git", "-C", dir, "add", ".").Run()
-	exec.Command("git", "-C", dir, "commit", "-m", "add feature").Run()
+	command.DefaultFactory("git", "-C", dir, "add", ".").Run()
+	command.DefaultFactory("git", "-C", dir, "commit", "-m", "add feature").Run()
 
-	g := git.NewWithRunner(dir, noGHRunner)
+	g := git.NewWithFactory(dir, noGHFactory)
 	m := NewModel(dir, g)
 
 	cmd := m.Init()
@@ -1116,21 +1107,23 @@ func TestUpdateMainContent_FileViewWithGit(t *testing.T) {
 		{[]string{"git", "config", "user.name", "Test"}},
 	}
 	for _, c := range cmds {
-		cmd := exec.Command(c.args[0], c.args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup %v: %s %v", c.args, out, err)
+		cmd := command.DefaultFactory(c.args[0], c.args[1:]...)
+		cmd.SetDir(dir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup %v: %s %v", c.args, stderr.String(), err)
 		}
 	}
 	os.WriteFile(filepath.Join(dir, "file.go"), []byte("package main\n"), 0644)
-	exec.Command("git", "-C", dir, "add", ".").Run()
-	exec.Command("git", "-C", dir, "commit", "-m", "initial").Run()
-	exec.Command("git", "-C", dir, "checkout", "-b", "feature").Run()
+	command.DefaultFactory("git", "-C", dir, "add", ".").Run()
+	command.DefaultFactory("git", "-C", dir, "commit", "-m", "initial").Run()
+	command.DefaultFactory("git", "-C", dir, "checkout", "-b", "feature").Run()
 	os.WriteFile(filepath.Join(dir, "new.go"), []byte("package new\n"), 0644)
-	exec.Command("git", "-C", dir, "add", ".").Run()
-	exec.Command("git", "-C", dir, "commit", "-m", "add new").Run()
+	command.DefaultFactory("git", "-C", dir, "add", ".").Run()
+	command.DefaultFactory("git", "-C", dir, "commit", "-m", "add new").Run()
 
-	g := git.NewWithRunner(dir, noGHRunner)
+	g := git.NewWithFactory(dir, noGHFactory)
 	m := NewModel(dir, g)
 	m.width = 80
 	m.height = 24
@@ -1930,21 +1923,23 @@ func TestUpdateMainContent_FileDiff_UncommittedFile(t *testing.T) {
 		{[]string{"git", "config", "user.name", "Test"}},
 	}
 	for _, c := range cmds {
-		cmd := exec.Command(c.args[0], c.args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup %v: %s %v", c.args, out, err)
+		cmd := command.DefaultFactory(c.args[0], c.args[1:]...)
+		cmd.SetDir(dir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup %v: %s %v", c.args, stderr.String(), err)
 		}
 	}
 	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# hello\n"), 0644)
-	exec.Command("git", "-C", dir, "add", ".").Run()
-	exec.Command("git", "-C", dir, "commit", "-m", "initial").Run()
-	exec.Command("git", "-C", dir, "checkout", "-b", "feature").Run()
+	command.DefaultFactory("git", "-C", dir, "add", ".").Run()
+	command.DefaultFactory("git", "-C", dir, "commit", "-m", "initial").Run()
+	command.DefaultFactory("git", "-C", dir, "checkout", "-b", "feature").Run()
 
 	// Create an uncommitted file
 	os.WriteFile(filepath.Join(dir, "wip.go"), []byte("package wip\n"), 0644)
 
-	g := git.NewWithRunner(dir, noGHRunner)
+	g := git.NewWithFactory(dir, noGHFactory)
 	m := NewModel(dir, g)
 	m.width = 80
 	m.height = 24
@@ -2189,14 +2184,16 @@ func TestLoadGitData_EmptyRepo(t *testing.T) {
 		{[]string{"git", "config", "user.name", "Test"}},
 	}
 	for _, c := range cmds {
-		cmd := exec.Command(c.args[0], c.args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("setup %v: %s %v", c.args, out, err)
+		cmd := command.DefaultFactory(c.args[0], c.args[1:]...)
+		cmd.SetDir(dir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup %v: %s %v", c.args, stderr.String(), err)
 		}
 	}
 
-	g := git.NewWithRunner(dir, noGHRunner)
+	g := git.NewWithFactory(dir, noGHFactory)
 	m := NewModel(dir, g)
 	msg := m.loadGitData()
 	dataMsg := msg.(gitDataMsg)
@@ -2209,7 +2206,7 @@ func TestLoadGitData_EmptyRepo(t *testing.T) {
 func TestLoadGitData_Error(t *testing.T) {
 	// Use a non-git directory as the git dir — RepoInfo will fail
 	dir := t.TempDir()
-	g := git.NewWithRunner(dir, noGHRunner)
+	g := git.NewWithFactory(dir, noGHFactory)
 	m := NewModel(dir, g)
 
 	msg := m.loadGitData()

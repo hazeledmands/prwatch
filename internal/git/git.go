@@ -5,49 +5,39 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"testing"
 	"time"
-)
 
-// CmdRunner executes an external command and returns its stdout.
-// The default implementation uses exec.Command.
-type CmdRunner func(dir string, name string, args ...string) (string, error)
+	"github.com/hazeledmands/prwatch/internal/command"
+)
 
 // Git wraps git CLI operations for a specific working directory.
 type Git struct {
 	dir          string
-	runCmd       CmdRunner // for running non-git commands (e.g. gh)
-	cachedGHBase string    // cached result from gh pr view --baseRefName
-	hasGHBase    bool      // true once we've queried gh for the base ref
+	cmdFactory   command.Factory
+	cachedGHBase string // cached result from gh pr view --baseRefName
+	hasGHBase    bool   // true once we've queried gh for the base ref
 }
 
 func New(dir string) *Git {
-	return &Git{dir: dir, runCmd: defaultCmdRunner}
+	return &Git{dir: dir, cmdFactory: command.DefaultFactory}
 }
 
-// NewWithRunner creates a Git instance with a custom command runner for testing.
-func NewWithRunner(dir string, runner CmdRunner) *Git {
-	return &Git{dir: dir, runCmd: runner}
+// NewWithFactory creates a Git instance with a custom command factory for testing.
+func NewWithFactory(dir string, factory command.Factory) *Git {
+	return &Git{dir: dir, cmdFactory: factory}
 }
 
-// RunCmd exposes the command runner for testing.
-func (g *Git) RunCmd(name string, args ...string) (string, error) {
-	return g.runCmd(g.dir, name, args...)
-}
-
-func defaultCmdRunner(dir string, name string, args ...string) (string, error) {
-	if testing.Testing() && (name == "gh" || name == "rwx") {
-		panic(fmt.Sprintf("test called real %s command (use NewWithRunner to stub): %s %s", name, name, strings.Join(args, " ")))
-	}
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
+// runExternal runs an arbitrary external command and returns stdout, using the
+// same capture pattern as run(). Used for gh, rwx, etc.
+func (g *Git) runExternal(name string, args ...string) (string, error) {
+	cmd := g.cmdFactory(name, args...)
+	cmd.SetDir(g.dir)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.SetStdout(&stdout)
+	cmd.SetStderr(&stderr)
 	if err := cmd.Run(); err != nil {
 		errMsg := stderr.String()
 		out := strings.TrimSpace(stdout.String())
@@ -196,11 +186,11 @@ type PRChecksResult struct {
 }
 
 func (g *Git) run(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = g.dir
+	cmd := g.cmdFactory("git", args...)
+	cmd.SetDir(g.dir)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.SetStdout(&stdout)
+	cmd.SetStderr(&stderr)
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("git %s: %s %w", strings.Join(args, " "), stderr.String(), err)
 	}
@@ -319,7 +309,7 @@ func (g *Git) ghPRBase() (string, error) {
 	if g.hasGHBase {
 		return g.cachedGHBase, nil
 	}
-	base, err := g.runCmd(g.dir, "gh", "pr", "view", "--json", "baseRefName", "-q", ".baseRefName")
+	base, err := g.runExternal("gh", "pr", "view", "--json", "baseRefName", "-q", ".baseRefName")
 	if err != nil {
 		// Cache empty result so we don't keep calling gh when there's no PR.
 		// The cache gets refreshed when PRAll succeeds.
@@ -482,10 +472,10 @@ func (g *Git) FileDiffUncommitted(file string) (string, error) {
 	}
 	// For untracked files, diff against /dev/null.
 	// git diff --no-index exits 1 when differences exist, so we capture output manually.
-	cmd := exec.Command("git", "diff", "--no-index", "/dev/null", file)
-	cmd.Dir = g.dir
+	cmd := g.cmdFactory("git", "diff", "--no-index", "/dev/null", file)
+	cmd.SetDir(g.dir)
 	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	cmd.SetStdout(&stdout)
 	cmd.Run() // ignore exit code — 1 means "differences found"
 	out := stdout.String()
 	if out != "" {
@@ -647,7 +637,7 @@ func (g *Git) AllFiles(includeIgnored bool) ([]string, error) {
 // Returns zero-value PRAllResult if no PR exists.
 // Returns an error if the gh command fails for reasons other than "no PR" (e.g. rate limiting, auth issues).
 func (g *Git) PRAll() (PRAllResult, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "view", "--json",
+	out, err := g.runExternal("gh", "pr", "view", "--json",
 		"number,title,url,state,baseRefName,isDraft,reviewDecision,body,labels,assignees,milestone,mergedBy,reviews,reviewRequests,comments,createdAt,updatedAt,mergedAt,closedAt")
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
@@ -780,7 +770,7 @@ func (g *Git) fetchDeployments(prNumber int) ([]PRDeployment, error) {
 	}`, prNumber)
 
 	// Resolve owner/repo via gh repo view
-	nwoOut, err := g.runCmd(g.dir, "gh", "repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name")
+	nwoOut, err := g.runExternal("gh", "repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name")
 	if err != nil {
 		return nil, err
 	}
@@ -794,7 +784,7 @@ func (g *Git) fetchDeployments(prNumber int) ([]PRDeployment, error) {
 	query = strings.ReplaceAll(query, "{owner}", owner)
 	query = strings.ReplaceAll(query, "{repo}", repo)
 
-	out, err := g.runCmd(g.dir, "gh", "api", "graphql", "-f", "query="+query)
+	out, err := g.runExternal("gh", "api", "graphql", "-f", "query="+query)
 	if err != nil {
 		return nil, err
 	}
@@ -849,7 +839,7 @@ func (g *Git) fetchDeployments(prNumber int) ([]PRDeployment, error) {
 // fetchReviewsGraphQL fetches reviews with their inline comments via the GitHub GraphQL API.
 func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
 	// Resolve owner/repo via gh so we don't have to parse git remotes ourselves.
-	nwoOut, err := g.runCmd(g.dir, "gh", "repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name")
+	nwoOut, err := g.runExternal("gh", "repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name")
 	if err != nil {
 		return nil, err
 	}
@@ -882,7 +872,7 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
   }
 }`, owner, repo, prNumber)
 
-	out, err := g.runCmd(g.dir, "gh", "api", "graphql", "-f", "query="+query)
+	out, err := g.runExternal("gh", "api", "graphql", "-f", "query="+query)
 	if err != nil {
 		return nil, err
 	}
@@ -941,7 +931,7 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
 // PRChecksAll fetches CI checks in a single gh pr checks call, returning
 // both the individual checks and an aggregated status summary.
 func (g *Git) PRChecksAll() (PRChecksResult, error) {
-	out, err := g.runCmd(g.dir, "gh", "pr", "checks", "--json", "name,state,bucket,link,completedAt,startedAt")
+	out, err := g.runExternal("gh", "pr", "checks", "--json", "name,state,bucket,link,completedAt,startedAt")
 	if err != nil {
 		return PRChecksResult{}, nil
 	}
@@ -1018,7 +1008,7 @@ func ExtractRWXRunID(url string) string {
 
 // RWXResults fetches the result of an RWX run using the rwx CLI.
 func (g *Git) RWXResults(runID string) (*RWXResult, error) {
-	out, err := g.runCmd(g.dir, "rwx", "runs", runID, "--output", "text")
+	out, err := g.runExternal("rwx", "runs", runID, "--output", "text")
 	if err != nil {
 		// rwx results exits 1 on failure, but still outputs useful data
 		if out == "" {
@@ -1059,7 +1049,7 @@ func (g *Git) RWXTaskLog(taskID string) (string, error) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	_, err = g.runCmd(g.dir, "rwx", "logs", taskID, "--output-dir", tmpDir)
+	_, err = g.runExternal("rwx", "logs", taskID, "--output-dir", tmpDir)
 	if err != nil {
 		return "", err
 	}
@@ -1088,7 +1078,7 @@ func (g *Git) RWXTaskLog(taskID string) (string, error) {
 // RWXTestResults downloads test-results artifacts for a task and returns the failed tests.
 func (g *Git) RWXTestResults(taskID string) ([]RWXFailedTest, error) {
 	// List artifacts to find test-results
-	listOut, err := g.runCmd(g.dir, "rwx", "artifacts", "list", taskID, "--output", "json")
+	listOut, err := g.runExternal("rwx", "artifacts", "list", taskID, "--output", "json")
 	if err != nil {
 		return nil, fmt.Errorf("listing artifacts: %w", err)
 	}
@@ -1113,7 +1103,7 @@ func (g *Git) RWXTestResults(taskID string) ([]RWXFailedTest, error) {
 	var allFailed []RWXFailedTest
 	for _, artifact := range artifactList.Artifacts {
 		artDir := filepath.Join(tmpDir, artifact.Key)
-		_, err := g.runCmd(g.dir, "rwx", "artifacts", "download", taskID, artifact.Key,
+		_, err := g.runExternal("rwx", "artifacts", "download", taskID, artifact.Key,
 			"--auto-extract", "--output-dir", artDir)
 		if err != nil {
 			continue
