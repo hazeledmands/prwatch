@@ -73,6 +73,7 @@ func standardMock() *mockGit {
 		changedFiles: git.ChangedFilesResult{
 			Committed:   []string{"auth.go", "config.go"},
 			Uncommitted: []string{"README.md"},
+			Added:       []string{"README.md"},
 		},
 		commits: []git.Commit{
 			{SHA: "abc1234", Subject: "Add auth middleware"},

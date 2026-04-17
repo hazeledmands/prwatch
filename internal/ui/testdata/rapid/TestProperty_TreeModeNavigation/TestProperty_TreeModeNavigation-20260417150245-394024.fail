@@ -1,0 +1,252 @@
+# 2026/04/17 15:02:45.495185 [TestProperty_TreeModeNavigation] [rapid] draw width: 62
+# 2026/04/17 15:02:45.495198 [TestProperty_TreeModeNavigation] [rapid] draw height: 31
+# 2026/04/17 15:02:45.495205 [TestProperty_TreeModeNavigation] [rapid] draw mode: 0
+# 2026/04/17 15:02:45.495217 [TestProperty_TreeModeNavigation] [rapid] draw nCommitted: 9
+# 2026/04/17 15:02:45.495222 [TestProperty_TreeModeNavigation] [rapid] draw nUncommitted: 0
+# 2026/04/17 15:02:45.495228 [TestProperty_TreeModeNavigation] [rapid] draw nStaged: 2
+# 2026/04/17 15:02:45.495236 [TestProperty_TreeModeNavigation] [rapid] draw committed_0_nested: true
+# 2026/04/17 15:02:45.495243 [TestProperty_TreeModeNavigation] [rapid] draw committed_0_dir: "lib"
+# 2026/04/17 15:02:45.495252 [TestProperty_TreeModeNavigation] [rapid] draw committed_1_nested: false
+# 2026/04/17 15:02:45.495261 [TestProperty_TreeModeNavigation] [rapid] draw committed_2_nested: true
+# 2026/04/17 15:02:45.495266 [TestProperty_TreeModeNavigation] [rapid] draw committed_2_dir: "internal/git"
+# 2026/04/17 15:02:45.495273 [TestProperty_TreeModeNavigation] [rapid] draw committed_3_nested: true
+# 2026/04/17 15:02:45.495277 [TestProperty_TreeModeNavigation] [rapid] draw committed_3_dir: "internal"
+# 2026/04/17 15:02:45.495284 [TestProperty_TreeModeNavigation] [rapid] draw committed_4_nested: false
+# 2026/04/17 15:02:45.495290 [TestProperty_TreeModeNavigation] [rapid] draw committed_5_nested: true
+# 2026/04/17 15:02:45.495295 [TestProperty_TreeModeNavigation] [rapid] draw committed_5_dir: "pkg"
+# 2026/04/17 15:02:45.495301 [TestProperty_TreeModeNavigation] [rapid] draw committed_6_nested: true
+# 2026/04/17 15:02:45.495307 [TestProperty_TreeModeNavigation] [rapid] draw committed_6_dir: "pkg/utils"
+# 2026/04/17 15:02:45.495314 [TestProperty_TreeModeNavigation] [rapid] draw committed_7_nested: false
+# 2026/04/17 15:02:45.495320 [TestProperty_TreeModeNavigation] [rapid] draw committed_8_nested: false
+# 2026/04/17 15:02:45.495331 [TestProperty_TreeModeNavigation] [rapid] draw treeChangeType_lib/file0.go: 9.445292588737641e-57
+# 2026/04/17 15:02:45.495350 [TestProperty_TreeModeNavigation] [rapid] draw treeChangeType_file1.go: 1
+# 2026/04/17 15:02:45.495357 [TestProperty_TreeModeNavigation] [rapid] draw treeChangeType_internal/git/file2.go: 0.8312815427780151
+# 2026/04/17 15:02:45.495364 [TestProperty_TreeModeNavigation] [rapid] draw treeChangeType_internal/file3.go: 0.6179502067388967
+# 2026/04/17 15:02:45.495369 [TestProperty_TreeModeNavigation] [rapid] draw treeChangeType_file4.go: 2.180279466662159e-22
+# 2026/04/17 15:02:45.495375 [TestProperty_TreeModeNavigation] [rapid] draw treeChangeType_pkg/file5.go: 1.2625042240682331e-219
+# 2026/04/17 15:02:45.495384 [TestProperty_TreeModeNavigation] [rapid] draw treeChangeType_pkg/utils/file6.go: 1.4779288903810084e-12
+# 2026/04/17 15:02:45.495390 [TestProperty_TreeModeNavigation] [rapid] draw treeChangeType_file7.go: 3.873941391149506e-13
+# 2026/04/17 15:02:45.495395 [TestProperty_TreeModeNavigation] [rapid] draw treeChangeType_file8.go: 3.962777554988861e-07
+# 2026/04/17 15:02:45.495402 [TestProperty_TreeModeNavigation] [rapid] draw staged_0_nested: true
+# 2026/04/17 15:02:45.495410 [TestProperty_TreeModeNavigation] [rapid] draw staged_0_dir: "internal"
+# 2026/04/17 15:02:45.495417 [TestProperty_TreeModeNavigation] [rapid] draw staged_1_nested: false
+# 2026/04/17 15:02:45.495424 [TestProperty_TreeModeNavigation] [rapid] draw treeAddStaged_internal/file0.go: 0.058073703455988834
+# 2026/04/17 15:02:45.495429 [TestProperty_TreeModeNavigation] [rapid] draw treeAddStaged_file1.go: 1.109286966896974e-08
+# 2026/04/17 15:02:45.495435 [TestProperty_TreeModeNavigation] [rapid] draw nOtherFiles: 7
+# 2026/04/17 15:02:45.495440 [TestProperty_TreeModeNavigation] [rapid] draw other_0_nested: true
+# 2026/04/17 15:02:45.495444 [TestProperty_TreeModeNavigation] [rapid] draw other_0_dir: "api"
+# 2026/04/17 15:02:45.495450 [TestProperty_TreeModeNavigation] [rapid] draw other_1_nested: false
+# 2026/04/17 15:02:45.495482 [TestProperty_TreeModeNavigation] [rapid] draw other_2_nested: true
+# 2026/04/17 15:02:45.495491 [TestProperty_TreeModeNavigation] [rapid] draw other_2_dir: "internal"
+# 2026/04/17 15:02:45.495499 [TestProperty_TreeModeNavigation] [rapid] draw other_3_nested: false
+# 2026/04/17 15:02:45.495508 [TestProperty_TreeModeNavigation] [rapid] draw other_4_nested: true
+# 2026/04/17 15:02:45.495512 [TestProperty_TreeModeNavigation] [rapid] draw other_4_dir: "cmd"
+# 2026/04/17 15:02:45.495520 [TestProperty_TreeModeNavigation] [rapid] draw other_5_nested: true
+# 2026/04/17 15:02:45.495524 [TestProperty_TreeModeNavigation] [rapid] draw other_5_dir: "internal"
+# 2026/04/17 15:02:45.495530 [TestProperty_TreeModeNavigation] [rapid] draw other_6_nested: false
+# 2026/04/17 15:02:45.501189 [TestProperty_TreeModeNavigation] [rapid] draw nSteps: 25
+# 2026/04/17 15:02:45.501209 [TestProperty_TreeModeNavigation] [rapid] draw tree_action0_type: "j"
+# 2026/04/17 15:02:45.513003 [TestProperty_TreeModeNavigation] [rapid] draw tree_action1_type: "left"
+# 2026/04/17 15:02:45.523427 [TestProperty_TreeModeNavigation] [rapid] draw tree_action2_type: "up"
+# 2026/04/17 15:02:45.533612 [TestProperty_TreeModeNavigation] [rapid] draw tree_action3_type: "k"
+# 2026/04/17 15:02:45.543686 [TestProperty_TreeModeNavigation] [rapid] draw tree_action4_type: "up"
+# 2026/04/17 15:02:45.553808 [TestProperty_TreeModeNavigation] [rapid] draw tree_action5_type: "y"
+# 2026/04/17 15:02:49.569633 [TestProperty_TreeModeNavigation] [rapid] draw tree_action6_type: "h"
+# 2026/04/17 15:02:49.585482 [TestProperty_TreeModeNavigation] [rapid] draw tree_action7_type: "k"
+# 2026/04/17 15:02:49.600509 [TestProperty_TreeModeNavigation] [rapid] draw tree_action8_type: "j"
+# 2026/04/17 15:02:49.615895 [TestProperty_TreeModeNavigation] [rapid] draw tree_action9_type: "down"
+# 2026/04/17 15:02:49.629807 [TestProperty_TreeModeNavigation] [rapid] draw tree_action10_type: "click"
+# 2026/04/17 15:02:49.629827 [TestProperty_TreeModeNavigation] [rapid] draw tree_action10_row: 3
+# 2026/04/17 15:02:49.629834 [TestProperty_TreeModeNavigation] [rapid] draw tree_action10_col: 4
+# 2026/04/17 15:02:49.645021 [TestProperty_TreeModeNavigation] [rapid] draw tree_action11_type: "y"
+# 2026/04/17 15:02:49.658712 [TestProperty_TreeModeNavigation] [rapid] draw tree_action12_type: "j"
+# 2026/04/17 15:02:49.671986 [TestProperty_TreeModeNavigation] [rapid] draw tree_action13_type: "enter"
+# 2026/04/17 15:02:49.685667 [TestProperty_TreeModeNavigation] [rapid] draw tree_action14_type: "y"
+# 2026/04/17 15:02:53.701355 [TestProperty_TreeModeNavigation] [rapid] draw tree_action15_type: "click"
+# 2026/04/17 15:02:53.701387 [TestProperty_TreeModeNavigation] [rapid] draw tree_action15_row: 21
+# 2026/04/17 15:02:53.701399 [TestProperty_TreeModeNavigation] [rapid] draw tree_action15_col: 8
+# 2026/04/17 15:02:53.716114 [TestProperty_TreeModeNavigation] step 15 after ticks: main panel content changed
+# 
+v0.4.8#10231623532411409437
+0x5d06c22a068cc
+0x3e1bccf9d306c
+0x2
+0x1bdd7b6b2c0f17
+0x15e131a2420361
+0x10
+0x14c3f1c7208a52
+0x1
+0x1b556a3e38b14e
+0x985f599b51d6a
+0x7
+0xcc6f9f00e24b6
+0x22d1b207c7487
+0x0
+0x969392c916249
+0x61b33c52495a5
+0x2
+0x1
+0x1f42bba9bbd179
+0xffffffffffffffff
+0x0
+0x1
+0x1022af75679e3c
+0x5
+0x1
+0xf376ad681bf6a
+0x0
+0x0
+0x1
+0x3a4b2d1732772
+0x2
+0x1
+0x1d51d5534846fe
+0x6
+0x0
+0x0
+0x1c5dab1dc78f46
+0x96a3d7f5d6a72
+0x135bad0970172c
+0xbb
+0x0
+0xf
+0xda51eaabc8386
+0x1c8c915a05f5a4
+0x1e97fcfb5f9576
+0xe0b90241c47e4
+0x0
+0x0
+0x0
+0x0
+0xb46c898b4af9e
+0x1318fb8b36a336
+0x828ddf45dfbee
+0x1
+0x0
+0x17
+0xa99dbd7b6d9a4
+0xcae66d7206637
+0xd56cbaa2a762
+0x297bbd91a2e84
+0x1
+0x0
+0x21
+0x3c63f831386a5
+0x5e7e35185c7b1
+0x2f4a453a364eb
+0x1040ecb2a2bf02
+0x48
+0x0
+0x3f
+0x794619753cab
+0x15f7e63d2ba836
+0x2cf50bd17f190
+0x191e5d636b768e
+0x2d8
+0x0
+0x17
+0xc85cb99cbd36e
+0x1bc30303e30fb6
+0x65b4d3a33605d
+0x1ee7d0b316c5b2
+0x28
+0x0
+0x4
+0xa7a3500bf2e1e
+0x1f2c9940912b2c
+0xe082f2378c8a1
+0x112b88ae08a62e
+0x2a
+0x0
+0x2d
+0xb42ac228ddc9f
+0x3e64acd1813d4
+0x5956fbce65540
+0xcab716f1fa9dc
+0x16
+0x0
+0xa
+0xa9b322ee979a1
+0x1
+0x7d45d33da09fe
+0x0
+0x0
+0xb10bbb5d1a588
+0x5f18128711f06
+0x798232fbe8dfd
+0x5
+0x0
+0x2b
+0xdbbd62233c165
+0x8a96a4040d840
+0x1b5dda9bd6cbb0
+0x11cb303a5e4370
+0x1b
+0x0
+0x27
+0x7d25e9da95c77
+0x7ee4c9b73c4a8
+0x1dc7bd844d59eb
+0x7
+0x1
+0x115e74476237b0
+0x3
+0x0
+0x1
+0x18170d0263fac3
+0x0
+0x0
+0x1
+0x595c11b61f109
+0x1
+0x1
+0x1cbf161526f89b
+0x0
+0x0
+0xe4d62cb9d6a88
+0x11fbb6dacaf594
+0x14
+0x41679c4d6c4bf
+0x0
+0x15ae4964fbbeeb
+0x6
+0x7d3a4f5413919
+0x2
+0xeb33a6a81ec18
+0x1
+0x50e223ff0fd28
+0x2
+0x1f6451239dce76
+0xffffffffffffffff
+0xa324832ee16e7
+0x4
+0x19669188c12d
+0x1
+0x12c079b4c95017
+0x0
+0x17b6b95edfea3d
+0x3
+0x9c142ce41d755
+0x9
+0x1af457c8c65f47
+0xb2ebd5b75691
+0x0
+0x1996d3a7aaa375
+0x119043a2151c2b
+0x3
+0x1c68673f924f4f
+0xb
+0xb7cf230b9ad7e
+0x0
+0xecb63f7a14599
+0x8
+0x1479c7f164b92d
+0xb
+0xf9a94aa0e5c63
+0x9
+0x7c7ef06769bc8
+0x12bf8d0ec18d43
+0x12
+0xb9d6bb8a85481
+0x1b70f11610a7a5
+0x7

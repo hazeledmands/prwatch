@@ -103,6 +103,7 @@ type Model struct {
 	uncommittedFiles    []string        // unstaged/untracked (new changes)
 	stagedFiles         []string        // staged but uncommitted
 	deletedFiles        []string        // files deleted in base..HEAD
+	addedFiles          []string        // files that are entirely new additions
 	allFiles            []string        // all files in the repo (for file-view mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
 	commits             []gitpkg.Commit
@@ -170,6 +171,7 @@ type gitDataMsg struct {
 	uncommittedFiles []string
 	stagedFiles      []string
 	deletedFiles     []string
+	addedFiles       []string
 	allFiles         []string
 	ignoredFiles     map[string]bool
 	commits          []gitpkg.Commit
@@ -569,6 +571,7 @@ func (m *Model) loadGitData() tea.Msg {
 		uncommittedFiles: files.Uncommitted,
 		stagedFiles:      files.Staged,
 		deletedFiles:     files.Deleted,
+		addedFiles:       files.Added,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		commits:          commits,
@@ -671,6 +674,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		uncommittedFiles: files.Uncommitted,
 		stagedFiles:      files.Staged,
 		deletedFiles:     files.Deleted,
+		addedFiles:       files.Added,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		commits:          commits,
@@ -795,6 +799,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.uncommittedFiles = msg.uncommittedFiles
 		m.stagedFiles = msg.stagedFiles
 		m.deletedFiles = msg.deletedFiles
+		m.addedFiles = msg.addedFiles
 		m.allFiles = msg.allFiles
 		m.ignoredFiles = msg.ignoredFiles
 		m.commits = msg.commits
@@ -1591,7 +1596,13 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if m.treeMode && m.sidebar.SelectedIsDir() {
 			dir := m.sidebar.SelectedItem()
 			m.collapsedDirs[dir] = !m.collapsedDirs[dir]
+			selectedBefore := m.sidebar.SelectedItem()
 			m.updateSidebarItems()
+			// Collapsing may shift which item is at the selected index;
+			// update the main panel if the effective selection changed.
+			if m.sidebar.SelectedItem() != selectedBefore {
+				m.updateMainContent()
+			}
 			return m, nil
 		}
 		m.updateMainContent()
@@ -2067,6 +2078,59 @@ func (m *Model) fileItemKind(file string, defaultKind sidebarItemKind) sidebarIt
 	return defaultKind
 }
 
+// changeBadge returns the right-aligned change-type badge ([-], [+], [±]) for
+// a file appearing in a changed section of the sidebar. Returns empty string
+// if the file is not in any changed section (e.g. All Files entries).
+func (m *Model) changeBadge(file string) string {
+	for _, f := range m.deletedFiles {
+		if f == file {
+			return "[-]"
+		}
+	}
+	for _, f := range m.addedFiles {
+		if f == file {
+			return "[+]"
+		}
+	}
+	for _, f := range m.committedFiles {
+		if f == file {
+			return "[±]"
+		}
+	}
+	for _, f := range m.uncommittedFiles {
+		if f == file {
+			return "[±]"
+		}
+	}
+	for _, f := range m.stagedFiles {
+		if f == file {
+			return "[±]"
+		}
+	}
+	return ""
+}
+
+// applyChangeBadges sets the change-type suffix on leaf file items in the
+// New Changes, Staged, and Committed sections. Directory entries, headers,
+// separators, and items in the All Files section are left untouched.
+func (m *Model) applyChangeBadges(items []sidebarItem) []sidebarItem {
+	inChangedSection := false
+	for i := range items {
+		if items[i].kind == itemHeader {
+			label := items[i].label
+			inChangedSection = strings.HasPrefix(label, "New Changes") ||
+				strings.HasPrefix(label, "Staged") ||
+				strings.HasPrefix(label, "Committed")
+			continue
+		}
+		if !inChangedSection || !items[i].kind.selectable() || items[i].isDir || items[i].filePath == "" {
+			continue
+		}
+		items[i].suffix = m.changeBadge(items[i].filePath)
+	}
+	return items
+}
+
 func (m *Model) isCommittedFile(file string) bool {
 	for _, f := range m.committedFiles {
 		if f == file {
@@ -2189,7 +2253,7 @@ func (m *Model) updateSidebarItems() {
 				}
 			}
 		}
-		m.sidebar.SetItems(items)
+		m.sidebar.SetItems(m.applyChangeBadges(items))
 
 	case FileViewMode:
 		var items []sidebarItem
@@ -2310,7 +2374,7 @@ func (m *Model) updateSidebarItems() {
 				}
 			}
 		}
-		m.sidebar.SetItems(items)
+		m.sidebar.SetItems(m.applyChangeBadges(items))
 	case CommitMode:
 		var items []sidebarItem
 		unpushed := m.repoInfo.AheadCount

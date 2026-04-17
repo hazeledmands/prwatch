@@ -340,6 +340,7 @@ type ChangedFilesResult struct {
 	Uncommitted []string // unstaged or untracked files (new changes)
 	Staged      []string // staged but uncommitted files
 	Deleted     []string // files deleted in base..HEAD (subset of Committed)
+	Added       []string // files that are entirely new additions (untracked, newly added in staged, or pure-add in base..HEAD)
 }
 
 // ChangedFiles returns files changed between base and HEAD, separated by commit status.
@@ -382,13 +383,15 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 			}
 		}
 	}
-	// Also include untracked files
+	// Also include untracked files (these are inherently new — all additions)
+	untrackedSet := make(map[string]bool)
 	out, err = g.run("ls-files", "--others", "--exclude-standard")
 	if err == nil {
 		for _, f := range strings.Split(out, "\n") {
 			f = strings.TrimSpace(f)
 			if f != "" {
 				unstagedSet[f] = true
+				untrackedSet[f] = true
 			}
 		}
 	}
@@ -438,16 +441,48 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 		}
 	}
 
+	// Detect "pure addition" files: committed files added in base..HEAD,
+	// staged files that are newly added to the index, and all untracked files.
+	addedSet := make(map[string]bool)
+	out, err = g.run("diff", "--name-only", "--diff-filter=A", base+"..HEAD")
+	if err == nil {
+		for _, f := range strings.Split(out, "\n") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				addedSet[f] = true
+			}
+		}
+	}
+	out, err = g.run("diff", "--name-only", "--diff-filter=A", "--cached", "HEAD")
+	if err == nil {
+		for _, f := range strings.Split(out, "\n") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				addedSet[f] = true
+			}
+		}
+	}
+	for f := range untrackedSet {
+		addedSet[f] = true
+	}
+
+	var added []string
+	for f := range addedSet {
+		added = append(added, f)
+	}
+
 	sort.Strings(committed)
 	sort.Strings(uncommitted)
 	sort.Strings(staged)
 	sort.Strings(deleted)
+	sort.Strings(added)
 
 	return ChangedFilesResult{
 		Committed:   committed,
 		Uncommitted: uncommitted,
 		Staged:      staged,
 		Deleted:     deleted,
+		Added:       added,
 	}, nil
 }
 

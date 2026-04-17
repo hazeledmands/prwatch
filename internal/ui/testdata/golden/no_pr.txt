@@ -2,11 +2,11 @@
   feature/add-auth → main · 1 uncommitted · 2 commits · 3 changed files · No PR                     
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
 │New Changes (1)               ││1   # My App                                                      │
-│  README.md                   ││2 + Authentication docs                                           │
+│  README.md                [+]││2 + Authentication docs                                           │
 │──────────────────────────────││3                                                                 │
 │Committed (2)                 ││                                                                  │
-│  auth.go                     ││                                                                  │
-│  config.go                   ││                                                                  │
+│  auth.go                  [±]││                                                                  │
+│  config.go                [±]││                                                                  │
 │                              ││                                                                  │
 │                              ││                                                                  │
 │                              ││                                                                  │

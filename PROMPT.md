@@ -129,6 +129,12 @@ the sidebar should be separated into categories:
 
 order within these categories should be alphabetical.
 deleted files should still show up in this view, but they should be red.
+
+change-type indicators: in the new changes, staged, and committed sections, each changed file should display a right-aligned badge indicating the nature of the change:
+  - `[-]` in red for files that are entirely deletions (file was removed or diff is all removals)
+  - `[+]` in green for entirely new files (file was added or diff is all additions)
+  - `[±]` in the default color for files with a mix of additions and deletions
+
 [i] should toggle on/off view of gitignored files in all files mode. it should be on by default. ignored files should show up in a dimmed color.
 
 tree view (enabled by default): files should be grouped under directories, and subsequently indented.

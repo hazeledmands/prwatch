@@ -42,6 +42,19 @@ func genMockGit(t *rapid.T) *mockGit {
 	for i := range committed {
 		committed[i] = fmt.Sprintf("file%d.go", i)
 	}
+	// Randomly mark some committed files as deleted (exercises [-] badge)
+	// and some as entirely-added (exercises [+] badge on committed files).
+	var deleted []string
+	var addedCommitted []string
+	for _, f := range committed {
+		r := rapid.Float64Range(0, 1).Draw(t, "changeType_"+f)
+		switch {
+		case r < 0.15:
+			deleted = append(deleted, f)
+		case r < 0.35:
+			addedCommitted = append(addedCommitted, f)
+		}
+	}
 	uncommitted := make([]string, nUncommitted)
 	for i := range uncommitted {
 		uncommitted[i] = fmt.Sprintf("new%d.go", i)
@@ -49,6 +62,16 @@ func genMockGit(t *rapid.T) *mockGit {
 	staged := make([]string, nStaged)
 	for i := range staged {
 		staged[i] = fmt.Sprintf("staged%d.go", i)
+	}
+	// All uncommitted files in the mock are untracked (new), and some staged
+	// files are newly added — collect them as the Added set so the [+] badge
+	// can appear.
+	added := append([]string{}, uncommitted...)
+	added = append(added, addedCommitted...)
+	for _, f := range staged {
+		if rapid.Float64Range(0, 1).Draw(t, "addStaged_"+f) < 0.4 {
+			added = append(added, f)
+		}
 	}
 	// Generate unchanged files that only appear in the "All Files" section
 	nOther := rapid.IntRange(0, 15).Draw(t, "nOtherFiles")
@@ -106,6 +129,8 @@ func genMockGit(t *rapid.T) *mockGit {
 			Committed:   committed,
 			Uncommitted: uncommitted,
 			Staged:      staged,
+			Deleted:     deleted,
+			Added:       added,
 		},
 		commits:     commits,
 		allCommits:  commits,
@@ -380,11 +405,82 @@ func checkBottomBorder(t *rapid.T, m *Model, context string) {
 	}
 }
 
+// checkChangeBadgeInvariants verifies that files in the New Changes, Staged,
+// and Committed sections of the sidebar carry a change-type badge in their
+// suffix, and that the badge matches the change type:
+//   - Deleted files (from ChangedFilesResult.Deleted) must show [-]
+//   - Uncommitted (untracked/unstaged) files must show [+]
+//   - Other files in changed sections must show either [+] or [±]
+//
+// Only runs in FileViewMode and FileDiffMode; badges don't apply to commit
+// or PR modes.
+func checkChangeBadgeInvariants(t *rapid.T, m *Model, context string) {
+	t.Helper()
+	if m.mode != FileViewMode && m.mode != FileDiffMode {
+		return
+	}
+
+	deletedSet := make(map[string]bool)
+	for _, f := range m.deletedFiles {
+		deletedSet[f] = true
+	}
+	uncommittedSet := make(map[string]bool)
+	for _, f := range m.uncommittedFiles {
+		uncommittedSet[f] = true
+	}
+
+	// Walk items tracking the current section header.
+	section := ""
+	for _, item := range m.sidebar.items {
+		if item.kind == itemHeader {
+			section = item.label
+			continue
+		}
+		if item.kind == itemSeparator {
+			continue
+		}
+		if item.isDir || item.filePath == "" {
+			continue
+		}
+		// Only changed sections carry badges — not "All Files".
+		inChangedSection := strings.HasPrefix(section, "New Changes") ||
+			strings.HasPrefix(section, "Staged") ||
+			strings.HasPrefix(section, "Committed")
+		if !inChangedSection {
+			continue
+		}
+
+		suffix := strings.TrimSpace(item.suffix)
+		if suffix == "" {
+			t.Fatalf("%s: file %q in section %q has no change-type badge", context, item.filePath, section)
+		}
+
+		switch {
+		case deletedSet[item.filePath]:
+			if suffix != "[-]" {
+				t.Fatalf("%s: deleted file %q should have badge [-] but got %q",
+					context, item.filePath, suffix)
+			}
+		case uncommittedSet[item.filePath]:
+			if suffix != "[+]" {
+				t.Fatalf("%s: untracked file %q should have badge [+] but got %q",
+					context, item.filePath, suffix)
+			}
+		default:
+			if suffix != "[+]" && suffix != "[±]" {
+				t.Fatalf("%s: file %q in section %q should have badge [+] or [±] but got %q",
+					context, item.filePath, section, suffix)
+			}
+		}
+	}
+}
+
 func checkAllInvariants(t *rapid.T, m *Model, context string) {
 	t.Helper()
 	checkRenderInvariants(t, m, context)
 	checkSidebarInvariants(t, m, context)
 	checkBottomBorder(t, m, context)
+	checkChangeBadgeInvariants(t, m, context)
 }
 
 // ---------------------------------------------------------------------------
@@ -1518,8 +1614,27 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		nStaged := rapid.IntRange(0, 3).Draw(t, "nStaged")
 
 		committed := genNestedFiles(t, "committed", nCommitted)
+		// Randomly mark some committed files as deleted ([-]) or entirely-added ([+]).
+		var treeDeleted, treeAddedCommitted []string
+		for _, f := range committed {
+			r := rapid.Float64Range(0, 1).Draw(t, "treeChangeType_"+f)
+			switch {
+			case r < 0.15:
+				treeDeleted = append(treeDeleted, f)
+			case r < 0.35:
+				treeAddedCommitted = append(treeAddedCommitted, f)
+			}
+		}
 		uncommitted := genNestedFiles(t, "uncommitted", nUncommitted)
 		staged := genNestedFiles(t, "staged", nStaged)
+		// All uncommitted files are untracked in the mock; some staged are new.
+		treeAdded := append([]string{}, uncommitted...)
+		treeAdded = append(treeAdded, treeAddedCommitted...)
+		for _, f := range staged {
+			if rapid.Float64Range(0, 1).Draw(t, "treeAddStaged_"+f) < 0.4 {
+				treeAdded = append(treeAdded, f)
+			}
+		}
 		nOther := rapid.IntRange(0, 10).Draw(t, "nOtherFiles")
 		otherFiles := genNestedFiles(t, "other", nOther)
 		mockAllFiles := make([]string, 0, len(committed)+len(uncommitted)+len(staged)+len(otherFiles))
@@ -1549,6 +1664,8 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 				Committed:   committed,
 				Uncommitted: uncommitted,
 				Staged:      staged,
+				Deleted:     treeDeleted,
+				Added:       treeAdded,
 			},
 			allFiles:    mockAllFiles,
 			commits:     []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
@@ -1568,6 +1685,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		checkTreeStructure(t, m, sidebarFiles, "after init")
 		checkInitialCollapseState(t, m, "after init")
 		checkRenderInvariants(t, m, "after init")
+		checkChangeBadgeInvariants(t, m, "after init")
 
 		nSteps := rapid.IntRange(5, 40).Draw(t, "nSteps")
 		for step := range nSteps {
@@ -1602,6 +1720,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			checkTreeStructure(t, m, sidebarFiles, context)
 			checkRenderInvariants(t, m, context)
 			checkSidebarInvariants(t, m, context)
+			checkChangeBadgeInvariants(t, m, context)
 
 			// Navigation invariants for specific key actions
 			switch msg := msg.(type) {
