@@ -47,7 +47,8 @@ prwatch/
 ## Completed Features
 
 Core features (all original tasks complete):
-- File-view, file-diff, commit, PR, help modes
+- Files, commits, pr modes (plus help overlay)
+- Switching between modes retains per-mode view state (sidebar selection, scroll positions, focus)
 - Status bar with 3 lines: mode bar, git status, PR/GitHub status
 - Sidebar with tree view, collapse/expand, category separators
 - Main pane with diff coloring, word wrap, gutter, search

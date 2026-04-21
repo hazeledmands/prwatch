@@ -89,26 +89,20 @@ func standardMock() *mockGit {
 	}
 }
 
-func TestSnapshot_FileDiffMode(t *testing.T) {
-	mock := standardMock()
-	out := renderScenario(mock, 100, 30)
-	assertGolden(t, "file_diff_mode", out)
-}
-
-func TestSnapshot_FileViewMode(t *testing.T) {
+func TestSnapshot_FilesMode(t *testing.T) {
 	mock := standardMock()
 	m := NewModel("/tmp/test-repo", mock)
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	out := stripANSI(m.RenderOnce(100, 30))
-	assertGolden(t, "file_view_mode", out)
+	assertGolden(t, "files_mode", out)
 }
 
-func TestSnapshot_CommitMode(t *testing.T) {
+func TestSnapshot_CommitsMode(t *testing.T) {
 	mock := standardMock()
 	m := NewModel("/tmp/test-repo", mock)
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	out := stripANSI(m.RenderOnce(100, 30))
-	assertGolden(t, "commit_mode", out)
+	assertGolden(t, "commits_mode", out)
 }
 
 func TestSnapshot_DetachedHead(t *testing.T) {

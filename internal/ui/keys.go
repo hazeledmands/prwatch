@@ -6,9 +6,8 @@ type keyMap struct {
 	QuitConfirm    key.Binding
 	QuitImmediate  key.Binding
 	ToggleMode     key.Binding
-	FileDiffMode   key.Binding
-	FileViewMode   key.Binding
-	CommitMode     key.Binding
+	FilesMode      key.Binding
+	CommitsMode    key.Binding
 	PRMode         key.Binding
 	FocusLeft      key.Binding
 	FocusRight     key.Binding
@@ -52,17 +51,14 @@ var keys = keyMap{
 	ToggleMode: key.NewBinding(
 		key.WithKeys("m"),
 	),
-	FileViewMode: key.NewBinding(
+	FilesMode: key.NewBinding(
 		key.WithKeys("v", "1"),
 	),
-	FileDiffMode: key.NewBinding(
-		key.WithKeys("d", "2"),
-	),
-	CommitMode: key.NewBinding(
-		key.WithKeys("c", "3"),
+	CommitsMode: key.NewBinding(
+		key.WithKeys("c", "2"),
 	),
 	PRMode: key.NewBinding(
-		key.WithKeys("b", "4"),
+		key.WithKeys("b", "3"),
 	),
 	FocusLeft: key.NewBinding(
 		key.WithKeys("h", "left"),

@@ -49,7 +49,7 @@ func newMainPane() *mainPane {
 	return &mainPane{viewport: vp, wordWrap: true, lineNumbers: true, showRemoved: true}
 }
 
-// SetDiffAnnotations sets diff annotations for file-view mode gutter rendering.
+// SetDiffAnnotations sets diff annotations for files mode gutter rendering.
 func (m *mainPane) SetDiffAnnotations(annotations map[int]diffAnnotation) {
 	m.diffAnnotations = annotations
 	m.refreshViewport()

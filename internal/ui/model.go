@@ -43,10 +43,9 @@ type searchMatch struct {
 type Mode int
 
 const (
-	FileViewMode Mode = iota
-	FileDiffMode
-	CommitMode
-	PRViewMode
+	FilesMode Mode = iota
+	CommitsMode
+	PRMode
 	HelpMode // not a real mode — used for clickable label in mode bar
 )
 
@@ -104,7 +103,7 @@ type Model struct {
 	stagedFiles         []string        // staged but uncommitted
 	deletedFiles        []string        // files deleted in base..HEAD
 	addedFiles          []string        // files that are entirely new additions
-	allFiles            []string        // all files in the repo (for file-view mode)
+	allFiles            []string        // all files in the repo (for files mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
 	commits             []gitpkg.Commit
 	commitCount         int                   // true total commit count (from rev-list --count)
@@ -116,7 +115,7 @@ type Model struct {
 	ciChecks            []gitpkg.CICheck      // CI checks for PR-view mode
 	pendingRWXCheck     *gitpkg.CICheck       // CI check awaiting RWX log fetch
 	rwxLogCache         map[string]string     // cache of RWX logs by check URL
-	lastViewedFile      string                // track the last file shown in file-view for auto-jump
+	lastViewedFile      string                // track the last file shown in files mode for auto-jump
 	sidebar             *sidebar
 	mainPane            *mainPane
 	sidebarPct          int // sidebar width as percentage of total width (10-50)
@@ -135,7 +134,7 @@ type Model struct {
 	collapsedDirs       map[string]bool // tracks collapsed directory paths
 	sidebarHidden       bool            // [f] toggles sidebar visibility
 	wordWrap            bool            // [w] toggles word wrapping in main pane
-	lineNumbers         bool            // [n] toggles line numbers in file-view mode
+	lineNumbers         bool            // [n] toggles line numbers in files mode
 	searching           bool            // search input is active
 	searchConfirmed     bool            // enter pressed, n/p navigation active
 	searchQuery         string
@@ -157,7 +156,22 @@ type Model struct {
 	modeLabels          []modeLabel  // clickable mode label positions from last render
 	line2Labels         []line2Label // clickable positions on git status line
 	line3Labels         []line3Label // clickable positions on PR status line
-	err                 error
+	// modeStates preserves per-mode view state (sidebar selection, scroll
+	// positions) so switching back to a mode restores the last view.
+	// Keys are Mode values that represent real modes (FilesMode, CommitsMode,
+	// PRMode); HelpMode is not stored here.
+	modeStates map[Mode]modeViewState
+	err        error
+}
+
+// modeViewState records the view state for a single mode, so that switching
+// away and back restores what the user was looking at.
+type modeViewState struct {
+	sidebarSelected string // selected sidebar item label (by content, not index)
+	sidebarOffset   int    // sidebar vertical scroll offset
+	mainYOffset     int    // main pane vertical scroll offset
+	mainXOffset     int    // main pane horizontal scroll offset
+	focus           Focus
 }
 
 // Messages
@@ -279,11 +293,6 @@ type rwxLogMsg struct {
 var defaultCmdFactory command.Factory = command.DefaultFactory
 
 func NewModel(dir string, g GitDataSource) *Model {
-	mode := FileViewMode
-	if g == nil {
-		mode = FileViewMode
-	}
-
 	var debugLog *log.Logger
 	if path := os.Getenv("PRWATCH_DEBUG_LOG"); path != "" {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -298,7 +307,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		git:              g,
 		cmdFactory:       defaultCmdFactory,
 		dir:              dir,
-		mode:             mode,
+		mode:             FilesMode,
 		focus:            SidebarFocus,
 		sidebar:          newSidebar(),
 		mainPane:         newMainPane(),
@@ -307,6 +316,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		treeMode:         true,
 		collapsedDirs:    make(map[string]bool),
 		rwxLogCache:      make(map[string]string),
+		modeStates:       make(map[Mode]modeViewState),
 		wordWrap:         true,
 		lineNumbers:      true,
 		prInterval:       prRefreshActive,
@@ -542,7 +552,7 @@ func (m *Model) loadGitData() tea.Msg {
 		baseCommits, _ = m.git.BaseCommits(base, 50)
 	}
 
-	// Fetch all files for file-view mode sidebar
+	// Fetch all files for files mode sidebar
 	allFiles, _ := m.git.AllFiles(m.showIgnored)
 
 	// Compute ignored files set
@@ -810,8 +820,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.baseCommits = msg.baseCommits
 		m.behindCount = msg.behindCount
 		// On first load, default to PR mode if a PR exists and mode hasn't been changed
-		if wasLoading && m.prInfo.Number > 0 && m.mode == FileViewMode {
-			m.mode = PRViewMode
+		if wasLoading && m.prInfo.Number > 0 && m.mode == FilesMode {
+			m.mode = PRMode
 		}
 		// Recalculate layout — status bar height may have changed
 		m.updateLayout()
@@ -863,8 +873,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prDeployments = msg.prDeployments
 		m.sortPRData()
 		// On first PR data arrival, switch to PR mode if user hasn't changed modes
-		if !m.prLoadedOnce && m.prInfo.Number > 0 && m.mode == FileViewMode {
-			m.mode = PRViewMode
+		if !m.prLoadedOnce && m.prInfo.Number > 0 && m.mode == FilesMode {
+			m.mode = PRMode
 		}
 		m.prLoadedOnce = true
 		m.updateLayout()
@@ -1043,57 +1053,42 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.ToggleMode):
 		if m.git == nil {
-			return m, nil // non-git: file-view only
+			return m, nil // non-git: files mode only
 		}
+		// Cycle: files -> commits -> pr -> files.
+		// If there's no active PR, skip the pr step.
+		next := m.mode
 		switch m.mode {
-		case FileViewMode:
-			m.mode = FileDiffMode
-		case FileDiffMode:
-			m.mode = CommitMode
-		case CommitMode:
+		case FilesMode:
+			next = CommitsMode
+		case CommitsMode:
 			if m.prInfo.Number > 0 {
-				m.mode = PRViewMode
+				next = PRMode
 			} else {
-				m.mode = FileViewMode
+				next = FilesMode
 			}
-		case PRViewMode:
-			m.mode = FileViewMode
+		case PRMode:
+			next = FilesMode
 		}
-		m.updateSidebarItems()
-		m.updateMainContent()
+		m.setMode(next)
 		return m, nil
 
-	case key.Matches(msg, keys.FileDiffMode):
+	case key.Matches(msg, keys.FilesMode):
+		m.setMode(FilesMode)
+		return m, nil
+
+	case key.Matches(msg, keys.CommitsMode):
 		if m.git == nil {
 			return m, nil
 		}
-		m.mode = FileDiffMode
-		m.updateSidebarItems()
-		m.updateMainContent()
-		return m, nil
-
-	case key.Matches(msg, keys.FileViewMode):
-		m.mode = FileViewMode
-		m.updateSidebarItems()
-		m.updateMainContent()
-		return m, nil
-
-	case key.Matches(msg, keys.CommitMode):
-		if m.git == nil {
-			return m, nil
-		}
-		m.mode = CommitMode
-		m.updateSidebarItems()
-		m.updateMainContent()
+		m.setMode(CommitsMode)
 		return m, nil
 
 	case key.Matches(msg, keys.PRMode):
 		if m.git == nil || m.prInfo.Number == 0 {
 			return m, nil
 		}
-		m.mode = PRViewMode
-		m.updateSidebarItems()
-		m.updateMainContent()
+		m.setMode(PRMode)
 		return m, nil
 
 	case key.Matches(msg, keys.FocusLeft):
@@ -1162,14 +1157,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.ToggleIgnored):
-		if m.mode == FileViewMode {
+		if m.mode == FilesMode {
 			m.showIgnored = !m.showIgnored
 			return m, m.reloadAllFiles
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.ToggleTree):
-		if m.mode == FileDiffMode || m.mode == FileViewMode {
+		if m.mode == FilesMode {
 			m.treeMode = !m.treeMode
 			m.updateSidebarItems()
 		}
@@ -1211,19 +1206,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.ToggleRemoved):
-		if m.mode == FileViewMode {
+		if m.mode == FilesMode {
 			m.mainPane.ToggleShowRemoved()
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.NextDiff):
-		if m.mode == FileViewMode {
+		if m.mode == FilesMode {
 			m.jumpToNextDiff(1)
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.PrevDiff):
-		if m.mode == FileViewMode {
+		if m.mode == FilesMode {
 			m.jumpToNextDiff(-1)
 		}
 		return m, nil
@@ -1535,12 +1530,12 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 		for _, label := range m.line2Labels {
 			if x >= label.start && x < label.end {
 				switch label.target {
-				case line2CommitMode:
+				case line2CommitsMode:
 					if len(m.commits) > 0 {
-						m.mode = CommitMode
+						m.mode = CommitsMode
 					}
-				case line2FileViewMode:
-					m.mode = FileViewMode
+				case line2FilesMode:
+					m.mode = FilesMode
 				}
 				m.updateSidebarItems()
 				m.updateMainContent()
@@ -1549,7 +1544,7 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 		}
 		// Fallback: anywhere on line 2 goes to commit mode
 		if len(m.commits) > 0 {
-			m.mode = CommitMode
+			m.mode = CommitsMode
 			m.updateSidebarItems()
 			m.updateMainContent()
 		}
@@ -1558,7 +1553,7 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 		if m.prInfo.Number > 0 {
 			for _, label := range m.line3Labels {
 				if x >= label.start && x < label.end {
-					m.mode = PRViewMode
+					m.mode = PRMode
 					m.updateSidebarItems()
 					switch label.target {
 					case line3Description:
@@ -1599,7 +1594,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		itemIdx := contentY - 1 + m.sidebar.offset
 		m.sidebar.SelectIndex(itemIdx)
 		// "Load more" in commit mode triggers pagination
-		if m.mode == CommitMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
+		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
 			return m, m.loadMoreCommits
 		}
 		// If a directory was clicked in tree mode, toggle collapse
@@ -1665,7 +1660,7 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.focus == SidebarFocus {
 		// "Load more" in commit mode triggers pagination
-		if m.mode == CommitMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
+		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
 			return m, m.loadMoreCommits
 		}
 		// Enter behaves like Right in tree mode
@@ -1673,10 +1668,10 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 
 	// Main pane focused
-	if m.mode == FileDiffMode || m.mode == FileViewMode {
+	if m.mode == FilesMode {
 		return m, m.openEditor()
 	}
-	if m.mode == PRViewMode {
+	if m.mode == PRMode {
 		return m, m.openPRItemURL()
 	}
 	return m, nil
@@ -1843,33 +1838,12 @@ func (m *Model) buildEditorCmd(file string) (string, []string) {
 	return editor, args
 }
 
-// currentLineNumber finds the source line at the viewport top.
-// In file-view mode, it's just the scroll offset + 1.
-// In file-diff mode, it parses diff hunks to find the real line number.
+// currentLineNumber finds the source line at the viewport top. Files mode
+// displays raw file content, so the line at the viewport top is just
+// scroll offset + 1. This is only meaningful in files mode — callers in
+// other modes should gate accordingly.
 func (m *Model) currentLineNumber() int {
-	if m.mode == FileViewMode {
-		return m.mainPane.ScrollTop() + 1
-	}
-
-	lines := strings.Split(m.mainPane.content, "\n")
-	scrollTop := m.mainPane.ScrollTop()
-
-	currentLine := 1
-	for i := 0; i <= scrollTop && i < len(lines); i++ {
-		line := lines[i]
-		if strings.HasPrefix(line, "@@") {
-			if n := parseHunkNewStart(line); n > 0 {
-				currentLine = n
-			}
-		} else if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
-			currentLine++
-		} else if !strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "\\") &&
-			!strings.HasPrefix(line, "diff") && !strings.HasPrefix(line, "index") &&
-			!strings.HasPrefix(line, "---") && !strings.HasPrefix(line, "+++") {
-			currentLine++
-		}
-	}
-	return currentLine
+	return m.mainPane.ScrollTop() + 1
 }
 
 func parseHunkNewStart(hunkLine string) int {
@@ -2201,71 +2175,7 @@ func (m *Model) updateSidebarItems() {
 	}()
 
 	switch m.mode {
-	case FileDiffMode:
-		var items []sidebarItem
-		if m.treeMode {
-			// Auto-collapse hidden (dot-prefixed) directories by default
-			allDirs := extractDirs(m.uncommittedFiles)
-			allDirs = append(allDirs, extractDirs(m.stagedFiles)...)
-			allDirs = append(allDirs, extractDirs(m.committedFiles)...)
-			for _, d := range allDirs {
-				if _, exists := m.collapsedDirs[d]; !exists {
-					base := d
-					if i := strings.LastIndex(d, "/"); i >= 0 {
-						base = d[i+1:]
-					}
-					if strings.HasPrefix(base, ".") {
-						m.collapsedDirs[d] = true
-					}
-				}
-			}
-			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
-				items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
-			}
-			if len(m.stagedFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
-				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
-				items = append(items, buildTreeItems(m.stagedFiles, itemNormal, m.collapsedDirs)...)
-			}
-			if len(m.committedFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
-				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
-				items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
-			}
-		} else {
-			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
-				for _, f := range m.uncommittedFiles {
-					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
-				}
-			}
-			if len(m.stagedFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
-				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
-				for _, f := range m.stagedFiles {
-					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
-				}
-			}
-			if len(m.committedFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
-				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
-				for _, f := range m.committedFiles {
-					items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
-				}
-			}
-		}
-		m.sidebar.SetItems(m.applyChangeBadges(items))
-
-	case FileViewMode:
+	case FilesMode:
 		var items []sidebarItem
 		// Compute other files (not in committed, staged, or uncommitted)
 		changedSet := make(map[string]bool)
@@ -2385,7 +2295,7 @@ func (m *Model) updateSidebarItems() {
 			}
 		}
 		m.sidebar.SetItems(m.applyChangeBadges(items))
-	case CommitMode:
+	case CommitsMode:
 		var items []sidebarItem
 		unpushed := m.repoInfo.AheadCount
 		pushedCount := len(m.commits) - unpushed
@@ -2470,7 +2380,7 @@ func (m *Model) updateSidebarItems() {
 
 		m.sidebar.SetItems(items)
 
-	case PRViewMode:
+	case PRMode:
 		var items []sidebarItem
 		// PR description
 		items = append(items, sidebarItem{label: "Description", kind: itemNormal})
@@ -2552,10 +2462,74 @@ func (m *Model) updateSidebarItems() {
 	}
 }
 
+// setMode changes the active mode, saving the current mode's view state
+// (sidebar selection, scroll positions, focus) and restoring the new mode's
+// previously-saved state if any. After swapping state, it refreshes sidebar
+// items and main pane content to reflect the new mode.
+func (m *Model) setMode(next Mode) {
+	if next == m.mode {
+		// No mode change, just refresh.
+		m.updateSidebarItems()
+		m.updateMainContent()
+		return
+	}
+	// Save current mode's view state before switching.
+	m.saveModeState()
+	m.mode = next
+	m.updateSidebarItems()
+	// Restore the saved state for the new mode, if any. restoreModeState
+	// must run after updateSidebarItems so the sidebar contains the items
+	// we're going to match against.
+	m.restoreModeState()
+	m.updateMainContent()
+}
+
+// saveModeState captures the current sidebar/main-pane view positions so
+// setMode can restore them later.
+func (m *Model) saveModeState() {
+	if m.modeStates == nil {
+		m.modeStates = make(map[Mode]modeViewState)
+	}
+	m.modeStates[m.mode] = modeViewState{
+		sidebarSelected: m.sidebar.SelectedItem(),
+		sidebarOffset:   m.sidebar.offset,
+		mainYOffset:     m.mainPane.viewport.YOffset(),
+		mainXOffset:     m.mainPane.xOffset,
+		focus:           m.focus,
+	}
+}
+
+// restoreModeState applies the previously-saved state for the current mode.
+// Safe to call when there is no saved state (no-op in that case).
+func (m *Model) restoreModeState() {
+	if m.modeStates == nil {
+		return
+	}
+	state, ok := m.modeStates[m.mode]
+	if !ok {
+		return
+	}
+	// Restore sidebar selection by matching the item label.
+	if state.sidebarSelected != "" {
+		for i, item := range m.sidebar.items {
+			if item.kind.selectable() && item.label == state.sidebarSelected {
+				m.sidebar.SelectIndex(i)
+				break
+			}
+		}
+	}
+	// Restore scroll offsets (clamped by the respective pane's logic).
+	m.sidebar.offset = state.sidebarOffset
+	m.sidebar.clampOffset()
+	m.mainPane.viewport.SetYOffset(state.mainYOffset)
+	m.mainPane.xOffset = state.mainXOffset
+	m.focus = state.focus
+}
+
 func (m *Model) updateMainContent() {
 	if m.git == nil {
-		// Non-git: file-view only, read from disk
-		if m.mode == FileViewMode {
+		// Non-git: files mode only, read from disk
+		if m.mode == FilesMode {
 			file := m.sidebar.SelectedItem()
 			if file == "" {
 				m.mainPane.SetPlainContent("")
@@ -2582,33 +2556,7 @@ func (m *Model) updateMainContent() {
 	}
 
 	switch m.mode {
-	case FileDiffMode:
-		file := m.sidebar.SelectedItem()
-		if file == "" {
-			m.mainPane.SetContent("")
-			return
-		}
-		if m.sidebar.SelectedIsDir() {
-			return // preserve current main panel content
-		}
-		var diff string
-		var err error
-		if m.isUncommittedFile(file) {
-			diff, err = m.git.FileDiffUncommitted(file)
-		} else {
-			diff, err = m.git.FileDiffCommitted(m.base, file)
-		}
-		if err != nil {
-			m.mainPane.SetContent(fmt.Sprintf("Error: %v", err))
-			return
-		}
-		if isBinaryContent(diff) {
-			m.mainPane.SetPlainContent("[binary content]")
-			return
-		}
-		m.mainPane.SetContent(diff)
-
-	case FileViewMode:
+	case FilesMode:
 		file := m.sidebar.SelectedItem()
 		if file == "" {
 			m.mainPane.SetPlainContent("")
@@ -2657,7 +2605,7 @@ func (m *Model) updateMainContent() {
 			m.jumpToFirstDiff()
 		}
 
-	case CommitMode:
+	case CommitsMode:
 		selected := m.sidebar.SelectedItem()
 		if selected == "" {
 			m.mainPane.SetContent("")
@@ -2692,7 +2640,7 @@ func (m *Model) updateMainContent() {
 		}
 		m.mainPane.SetContent(patch)
 
-	case PRViewMode:
+	case PRMode:
 		selected := m.sidebar.SelectedItem()
 		if selected == "Description" {
 			m.mainPane.SetPlainContent(m.renderPRDescription())

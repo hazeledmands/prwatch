@@ -1,4 +1,4 @@
-  file diff commits pr help · myapp                                                                 
+  files commits pr help · myapp                                                                     
   feature/add-auth → main · 1 uncommitted · 2 commits · 3 changed files                             
   PR #42: Add authentication · 1✓/1✗                                                                
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮

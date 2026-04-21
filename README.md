@@ -24,19 +24,18 @@ The 3-line status bar shows: current mode + directory, branch + git status, and 
 
 ## Modes
 
-Four modes, switchable with `m` or by clicking the mode bar in the status bar:
+Three modes, switchable with `m` or by clicking the mode bar in the status bar. Switching between modes retains the per-mode view state (selection + scroll position).
 
-- **File View** (`v` / `1`) -- sidebar lists all files (uncommitted, committed, and all repo files), main pane shows the full file with line numbers and a diff gutter highlighting added/changed/removed lines.
-- **File Diff** (`d` / `2`) -- sidebar lists changed files, main pane shows the unified diff for the selected file.
-- **Commit** (`c` / `3`) -- sidebar lists commits (uncommitted changes, unpushed, pushed, base branch) with category dividers, main pane shows the patch.
-- **PR View** (`b` / `4`) -- when a PR exists, shows PR description (with markdown rendering), comments, reviews with inline code comments, CI checks (with RWX log support), and deployments. Default mode when a PR is active.
+- **Files** (`v` / `1`) — sidebar lists new/staged/committed files and the rest of the repo, main pane shows the full file with line numbers and a diff gutter highlighting added/changed/removed lines.
+- **Commits** (`c` / `2`) — sidebar lists commits (new/staged/unpushed/pushed/base) with category dividers, main pane shows the patch.
+- **PR** (`b` / `3`) — when a PR exists, shows PR description (with markdown rendering), comments, reviews with inline code comments, CI checks (with RWX log support), and deployments. Default mode when a PR is active.
 
 ## Keys
 
 | Key | Action |
 |-----|--------|
-| `m` | Cycle between modes |
-| `v`/`1` `d`/`2` `c`/`3` `b`/`4` | Jump to a specific mode |
+| `m` | Cycle between modes (files → commits → pr → files) |
+| `v`/`1` `c`/`2` `b`/`3` | Jump to a specific mode |
 | `tab` | Toggle focus between sidebar and main pane |
 | `,` `.` | Focus sidebar / main pane directly |
 | `j`/`k` / up/down | Navigate sidebar or scroll main pane |
@@ -44,16 +43,16 @@ Four modes, switchable with `m` or by clicking the mode bar in the status bar:
 | `space`/`pgdn` | Page down |
 | `shift+space`/`pgup` | Page up |
 | `gg` `G` | Go to top / bottom |
-| `enter` | Sidebar: focus main. Main (file mode): open `$EDITOR` |
+| `enter` | Sidebar: focus main. Main (files mode): open `$EDITOR` |
 | `N`/`P` | Jump to next/previous file (leaf) in sidebar |
 | `/` | Search (incremental, then `n`/`p`/`shift+N` to navigate matches) |
 | `?` | Help (scrollable, searchable) |
 | `w` | Toggle word wrap |
-| `n` | Toggle line numbers (file view) |
-| `i` | Toggle gitignored files (file view) |
-| `D` | Toggle removed lines in diff gutter (file view) |
-| `J`/`K`/`shift+up/down` | Jump to next/previous diff hunk (file view) |
-| `t` | Toggle tree view (file modes) |
+| `n` | Toggle line numbers (files mode) |
+| `i` | Toggle gitignored files (files mode) |
+| `D` | Toggle removed lines in diff gutter (files mode) |
+| `J`/`K`/`shift+up/down` | Jump to next/previous diff hunk (files mode) |
+| `t` | Toggle tree view (files mode) |
 | `r` | Manual refresh |
 | `f` | Toggle sidebar visibility |
 | `+`/`-` | Resize sidebar |
@@ -73,7 +72,7 @@ prwatch watches the working directory and `.git` for changes via fsnotify, refre
 
 ## Non-git directories
 
-When run outside a git repo, prwatch shows file-view mode only with the directory contents.
+When run outside a git repo, prwatch shows files mode only with the directory contents.
 
 ## Non-interactive modes
 

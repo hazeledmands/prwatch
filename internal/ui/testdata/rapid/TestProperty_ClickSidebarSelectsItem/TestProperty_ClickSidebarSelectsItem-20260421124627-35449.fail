@@ -1,0 +1,89 @@
+# 2026/04/21 12:46:27.996395 [TestProperty_ClickSidebarSelectsItem] [rapid] draw width: 60
+# 2026/04/21 12:46:27.996399 [TestProperty_ClickSidebarSelectsItem] [rapid] draw height: 15
+# 2026/04/21 12:46:27.996399 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nCommitted: 0
+# 2026/04/21 12:46:27.996400 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nUncommitted: 0
+# 2026/04/21 12:46:27.996400 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nStaged: 1
+# 2026/04/21 12:46:27.996401 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nCommits: 0
+# 2026/04/21 12:46:27.996402 [TestProperty_ClickSidebarSelectsItem] [rapid] draw addStaged_staged0.go: 1
+# 2026/04/21 12:46:27.996404 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nOtherFiles: 0
+# 2026/04/21 12:46:27.996404 [TestProperty_ClickSidebarSelectsItem] [rapid] draw branch: "main"
+# 2026/04/21 12:46:27.996405 [TestProperty_ClickSidebarSelectsItem] [rapid] draw detached: false
+# 2026/04/21 12:46:27.996406 [TestProperty_ClickSidebarSelectsItem] [rapid] draw prNum: 42
+# 2026/04/21 12:46:27.996407 [TestProperty_ClickSidebarSelectsItem] [rapid] draw prTitle_emoji: 1
+# 2026/04/21 12:46:27.996407 [TestProperty_ClickSidebarSelectsItem] [rapid] draw isDraft: false
+# 2026/04/21 12:46:27.996407 [TestProperty_ClickSidebarSelectsItem] [rapid] draw aheadCount: 0
+# 2026/04/21 12:46:27.996408 [TestProperty_ClickSidebarSelectsItem] [rapid] draw fileDiff_emoji: 1
+# 2026/04/21 12:46:27.996408 [TestProperty_ClickSidebarSelectsItem] [rapid] draw fileContent_emoji: 1
+# 2026/04/21 12:46:27.996409 [TestProperty_ClickSidebarSelectsItem] [rapid] draw commitPatch_emoji: 1
+# 2026/04/21 12:46:27.996420 [TestProperty_ClickSidebarSelectsItem] [rapid] draw col1: 1
+# 2026/04/21 12:46:27.996423 [TestProperty_ClickSidebarSelectsItem] clicked row 5 col 1 (item 1), expected "staged0.go", got "Description"
+# 
+v0.4.8#11046806925295118459
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

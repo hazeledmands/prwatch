@@ -40,8 +40,8 @@ type modeLabel struct {
 type line2Target int
 
 const (
-	line2CommitMode line2Target = iota
-	line2FileViewMode
+	line2CommitsMode line2Target = iota
+	line2FilesMode
 )
 
 type line2Label struct {
@@ -167,10 +167,9 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 		mode Mode
 		name string
 	}{
-		{FileViewMode, "file"},
-		{FileDiffMode, "diff"},
-		{CommitMode, "commits"},
-		{PRViewMode, "pr"},
+		{FilesMode, "files"},
+		{CommitsMode, "commits"},
+		{PRMode, "pr"},
 		{HelpMode, "help"},
 	}
 
@@ -182,7 +181,7 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 
 	for _, m := range modes {
 		// Skip pr mode if no PR
-		if m.mode == PRViewMode && data.pr.Number == 0 {
+		if m.mode == PRMode && data.pr.Number == 0 {
 			continue
 		}
 
@@ -269,25 +268,25 @@ func renderLine2(width int, data statusBarData) (string, []line2Label) {
 	var parts []part
 	var labels []line2Label
 
-	parts = append(parts, part{" " + branchDisplay, line2CommitMode})
+	parts = append(parts, part{" " + branchDisplay, line2CommitsMode})
 
 	if data.uncommitCount > 0 {
-		parts = append(parts, part{fmt.Sprintf("%d uncommitted", data.uncommitCount), line2FileViewMode})
+		parts = append(parts, part{fmt.Sprintf("%d uncommitted", data.uncommitCount), line2FilesMode})
 	}
 	if info.AheadCount > 0 {
-		parts = append(parts, part{fmt.Sprintf("%d unpushed", info.AheadCount), line2CommitMode})
+		parts = append(parts, part{fmt.Sprintf("%d unpushed", info.AheadCount), line2CommitsMode})
 	}
 	if data.commitCount > 0 {
-		parts = append(parts, part{fmt.Sprintf("%d commits", data.commitCount), line2CommitMode})
+		parts = append(parts, part{fmt.Sprintf("%d commits", data.commitCount), line2CommitsMode})
 	}
 	if data.changedFileCount > 0 {
-		parts = append(parts, part{fmt.Sprintf("%d changed files", data.changedFileCount), line2FileViewMode})
+		parts = append(parts, part{fmt.Sprintf("%d changed files", data.changedFileCount), line2FilesMode})
 	}
 	if data.behindCount > 0 {
-		parts = append(parts, part{fmt.Sprintf("%d behind", data.behindCount), line2CommitMode})
+		parts = append(parts, part{fmt.Sprintf("%d behind", data.behindCount), line2CommitsMode})
 	}
 	if data.pr.Number == 0 && data.prError == "" {
-		parts = append(parts, part{"No PR", line2CommitMode})
+		parts = append(parts, part{"No PR", line2CommitsMode})
 	}
 
 	// Build bar and track positions (statusBarPRStyle has Padding(0,1), pos starts at 1)
