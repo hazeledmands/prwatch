@@ -223,7 +223,7 @@ func TestColorDiff(t *testing.T) {
 }
 
 // Regression test: file with 27 lines should be scrollable to the last line.
-// Bug: go.mod has 27 lines but file-view only scrolls to line 25.
+// Bug: go.mod has 27 lines but files mode only scrolls to line 25.
 func TestMainPane_ScrollToEndOfFile(t *testing.T) {
 	mp := newMainPane()
 	mp.SetSize(60, 10) // small viewport to ensure scrolling is needed

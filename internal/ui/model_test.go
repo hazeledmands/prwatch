@@ -311,7 +311,7 @@ func TestStartupLocalDataAppearsBeforePR(t *testing.T) {
 }
 
 func TestStartupSwitchesToPRModeAfterPRDataArrives(t *testing.T) {
-	// When Init() splits loading, the UI starts in file-view mode.
+	// When Init() splits loading, the UI starts in files mode.
 	// Once PR data arrives via prRefreshMsg, it should auto-switch to PR mode.
 	mock := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
@@ -332,8 +332,8 @@ func TestStartupSwitchesToPRModeAfterPRDataArrives(t *testing.T) {
 	localMsg := m.loadLocalGitData()
 	m.Update(localMsg)
 
-	if m.mode != FileViewMode {
-		t.Errorf("expected FileViewMode before PR data, got %v", m.mode)
+	if m.mode != FilesMode {
+		t.Errorf("expected FilesMode before PR data, got %v", m.mode)
 	}
 
 	// Now simulate PR data arriving
@@ -341,8 +341,8 @@ func TestStartupSwitchesToPRModeAfterPRDataArrives(t *testing.T) {
 		prInfo: git.PRInfoResult{Number: 42, Title: "Test PR"},
 	})
 
-	if m.mode != PRViewMode {
-		t.Errorf("expected PRViewMode after PR data arrives, got %v", m.mode)
+	if m.mode != PRMode {
+		t.Errorf("expected PRMode after PR data arrives, got %v", m.mode)
 	}
 	if !m.prLoadedOnce {
 		t.Error("prLoadedOnce should be true after PR data arrives")
@@ -564,51 +564,84 @@ func BenchmarkRenderOnce(b *testing.B) {
 func TestModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 
-	if m.mode != FileViewMode {
-		t.Error("initial mode should be FileViewMode")
+	if m.mode != FilesMode {
+		t.Error("initial mode should be FilesMode")
 	}
 
-	// Press m to cycle: FileView → FileDiff → Commit → FileView
+	// Press m to cycle: files -> commits -> files (no PR in test)
 	result, _ := m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
-	if m.mode != FileDiffMode {
-		t.Error("after m, mode should be FileDiffMode")
+	if m.mode != CommitsMode {
+		t.Errorf("after m, mode should be CommitsMode, got %d", m.mode)
 	}
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
-	if m.mode != CommitMode {
-		t.Error("after second m, mode should be CommitMode")
-	}
-
-	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
-	m = result.(*Model)
-	if m.mode != FileViewMode {
-		t.Error("after third m, mode should be FileViewMode")
+	if m.mode != FilesMode {
+		t.Errorf("after second m, mode should be FilesMode (skips PR when no PR), got %d", m.mode)
 	}
 
 	// Direct mode keys
 	result, _ = m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
 	m = result.(*Model)
-	if m.mode != CommitMode {
-		t.Error("after c, mode should be CommitMode")
+	if m.mode != CommitsMode {
+		t.Error("after c, mode should be CommitsMode")
 	}
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
-	if m.mode != FileViewMode {
-		t.Error("after v, mode should be FileViewMode")
+	if m.mode != FilesMode {
+		t.Error("after v, mode should be FilesMode")
 	}
 
-	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	// [1], [2], [3] map to files/commits/pr respectively. [d] no longer a mode key.
+	result, _ = m.Update(tea.KeyPressMsg{Text: "2", Code: '2'})
 	m = result.(*Model)
-	if m.mode != FileDiffMode {
-		t.Error("after d, mode should be FileDiffMode")
+	if m.mode != CommitsMode {
+		t.Error("after 2, mode should be CommitsMode")
+	}
+
+	result, _ = m.Update(tea.KeyPressMsg{Text: "1", Code: '1'})
+	m = result.(*Model)
+	if m.mode != FilesMode {
+		t.Error("after 1, mode should be FilesMode")
 	}
 }
 
-func TestModeSwitching_RetainsSelectedFile(t *testing.T) {
-	// Spec: "switching between file-diff and file-view should retain the selected file"
+func TestModeSwitching_CyclesThroughPR(t *testing.T) {
+	// With an active PR, the [m] cycle should include pr mode.
+	mg := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		prInfo:      git.PRInfoResult{Number: 42, Title: "test"},
+		base:        "main",
+		fileDiff:    "+new",
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.mode = FilesMode
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
+	m = result.(*Model)
+	if m.mode != CommitsMode {
+		t.Fatalf("after m, mode should be CommitsMode, got %d", m.mode)
+	}
+	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
+	m = result.(*Model)
+	if m.mode != PRMode {
+		t.Fatalf("after second m, mode should be PRMode (PR active), got %d", m.mode)
+	}
+	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
+	m = result.(*Model)
+	if m.mode != FilesMode {
+		t.Fatalf("after third m, mode should cycle back to FilesMode, got %d", m.mode)
+	}
+}
+
+func TestModeSwitching_RetainsPerModeViewState(t *testing.T) {
+	// Spec: "switching between modes should retain the view state from the
+	// last time we were on that mode."
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -616,8 +649,16 @@ func TestModeSwitching_RetainsSelectedFile(t *testing.T) {
 			Committed:   []string{"alpha.go", "beta.go", "gamma.go"},
 			Uncommitted: []string{"wip.go"},
 		},
-		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{
+			{SHA: "abc", Subject: "first"},
+			{SHA: "def", Subject: "second"},
+			{SHA: "ghi", Subject: "third"},
+		},
+		allCommits: []git.Commit{
+			{SHA: "abc", Subject: "first"},
+			{SHA: "def", Subject: "second"},
+			{SHA: "ghi", Subject: "third"},
+		},
 		fileDiff:    "+new",
 		fileContent: "content",
 	}
@@ -627,29 +668,58 @@ func TestModeSwitching_RetainsSelectedFile(t *testing.T) {
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
+	m.mode = FilesMode
+	m.updateSidebarItems()
 
-	// Select "beta.go" (index 5: Uncommitted=0, wip.go=1, separator=2, Committed=3, alpha.go=4, beta.go=5)
-	m.sidebar.SelectIndex(5)
-	selected := m.sidebar.SelectedItem()
-	if selected != "beta.go" {
-		t.Fatalf("expected beta.go selected, got %q", selected)
-	}
-
-	// Switch to file-view mode
-	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
-	m = result.(*Model)
-	if m.mode != FileViewMode {
-		t.Fatal("should be in FileViewMode")
+	// Select "beta.go" in files mode.
+	for i, item := range m.sidebar.items {
+		if item.filePath == "beta.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
 	}
 	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Errorf("after switch to file-view, selected should be beta.go, got %q", m.sidebar.SelectedItem())
+		t.Fatalf("expected beta.go selected in files mode, got %q", m.sidebar.SelectedItem())
 	}
 
-	// Switch back to file-diff mode
-	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	// Switch to commits mode and pick a specific commit.
+	result, _ := m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
 	m = result.(*Model)
+	if m.mode != CommitsMode {
+		t.Fatalf("expected CommitsMode, got %d", m.mode)
+	}
+	// Find "second" in the commit sidebar.
+	commitsSelection := ""
+	for i, item := range m.sidebar.items {
+		if strings.Contains(item.label, "second") {
+			m.sidebar.SelectIndex(i)
+			commitsSelection = item.label
+			break
+		}
+	}
+	if commitsSelection == "" {
+		t.Fatal("could not find 'second' commit in sidebar")
+	}
+
+	// Switch back to files mode — beta.go should still be selected.
+	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+	if m.mode != FilesMode {
+		t.Fatal("should be back in FilesMode")
+	}
 	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Errorf("after switch to file-diff, selected should be beta.go, got %q", m.sidebar.SelectedItem())
+		t.Errorf("files mode should restore beta.go selection, got %q", m.sidebar.SelectedItem())
+	}
+
+	// Switch back to commits — 'second' commit should still be selected.
+	result, _ = m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
+	m = result.(*Model)
+	if m.mode != CommitsMode {
+		t.Fatal("should be back in CommitsMode")
+	}
+	if m.sidebar.SelectedItem() != commitsSelection {
+		t.Errorf("commits mode should restore %q selection, got %q",
+			commitsSelection, m.sidebar.SelectedItem())
 	}
 }
 
@@ -798,8 +868,8 @@ func TestQuitImmediate_QQuitsDirectly(t *testing.T) {
 
 func TestNonGitMode_StartsInFileView(t *testing.T) {
 	m := NewModel("/tmp", nil)
-	if m.mode != FileViewMode {
-		t.Error("non-git model should start in FileViewMode")
+	if m.mode != FilesMode {
+		t.Error("non-git model should start in FilesMode")
 	}
 }
 
@@ -822,21 +892,9 @@ func TestParseHunkNewStart(t *testing.T) {
 	}
 }
 
-func TestCurrentLineNumber_DiffMode(t *testing.T) {
+func TestCurrentLineNumber_FilesMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.mode = FileDiffMode
-	m.mainPane.SetSize(80, 5)
-	m.mainPane.content = "@@ -1,3 +10,3 @@\n context\n+added\n-removed\n context2"
-
-	line := m.currentLineNumber()
-	if line < 10 {
-		t.Errorf("expected line >= 10, got %d", line)
-	}
-}
-
-func TestCurrentLineNumber_FileViewMode(t *testing.T) {
-	m := NewModel("/tmp", testGit())
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	m.mainPane.SetSize(80, 5)
 	m.mainPane.content = "line1\nline2\nline3"
 
@@ -1092,7 +1150,7 @@ func TestUpdateMainContent_NonGit(t *testing.T) {
 	}
 }
 
-func TestUpdateMainContent_FileDiffMode(t *testing.T) {
+func TestUpdateMainContent_FilesMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
 	m.height = 24
@@ -1100,7 +1158,7 @@ func TestUpdateMainContent_FileDiffMode(t *testing.T) {
 	m.updateLayout()
 
 	// With no files, should set empty content
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.updateMainContent()
 }
@@ -1112,7 +1170,7 @@ func TestUpdateMainContent_CommitMode(t *testing.T) {
 	m.base = "HEAD"
 	m.updateLayout()
 
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
 	m.updateSidebarItems()
 	// updateMainContent will try to run git show which will fail in /tmp,
@@ -1124,7 +1182,7 @@ func TestUpdateSidebarItems_FileMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.committedFiles = []string{"b.go", "a.go"}
 	m.uncommittedFiles = []string{"z.go"}
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 
 	m.updateSidebarItems()
 
@@ -1153,7 +1211,7 @@ func TestUpdateSidebarItems_FileMode(t *testing.T) {
 
 func TestUpdateSidebarItems_CommitMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.commits = []git.Commit{
 		{SHA: "abc1234567890", Subject: "first"},
 		{SHA: "def4567890123", Subject: "second"},
@@ -1273,7 +1331,7 @@ func TestPRRefreshMsg_UpdatesSidebarAndMainContent(t *testing.T) {
 	m = result.(*Model)
 
 	// Switch to PR mode
-	m.mode = PRViewMode
+	m.mode = PRMode
 
 	// Send a prRefreshMsg with CI checks
 	msg := prRefreshMsg{
@@ -1560,8 +1618,8 @@ func TestUpdateMainContent_FileViewWithGit(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Switch to file-view mode
-	m.mode = FileViewMode
+	// Switch to files mode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.updateMainContent()
 
@@ -1573,7 +1631,7 @@ func TestUpdateMainContent_FileViewWithGit(t *testing.T) {
 func TestHandleKey_DownInSidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.committedFiles = []string{"a.go", "b.go"}
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
 
@@ -1588,7 +1646,7 @@ func TestHandleKey_DownInSidebar(t *testing.T) {
 func TestHandleKey_UpInSidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.committedFiles = []string{"a.go", "b.go"}
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
 
@@ -1626,7 +1684,7 @@ func TestTabTogglesFocus(t *testing.T) {
 func TestGG_GoToTop_Sidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.committedFiles = []string{"a.go", "b.go", "c.go"}
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
 
@@ -1655,7 +1713,7 @@ func TestGG_GoToTop_Sidebar(t *testing.T) {
 func TestG_GoToBottom_Sidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.committedFiles = []string{"a.go", "b.go", "c.go"}
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
 
@@ -1876,7 +1934,7 @@ func TestMouseClick_Sidebar(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 	m.committedFiles = []string{"a.go", "b.go", "c.go"}
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = MainFocus
 
@@ -1912,7 +1970,7 @@ func TestMouseClick_DirectoryToggle(t *testing.T) {
 	m.loading = false
 	m.treeMode = true
 	m.collapsedDirs = make(map[string]bool)
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	// Need multiple files under one directory to create an expandable dir node
 	// (single-leaf dirs get compacted into a single line)
 	m.committedFiles = []string{"pkg/foo.go", "pkg/bar.go", "main.go"}
@@ -1973,7 +2031,7 @@ func TestMouseClick_StatusBar_Left(t *testing.T) {
 	m.loading = false
 	m.updateLayout()
 	m.focus = SidebarFocus
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 
 	// Render to populate modeLabels
 	m.View()
@@ -1981,7 +2039,7 @@ func TestMouseClick_StatusBar_Left(t *testing.T) {
 	// Find the "commits" label position and click it
 	var commitsX int
 	for _, label := range m.modeLabels {
-		if label.mode == CommitMode {
+		if label.mode == CommitsMode {
 			commitsX = label.start
 			break
 		}
@@ -1991,7 +2049,7 @@ func TestMouseClick_StatusBar_Left(t *testing.T) {
 	if m.focus != SidebarFocus {
 		t.Error("clicking status bar should not change focus")
 	}
-	if m.mode != CommitMode {
+	if m.mode != CommitsMode {
 		t.Errorf("clicking commits label should switch to commit mode, got %d", m.mode)
 	}
 }
@@ -2002,7 +2060,7 @@ func TestMouseClick_StatusBar_Line1ClicksSpecificMode(t *testing.T) {
 	m.height = 24
 	m.loading = false
 	m.updateLayout()
-	m.mode = FileViewMode
+	m.mode = FilesMode
 
 	// Render to populate modeLabels
 	m.View()
@@ -2010,14 +2068,14 @@ func TestMouseClick_StatusBar_Line1ClicksSpecificMode(t *testing.T) {
 	// Find the "diff" label and click it
 	var diffX int
 	for _, label := range m.modeLabels {
-		if label.mode == FileDiffMode {
+		if label.mode == FilesMode {
 			diffX = label.start
 			break
 		}
 	}
 	result, _ := m.Update(tea.MouseClickMsg{X: diffX, Y: 0})
 	m = result.(*Model)
-	if m.mode != FileDiffMode {
+	if m.mode != FilesMode {
 		t.Errorf("clicking diff label should switch to diff mode, got %d", m.mode)
 	}
 }
@@ -2028,15 +2086,15 @@ func TestMouseClick_StatusBar_Line2SwitchesToCommits(t *testing.T) {
 	m.height = 24
 	m.repoInfo = git.RepoInfoResult{Branch: "feature", RepoName: "repo"}
 	m.updateLayout()
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
 	m.updateSidebarItems()
 
 	// Click row 1 (local git status) should switch to commit mode
 	result, _ := m.Update(tea.MouseClickMsg{X: 50, Y: 1})
 	m = result.(*Model)
-	if m.mode != CommitMode {
-		t.Errorf("clicking line 2 should switch to CommitMode, got %d", m.mode)
+	if m.mode != CommitsMode {
+		t.Errorf("clicking line 2 should switch to CommitsMode, got %d", m.mode)
 	}
 }
 
@@ -2045,12 +2103,12 @@ func TestMouseClick_StatusBar_Line2(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 
 	// Click on line 2 (y=1, PR info line) — should not change mode
 	result, _ := m.Update(tea.MouseClickMsg{X: 40, Y: 1})
 	m = result.(*Model)
-	if m.mode != FileDiffMode {
+	if m.mode != FilesMode {
 		t.Error("clicking PR info line should not change mode")
 	}
 }
@@ -2060,12 +2118,12 @@ func TestMouseClick_StatusBar_NonGit(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.mode = FileViewMode
+	m.mode = FilesMode
 
 	// Click on status bar in non-git mode — should not change mode
 	result, _ := m.Update(tea.MouseClickMsg{X: 70, Y: 0})
 	m = result.(*Model)
-	if m.mode != FileViewMode {
+	if m.mode != FilesMode {
 		t.Error("non-git status bar click should not change mode")
 	}
 }
@@ -2076,7 +2134,7 @@ func TestMouseWheel_Sidebar(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 	m.committedFiles = []string{"a.go", "b.go", "c.go"}
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 
 	// Items: [Committed header(0), a.go(1), b.go(2), c.go(3)]
@@ -2124,7 +2182,7 @@ func TestView_MouseModeEnabled(t *testing.T) {
 func TestBuildEditorCmd_WithEDITOR(t *testing.T) {
 	t.Setenv("EDITOR", "nvim")
 	m := NewModel("/tmp", testGit())
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	m.mainPane.SetSize(80, 24)
 	m.mainPane.content = "line1\nline2\nline3"
 
@@ -2136,7 +2194,7 @@ func TestBuildEditorCmd_WithEDITOR(t *testing.T) {
 	if args[len(args)-1] != "test.go" {
 		t.Errorf("last arg = %q, want test.go", args[len(args)-1])
 	}
-	// In file-view mode, line is scroll offset + 1 = 1
+	// In files mode, line is scroll offset + 1 = 1
 	if args[0] != "+1" {
 		t.Errorf("first arg = %q, want +1", args[0])
 	}
@@ -2145,7 +2203,7 @@ func TestBuildEditorCmd_WithEDITOR(t *testing.T) {
 func TestBuildEditorCmd_DefaultEditor(t *testing.T) {
 	t.Setenv("EDITOR", "")
 	m := NewModel("/tmp", testGit())
-	m.mode = FileViewMode
+	m.mode = FilesMode
 
 	editor, _ := m.buildEditorCmd("test.go")
 	if editor != "vi" {
@@ -2155,7 +2213,7 @@ func TestBuildEditorCmd_DefaultEditor(t *testing.T) {
 
 func TestBuildEditorCmd_DiffModeLineNumber(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.mainPane.SetSize(80, 24)
 	m.mainPane.content = "@@ -1,3 +10,3 @@\n context\n+added"
 
@@ -2175,7 +2233,7 @@ func TestBuildEditorCmd_DiffModeLineNumber(t *testing.T) {
 func TestHandleEnter_MainFocus_FileMode_NoFile(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.focus = MainFocus
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	// No files set, sidebar returns empty string
 
 	result, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -2189,7 +2247,7 @@ func TestHandleEnter_MainFocus_FileMode_NoFile(t *testing.T) {
 func TestHandleEnter_MainFocus_CommitMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.focus = MainFocus
-	m.mode = CommitMode
+	m.mode = CommitsMode
 
 	result, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
@@ -2214,7 +2272,7 @@ func TestUpdateMainContent_EmptyBase(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 	m.base = "" // no base set
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateMainContent() // should return early without panic
 }
 
@@ -2225,16 +2283,16 @@ func TestUpdateMainContent_EmptySidebarSelection(t *testing.T) {
 	m.updateLayout()
 	m.base = "HEAD"
 
-	// FileDiffMode empty sidebar
-	m.mode = FileDiffMode
+	// FilesMode empty sidebar
+	m.mode = FilesMode
 	m.updateMainContent()
 
-	// FileViewMode empty sidebar
-	m.mode = FileViewMode
+	// FilesMode empty sidebar
+	m.mode = FilesMode
 	m.updateMainContent()
 
-	// CommitMode empty commits
-	m.mode = CommitMode
+	// CommitsMode empty commits
+	m.mode = CommitsMode
 	m.commits = nil
 	m.updateSidebarItems()
 	m.updateMainContent()
@@ -2246,7 +2304,7 @@ func TestUpdateMainContent_CommitMode_OutOfBounds(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 	m.base = "HEAD"
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.commits = nil // empty commits
 	m.updateSidebarItems()
 	m.updateMainContent() // should set empty content without panic
@@ -2257,7 +2315,7 @@ func TestUpdateMainContent_NonGit_EmptySidebar(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	// No files
 	m.updateMainContent() // should set empty content
 }
@@ -2267,7 +2325,7 @@ func TestUpdateMainContent_NonGit_BadFile(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	m.uncommittedFiles = []string{"nonexistent_file.xyz"}
 	m.updateSidebarItems()
 	m.updateMainContent()
@@ -2279,7 +2337,7 @@ func TestUpdateMainContent_NonGit_BadFile(t *testing.T) {
 
 func TestCurrentLineNumber_DiffWithMultipleHunks(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.mainPane.SetSize(80, 20)
 	m.mainPane.content = "diff --git a/f b/f\nindex abc..def\n--- a/f\n+++ b/f\n@@ -5,3 +5,4 @@\n context\n+added\n-removed\n context"
 	line := m.currentLineNumber()
@@ -2311,7 +2369,7 @@ func TestParseHunkNewStart_NoCommaOrSpace(t *testing.T) {
 
 func TestCurrentLineNumber_VariousDiffPrefixes(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.mainPane.SetSize(80, 2) // small viewport so we can scroll
 	content := "diff --git a/f b/f\nindex abc..def 100644\n--- a/f\n+++ b/f\n@@ -1,5 +1,5 @@\n context\n-old\n+new\n\\ No newline at end of file\n context2"
 	m.mainPane.SetContent(content)
@@ -2326,7 +2384,7 @@ func TestCurrentLineNumber_VariousDiffPrefixes(t *testing.T) {
 
 func TestCurrentLineNumber_EmptyContent(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.mainPane.content = ""
 	line := m.currentLineNumber()
 	if line < 1 {
@@ -2337,7 +2395,7 @@ func TestCurrentLineNumber_EmptyContent(t *testing.T) {
 func TestModeSwitching_RetainsFileSelection(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.committedFiles = []string{"a.go", "b.go"}
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 
 	// Select second file
@@ -2346,29 +2404,27 @@ func TestModeSwitching_RetainsFileSelection(t *testing.T) {
 		t.Fatalf("expected b.go, got %s", m.sidebar.SelectedItem())
 	}
 
-	// Switch to file-view — should retain selection
+	// Sidebar toggle should retain selection
 	result, _ := m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
 	m = result.(*Model)
 	if m.sidebar.SelectedItem() != "b.go" {
-		t.Errorf("file-view should retain selection, got %s", m.sidebar.SelectedItem())
+		t.Errorf("should retain selection, got %s", m.sidebar.SelectedItem())
 	}
 }
 
-func TestModeSwitching_RetainsFileWithAllFiles(t *testing.T) {
-	// When switching from file-diff to file-view, the "All Files" section adds
-	// extra sidebar entries that shift indices. The selected file path must be
-	// preserved, not just the index.
+func TestModeSwitching_FilesCommitsRoundTrip(t *testing.T) {
+	// Switching from files → commits → files should preserve the files
+	// sidebar selection (beta.go), not reset to the first item.
 	mock := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"alpha.go", "beta.go"},
 		},
-		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:    "+new",
+		commits:     []git.Commit{{SHA: "abc", Subject: "one"}, {SHA: "def", Subject: "two"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "one"}, {SHA: "def", Subject: "two"}},
 		fileContent: "content",
-		allFiles:    []string{"alpha.go", "beta.go", "other1.go", "other2.go", "other3.go"},
+		allFiles:    []string{"alpha.go", "beta.go", "other1.go"},
 	}
 	m := NewModel("/tmp", mock)
 	m.width = 80
@@ -2378,30 +2434,33 @@ func TestModeSwitching_RetainsFileWithAllFiles(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Start in file-diff mode, select beta.go
-	m.mode = FileDiffMode
+	// Start in files mode, select beta.go
+	m.mode = FilesMode
 	m.updateSidebarItems()
-	// Items: Committed header, alpha.go, beta.go
-	m.sidebar.SelectIndex(2) // beta.go
+	for i, item := range m.sidebar.items {
+		if item.filePath == "beta.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
 	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Fatalf("expected beta.go selected in diff mode, got %q", m.sidebar.SelectedItem())
+		t.Fatalf("expected beta.go selected in files mode, got %q", m.sidebar.SelectedItem())
 	}
 
-	// Switch to file-view — should still have beta.go selected
-	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	// Switch to commits, then back to files — beta.go should still be selected.
+	result, _ := m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
 	m = result.(*Model)
-	if m.mode != FileViewMode {
-		t.Fatal("should be in FileViewMode")
+	if m.mode != CommitsMode {
+		t.Fatalf("should be in CommitsMode, got %d", m.mode)
+	}
+	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+	if m.mode != FilesMode {
+		t.Fatal("should be back in FilesMode")
 	}
 	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Errorf("after switch to file-view, should retain beta.go, got %q", m.sidebar.SelectedItem())
-	}
-
-	// Switch back to file-diff — should still have beta.go
-	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
-	m = result.(*Model)
-	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Errorf("after switch back to file-diff, should retain beta.go, got %q", m.sidebar.SelectedItem())
+		t.Errorf("files mode should retain beta.go after round trip, got %q",
+			m.sidebar.SelectedItem())
 	}
 }
 
@@ -2440,7 +2499,7 @@ func TestSearch_ExecutesOnContent(t *testing.T) {
 func TestG_SingleG_DoesNotMove(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.committedFiles = []string{"a.go", "b.go", "c.go"}
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
 	m.sidebar.SelectLast()
@@ -2490,8 +2549,8 @@ func TestUpdateMainContent_FileDiff_UncommittedFile(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Should be in file-diff mode with uncommitted file
-	m.mode = FileDiffMode
+	// Should be in files mode with uncommitted file
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.updateMainContent()
 
@@ -2507,7 +2566,7 @@ func TestUpdateMainContent_FileView_WithGitAndError(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 	m.base = "HEAD"
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	m.committedFiles = []string{"nonexistent_file.go"}
 	m.updateSidebarItems()
 	m.updateMainContent()
@@ -2607,32 +2666,12 @@ func TestUpdateMainContent_WithMockGit_CommitPatchError(t *testing.T) {
 	m.height = 24
 	m.base = "abc"
 	m.updateLayout()
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.commits = []git.Commit{{SHA: "def", Subject: "test"}}
 	m.updateSidebarItems()
 	m.updateMainContent()
 	if !strings.Contains(m.mainPane.content, "Error") {
 		t.Error("should show error for patch failure")
-	}
-}
-
-func TestUpdateMainContent_WithMockGit_FileDiffError(t *testing.T) {
-	mg := &mockGit{
-		repoInfo:    git.RepoInfoResult{Branch: "test"},
-		base:        "abc",
-		fileDiffErr: fmt.Errorf("diff error"),
-	}
-	m := NewModel("/tmp", mg)
-	m.width = 80
-	m.height = 24
-	m.base = "abc"
-	m.updateLayout()
-	m.mode = FileDiffMode
-	m.committedFiles = []string{"file.go"}
-	m.updateSidebarItems()
-	m.updateMainContent()
-	if !strings.Contains(m.mainPane.content, "Error") {
-		t.Error("should show error for diff failure")
 	}
 }
 
@@ -2647,32 +2686,12 @@ func TestUpdateMainContent_WithMockGit_FileContentError(t *testing.T) {
 	m.height = 24
 	m.base = "abc"
 	m.updateLayout()
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	m.committedFiles = []string{"file.go"}
 	m.updateSidebarItems()
 	m.updateMainContent()
 	if !strings.Contains(m.mainPane.content, "Error") {
 		t.Error("should show error for content failure")
-	}
-}
-
-func TestUpdateMainContent_WithMockGit_UncommittedDiff(t *testing.T) {
-	mg := &mockGit{
-		repoInfo: git.RepoInfoResult{Branch: "test"},
-		base:     "abc",
-		fileDiff: "+new line\n-old line",
-	}
-	m := NewModel("/tmp", mg)
-	m.width = 80
-	m.height = 24
-	m.base = "abc"
-	m.updateLayout()
-	m.mode = FileDiffMode
-	m.uncommittedFiles = []string{"wip.go"}
-	m.updateSidebarItems()
-	m.updateMainContent()
-	if !strings.Contains(m.mainPane.content, "new line") {
-		t.Error("should show uncommitted diff")
 	}
 }
 
@@ -2687,7 +2706,7 @@ func TestUpdateMainContent_WithMockGit_FileViewSuccess(t *testing.T) {
 	m.height = 24
 	m.base = "abc"
 	m.updateLayout()
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	m.committedFiles = []string{"main.go"}
 	m.updateSidebarItems()
 	m.updateMainContent()
@@ -2707,7 +2726,7 @@ func TestUpdateMainContent_WithMockGit_CommitPatchSuccess(t *testing.T) {
 	m.height = 24
 	m.base = "abc"
 	m.updateLayout()
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
 	m.updateSidebarItems()
 	m.updateMainContent()
@@ -2815,29 +2834,29 @@ func TestNonGitMode_BlocksModeSwitching(t *testing.T) {
 	// Space should not change mode
 	result, _ := m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
-	if m.mode != FileViewMode {
+	if m.mode != FilesMode {
 		t.Error("space should not change mode in non-git")
 	}
 
 	// 'd' should not change mode
 	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
 	m = result.(*Model)
-	if m.mode != FileViewMode {
+	if m.mode != FilesMode {
 		t.Error("d should not change mode in non-git")
 	}
 
 	// 'c' should not change mode
 	result, _ = m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
 	m = result.(*Model)
-	if m.mode != FileViewMode {
+	if m.mode != FilesMode {
 		t.Error("c should not change mode in non-git")
 	}
 
-	// 'f' should stay in file-view (already there)
+	// 'f' should not change mode
 	result, _ = m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
 	m = result.(*Model)
-	if m.mode != FileViewMode {
-		t.Error("f should keep FileViewMode in non-git")
+	if m.mode != FilesMode {
+		t.Error("f should keep FilesMode in non-git")
 	}
 }
 
@@ -3047,7 +3066,7 @@ func TestCommitMode_UnpushedCommitsDimmedWithSeparator(t *testing.T) {
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.updateSidebarItems()
 
 	items := m.sidebar.items
@@ -3098,8 +3117,8 @@ func TestClickModeIndicator_ClicksSpecificMode(t *testing.T) {
 	m.Update(msg)
 
 	// Mode starts as FileView
-	if m.mode != FileViewMode {
-		t.Fatalf("expected FileViewMode, got %d", m.mode)
+	if m.mode != FilesMode {
+		t.Fatalf("expected FilesMode, got %d", m.mode)
 	}
 
 	// Render to populate modeLabels
@@ -3108,26 +3127,26 @@ func TestClickModeIndicator_ClicksSpecificMode(t *testing.T) {
 	// Click on "diff" label
 	var diffX, commitsX int
 	for _, label := range m.modeLabels {
-		if label.mode == FileDiffMode {
+		if label.mode == FilesMode {
 			diffX = label.start
 		}
-		if label.mode == CommitMode {
+		if label.mode == CommitsMode {
 			commitsX = label.start
 		}
 	}
 	result, _ := m.Update(tea.MouseClickMsg{X: diffX, Y: 0, Button: tea.MouseLeft})
 	m = result.(*Model)
 
-	if m.mode != FileDiffMode {
-		t.Errorf("clicking diff label should switch to FileDiffMode, got %d", m.mode)
+	if m.mode != FilesMode {
+		t.Errorf("clicking diff label should switch to FilesMode, got %d", m.mode)
 	}
 
 	// Render again to update labels, then click commits
 	m.View()
 	result, _ = m.Update(tea.MouseClickMsg{X: commitsX, Y: 0, Button: tea.MouseLeft})
 	m = result.(*Model)
-	if m.mode != CommitMode {
-		t.Errorf("clicking commits label should switch to CommitMode, got %d", m.mode)
+	if m.mode != CommitsMode {
+		t.Errorf("clicking commits label should switch to CommitsMode, got %d", m.mode)
 	}
 }
 
@@ -3375,7 +3394,7 @@ func TestSearch_EscClearsSearchState(t *testing.T) {
 	}
 }
 
-func TestFileViewMode_ThreeCategories(t *testing.T) {
+func TestFilesMode_ThreeCategories(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -3395,7 +3414,7 @@ func TestFileViewMode_ThreeCategories(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Switch to file-view mode
+	// Switch to files mode
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
@@ -3434,35 +3453,6 @@ func TestFileViewMode_ThreeCategories(t *testing.T) {
 	}
 	if items[9].filePath != "readme.md" {
 		t.Errorf("item 9: expected readme.md, got filePath=%q", items[9].filePath)
-	}
-}
-
-func TestFileDiffMode_NoAllFilesCategory(t *testing.T) {
-	mg := &mockGit{
-		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
-		base:     "abc",
-		changedFiles: git.ChangedFilesResult{
-			Committed:   []string{"alpha.go"},
-			Uncommitted: []string{"wip.go"},
-		},
-		allFiles:   []string{"alpha.go", "main.go", "wip.go"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:   "+new",
-	}
-	m := NewModel("/tmp", mg)
-	m.width = 80
-	m.height = 24
-	m.mode = FileDiffMode // explicitly set since default changed to FileViewMode
-	m.updateLayout()
-	msg := m.loadGitData()
-	m.Update(msg)
-
-	// In file-diff mode, sidebar should only have changed files (no "all files" category)
-	// Items: New Changes header, wip.go, separator, Committed header, alpha.go
-	items := m.sidebar.items
-	if len(items) != 5 {
-		t.Fatalf("expected 5 sidebar items in diff mode, got %d: %v", len(items), items)
 	}
 }
 
@@ -3560,24 +3550,21 @@ func TestToggleIgnored(t *testing.T) {
 		t.Error("showIgnored should be on by default")
 	}
 
-	// Switch to file-view mode first
-	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
-	m = result.(*Model)
-
-	// Press i to toggle
-	result, _ = m.Update(tea.KeyPressMsg{Text: "i", Code: 'i'})
+	// Files mode is the default. Press i to toggle.
+	result, _ := m.Update(tea.KeyPressMsg{Text: "i", Code: 'i'})
 	m = result.(*Model)
 	if m.showIgnored {
 		t.Error("showIgnored should be off after i")
 	}
 
-	// i should not work in diff mode
-	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	// Switch to commits mode — [i] should not toggle there.
+	result, _ = m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
 	m = result.(*Model)
+	prev := m.showIgnored
 	result, _ = m.Update(tea.KeyPressMsg{Text: "i", Code: 'i'})
 	m = result.(*Model)
-	if m.showIgnored {
-		t.Error("i in diff mode should not toggle showIgnored")
+	if m.showIgnored != prev {
+		t.Error("[i] in commits mode should not toggle showIgnored")
 	}
 }
 
@@ -3695,7 +3682,7 @@ func TestBinaryContentDisplay(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Switch to file-view to see the binary content
+	// Files mode shows binary content as placeholder
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
@@ -3923,7 +3910,7 @@ func TestHelpSearch_BackspaceCancelsWhenEmpty(t *testing.T) {
 	}
 }
 
-// Regression: BUG_REPORTS.md says go.mod has 27 lines but file-view only scrolls to 25
+// Regression: BUG_REPORTS.md says go.mod has 27 lines but files mode only scrolls to 25
 func TestFileView_ScrollToLastLine(t *testing.T) {
 	// Create a 27-line file content
 	var fileLines []string
@@ -3950,7 +3937,7 @@ func TestFileView_ScrollToLastLine(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Switch to file-view mode
+	// Switch to files mode
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
@@ -4046,7 +4033,7 @@ func TestDiffGutterInFileView(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Switch to file-view mode
+	// Switch to files mode
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
@@ -4092,7 +4079,7 @@ func TestShiftD_ToggleRemoved(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Switch to file-view mode
+	// Switch to files mode
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
@@ -4281,7 +4268,7 @@ func TestDeletedFile_GutterShowsRemoved(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Ensure in file-view mode with deleted.go selected
+	// Ensure in files mode with deleted.go selected
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
@@ -4330,7 +4317,7 @@ func TestJumpToNextDiff(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Switch to file-view
+	// Switch to files mode
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 	m.focus = MainFocus
@@ -4658,7 +4645,7 @@ func TestHandleSidebarRight_LeafSwitchesToMain(t *testing.T) {
 	m.loading = false
 	m.treeMode = true
 	m.collapsedDirs = make(map[string]bool)
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.focus = SidebarFocus
 	m.committedFiles = []string{"file.go"}
 	m.updateLayout()
@@ -4685,7 +4672,7 @@ func TestHandleEnter_NonTreeModeSwitchesToMain(t *testing.T) {
 	m.height = 24
 	m.loading = false
 	m.treeMode = false
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.focus = SidebarFocus
 	m.committedFiles = []string{"file.go"}
 	m.updateLayout()
@@ -4705,7 +4692,7 @@ func TestHandleEnter_MainPane_FileMode_OpensEditor(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.loading = false
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	m.focus = MainFocus
 	m.committedFiles = []string{"file.go"}
 	m.updateLayout()
@@ -5000,7 +4987,7 @@ func TestJumpToNextDiff_NoDiffs(t *testing.T) {
 	m.updateLayout()
 	m.mainPane.SetPlainContent("no diffs here")
 	m.mainPane.ClearDiffAnnotations()
-	m.mode = FileViewMode
+	m.mode = FilesMode
 
 	// Should not crash
 	m.jumpToNextDiff(1)
@@ -5121,7 +5108,7 @@ func TestCommitMode_BaseCommitsCategory4(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.updateSidebarItems()
 
 	// Should have the feature commit + separator + base commits
@@ -5170,7 +5157,7 @@ func TestCommitMode_ClickLoadMoreTriggersPagination(t *testing.T) {
 	}
 
 	// Switch to commit mode so the sidebar shows commits + "load more"
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.updateSidebarItems()
 
 	// Find the "load more" item index
@@ -5315,7 +5302,7 @@ func TestCommitMode_LoadMoreAppearsWhenMoreCommits(t *testing.T) {
 	}
 
 	// Switch to commit mode and check for "load more" in sidebar
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.updateSidebarItems()
 
 	hasLoadMore := false
@@ -5368,7 +5355,7 @@ func TestCommitMode_NoLoadMoreWhenAllFit(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	msg := m.loadGitData()
 	m.Update(msg)
-	m.mode = CommitMode
+	m.mode = CommitsMode
 	m.updateSidebarItems()
 
 	for _, item := range m.sidebar.items {
@@ -5485,7 +5472,7 @@ func TestJumpToNextLeaf(t *testing.T) {
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
-	m.mode = FileViewMode
+	m.mode = FilesMode
 	m.treeMode = true
 	m.updateSidebarItems()
 
@@ -5515,7 +5502,7 @@ func TestJumpToNextLeaf(t *testing.T) {
 	}
 }
 
-func TestPRViewMode_DefaultsOnFirstLoad(t *testing.T) {
+func TestPRMode_DefaultsOnFirstLoad(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -5531,19 +5518,19 @@ func TestPRViewMode_DefaultsOnFirstLoad(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 
-	if m.mode != FileViewMode {
-		t.Fatal("should start as FileViewMode before data loads")
+	if m.mode != FilesMode {
+		t.Fatal("should start as FilesMode before data loads")
 	}
 
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	if m.mode != PRViewMode {
-		t.Errorf("should default to PRViewMode when PR exists, got %d", m.mode)
+	if m.mode != PRMode {
+		t.Errorf("should default to PRMode when PR exists, got %d", m.mode)
 	}
 }
 
-func TestPRViewMode_Sidebar(t *testing.T) {
+func TestPRMode_Sidebar(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -5564,8 +5551,8 @@ func TestPRViewMode_Sidebar(t *testing.T) {
 	m.Update(msg)
 
 	// Should be in PR mode
-	if m.mode != PRViewMode {
-		t.Fatalf("expected PRViewMode, got %d", m.mode)
+	if m.mode != PRMode {
+		t.Fatalf("expected PRMode, got %d", m.mode)
 	}
 
 	// Check sidebar has Description, comment, and CI check
@@ -5594,7 +5581,7 @@ func TestPRViewMode_Sidebar(t *testing.T) {
 	}
 }
 
-func TestPRViewMode_ModeSwitch(t *testing.T) {
+func TestPRMode_ModeSwitch(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -5613,26 +5600,26 @@ func TestPRViewMode_ModeSwitch(t *testing.T) {
 	m.Update(msg)
 
 	// Start in PR mode
-	if m.mode != PRViewMode {
-		t.Fatal("should start in PRViewMode")
+	if m.mode != PRMode {
+		t.Fatal("should start in PRMode")
 	}
 
 	// Press [b] to switch to PR mode (already there — should stay)
 	result, _ := m.Update(tea.KeyPressMsg{Text: "b", Code: 'b'})
 	m = result.(*Model)
-	if m.mode != PRViewMode {
+	if m.mode != PRMode {
 		t.Error("[b] should keep PR mode")
 	}
 
 	// Cycle through modes with [m]
 	result, _ = m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
-	if m.mode == PRViewMode {
-		t.Error("[m] from PRViewMode should cycle to FileViewMode")
+	if m.mode == PRMode {
+		t.Error("[m] from PRMode should cycle to FilesMode")
 	}
 }
 
-func TestPRViewMode_ShowsCICheck(t *testing.T) {
+func TestPRMode_ShowsCICheck(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -5672,7 +5659,7 @@ func TestPRViewMode_ShowsCICheck(t *testing.T) {
 	}
 }
 
-func TestPRViewMode_ShowsComment(t *testing.T) {
+func TestPRMode_ShowsComment(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -5741,7 +5728,7 @@ func TestShiftSpace_InSidebar(t *testing.T) {
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.focus = SidebarFocus
 	m.updateSidebarItems()
 
@@ -5790,7 +5777,7 @@ func TestStatusBar_PRMode(t *testing.T) {
 	data := statusBarData{
 		info: git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
 		pr:   git.PRInfoResult{Number: 42, Title: "Test PR"},
-		mode: PRViewMode,
+		mode: PRMode,
 	}
 	bar, _, _, _ := renderStatusBar(80, data)
 	if !strings.Contains(bar, "pr") {
@@ -5798,40 +5785,40 @@ func TestStatusBar_PRMode(t *testing.T) {
 	}
 }
 
-func TestPRViewMode_NotAvailableWithoutPR(t *testing.T) {
+func TestPRMode_NotAvailableWithoutPR(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.mode = FileViewMode
+	m.mode = FilesMode
 
 	// Press [b] — should not switch to PR mode without a PR
 	result, _ := m.Update(tea.KeyPressMsg{Text: "b", Code: 'b'})
 	m = result.(*Model)
-	if m.mode == PRViewMode {
+	if m.mode == PRMode {
 		t.Error("[b] should not switch to PR mode when no PR exists")
 	}
 }
 
-func TestPRViewMode_SkippedInCycleWithoutPR(t *testing.T) {
+func TestPRMode_SkippedInCycleWithoutPR(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.mode = CommitMode
+	m.mode = CommitsMode
 
-	// Press [m] from CommitMode without PR — should skip PRViewMode
+	// Press [m] from CommitsMode without PR — should skip PRMode
 	result, _ := m.Update(tea.KeyPressMsg{Text: "m", Code: 'm'})
 	m = result.(*Model)
-	if m.mode == PRViewMode {
-		t.Error("[m] from CommitMode should skip PRViewMode when no PR")
+	if m.mode == PRMode {
+		t.Error("[m] from CommitsMode should skip PRMode when no PR")
 	}
-	if m.mode != FileViewMode {
-		t.Errorf("expected FileViewMode, got %d", m.mode)
+	if m.mode != FilesMode {
+		t.Errorf("expected FilesMode, got %d", m.mode)
 	}
 }
 
-func TestPRViewMode_MainContent(t *testing.T) {
+func TestPRMode_MainContent(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -6239,7 +6226,7 @@ func TestYankPath_SidebarFocused(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.loading = false
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.focus = SidebarFocus
 	m.committedFiles = []string{"internal/auth.go", "config.go"}
 	m.updateLayout()
@@ -6268,7 +6255,7 @@ func TestYankPath_MainPaneFocused(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.loading = false
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.focus = MainFocus
 	m.committedFiles = []string{"auth.go"}
 	m.updateLayout()
@@ -6296,7 +6283,7 @@ func TestYankPath_DirectoryIgnored(t *testing.T) {
 	m.loading = false
 	m.treeMode = true
 	m.collapsedDirs = make(map[string]bool)
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.focus = SidebarFocus
 	m.committedFiles = []string{"pkg/foo.go", "pkg/bar.go"}
 	m.updateLayout()
@@ -6548,7 +6535,7 @@ func TestClickCIStatus_JumpsToPRMode(t *testing.T) {
 	m = result.(*Model)
 
 	// Should be in a non-PR mode initially
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 
 	// Render to populate line3Labels
@@ -6571,7 +6558,7 @@ func TestClickCIStatus_JumpsToPRMode(t *testing.T) {
 	result, _ = m.Update(click)
 	m = result.(*Model)
 
-	if m.mode != PRViewMode {
+	if m.mode != PRMode {
 		t.Errorf("clicking CI status should switch to PR mode, got mode %d", m.mode)
 	}
 	// Should select the failing check
@@ -6594,7 +6581,7 @@ func TestClickPRName_JumpsToDescription(t *testing.T) {
 	msg := m.loadGitData()
 	result, _ := m.Update(msg)
 	m = result.(*Model)
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.View()
 
@@ -6614,7 +6601,7 @@ func TestClickPRName_JumpsToDescription(t *testing.T) {
 	result, _ = m.Update(click)
 	m = result.(*Model)
 
-	if m.mode != PRViewMode {
+	if m.mode != PRMode {
 		t.Errorf("clicking PR name should switch to PR mode, got mode %d", m.mode)
 	}
 	if m.sidebar.SelectedItem() != "Description" {
@@ -6637,7 +6624,7 @@ func TestSelectFirstComment(t *testing.T) {
 	result, _ := m.Update(msg)
 	m = result.(*Model)
 
-	m.mode = PRViewMode
+	m.mode = PRMode
 	m.updateSidebarItems()
 	m.selectFirstComment()
 
@@ -6662,7 +6649,7 @@ func TestSelectFirstReview(t *testing.T) {
 	result, _ := m.Update(msg)
 	m = result.(*Model)
 
-	m.mode = PRViewMode
+	m.mode = PRMode
 	m.updateSidebarItems()
 	m.selectFirstReview()
 
@@ -6738,7 +6725,7 @@ func TestClickReviews_JumpsToFirstReview(t *testing.T) {
 	msg := m.loadGitData()
 	result, _ := m.Update(msg)
 	m = result.(*Model)
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.View()
 
@@ -6758,7 +6745,7 @@ func TestClickReviews_JumpsToFirstReview(t *testing.T) {
 	result, _ = m.Update(click)
 	m = result.(*Model)
 
-	if m.mode != PRViewMode {
+	if m.mode != PRMode {
 		t.Errorf("clicking reviews should switch to PR mode, got mode %d", m.mode)
 	}
 	selected := m.sidebar.SelectedItem()
@@ -6782,7 +6769,7 @@ func TestClickComments_JumpsToFirstComment(t *testing.T) {
 	msg := m.loadGitData()
 	result, _ := m.Update(msg)
 	m = result.(*Model)
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.View()
 
@@ -6801,7 +6788,7 @@ func TestClickComments_JumpsToFirstComment(t *testing.T) {
 	result, _ = m.Update(click)
 	m = result.(*Model)
 
-	if m.mode != PRViewMode {
+	if m.mode != PRMode {
 		t.Errorf("clicking comments should switch to PR mode, got mode %d", m.mode)
 	}
 	selected := m.sidebar.SelectedItem()
@@ -6858,8 +6845,8 @@ func TestTreeDefaultStates(t *testing.T) {
 	result, _ := m.Update(msg)
 	m = result.(*Model)
 
-	// Switch to file-view mode (where all three sections appear)
-	m.mode = FileViewMode
+	// Switch to files mode (where all three sections appear)
+	m.mode = FilesMode
 	m.updateSidebarItems()
 
 	// Uncommitted and committed dirs should NOT be collapsed (start open)
@@ -6902,7 +6889,7 @@ func TestHorizontalMouseScroll(t *testing.T) {
 	result, _ := m.Update(msg)
 	m = result.(*Model)
 
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.updateMainContent()
 
@@ -6962,7 +6949,7 @@ func TestPRDescriptionShowsDeployments(t *testing.T) {
 	m = result.(*Model)
 
 	// Should be in PR mode with deployments visible in description
-	if m.mode != PRViewMode {
+	if m.mode != PRMode {
 		t.Fatalf("expected PR mode, got %d", m.mode)
 	}
 
@@ -6991,7 +6978,7 @@ func TestLeftAtScroll0_SwitchesToSidebar(t *testing.T) {
 	result, _ := m.Update(msg)
 	m = result.(*Model)
 
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.updateMainContent()
 	m.focus = MainFocus
@@ -7033,7 +7020,7 @@ func TestLeftWithScroll_ScrollsInsteadOfSwitching(t *testing.T) {
 	result, _ := m.Update(msg)
 	m = result.(*Model)
 
-	m.mode = FileDiffMode
+	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.updateMainContent()
 	m.focus = MainFocus
@@ -7084,7 +7071,7 @@ func TestEnterOnCICheck_OpensURL(t *testing.T) {
 	m = result.(*Model)
 
 	// Should be in PR mode
-	if m.mode != PRViewMode {
+	if m.mode != PRMode {
 		t.Fatalf("expected PR mode, got %d", m.mode)
 	}
 
@@ -7243,7 +7230,7 @@ func TestEnterOnComment_OpensURL(t *testing.T) {
 }
 
 func TestBug_MultipleRemovedLinesShownInFileView(t *testing.T) {
-	// Regression: in file-view mode, if there are multiple consecutive removed
+	// Regression: in files mode, if there are multiple consecutive removed
 	// lines, all of them should be shown (not just one).
 
 	tests := []struct {
@@ -7287,7 +7274,7 @@ func TestBug_MultipleRemovedLinesShownInFileView(t *testing.T) {
 			msg := m.loadGitData()
 			m.Update(msg)
 
-			m.mode = FileViewMode
+			m.mode = FilesMode
 			m.updateSidebarItems()
 			m.sidebar.SelectNext()
 			m.updateMainContent()

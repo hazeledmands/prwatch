@@ -160,7 +160,7 @@ func genMockGit(t *rapid.T) *mockGit {
 func genScenario(t *rapid.T) (*mockGit, Mode) {
 	isGit := rapid.Float64Range(0, 1).Draw(t, "isGit") > 0.1 // 90% git, 10% non-git
 	if !isGit {
-		return nil, FileViewMode
+		return nil, FilesMode
 	}
 
 	mock := genMockGit(t)
@@ -205,10 +205,11 @@ func genScenario(t *rapid.T) (*mockGit, Mode) {
 		}
 	}
 
-	// Pick a mode that makes sense for the scenario
-	maxMode := 2 // FileView, FileDiff, Commit
+	// Pick a mode that makes sense for the scenario.
+	// Modes: Files (0), Commits (1). PR mode (2) requires a PR.
+	maxMode := 1
 	if mock.prInfo.Number > 0 {
-		maxMode = 3 // also PRView
+		maxMode = 2
 	}
 	mode := Mode(rapid.IntRange(0, maxMode).Draw(t, "mode"))
 
@@ -425,11 +426,10 @@ func checkBottomBorder(t *rapid.T, m *Model, context string) {
 //   - Uncommitted (untracked/unstaged) files must show [+]
 //   - Other files in changed sections must show either [+] or [±]
 //
-// Only runs in FileViewMode and FileDiffMode; badges don't apply to commit
-// or PR modes.
+// Only runs in FilesMode; badges don't apply to commits or pr modes.
 func checkChangeBadgeInvariants(t *rapid.T, m *Model, context string) {
 	t.Helper()
-	if m.mode != FileViewMode && m.mode != FileDiffMode {
+	if m.mode != FilesMode {
 		return
 	}
 
@@ -671,14 +671,16 @@ func TestProperty_ClickSidebarSelectsItem(t *testing.T) {
 		}
 
 		m := NewModel("/tmp/test-repo", mock)
-		m.mode = FileDiffMode
 		m.width = width
 		m.height = height
 		m.updateLayout()
 
-		// Load data
+		// Load data. Force files mode after Update, since the gitDataMsg
+		// handler auto-switches to PRMode when a PR is present.
 		msg := m.loadGitData()
 		m.Update(msg)
+		m.mode = FilesMode
+		m.updateSidebarItems()
 
 		// The sidebar starts at row 2 (after 2-line status bar), inside border at row 3
 		// and column 1 (inside the left border of the sidebar)
@@ -754,7 +756,7 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 		}
 
 		m := NewModel("/tmp/test-repo", mock)
-		m.mode = CommitMode
+		m.mode = CommitsMode
 		m.width = width
 		m.height = height
 		m.updateLayout()
@@ -857,7 +859,7 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestProperty_DragSelectsCorrectText verifies three invariants for drag
-// selection in FileViewMode with plain content:
+// selection in FilesMode with plain content:
 //  1. The copied text is a contiguous substring of the source content.
 //  2. The first character copied matches the character at the drag start position.
 //  3. The last character copied matches the character at the drag end position.
@@ -884,7 +886,7 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			mock.changedFiles.Committed = []string{"file.go"}
 		}
 
-		m := initModel(mock, FileViewMode, width, height)
+		m := initModel(mock, FilesMode, width, height)
 		m.mainPane.ClearDiffAnnotations()
 		m.mainPane.SetLineNumbers(lineNumbers)
 		m.mainPane.SetWordWrap(wordWrap)
@@ -1620,7 +1622,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 160).Draw(t, "width")
 		height := rapid.IntRange(15, 50).Draw(t, "height")
-		mode := Mode(rapid.SampledFrom([]Mode{FileDiffMode, FileViewMode}).Draw(t, "mode"))
+		mode := Mode(rapid.SampledFrom([]Mode{FilesMode, FilesMode}).Draw(t, "mode"))
 
 		nCommitted := rapid.IntRange(2, 15).Draw(t, "nCommitted")
 		nUncommitted := rapid.IntRange(0, 5).Draw(t, "nUncommitted")
@@ -1656,9 +1658,9 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		mockAllFiles = append(mockAllFiles, staged...)
 		mockAllFiles = append(mockAllFiles, otherFiles...)
 		// The set of files the sidebar must account for depends on mode:
-		// FileDiffMode only shows committed+uncommitted+staged; FileViewMode shows all.
+		// FilesMode only shows committed+uncommitted+staged; FilesMode shows all.
 		var sidebarFiles []string
-		if mode == FileViewMode {
+		if mode == FilesMode {
 			sidebarFiles = mockAllFiles
 		} else {
 			sidebarFiles = append(append(append([]string{}, committed...), uncommitted...), staged...)

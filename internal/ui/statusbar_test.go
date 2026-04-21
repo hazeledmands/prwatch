@@ -14,7 +14,7 @@ func TestRenderStatusBar_Basic(t *testing.T) {
 			RepoName: "prwatch",
 			DirName:  "prwatch",
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(80, data)
 
@@ -24,26 +24,26 @@ func TestRenderStatusBar_Basic(t *testing.T) {
 	if !strings.Contains(bar, "prwatch") {
 		t.Error("status bar should contain dir/repo name")
 	}
-	if !strings.Contains(bar, "diff") {
-		t.Error("status bar should show diff mode indicator")
+	if !strings.Contains(bar, "files") {
+		t.Error("status bar should show files mode indicator")
 	}
 }
 
-func TestRenderStatusBar_FileViewMode(t *testing.T) {
+func TestRenderStatusBar_FilesMode(t *testing.T) {
 	data := statusBarData{
 		info: git.RepoInfoResult{Branch: "main", RepoName: "test", DirName: "test"},
-		mode: FileViewMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(80, data)
-	if !strings.Contains(bar, "file") {
-		t.Error("status bar should show file mode indicator")
+	if !strings.Contains(bar, "files") {
+		t.Error("status bar should show files mode indicator")
 	}
 }
 
-func TestRenderStatusBar_CommitMode(t *testing.T) {
+func TestRenderStatusBar_CommitsMode(t *testing.T) {
 	data := statusBarData{
 		info: git.RepoInfoResult{Branch: "main", RepoName: "test", DirName: "test"},
-		mode: CommitMode,
+		mode: CommitsMode,
 	}
 	bar, _, _, _ := renderStatusBar(80, data)
 	if !strings.Contains(bar, "commits") {
@@ -54,7 +54,7 @@ func TestRenderStatusBar_CommitMode(t *testing.T) {
 func TestRenderStatusBar_Confirming(t *testing.T) {
 	data := statusBarData{
 		info:       git.RepoInfoResult{Branch: "main"},
-		mode:       FileDiffMode,
+		mode:       FilesMode,
 		confirming: true,
 	}
 	bar, _, _, _ := renderStatusBar(80, data)
@@ -71,7 +71,7 @@ func TestRenderStatusBar_WithPR(t *testing.T) {
 			Title:  "My PR",
 			URL:    "https://github.com/org/repo/pull/42",
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(120, data)
 	if !strings.Contains(bar, "PR #42") {
@@ -90,7 +90,7 @@ func TestRenderStatusBar_DetachedHead(t *testing.T) {
 			HeadSHA:        "abc1234",
 			DirName:        "repo",
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(80, data)
 	if !strings.Contains(bar, "detached @ abc1234") {
@@ -106,7 +106,7 @@ func TestRenderStatusBar_Worktree(t *testing.T) {
 			DirName:  "worktree-dir",
 			Worktree: "/some/path",
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(80, data)
 	if !strings.Contains(bar, "in repo") {
@@ -117,7 +117,7 @@ func TestRenderStatusBar_Worktree(t *testing.T) {
 func TestRenderStatusBar_NoPR(t *testing.T) {
 	data := statusBarData{
 		info: git.RepoInfoResult{Branch: "main", RepoName: "repo", DirName: "repo"},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(200, data)
 	if !strings.Contains(bar, "No PR") {
@@ -132,7 +132,7 @@ func TestRenderStatusBar_NarrowWidth(t *testing.T) {
 			RepoName: "my-really-long-repository-name",
 			DirName:  "my-really-long-repository-name",
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(20, data)
 	if bar == "" {
@@ -156,7 +156,7 @@ func TestRenderStatusBar_WithUpstream(t *testing.T) {
 			RepoName: "repo",
 			DirName:  "repo",
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(120, data)
 	// Should show "feature → main"
@@ -176,7 +176,7 @@ func TestRenderStatusBar_AheadCount(t *testing.T) {
 			DirName:    "repo",
 			AheadCount: 3,
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(120, data)
 	if !strings.Contains(bar, "3 unpushed") {
@@ -187,7 +187,7 @@ func TestRenderStatusBar_AheadCount(t *testing.T) {
 func TestRenderStatusBar_GitStatusSummary(t *testing.T) {
 	data := statusBarData{
 		info:          git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
-		mode:          FileDiffMode,
+		mode:          FilesMode,
 		uncommitCount: 2,
 		commitCount:   5,
 	}
@@ -207,7 +207,7 @@ func TestRenderStatusBar_DirName(t *testing.T) {
 			RepoName: "repo",
 			DirName:  "worktree-dir",
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(120, data)
 	if !strings.Contains(bar, "worktree-dir") {
@@ -222,7 +222,7 @@ func TestRenderStatusBar_DirNameSameAsRepo(t *testing.T) {
 			RepoName: "repo",
 			DirName:  "repo",
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(120, data)
 	// Dir name should still appear as the directory identifier
@@ -239,7 +239,7 @@ func TestRenderStatusBar_PRWithDraft(t *testing.T) {
 			Title:   "WIP",
 			IsDraft: true,
 		},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(120, data)
 	if !strings.Contains(bar, "[DRAFT]") {
@@ -386,7 +386,7 @@ func TestRenderStatusBar_WithComments(t *testing.T) {
 	data := statusBarData{
 		info:         git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
 		pr:           git.PRInfoResult{Number: 1, Title: "test"},
-		mode:         FileDiffMode,
+		mode:         FilesMode,
 		commentCount: 5,
 	}
 	bar, _, _, _ := renderStatusBar(120, data)
@@ -408,7 +408,7 @@ func TestRenderStatusBar_FullPRDetails(t *testing.T) {
 		ciStatus:     git.CIStatusResult{State: "FAILURE", URL: "https://ci.example.com"},
 		reviews:      []git.PRReview{{Author: "alice", State: "APPROVED"}, {Author: "bob", State: "CHANGES_REQUESTED"}},
 		commentCount: 7,
-		mode:         FileDiffMode,
+		mode:         FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(200, data)
 	if !strings.Contains(bar, "[DRAFT]") {
@@ -436,7 +436,7 @@ func TestRenderStatusBar_ThreeLines(t *testing.T) {
 	data := statusBarData{
 		info: git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
 		pr:   git.PRInfoResult{Number: 1, Title: "test"},
-		mode: FileDiffMode,
+		mode: FilesMode,
 	}
 	bar, _, _, _ := renderStatusBar(80, data)
 	stripped := stripANSIForWidth(bar)

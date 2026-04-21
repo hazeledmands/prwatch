@@ -35,7 +35,7 @@ type mainPane struct {
 	height             int
 	wordWrap           bool                   // whether to wrap long lines
 	lineNumbers        bool                   // whether to show line numbers (plain content only)
-	diffAnnotations    map[int]diffAnnotation // line number -> annotation (for file-view gutter)
+	diffAnnotations    map[int]diffAnnotation // line number -> annotation (for files mode gutter)
 	showRemoved        bool                   // Shift+D: show removed lines inline
 	xOffset            int                    // horizontal scroll offset (when word wrap is off)
 	formattedContent   string                 // content after formatting but before wrapping
@@ -49,7 +49,7 @@ func newMainPane() *mainPane {
 	return &mainPane{viewport: vp, wordWrap: true, lineNumbers: true, showRemoved: true}
 }
 
-// SetDiffAnnotations sets diff annotations for file-view mode gutter rendering.
+// SetDiffAnnotations sets diff annotations for files mode gutter rendering.
 func (m *mainPane) SetDiffAnnotations(annotations map[int]diffAnnotation) {
 	m.diffAnnotations = annotations
 	m.refreshViewport()
