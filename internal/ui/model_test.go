@@ -141,6 +141,179 @@ func (m *mockGit) RWXTestResults(taskID string) ([]git.RWXFailedTest, error) {
 	return nil, nil
 }
 
+// slowMockGit wraps a mockGit but adds artificial delays to simulate slow
+// git and GitHub API responses. Used to verify the UI renders immediately
+// even when data sources are slow.
+type slowMockGit struct {
+	mockGit
+	delay time.Duration
+}
+
+func (s *slowMockGit) RepoInfo() (git.RepoInfoResult, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.RepoInfo()
+}
+
+func (s *slowMockGit) PRAll() (git.PRAllResult, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.PRAll()
+}
+
+func (s *slowMockGit) PRChecksAll() (git.PRChecksResult, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.PRChecksAll()
+}
+
+func (s *slowMockGit) DetectBase() (string, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.DetectBase()
+}
+
+func (s *slowMockGit) ChangedFiles(base string) (git.ChangedFilesResult, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.ChangedFiles(base)
+}
+
+func (s *slowMockGit) Commits(base string, skip, limit int) ([]git.Commit, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.Commits(base, skip, limit)
+}
+
+func (s *slowMockGit) AllFiles(includeIgnored bool) ([]string, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.AllFiles(includeIgnored)
+}
+
+func TestStartupRendersBeforeDataLoads(t *testing.T) {
+	// The UI must render a loading state immediately, even when git/GitHub
+	// API calls take a long time. This test creates a model with a slow
+	// data source and verifies that View() returns quickly with loading state.
+	slow := &slowMockGit{
+		mockGit: mockGit{
+			repoInfo: git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+			base:     "origin/main",
+		},
+		delay: 5 * time.Second,
+	}
+
+	m := NewModel("/tmp/test-repo", slow)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+
+	// View() should complete near-instantly because no data has loaded yet
+	start := time.Now()
+	view := m.View()
+	elapsed := time.Since(start)
+
+	if elapsed > 50*time.Millisecond {
+		t.Errorf("initial View() took %v, expected <50ms", elapsed)
+	}
+
+	if !strings.Contains(view.Content, "loading") {
+		t.Error("initial View() should show loading state")
+	}
+}
+
+func TestStartupInitDoesNotBlock(t *testing.T) {
+	// Init() returns async commands — it should not block on data loading.
+	slow := &slowMockGit{
+		mockGit: mockGit{
+			repoInfo: git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+			base:     "origin/main",
+		},
+		delay: 5 * time.Second,
+	}
+
+	m := NewModel("/tmp/test-repo", slow)
+
+	start := time.Now()
+	cmd := m.Init()
+	elapsed := time.Since(start)
+
+	if elapsed > 50*time.Millisecond {
+		t.Errorf("Init() took %v, expected <50ms", elapsed)
+	}
+
+	if cmd == nil {
+		t.Error("Init() should return commands for async data loading")
+	}
+}
+
+func TestStartupRenderOnceWorksWithData(t *testing.T) {
+	// RenderOnce (used by PRWATCH_RENDER_ONCE=1) loads data synchronously.
+	// With a fast mock, it should complete quickly and show actual content.
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:   "feature",
+			Upstream: "origin/main",
+		},
+		base: "origin/main",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go", "go.mod"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+
+	start := time.Now()
+	output := m.RenderOnce(120, 40)
+	elapsed := time.Since(start)
+
+	if elapsed > 100*time.Millisecond {
+		t.Errorf("RenderOnce with fast mock took %v, expected <100ms", elapsed)
+	}
+
+	if strings.Contains(output, "loading") {
+		t.Error("RenderOnce should show actual content, not loading state")
+	}
+
+	if !strings.Contains(output, "file.go") {
+		t.Error("RenderOnce should show file names from the repo")
+	}
+}
+
+func BenchmarkStartupView(b *testing.B) {
+	// Benchmark the initial View() call to catch performance regressions.
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:     "origin/main",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m := NewModel("/tmp/test-repo", mock)
+		m.width = 120
+		m.height = 40
+		m.updateLayout()
+		m.View()
+	}
+}
+
+func BenchmarkRenderOnce(b *testing.B) {
+	// Benchmark the full synchronous render path used by PRWATCH_RENDER_ONCE.
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:   "feature",
+			Upstream: "origin/main",
+		},
+		base: "origin/main",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go", "main.go", "README.md"},
+		},
+		fileContent: "package main\n\nfunc main() {}\n",
+		allFiles:    []string{"file.go", "main.go", "README.md", "go.mod", "go.sum"},
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m := NewModel("/tmp/test-repo", mock)
+		m.RenderOnce(120, 40)
+	}
+}
+
 func TestModeSwitching(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 
