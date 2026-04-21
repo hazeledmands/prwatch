@@ -1903,6 +1903,69 @@ func TestMouseClick_MainPane(t *testing.T) {
 	}
 }
 
+func TestMouseClick_DirectoryToggle(t *testing.T) {
+	// Spec: "clicking a directory toggles its expand/collapse state without
+	// changing the main panel"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.loading = false
+	m.treeMode = true
+	m.collapsedDirs = make(map[string]bool)
+	m.mode = FileDiffMode
+	// Need multiple files under one directory to create an expandable dir node
+	// (single-leaf dirs get compacted into a single line)
+	m.committedFiles = []string{"pkg/foo.go", "pkg/bar.go", "main.go"}
+	m.updateLayout()
+	m.updateSidebarItems()
+
+	// Find the directory item in the sidebar
+	dirIdx := -1
+	var dirPath string
+	for i, item := range m.sidebar.items {
+		if item.isDir {
+			dirIdx = i
+			dirPath = item.filePath
+			break
+		}
+	}
+	if dirIdx < 0 {
+		t.Fatal("no directory item found in sidebar")
+	}
+
+	// Verify the directory starts expanded (committed files section)
+	if m.collapsedDirs[dirPath] {
+		t.Fatalf("directory %q should start expanded", dirPath)
+	}
+
+	// Calculate click Y: status bar lines + 1 (top border) + item index
+	clickY := m.statusBarLines() + 1 + dirIdx - m.sidebar.offset
+
+	// Click the directory to collapse it
+	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: clickY})
+	m = result.(*Model)
+
+	if !m.collapsedDirs[dirPath] {
+		t.Errorf("clicking directory %q should collapse it", dirPath)
+	}
+
+	// Find the directory again after sidebar rebuild (index may have shifted)
+	for i, item := range m.sidebar.items {
+		if item.isDir && item.filePath == dirPath {
+			clickY = m.statusBarLines() + 1 + i - m.sidebar.offset
+			break
+		}
+	}
+
+	// Click again to expand
+	result, _ = m.Update(tea.MouseClickMsg{X: 5, Y: clickY})
+	m = result.(*Model)
+
+	if m.collapsedDirs[dirPath] {
+		t.Errorf("clicking directory %q again should expand it", dirPath)
+	}
+}
+
 func TestMouseClick_StatusBar_Left(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
