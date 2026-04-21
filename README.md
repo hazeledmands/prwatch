@@ -75,6 +75,24 @@ prwatch watches the working directory and `.git` for changes via fsnotify, refre
 
 When run outside a git repo, prwatch shows file-view mode only with the directory contents.
 
+## Non-interactive modes
+
+Render the TUI as text and exit (useful for CI or automated review):
+
+```
+PRWATCH_RENDER_ONCE=1 prwatch [dir]
+PRWATCH_RENDER_ONCE=1 PRWATCH_KEYS="c,j,j" prwatch [dir]
+```
+
+Run in headless IPC mode for programmatic control:
+
+```
+prwatch --ipc [dir] &
+prwatch-ctl --render           # get current screen
+prwatch-ctl "c,j,j"           # send keys, get result
+prwatch-ctl --quit             # stop
+```
+
 ## Debug logging
 
 Set `PRWATCH_DEBUG_LOG` to a file path to enable verbose debug logging:
