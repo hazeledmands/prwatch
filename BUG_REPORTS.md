@@ -1,8 +1,9 @@
 ## New Bugs
 
-- in file view mode, if there is more than one removed line in a row, I am only seeing one of the removed lines
 
 ## Fixed Bugs
+
+- Multiple consecutive removed lines only showing one in file-view changed-line rendering — fixed by showing all removed lines (extras as pure deletions) before the inline/split diff comparison with the last removed line.
 
 - Jump to previous hunk and jump-to-hunk wrapping weren't working — fixed by using `ViewportToSourceLine()` to convert viewport scroll position to source line number before comparing against diff annotation line numbers.
 - Tests were hitting the real GitHub API and causing rate limits — fixed by converting `TestPRInfo_NoPR` and `TestDefaultCmdRunner_Error` to use mock runners.

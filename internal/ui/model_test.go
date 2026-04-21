@@ -6813,3 +6813,65 @@ func TestEnterOnComment_OpensURL(t *testing.T) {
 		t.Error("enter on comment with URL should open browser")
 	}
 }
+
+func TestBug_MultipleRemovedLinesShownInFileView(t *testing.T) {
+	// Regression: in file-view mode, if there are multiple consecutive removed
+	// lines, all of them should be shown (not just one).
+
+	tests := []struct {
+		name        string
+		diff        string
+		fileContent string
+		wantLines   []string
+	}{
+		{
+			name:        "pure removals before context",
+			diff:        "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,5 +1,2 @@\n line1\n-removed_a\n-removed_b\n-removed_c\n line2\n",
+			fileContent: "line1\nline2\n",
+			wantLines:   []string{"removed_a", "removed_b", "removed_c"},
+		},
+		{
+			name:        "removals replaced by single line (changed)",
+			diff:        "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,4 +1,2 @@\n line1\n-old_line_a\n-old_line_b\n+new_line\n",
+			fileContent: "line1\nnew_line\n",
+			wantLines:   []string{"old_line_a", "old_line_b"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mg := &mockGit{
+				repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
+				base:     "abc",
+				changedFiles: git.ChangedFilesResult{
+					Committed: []string{"f.go"},
+				},
+				allFiles:    []string{"f.go"},
+				commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+				allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+				fileDiff:    tt.diff,
+				fileContent: tt.fileContent,
+			}
+			m := NewModel("/tmp", mg)
+			m.width = 80
+			m.height = 30
+			m.updateLayout()
+			msg := m.loadGitData()
+			m.Update(msg)
+
+			m.mode = FileViewMode
+			m.updateSidebarItems()
+			m.sidebar.SelectNext()
+			m.updateMainContent()
+
+			view := m.View()
+			content := stripANSI(view.Content)
+
+			for _, want := range tt.wantLines {
+				if !strings.Contains(content, want) {
+					t.Errorf("%q should be visible in file view, content:\n%s", want, content)
+				}
+			}
+		})
+	}
+}

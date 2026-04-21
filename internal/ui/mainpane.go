@@ -366,6 +366,20 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 
 		if hasAnn && ann.kind == diffLineChanged && len(ann.removedLines) > 0 {
 			gutter := " ~ "
+
+			// When multiple lines were removed and replaced by one new line,
+			// show all removed lines except the last as pure deletions, then
+			// use the last for the inline/split diff comparison.
+			if len(ann.removedLines) > 1 {
+				gutterMarkDel := " - "
+				if m.lineNumbers {
+					gutterMarkDel = strings.Repeat(" ", numWidth) + " - "
+				}
+				for _, extra := range ann.removedLines[:len(ann.removedLines)-1] {
+					result = append(result, diffRemoveStyle.Render(gutterMarkDel+extra))
+				}
+			}
+
 			oldLine := ann.removedLines[len(ann.removedLines)-1]
 			contentWidth := m.width - gutterWidth
 			if contentWidth <= 0 {
