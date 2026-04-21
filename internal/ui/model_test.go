@@ -4552,6 +4552,173 @@ func TestHandleSidebarLeft_GoToParent(t *testing.T) {
 	}
 }
 
+func TestHandleSidebarRight_ExpandCollapsed(t *testing.T) {
+	// Spec: "[right]/[l] or [enter] expand directory (if collapsed)"
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"dir/file1.go", "dir/file2.go"},
+		},
+		allFiles:    []string{"dir/file1.go", "dir/file2.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.treeMode = true
+	m.focus = SidebarFocus
+	m.updateSidebarItems()
+
+	// Find and select a directory, then collapse it
+	for i, item := range m.sidebar.items {
+		if item.isDir {
+			m.sidebar.SelectIndex(i)
+			dir := m.sidebar.SelectedItem()
+			m.collapsedDirs[dir] = true
+			m.updateSidebarItems()
+			break
+		}
+	}
+
+	if !m.sidebar.SelectedIsDir() {
+		t.Skip("no directory found")
+	}
+
+	dir := m.sidebar.SelectedItem()
+	if !m.collapsedDirs[dir] {
+		t.Fatal("directory should be collapsed for this test")
+	}
+
+	// Press right to expand
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = result.(*Model)
+
+	if m.collapsedDirs[dir] {
+		t.Error("right on collapsed directory should expand it")
+	}
+}
+
+func TestHandleSidebarRight_GoToFirstChild(t *testing.T) {
+	// Spec: "[right] go to first child (if expanded)"
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"dir/file1.go", "dir/file2.go"},
+		},
+		allFiles:    []string{"dir/file1.go", "dir/file2.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.treeMode = true
+	m.focus = SidebarFocus
+	m.updateSidebarItems()
+
+	// Find and select an expanded directory
+	for i, item := range m.sidebar.items {
+		if item.isDir {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+
+	if !m.sidebar.SelectedIsDir() {
+		t.Skip("no directory found")
+	}
+
+	dirIdx := m.sidebar.SelectedIndex()
+
+	// Press right — should move to first child
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = result.(*Model)
+
+	if m.sidebar.SelectedIndex() <= dirIdx {
+		t.Error("right on expanded directory should move to first child")
+	}
+}
+
+func TestHandleSidebarRight_LeafSwitchesToMain(t *testing.T) {
+	// Spec: "(leaf file) switch to main pane"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.loading = false
+	m.treeMode = true
+	m.collapsedDirs = make(map[string]bool)
+	m.mode = FileDiffMode
+	m.focus = SidebarFocus
+	m.committedFiles = []string{"file.go"}
+	m.updateLayout()
+	m.updateSidebarItems()
+
+	// Select a file (leaf)
+	for !m.sidebar.SelectedIsDir() || m.sidebar.selected >= len(m.sidebar.items)-1 {
+		break
+	}
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = result.(*Model)
+
+	if m.focus != MainFocus {
+		t.Error("right on leaf file should switch focus to main pane")
+	}
+}
+
+func TestHandleEnter_NonTreeModeSwitchesToMain(t *testing.T) {
+	// Spec: "when not in tree mode, [enter]/[right]/[l] on a sidebar entry
+	// switches to the main pane"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.loading = false
+	m.treeMode = false
+	m.mode = FileDiffMode
+	m.focus = SidebarFocus
+	m.committedFiles = []string{"file.go"}
+	m.updateLayout()
+	m.updateSidebarItems()
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(*Model)
+
+	if m.focus != MainFocus {
+		t.Error("enter in non-tree mode should switch to main pane")
+	}
+}
+
+func TestHandleEnter_MainPane_FileMode_OpensEditor(t *testing.T) {
+	// Spec: "[enter] file modes: open $EDITOR at current line"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.loading = false
+	m.mode = FileViewMode
+	m.focus = MainFocus
+	m.committedFiles = []string{"file.go"}
+	m.updateLayout()
+	m.updateSidebarItems()
+	m.mainPane.SetContent("line1\nline2\nline3")
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if cmd == nil {
+		t.Error("enter in file mode main pane should return an editor command")
+	}
+}
+
 func TestMouseWheelHorizontal(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.loading = false
