@@ -10,13 +10,13 @@ the UI should show the delta between the merge-base of the current branch and th
 
 ## layout
 
-the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar -- smaller than the "main" pane on the right.
+the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar - smaller than the "main" pane on the right.
 
 the sidebar will be a list of selectable items, separated into groups.
 each group should be separated by a horizontal rule (non-selectable), and given a heading that includes a parenthesized count of items in the section.
 
 the main pane will display content.
-binary content should never be shown -- instead display [binary content].
+binary content should never be shown - instead display [binary content].
 
 while loading, data (such as data from github or a CI system), the display should indicate this rather than displaying inaccurate information. however, it should also display the data it _does_ have immediately, to keep the UI snappy and useful.
   - for example, if the program is still downloading results from the GitHub API, it should render the file and diff mode and say "loading from github" on the github header
@@ -37,7 +37,7 @@ line 2: local git status (not shown if this is not a git repo)
   - name of current branch and merge base, if any (eg: `foo -> main`, or just `main`)
   - number of uncommitted files — both new/unstaged and staged (12 uncommitted)
   - number of unpushed commits (2 unpushed)
-  - number of commits after base (3 commits) -- or just the number of commits if we're in the main branch.
+  - number of commits after base (3 commits) - or just the number of commits if we're in the main branch.
     this should always be the true total count (e.g. via `git rev-list --count`), not the number of commits currently loaded.
     clicking this should switch to [commits] mode
   - number of commits that this branch is behind base, if any (4 behind)
@@ -61,14 +61,38 @@ line 3: github status (not shown if there is no PR)
 
 ## modes
 
-main modes: "file-view", "file-diff", "commit", "pr".
-PR mode should be the default mode we start up to, if there is an active PR.
-otherwise, default to file-view mode.
-switching between file-diff and file-view should retain the selected file.
+main modes: "files", "commits", "pr".
+pr mode should be the default mode we start up to, if there is an active pull request.
+otherwise, default to files mode.
+switching between modes should retain the view state from the last time we were on that mode.
 
-### file-view mode
+### file mode
 
-the sidebar should be a list of all files in the directory, and the right pane should be the full file, that highlights the diff for the current changeset.
+the sidebar should be a list of all files in the directory, separated into categories:
+  1. new changes — untracked or unstaged files
+  2. staged — staged but uncommitted files
+  3. committed files
+  4. all files
+
+order within these categories should be alphabetical.
+deleted files should still show up in this view, but they should be red.
+
+the main pane should be the currently-selected file, and it should highlight the diff for the current changeset.
+
+change-type indicators: in the new changes, staged, and committed sections, each changed file should display a right-aligned badge indicating the nature of the change:
+  - `[-]` in red for files that are entirely deletions (file was removed or diff is all removals)
+  - `[+]` in green for entirely new files (file was added or diff is all additions)
+  - `[±]` in the default color for files with a mix of additions and deletions
+
+[i] should toggle on/off view of gitignored files in all files mode. it should be on by default. ignored files should show up in a dimmed color.
+
+tree view (enabled by default): files should be grouped under directories, and subsequently indented.
+- directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
+- [t] should toggle this mode on/off
+- files and subdirectories in directories can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter].
+- for new changes, staged files, and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
+- compact directories: when a chain of directories each have only one child (e.g. `foo/bar/baz/`), collapse them into a single line showing the combined path. this applies even if the leafmost directory contains multiple files — the combined directory entry is expandable/collapsible as a single unit. if the entire chain leads to a single file with no sibling directories, display the whole path including the filename on one line (no directory entry).
+- cursor vs. pinned file: the sidebar cursor moves freely over files and directories, but the main panel only updates when the cursor lands on a file. navigating over directories (keys or click) keeps the previous file's content visible. the sidebar should visually distinguish the cursor position from the pinned (currently viewing) file when they differ.
 
 this mode should have a "gutter":
 - [n] should toggle on/off line numbers when displaying full files (defaulting to on)
@@ -80,11 +104,20 @@ this mode should have a "gutter":
 - entering into this view should jump immediately to the first diff
 - gutter should stick even when the user scrolls horizontally
 
-### file-diff mode
+### commits mode
 
-the left pane should be a list of the files that have been changed, and the right pane should be the content of the diff for the currently-selected file.
+the left pane should be a list of commits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
+the list of commits should be separated into categories, each with a section header and horizontal rule separator:
+1. New Changes — untracked or unstaged changes (not technically a commit, if there are any they should all be grouped together under one line)
+2. Staged — staged but uncommitted changes (grouped together under one line, like new changes)
+3. Unpushed — commits that have not yet been pushed to the origin (should be a dimmed color).
+4. Pushed — commits in the current branch / PR that have been pushed to the origin
+5. Base — commits after the stuff that's already in the base branch (even before the feature branch began)
 
-### pr-view mode
+if this list is very long, we should paginate it. load the first 100 commits initially, then load the next 100 when the user scrolls to the end of the list. show a "load more" entry at the bottom of the list while more commits are available.
+
+
+### pr mode
 
 only available if there is an active PR.
 main panel should show the content associated with the currently-selected sidebar item.
@@ -116,46 +149,8 @@ sidebar should show:
   - main panel shows check name, status, start/completion timestamps, URL, and (for RWX) fetched logs
     - pressing [enter] when the main panel is highlighted should open a browser to the CI URL
 
-### CI logs
+#### CI logs
 - support RWX as a CI provider. if the github CI status points to RWX and there are failures, use the rwx CLI tool to display details about the failures (including failing test results).
-
-### sidebar (both file modes)
-
-the sidebar should be separated into categories:
-  1. new changes — untracked or unstaged files
-  2. staged — staged but uncommitted files
-  3. committed files
-  4. all files (file-view mode only)
-
-order within these categories should be alphabetical.
-deleted files should still show up in this view, but they should be red.
-
-change-type indicators: in the new changes, staged, and committed sections, each changed file should display a right-aligned badge indicating the nature of the change:
-  - `[-]` in red for files that are entirely deletions (file was removed or diff is all removals)
-  - `[+]` in green for entirely new files (file was added or diff is all additions)
-  - `[±]` in the default color for files with a mix of additions and deletions
-
-[i] should toggle on/off view of gitignored files in all files mode. it should be on by default. ignored files should show up in a dimmed color.
-
-tree view (enabled by default): files should be grouped under directories, and subsequently indented.
-- directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
-- [t] should toggle this mode on/off
-- files and subdirectories in directories can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter].
-- for new changes, staged files, and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
-- compact directories: when a chain of directories each have only one child (e.g. `foo/bar/baz/`), collapse them into a single line showing the combined path. this applies even if the leafmost directory contains multiple files — the combined directory entry is expandable/collapsible as a single unit. if the entire chain leads to a single file with no sibling directories, display the whole path including the filename on one line (no directory entry).
-- cursor vs. pinned file: the sidebar cursor moves freely over files and directories, but the main panel only updates when the cursor lands on a file. navigating over directories (keys or click) keeps the previous file's content visible. the sidebar should visually distinguish the cursor position from the pinned (currently viewing) file when they differ.
-
-### commit mode
-
-the left pane should be a list of commits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
-the list of commits should be separated into categories, each with a section header and horizontal rule separator:
-1. New Changes — untracked or unstaged changes (not technically a commit, if there are any they should all be grouped together under one line)
-2. Staged — staged but uncommitted changes (grouped together under one line, like new changes)
-3. Unpushed — commits that have not yet been pushed to the origin (should be a dimmed color).
-4. Pushed — commits in the current branch / PR that have been pushed to the origin
-5. Base — commits after the stuff that's already in the base branch (even before the feature branch began)
-
-if this list is very long, we should paginate it. load the first 100 commits initially, then load the next 100 when the user scrolls to the end of the list. show a "load more" entry at the bottom of the list while more commits are available.
 
 ## live refresh
 
@@ -172,7 +167,7 @@ checking against the github server:
 
 ## edge cases
 
-when running in a non-git directory, file-view mode should be the only mode.
+when running in a non-git directory, files mode should be the only mode.
 
 running in a branch without a base branch (i.e. directly in main, or a detached head):
 - file modes should show uncommitted changes
@@ -185,11 +180,10 @@ detached HEAD works normally, status bar shows `detached @ <short sha>` instead 
 ### mode switching
 | key | action |
 |-----|--------|
-| [m] | cycle modes (file-view -> file-diff -> commit) |
-| [v] or [1] | jump to file-view mode |
-| [d] or [2] | jump to file-diff mode |
-| [c] or [3] | jump to commit mode |
-| [b] or [4] | jump to pr mode |
+| [m] | cycle modes (files -> commits -> pr -> files) |
+| [v] or [1] | jump to files mode |
+| [c] or [2] | jump to commits mode |
+| [b] or [3] | jump to pr mode |
 
 ### focus & navigation
 | key | action |
@@ -225,7 +219,7 @@ when not in tree mode, [enter]/[right]/[l] on a sidebar entry switches to the ma
 | [shift]+[n]/[p] | jump to next/previous leaf node in the sidebar, even if the sidebar is not selected |
 | [y] | sidebar focused: copy the relative path of the selected file to the system clipboard. main pane focused: copy the file path plus the line number range currently in view (e.g. `path/to/file.go:42-87`). |
 
-### file-view specific
+### files specific
 | key | action |
 |-----|--------|
 | [n] | toggle line numbers |
@@ -278,7 +272,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 - scrolling independently scrolls the focused view, keeping selections the same.
 - when text is not wrapped, horizontal mouse scroll works too.
 - hovering over clickable elements highlights them with a different background color.
-- dragging over text highlights it, and finishing a drag copies to the system paste buffer.
+- dragging over text highlights it, and finishing a drag copies to the system clipboard.
   - selecting stays within the boundaries of the pane being dragged in.
   - the highlight should only cover the relevant content that will be copied — not TUI glyphs, border characters, or gutter content.
   - copied text should be the same as the text from the file (or diff) that is being copied - it should not carry over extra newlines when the text in the UI wraps
@@ -306,7 +300,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 - `PRWATCH_DEBUG_LOG` enables verbose debug logging to a file. it should log all UI actions, timer fires, filesystem changes, signals from the OS, and re-renders.
 - when starting, run git status; if there are any changes to the PROMPT.md commit those first
 - check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then put the bug report plus a little one-liner about how it was fixed in a log at the bottom of the doc.
-- this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress. If PLAN.md seems outdated -- clean it up so that it doesn't take up unnecessary context for future agents.
+- this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress. If PLAN.md seems outdated - clean it up so that it doesn't take up unnecessary context for future agents.
 - re-check this file occasionally to see if the user has made changes to it. if there are uncommitted changes to this file, commit them and follow the newly updated instructions
 - use test-driven development.
 - make small, iterative commits to keep your work trackable.
