@@ -2,6 +2,7 @@ prwatch
 /prwatch-ctl
 *.swp
 cover.out
+cover-*.out
 .claude/*.local.md
 mousetest
 EXAMPLES.md
