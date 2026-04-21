@@ -6919,10 +6919,11 @@ func TestManualRefresh(t *testing.T) {
 		t.Fatal("[r] manual refresh should return a data loading command")
 	}
 
-	// Execute the command and verify it produces a gitDataMsg
+	// Manual refresh now uses split loading (local + PR), so the command
+	// produces a tea.BatchMsg containing both loadLocalGitData and loadPRStatus.
 	followUp := cmd()
-	if _, ok := followUp.(gitDataMsg); !ok {
-		t.Errorf("[r] refresh command should produce gitDataMsg, got %T", followUp)
+	if _, ok := followUp.(tea.BatchMsg); !ok {
+		t.Errorf("[r] refresh command should produce tea.BatchMsg (split loading), got %T", followUp)
 	}
 }
 

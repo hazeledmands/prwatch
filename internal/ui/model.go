@@ -1190,7 +1190,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.git == nil {
 			return m, m.loadNonGitFiles
 		}
-		return m, m.loadGitData
+		return m, tea.Batch(m.loadLocalGitData, m.loadPRStatus)
 
 	case key.Matches(msg, keys.ToggleSidebar):
 		m.sidebarHidden = !m.sidebarHidden
