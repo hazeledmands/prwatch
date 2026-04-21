@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -56,7 +57,26 @@ func main() {
 		return
 	}
 
-	p := tea.NewProgram(m)
+	// When IPC mode is requested, run headless (no TTY needed).
+	var opts []tea.ProgramOption
+	socketPath := ui.IPCSocketPathFromEnv()
+	if socketPath != "" {
+		opts = append(opts, tea.WithInput(nil), tea.WithOutput(io.Discard))
+	}
+	p := tea.NewProgram(m, opts...)
+
+	// Start IPC listener if configured
+	if socketPath != "" {
+		cleanup, err := ui.StartIPCListener(socketPath, func(msg tea.Msg) {
+			p.Send(msg)
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: IPC listener failed: %v\n", err)
+		} else {
+			defer cleanup()
+			fmt.Fprintf(os.Stderr, "IPC socket: %s\n", socketPath)
+		}
+	}
 
 	// Start file watcher
 	w, err := watcher.New(dir, func() {

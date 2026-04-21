@@ -1,4 +1,5 @@
 prwatch
+/prwatch-ctl
 *.swp
 cover.out
 .claude/*.local.md
