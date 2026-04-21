@@ -1,7 +1,8 @@
 ## New Bugs
 
-
 ## Fixed Bugs
+
+- Slow startup: loading screen persisted for multiple seconds — root cause was `loadGitData` being monolithic (GitHub API calls blocked local git data from rendering). Fixed by splitting Init() to load local git data and PR data as separate concurrent commands; local files/diffs/commits now appear within milliseconds while PR data fills in asynchronously.
 
 - Multiple consecutive removed lines only showing one in file-view changed-line rendering — fixed by showing all removed lines (extras as pure deletions) before the inline/split diff comparison with the last removed line.
 
