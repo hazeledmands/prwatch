@@ -2404,29 +2404,27 @@ func TestModeSwitching_RetainsFileSelection(t *testing.T) {
 		t.Fatalf("expected b.go, got %s", m.sidebar.SelectedItem())
 	}
 
-	// Switch to file-view — should retain selection
+	// Sidebar toggle should retain selection
 	result, _ := m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
 	m = result.(*Model)
 	if m.sidebar.SelectedItem() != "b.go" {
-		t.Errorf("file-view should retain selection, got %s", m.sidebar.SelectedItem())
+		t.Errorf("should retain selection, got %s", m.sidebar.SelectedItem())
 	}
 }
 
-func TestModeSwitching_RetainsFileWithAllFiles(t *testing.T) {
-	// When switching from file-diff to file-view, the "All Files" section adds
-	// extra sidebar entries that shift indices. The selected file path must be
-	// preserved, not just the index.
+func TestModeSwitching_FilesCommitsRoundTrip(t *testing.T) {
+	// Switching from files → commits → files should preserve the files
+	// sidebar selection (beta.go), not reset to the first item.
 	mock := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"alpha.go", "beta.go"},
 		},
-		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:    "+new",
+		commits:     []git.Commit{{SHA: "abc", Subject: "one"}, {SHA: "def", Subject: "two"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "one"}, {SHA: "def", Subject: "two"}},
 		fileContent: "content",
-		allFiles:    []string{"alpha.go", "beta.go", "other1.go", "other2.go", "other3.go"},
+		allFiles:    []string{"alpha.go", "beta.go", "other1.go"},
 	}
 	m := NewModel("/tmp", mock)
 	m.width = 80
@@ -2439,27 +2437,30 @@ func TestModeSwitching_RetainsFileWithAllFiles(t *testing.T) {
 	// Start in files mode, select beta.go
 	m.mode = FilesMode
 	m.updateSidebarItems()
-	// Items: Committed header, alpha.go, beta.go
-	m.sidebar.SelectIndex(2) // beta.go
+	for i, item := range m.sidebar.items {
+		if item.filePath == "beta.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
 	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Fatalf("expected beta.go selected in diff mode, got %q", m.sidebar.SelectedItem())
+		t.Fatalf("expected beta.go selected in files mode, got %q", m.sidebar.SelectedItem())
 	}
 
-	// Switch to file-view — should still have beta.go selected
-	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	// Switch to commits, then back to files — beta.go should still be selected.
+	result, _ := m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
+	m = result.(*Model)
+	if m.mode != CommitsMode {
+		t.Fatalf("should be in CommitsMode, got %d", m.mode)
+	}
+	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 	if m.mode != FilesMode {
-		t.Fatal("should be in FilesMode")
+		t.Fatal("should be back in FilesMode")
 	}
 	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Errorf("after switch to file-view, should retain beta.go, got %q", m.sidebar.SelectedItem())
-	}
-
-	// Switch back to file-diff — should still have beta.go
-	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
-	m = result.(*Model)
-	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Errorf("after switch back to file-diff, should retain beta.go, got %q", m.sidebar.SelectedItem())
+		t.Errorf("files mode should retain beta.go after round trip, got %q",
+			m.sidebar.SelectedItem())
 	}
 }
 
@@ -2851,7 +2852,7 @@ func TestNonGitMode_BlocksModeSwitching(t *testing.T) {
 		t.Error("c should not change mode in non-git")
 	}
 
-	// 'f' should stay in file-view (already there)
+	// 'f' should not change mode
 	result, _ = m.Update(tea.KeyPressMsg{Text: "f", Code: 'f'})
 	m = result.(*Model)
 	if m.mode != FilesMode {
@@ -3681,7 +3682,7 @@ func TestBinaryContentDisplay(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Switch to file-view to see the binary content
+	// Files mode shows binary content as placeholder
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
@@ -4316,7 +4317,7 @@ func TestJumpToNextDiff(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// Switch to file-view
+	// Switch to files mode
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 	m.focus = MainFocus

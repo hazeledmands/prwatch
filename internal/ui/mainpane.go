@@ -35,7 +35,7 @@ type mainPane struct {
 	height             int
 	wordWrap           bool                   // whether to wrap long lines
 	lineNumbers        bool                   // whether to show line numbers (plain content only)
-	diffAnnotations    map[int]diffAnnotation // line number -> annotation (for file-view gutter)
+	diffAnnotations    map[int]diffAnnotation // line number -> annotation (for files mode gutter)
 	showRemoved        bool                   // Shift+D: show removed lines inline
 	xOffset            int                    // horizontal scroll offset (when word wrap is off)
 	formattedContent   string                 // content after formatting but before wrapping

@@ -1518,9 +1518,7 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 					m.showHelp = !m.showHelp
 				} else {
 					m.showHelp = false
-					m.mode = label.mode
-					m.updateSidebarItems()
-					m.updateMainContent()
+					m.setMode(label.mode)
 				}
 				return m, nil
 			}
@@ -1532,29 +1530,25 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 				switch label.target {
 				case line2CommitsMode:
 					if len(m.commits) > 0 {
-						m.mode = CommitsMode
+						m.setMode(CommitsMode)
 					}
 				case line2FilesMode:
-					m.mode = FilesMode
+					m.setMode(FilesMode)
 				}
-				m.updateSidebarItems()
-				m.updateMainContent()
 				return m, nil
 			}
 		}
-		// Fallback: anywhere on line 2 goes to commit mode
+		// Fallback: anywhere on line 2 goes to commits mode
 		if len(m.commits) > 0 {
-			m.mode = CommitsMode
-			m.updateSidebarItems()
-			m.updateMainContent()
+			m.setMode(CommitsMode)
 		}
 	case 2:
-		// Line 3: PR status — click on specific elements
+		// Line 3: PR status — click on specific elements. Clicking any
+		// label jumps to a specific item, overriding the restored state.
 		if m.prInfo.Number > 0 {
 			for _, label := range m.line3Labels {
 				if x >= label.start && x < label.end {
-					m.mode = PRMode
-					m.updateSidebarItems()
+					m.setMode(PRMode)
 					switch label.target {
 					case line3Description:
 						m.sidebar.SelectFirst()
