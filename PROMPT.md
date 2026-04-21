@@ -315,7 +315,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 - push to github after every commit.
 - there should be continuous integration with GHA
 - after each commit, run `PRWATCH_RENDER_ONCE=1 go run .` to see the current state of the TUI rendered as text. review the output yourself to verify the UI looks correct before moving on.
-- if everything looks good from the outside, see if you can explore the app yourself, as a user might, to verify things that way.
+- if everything looks good from the outside, see if you can explore the app yourself, as a user might, to verify things that way. use EXAMPLES.md to find some local directories to explore in to try out various features.
 - if everything still looks good, audit the code for things that could possibly be refactored for clarity, consistency, maintainability or other forms of code quality.
 - there should be tests that cover every behavior listed in this prompt file. if a behavior is described here, there should be a test asserting it works.
 - if anything in this spec is ambiguous, contradictory, or impossible to implement as written, make a reasonable choice and then flag it in INCONSISTENCIES.md so the human-in-the-loop can clarify.
