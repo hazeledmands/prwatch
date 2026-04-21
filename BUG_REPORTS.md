@@ -1,5 +1,6 @@
 ## New Bugs
 
+- in file view mode, if there is more than one removed line in a row, I am only seeing one of the removed lines
 
 ## Fixed Bugs
 
