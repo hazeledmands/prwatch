@@ -343,6 +343,77 @@ func TestParseKeyName(t *testing.T) {
 	}
 }
 
+func TestParseKeyName_AllSpecialKeys(t *testing.T) {
+	cases := map[string]rune{
+		"enter":     tea.KeyEnter,
+		"esc":       tea.KeyEscape,
+		"pgup":      tea.KeyPgUp,
+		"pgdn":      tea.KeyPgDown,
+		"backspace": tea.KeyBackspace,
+		"down":      tea.KeyDown,
+		"left":      tea.KeyLeft,
+		"right":     tea.KeyRight,
+	}
+	for name, wantCode := range cases {
+		msg := parseKeyName(name)
+		if msg.Code != wantCode {
+			t.Errorf("parseKeyName(%q).Code = %d, want %d", name, msg.Code, wantCode)
+		}
+	}
+
+	// Special characters
+	for _, ch := range []string{"?", "+", "-"} {
+		msg := parseKeyName(ch)
+		if msg.Text != ch {
+			t.Errorf("parseKeyName(%q).Text = %q, want %q", ch, msg.Text, ch)
+		}
+	}
+
+	// Multi-char fallback
+	msg := parseKeyName("unknown")
+	if msg.Text != "unknown" {
+		t.Errorf("parseKeyName(\"unknown\").Text = %q, want \"unknown\"", msg.Text)
+	}
+}
+
+func TestRelativeTime(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		input time.Time
+		want  string
+	}{
+		{time.Time{}, ""},
+		{now.Add(-30 * time.Second), "now"},
+		{now.Add(-5 * time.Minute), "5m ago"},
+		{now.Add(-3 * time.Hour), "3h ago"},
+		{now.Add(-5 * 24 * time.Hour), "5d ago"},
+		{now.Add(-3 * 30 * 24 * time.Hour), "3mo ago"},
+		{now.Add(-2 * 365 * 24 * time.Hour), "2y ago"},
+	}
+	for _, tc := range cases {
+		got := relativeTime(tc.input)
+		if got != tc.want {
+			t.Errorf("relativeTime(%v) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestCiBucketOrder(t *testing.T) {
+	cases := map[string]int{
+		"fail":     0,
+		"cancel":   0,
+		"pending":  1,
+		"pass":     2,
+		"skipping": 3,
+		"other":    4,
+	}
+	for bucket, want := range cases {
+		if got := ciBucketOrder(bucket); got != want {
+			t.Errorf("ciBucketOrder(%q) = %d, want %d", bucket, got, want)
+		}
+	}
+}
+
 func BenchmarkStartupView(b *testing.B) {
 	// Benchmark the initial View() call to catch performance regressions.
 	mock := &mockGit{
