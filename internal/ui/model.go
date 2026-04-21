@@ -901,6 +901,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Full PR data is refreshed on the PR tick cycle instead.
 		return m, m.loadLocalGitData
 
+	case ipcMsg:
+		return m.handleIPC(msg)
+
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 

@@ -31,13 +31,19 @@ type response struct {
 }
 
 func main() {
-	if len(os.Args) < 3 {
-		fmt.Fprintf(os.Stderr, "Usage: prwatch-ctl <socket> <keys|--render|--quit>\n")
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "Usage: prwatch-ctl [socket] <keys|--render|--quit>\n")
 		os.Exit(1)
 	}
 
-	socketPath := os.Args[1]
-	arg := os.Args[2]
+	var socketPath, arg string
+	if len(os.Args) >= 3 {
+		socketPath = os.Args[1]
+		arg = os.Args[2]
+	} else {
+		socketPath = "/tmp/prwatch.sock"
+		arg = os.Args[1]
+	}
 
 	var req request
 	switch arg {

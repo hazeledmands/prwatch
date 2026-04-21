@@ -14,10 +14,21 @@ import (
 )
 
 func main() {
+	// Parse --ipc flag
+	var ipcMode bool
+	args := os.Args[1:]
+	for i, arg := range args {
+		if arg == "--ipc" {
+			ipcMode = true
+			args = append(args[:i], args[i+1:]...)
+			break
+		}
+	}
+
 	var dir string
 	var err error
-	if len(os.Args) > 1 {
-		dir, err = filepath.Abs(os.Args[1])
+	if len(args) > 0 {
+		dir, err = filepath.Abs(args[0])
 	} else {
 		dir, err = os.Getwd()
 	}
@@ -60,8 +71,12 @@ func main() {
 	// When IPC mode is requested, run headless (no TTY needed).
 	var opts []tea.ProgramOption
 	socketPath := ui.IPCSocketPathFromEnv()
+	if socketPath == "" && ipcMode {
+		socketPath = "/tmp/prwatch.sock"
+	}
 	if socketPath != "" {
-		opts = append(opts, tea.WithInput(nil), tea.WithOutput(io.Discard))
+		// Headless mode: disable terminal I/O so the program runs without a TTY.
+		opts = append(opts, tea.WithInput(nil), tea.WithOutput(io.Discard), tea.WithoutRenderer())
 	}
 	p := tea.NewProgram(m, opts...)
 
