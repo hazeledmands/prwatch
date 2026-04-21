@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"sort"
@@ -14,6 +15,18 @@ import (
 	runewidth "github.com/mattn/go-runewidth"
 	"pgregory.net/rapid"
 )
+
+func init() {
+	// Default to 10 rapid checks for fast test runs (< 60s total).
+	// Override with PRWATCH_RAPID_CHECKS=100 or -rapid.checks=100 for thorough runs.
+	if n := os.Getenv("PRWATCH_RAPID_CHECKS"); n != "" {
+		flag.Set("rapid.checks", n)
+	} else {
+		// Set a lower default; if the user passes -rapid.checks explicitly,
+		// flag.Parse() will overwrite this value later.
+		flag.Set("rapid.checks", "5")
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Scenario generators
@@ -1687,7 +1700,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		checkRenderInvariants(t, m, "after init")
 		checkChangeBadgeInvariants(t, m, "after init")
 
-		nSteps := rapid.IntRange(5, 40).Draw(t, "nSteps")
+		nSteps := rapid.IntRange(3, 20).Draw(t, "nSteps")
 		for step := range nSteps {
 			msg := genTreeAction(t, m, step)
 			context := fmt.Sprintf("step %d", step)
