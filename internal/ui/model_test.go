@@ -2045,6 +2045,57 @@ func TestModeSwitching_RetainsFileSelection(t *testing.T) {
 	}
 }
 
+func TestModeSwitching_RetainsFileWithAllFiles(t *testing.T) {
+	// When switching from file-diff to file-view, the "All Files" section adds
+	// extra sidebar entries that shift indices. The selected file path must be
+	// preserved, not just the index.
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"alpha.go", "beta.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff:    "+new",
+		fileContent: "content",
+		allFiles:    []string{"alpha.go", "beta.go", "other1.go", "other2.go", "other3.go"},
+	}
+	m := NewModel("/tmp", mock)
+	m.width = 80
+	m.height = 30
+	m.treeMode = false // flat mode for simpler reasoning
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Start in file-diff mode, select beta.go
+	m.mode = FileDiffMode
+	m.updateSidebarItems()
+	// Items: Committed header, alpha.go, beta.go
+	m.sidebar.SelectIndex(2) // beta.go
+	if m.sidebar.SelectedItem() != "beta.go" {
+		t.Fatalf("expected beta.go selected in diff mode, got %q", m.sidebar.SelectedItem())
+	}
+
+	// Switch to file-view — should still have beta.go selected
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+	if m.mode != FileViewMode {
+		t.Fatal("should be in FileViewMode")
+	}
+	if m.sidebar.SelectedItem() != "beta.go" {
+		t.Errorf("after switch to file-view, should retain beta.go, got %q", m.sidebar.SelectedItem())
+	}
+
+	// Switch back to file-diff — should still have beta.go
+	result, _ = m.Update(tea.KeyPressMsg{Text: "d", Code: 'd'})
+	m = result.(*Model)
+	if m.sidebar.SelectedItem() != "beta.go" {
+		t.Errorf("after switch back to file-diff, should retain beta.go, got %q", m.sidebar.SelectedItem())
+	}
+}
+
 func TestSearch_ExecutesOnContent(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
