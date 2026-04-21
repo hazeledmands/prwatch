@@ -1,0 +1,75 @@
+# 2026/04/20 20:57:24.943133 [TestProperty_ClickSidebarSelectsItem] [rapid] draw width: 60
+# 2026/04/20 20:57:24.943174 [TestProperty_ClickSidebarSelectsItem] [rapid] draw height: 15
+# 2026/04/20 20:57:24.943184 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nCommitted: 0
+# 2026/04/20 20:57:24.943193 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nUncommitted: 2
+# 2026/04/20 20:57:24.943201 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nStaged: 0
+# 2026/04/20 20:57:24.943210 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nCommits: 0
+# 2026/04/20 20:57:24.943220 [TestProperty_ClickSidebarSelectsItem] [rapid] draw nOtherFiles: 0
+# 2026/04/20 20:57:24.943229 [TestProperty_ClickSidebarSelectsItem] [rapid] draw branch: "main"
+# 2026/04/20 20:57:24.943237 [TestProperty_ClickSidebarSelectsItem] [rapid] draw detached: false
+# 2026/04/20 20:57:24.943247 [TestProperty_ClickSidebarSelectsItem] [rapid] draw prNum: 0
+# 2026/04/20 20:57:24.943254 [TestProperty_ClickSidebarSelectsItem] [rapid] draw aheadCount: 0
+# 2026/04/20 20:57:24.943262 [TestProperty_ClickSidebarSelectsItem] [rapid] draw fileDiff_emoji: 1
+# 2026/04/20 20:57:24.943274 [TestProperty_ClickSidebarSelectsItem] [rapid] draw fileContent_emoji: 1
+# 2026/04/20 20:57:24.943284 [TestProperty_ClickSidebarSelectsItem] [rapid] draw commitPatch_emoji: 1
+# 2026/04/20 20:57:24.943385 [TestProperty_ClickSidebarSelectsItem] [rapid] draw col1: 1
+# 2026/04/20 20:57:24.943449 [TestProperty_ClickSidebarSelectsItem] [rapid] draw col2: 1
+# 2026/04/20 20:57:24.943506 [TestProperty_ClickSidebarSelectsItem] clicked row 5 col 1 (item 2), expected "new1.go", got "new0.go"
+# 
+v0.4.8#7291555883418939789
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

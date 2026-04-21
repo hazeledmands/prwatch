@@ -1,0 +1,91 @@
+# 2026/04/20 20:57:25.121775 [TestProperty_ClickCommitSelectsCommit] [rapid] draw width: 60
+# 2026/04/20 20:57:25.121792 [TestProperty_ClickCommitSelectsCommit] [rapid] draw height: 15
+# 2026/04/20 20:57:25.121801 [TestProperty_ClickCommitSelectsCommit] [rapid] draw nCommitted: 0
+# 2026/04/20 20:57:25.121813 [TestProperty_ClickCommitSelectsCommit] [rapid] draw nUncommitted: 0
+# 2026/04/20 20:57:25.121848 [TestProperty_ClickCommitSelectsCommit] [rapid] draw nStaged: 0
+# 2026/04/20 20:57:25.121862 [TestProperty_ClickCommitSelectsCommit] [rapid] draw nCommits: 2
+# 2026/04/20 20:57:25.121871 [TestProperty_ClickCommitSelectsCommit] [rapid] draw nOtherFiles: 0
+# 2026/04/20 20:57:25.121888 [TestProperty_ClickCommitSelectsCommit] [rapid] draw commit0_emoji: 1
+# 2026/04/20 20:57:25.121906 [TestProperty_ClickCommitSelectsCommit] [rapid] draw commit1_emoji: 1
+# 2026/04/20 20:57:25.121918 [TestProperty_ClickCommitSelectsCommit] [rapid] draw branch: "main"
+# 2026/04/20 20:57:25.121928 [TestProperty_ClickCommitSelectsCommit] [rapid] draw detached: false
+# 2026/04/20 20:57:25.121936 [TestProperty_ClickCommitSelectsCommit] [rapid] draw prNum: 0
+# 2026/04/20 20:57:25.121943 [TestProperty_ClickCommitSelectsCommit] [rapid] draw aheadCount: 0
+# 2026/04/20 20:57:25.121954 [TestProperty_ClickCommitSelectsCommit] [rapid] draw fileDiff_emoji: 1
+# 2026/04/20 20:57:25.121963 [TestProperty_ClickCommitSelectsCommit] [rapid] draw fileContent_emoji: 1
+# 2026/04/20 20:57:25.121973 [TestProperty_ClickCommitSelectsCommit] [rapid] draw commitPatch_emoji: 1
+# 2026/04/20 20:57:25.122068 [TestProperty_ClickCommitSelectsCommit] [rapid] draw col1: 1
+# 2026/04/20 20:57:25.122104 [TestProperty_ClickCommitSelectsCommit] [rapid] draw col2: 1
+# 2026/04/20 20:57:25.122132 [TestProperty_ClickCommitSelectsCommit] clicked commit row 5 col 1 (item 2), expected "0000001 commit message 1", got "0000000 commit message 0"
+# 
+v0.4.8#15118930230610540559
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

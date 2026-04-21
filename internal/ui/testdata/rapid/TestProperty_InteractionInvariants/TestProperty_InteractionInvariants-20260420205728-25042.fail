@@ -1,0 +1,19 @@
+# 2026/04/20 20:57:28.326041 [TestProperty_InteractionInvariants] [rapid] draw isGit: 0.0625
+# 2026/04/20 20:57:28.326064 [TestProperty_InteractionInvariants] [rapid] draw width: 40
+# 2026/04/20 20:57:28.326073 [TestProperty_InteractionInvariants] [rapid] draw height: 10
+# 2026/04/20 20:57:28.329714 [TestProperty_InteractionInvariants] after init: last line should contain bottom border (╰) but got: "                                        "
+# 
+v0.4.8#6728237172001325726
+0x0
+0x0
+0x6856c47037428
+0x4
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
