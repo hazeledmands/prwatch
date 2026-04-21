@@ -69,6 +69,13 @@ Core features (all original tasks complete):
 - PR deployments: resolved by using GitHub GraphQL API via `gh api graphql`
 - Sidebar emoji truncation: resolved by switching to runewidth-aware truncation
 
+## Performance
+
+- Startup performance tests verify UI renders immediately with loading state before data loads
+- Benchmarks track View() and RenderOnce performance over time
+- Full test suite completes in ~25s by default (5 rapid iterations, 3-20 steps)
+- For thorough verification: `PRWATCH_RAPID_CHECKS=100 go test -race ./...`
+
 ## Test Coverage
 
 Target: 90%+ for UI and git packages.
