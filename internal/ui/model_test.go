@@ -6527,6 +6527,63 @@ func TestEnterOnPRDescription_OpensURL(t *testing.T) {
 	}
 }
 
+func TestManualRefresh(t *testing.T) {
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:   "feature",
+			Upstream: "origin/main",
+			RepoName: "testrepo",
+			DirName:  "testrepo",
+			HeadSHA:  "abc1234",
+		},
+		base:        "origin/main",
+		fileContent: "package main\n",
+		allFiles:    []string{"main.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+
+	// Load initial data
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.updateSidebarItems()
+
+	// Press 'r' — should return a refresh command, not nil
+	result, cmd := m.Update(tea.KeyPressMsg{Text: "r", Code: 'r'})
+	m = result.(*Model)
+
+	if cmd == nil {
+		t.Fatal("[r] manual refresh should return a data loading command")
+	}
+
+	// Execute the command and verify it produces a gitDataMsg
+	followUp := cmd()
+	if _, ok := followUp.(gitDataMsg); !ok {
+		t.Errorf("[r] refresh command should produce gitDataMsg, got %T", followUp)
+	}
+}
+
+func TestManualRefresh_NonGit(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "test.txt"), []byte("hello"), 0644)
+
+	m := NewModel(dir, nil)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+
+	// Press 'r' — should return a refresh command for non-git repos too
+	result, cmd := m.Update(tea.KeyPressMsg{Text: "r", Code: 'r'})
+	m = result.(*Model)
+
+	if cmd == nil {
+		t.Fatal("[r] manual refresh in non-git mode should return a command")
+	}
+}
+
 func TestEnterOnComment_OpensURL(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
