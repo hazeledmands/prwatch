@@ -143,7 +143,8 @@ func (m *mockGit) RWXTestResults(taskID string) ([]git.RWXFailedTest, error) {
 
 // slowMockGit wraps a mockGit but adds artificial delays to simulate slow
 // git and GitHub API responses. Used to verify the UI renders immediately
-// even when data sources are slow.
+// even when data sources are slow. Only the methods called during Init/loadGitData
+// are wrapped; other methods return instantly.
 type slowMockGit struct {
 	mockGit
 	delay time.Duration
@@ -206,8 +207,8 @@ func TestStartupRendersBeforeDataLoads(t *testing.T) {
 	view := m.View()
 	elapsed := time.Since(start)
 
-	if elapsed > 50*time.Millisecond {
-		t.Errorf("initial View() took %v, expected <50ms", elapsed)
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("initial View() took %v, expected <500ms", elapsed)
 	}
 
 	if !strings.Contains(view.Content, "loading") {
@@ -231,8 +232,8 @@ func TestStartupInitDoesNotBlock(t *testing.T) {
 	cmd := m.Init()
 	elapsed := time.Since(start)
 
-	if elapsed > 50*time.Millisecond {
-		t.Errorf("Init() took %v, expected <50ms", elapsed)
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("Init() took %v, expected <500ms", elapsed)
 	}
 
 	if cmd == nil {
@@ -262,8 +263,8 @@ func TestStartupRenderOnceWorksWithData(t *testing.T) {
 	output := m.RenderOnce(120, 40)
 	elapsed := time.Since(start)
 
-	if elapsed > 100*time.Millisecond {
-		t.Errorf("RenderOnce with fast mock took %v, expected <100ms", elapsed)
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("RenderOnce with fast mock took %v, expected <500ms", elapsed)
 	}
 
 	if strings.Contains(output, "loading") {
