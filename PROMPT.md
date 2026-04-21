@@ -320,7 +320,7 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 - there should be tests that cover every behavior listed in this prompt file. if a behavior is described here, there should be a test asserting it works.
 - if anything in this spec is ambiguous, contradictory, or impossible to implement as written, make a reasonable choice and then flag it in INCONSISTENCIES.md so the human-in-the-loop can clarify.
   - for each inconsistency, provide a short list of proposed paths forward to address them
-- think through the app from different personas: an engineer end user, a UX designer, and a product manager. add actionable feedback, in bulled-point form, to AGENT_FEEDBACK.md. Make sure that the feedback file is in .gitignore.
+- think through the app from different personas: an engineer end user, a UX designer, a product manager, a QA specialist, and a staff software engineer implementing the program. add actionable feedback, in bulled-point form, to AGENT_FEEDBACK.md. Make sure that the feedback file is in .gitignore. if anything in agent feedback seems like it would be in keeping with a reading of the prompt, please make the change proactively.
 
 ## DOCUMENTATION
 - the readme file should be up-to-date and provide a relatively concise overview of what this tool is meant to do.
