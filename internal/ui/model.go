@@ -152,7 +152,8 @@ type Model struct {
 	dragging            bool
 	notification        string       // transient notification text (bottom-left)
 	notificationExpiry  time.Time    // when the notification should disappear
-	loading             bool         // true until first data load completes
+	loading             bool         // true until first local data load completes
+	prLoadedOnce        bool         // true after first successful PR data fetch
 	modeLabels          []modeLabel  // clickable mode label positions from last render
 	line2Labels         []line2Label // clickable positions on git status line
 	line3Labels         []line3Label // clickable positions on PR status line
@@ -321,7 +322,7 @@ func (m *Model) Init() tea.Cmd {
 	if m.git == nil {
 		return m.loadNonGitFiles
 	}
-	return tea.Batch(m.loadGitData, schedulePRTick(m.prInterval), scheduleGitTick())
+	return tea.Batch(m.loadLocalGitData, m.loadPRStatus, schedulePRTick(m.prInterval), scheduleGitTick())
 }
 
 func schedulePRTick(interval time.Duration) tea.Cmd {
@@ -779,6 +780,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// PR fetch failed: preserve PR data but flag the error
 		// Otherwise: update PR data normally
 		if !msg.localOnly {
+			m.prLoadedOnce = true
 			if msg.prFetchFailed {
 				m.prError = "GitHub API error"
 			} else {
@@ -860,6 +862,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prComments = msg.prComments
 		m.prDeployments = msg.prDeployments
 		m.sortPRData()
+		// On first PR data arrival, switch to PR mode if user hasn't changed modes
+		if !m.prLoadedOnce && m.prInfo.Number > 0 && m.mode == FileViewMode {
+			m.mode = PRViewMode
+		}
+		m.prLoadedOnce = true
 		m.updateLayout()
 		m.updateSidebarItems()
 		m.updateMainContent()
@@ -1495,7 +1502,7 @@ func (m *Model) clearSearch() {
 }
 
 func (m *Model) statusBarLines() int {
-	return statusBarLineCount(statusBarData{info: m.repoInfo, pr: m.prInfo, prLoading: m.loading && m.git != nil})
+	return statusBarLineCount(statusBarData{info: m.repoInfo, pr: m.prInfo, prLoading: (m.loading || !m.prLoadedOnce) && m.git != nil})
 }
 
 func (m *Model) sidebarPixelWidth() int {
@@ -2787,7 +2794,7 @@ func (m *Model) updateLayout() {
 		info:      m.repoInfo,
 		pr:        m.prInfo,
 		prError:   m.prError,
-		prLoading: m.loading && m.git != nil,
+		prLoading: (m.loading || !m.prLoadedOnce) && m.git != nil,
 	})
 	contentHeight := max(0, m.height-statusBarHeight-2) // borders
 

@@ -241,6 +241,114 @@ func TestStartupInitDoesNotBlock(t *testing.T) {
 	}
 }
 
+// slowPRMockGit has fast local git ops but slow PR API calls, simulating
+// the real-world scenario where GitHub API is slower than local git.
+type slowPRMockGit struct {
+	mockGit
+	prDelay time.Duration
+}
+
+func (s *slowPRMockGit) PRAll() (git.PRAllResult, error) {
+	time.Sleep(s.prDelay)
+	return s.mockGit.PRAll()
+}
+
+func (s *slowPRMockGit) PRChecksAll() (git.PRChecksResult, error) {
+	time.Sleep(s.prDelay)
+	return s.mockGit.PRChecksAll()
+}
+
+func TestStartupLocalDataAppearsBeforePR(t *testing.T) {
+	// Regression: loadGitData was monolithic — PR API calls blocked local
+	// data from appearing. Init() now loads local git data and PR data as
+	// separate commands so the UI renders local state immediately.
+	mock := &slowPRMockGit{
+		mockGit: mockGit{
+			repoInfo: git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+			base:     "origin/main",
+			changedFiles: git.ChangedFilesResult{
+				Committed: []string{"file.go"},
+			},
+			fileContent: "package main\n",
+			allFiles:    []string{"file.go", "go.mod"},
+			prInfo:      git.PRInfoResult{Number: 99, Title: "My PR"},
+		},
+		prDelay: 5 * time.Second,
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+
+	// Simulate Init() returning two commands: loadLocalGitData + loadPRStatus
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("Init() should return commands")
+	}
+
+	// Run loadLocalGitData (the fast one) directly and apply it
+	localMsg := m.loadLocalGitData()
+	m.Update(localMsg)
+
+	// Local data should now be visible — loading should be done
+	if m.loading {
+		t.Error("loading should be false after local data arrives")
+	}
+
+	view := m.View()
+	if strings.Contains(view.Content, "loading...") {
+		t.Error("should not show 'loading...' after local data is applied")
+	}
+	if !strings.Contains(view.Content, "file.go") {
+		t.Error("should show local files after local data loads")
+	}
+
+	// PR data should still show as loading
+	if m.prLoadedOnce {
+		t.Error("prLoadedOnce should be false before PR data arrives")
+	}
+}
+
+func TestStartupSwitchesToPRModeAfterPRDataArrives(t *testing.T) {
+	// When Init() splits loading, the UI starts in file-view mode.
+	// Once PR data arrives via prRefreshMsg, it should auto-switch to PR mode.
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:     "origin/main",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go", "go.mod"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+
+	// Apply local data first
+	localMsg := m.loadLocalGitData()
+	m.Update(localMsg)
+
+	if m.mode != FileViewMode {
+		t.Errorf("expected FileViewMode before PR data, got %v", m.mode)
+	}
+
+	// Now simulate PR data arriving
+	m.Update(prRefreshMsg{
+		prInfo: git.PRInfoResult{Number: 42, Title: "Test PR"},
+	})
+
+	if m.mode != PRViewMode {
+		t.Errorf("expected PRViewMode after PR data arrives, got %v", m.mode)
+	}
+	if !m.prLoadedOnce {
+		t.Error("prLoadedOnce should be true after PR data arrives")
+	}
+}
+
 func TestStartupRenderOnceWorksWithData(t *testing.T) {
 	// RenderOnce (used by PRWATCH_RENDER_ONCE=1) loads data synchronously.
 	// With a fast mock, it should complete quickly and show actual content.
