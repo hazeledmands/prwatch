@@ -2821,6 +2821,127 @@ func (m *Model) RenderOnce(width, height int) string {
 	return v.Content
 }
 
+// RenderWithKeys loads data, applies a sequence of key events, and returns the
+// rendered output. Used by PRWATCH_KEYS for non-interactive exploration.
+//
+// The keys string is a comma-separated list of key names. Special keys:
+// tab, enter, esc, space, up, down, left, right, pgup, pgdn, backspace.
+// Shift modifier: shift+j, shift+n, etc. Single characters: j, k, v, d, etc.
+func (m *Model) RenderWithKeys(width, height int, keys string) string {
+	m.width = width
+	m.height = height
+	m.updateLayout()
+
+	// Synchronously load data
+	var msg tea.Msg
+	if m.git != nil {
+		msg = m.loadGitData()
+	} else {
+		msg = m.loadNonGitFiles()
+	}
+	result, cmd := m.Update(msg)
+	m = result.(*Model)
+	// Execute safe follow-up commands (like PR load, all-files load)
+	m.execFollowUps(cmd)
+
+	// Apply each key
+	for _, k := range strings.Split(keys, ",") {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		keyMsg := parseKeyName(k)
+		result, cmd := m.Update(keyMsg)
+		m = result.(*Model)
+		m.execFollowUps(cmd)
+	}
+
+	v := m.View()
+	return v.Content
+}
+
+// execFollowUps executes safe follow-up commands from Update, recursively
+// processing batched commands. Used by RenderWithKeys to resolve async loads.
+func (m *Model) execFollowUps(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	func() {
+		defer func() { recover() }()
+		msg := cmd()
+		if msg == nil {
+			return
+		}
+		switch msg := msg.(type) {
+		case tea.BatchMsg:
+			for _, sub := range msg {
+				if sub != nil {
+					m.execFollowUps(sub)
+				}
+			}
+		case gitDataMsg, prRefreshMsg, allFilesMsg, moreCommitsMsg:
+			result, cmd2 := m.Update(msg)
+			*m = *(result.(*Model))
+			m.execFollowUps(cmd2)
+		}
+	}()
+}
+
+// parseKeyName converts a key name string to a tea.KeyPressMsg.
+func parseKeyName(name string) tea.KeyPressMsg {
+	// Handle shift+X
+	if strings.HasPrefix(name, "shift+") {
+		ch := name[6:]
+		if len(ch) == 1 {
+			upper := strings.ToUpper(ch)
+			return tea.KeyPressMsg{Text: upper, Code: rune(upper[0]), Mod: tea.ModShift}
+		}
+		// shift+up, shift+down, shift+space, etc.
+		base := parseKeyName(ch)
+		base.Mod |= tea.ModShift
+		return base
+	}
+
+	switch name {
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "space":
+		return tea.KeyPressMsg{Text: " ", Code: ' '}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "left":
+		return tea.KeyPressMsg{Code: tea.KeyLeft}
+	case "right":
+		return tea.KeyPressMsg{Code: tea.KeyRight}
+	case "pgup":
+		return tea.KeyPressMsg{Code: tea.KeyPgUp}
+	case "pgdn":
+		return tea.KeyPressMsg{Code: tea.KeyPgDown}
+	case "backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "?":
+		return tea.KeyPressMsg{Text: "?", Code: '?'}
+	case "/":
+		return tea.KeyPressMsg{Text: "/", Code: '/'}
+	case "+":
+		return tea.KeyPressMsg{Text: "+", Code: '+'}
+	case "-":
+		return tea.KeyPressMsg{Text: "-", Code: '-'}
+	default:
+		if len(name) == 1 {
+			ch := rune(name[0])
+			return tea.KeyPressMsg{Text: name, Code: ch}
+		}
+		return tea.KeyPressMsg{Text: name}
+	}
+}
+
 func (m *Model) View() tea.View {
 	if m.debugLog != nil {
 		m.debugLog.Printf("[render] mode=%d focus=%d tree=%v items=%d selected=%d offset=%d",

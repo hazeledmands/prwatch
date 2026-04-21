@@ -48,7 +48,11 @@ func main() {
 				height = n
 			}
 		}
-		fmt.Print(m.RenderOnce(width, height))
+		if keys := os.Getenv("PRWATCH_KEYS"); keys != "" {
+			fmt.Print(m.RenderWithKeys(width, height, keys))
+		} else {
+			fmt.Print(m.RenderOnce(width, height))
+		}
 		return
 	}
 
