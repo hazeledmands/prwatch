@@ -276,6 +276,73 @@ func TestStartupRenderOnceWorksWithData(t *testing.T) {
 	}
 }
 
+func TestRenderWithKeys(t *testing.T) {
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch:   "feature",
+			Upstream: "origin/main",
+			RepoName: "testrepo",
+			DirName:  "testrepo",
+			HeadSHA:  "abc1234",
+		},
+		base: "origin/main",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"alpha.go", "beta.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
+		allCommits:  []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
+		fileDiff:    "diff\n+new line",
+		fileContent: "package main\n",
+		commitPatch: "commit abc1234\n\ndiff\n+added",
+		allFiles:    []string{"alpha.go", "beta.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+
+	// Switch to commit mode and navigate down
+	output := m.RenderWithKeys(120, 40, "c,j")
+	if !strings.Contains(output, "commits") {
+		t.Error("RenderWithKeys should show commit mode")
+	}
+}
+
+func TestParseKeyName(t *testing.T) {
+	tests := []struct {
+		name     string
+		wantCode rune
+		wantText string
+	}{
+		{"j", 'j', "j"},
+		{"tab", tea.KeyTab, ""},
+		{"enter", tea.KeyEnter, ""},
+		{"up", tea.KeyUp, ""},
+		{"space", ' ', " "},
+		{"/", '/', "/"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := parseKeyName(tt.name)
+			if msg.Code != tt.wantCode {
+				t.Errorf("parseKeyName(%q).Code = %d, want %d", tt.name, msg.Code, tt.wantCode)
+			}
+			if tt.wantText != "" && msg.Text != tt.wantText {
+				t.Errorf("parseKeyName(%q).Text = %q, want %q", tt.name, msg.Text, tt.wantText)
+			}
+		})
+	}
+
+	// Shift modifier
+	msg := parseKeyName("shift+j")
+	if msg.Code != 'J' || msg.Mod != tea.ModShift {
+		t.Errorf("shift+j: Code=%d Mod=%d, want Code=%d Mod=%d", msg.Code, msg.Mod, 'J', tea.ModShift)
+	}
+
+	msg = parseKeyName("shift+up")
+	if msg.Code != tea.KeyUp || msg.Mod != tea.ModShift {
+		t.Errorf("shift+up: Code=%d Mod=%d, want Code=%d Mod=%d", msg.Code, msg.Mod, tea.KeyUp, tea.ModShift)
+	}
+}
+
 func BenchmarkStartupView(b *testing.B) {
 	// Benchmark the initial View() call to catch performance regressions.
 	mock := &mockGit{
