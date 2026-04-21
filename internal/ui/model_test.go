@@ -6065,6 +6065,95 @@ func TestHandleHelpKey_UpAtZero(t *testing.T) {
 	}
 }
 
+func TestYankPath_SidebarFocused(t *testing.T) {
+	// Spec: "[y] sidebar focused: copy the relative path of the selected file
+	// to the system clipboard"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.loading = false
+	m.mode = FileDiffMode
+	m.focus = SidebarFocus
+	m.committedFiles = []string{"internal/auth.go", "config.go"}
+	m.updateLayout()
+	m.updateSidebarItems()
+
+	// Select the second file
+	m.sidebar.SelectNext()
+
+	result, cmd := m.Update(tea.KeyPressMsg{Text: "y", Code: 'y'})
+	m = result.(*Model)
+
+	if cmd == nil {
+		t.Fatal("[y] should return a command (notification timer)")
+	}
+
+	// Should show a notification with the copied path
+	if !strings.Contains(m.notification, "config.go") {
+		t.Errorf("notification should mention copied file path, got %q", m.notification)
+	}
+}
+
+func TestYankPath_MainPaneFocused(t *testing.T) {
+	// Spec: "[y] main pane focused: copy the file path plus the line number
+	// range currently in view (e.g. path/to/file.go:42-87)"
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.loading = false
+	m.mode = FileDiffMode
+	m.focus = MainFocus
+	m.committedFiles = []string{"auth.go"}
+	m.updateLayout()
+	m.updateSidebarItems()
+	m.mainPane.SetContent("line1\nline2\nline3\nline4\nline5")
+
+	result, cmd := m.Update(tea.KeyPressMsg{Text: "y", Code: 'y'})
+	m = result.(*Model)
+
+	if cmd == nil {
+		t.Fatal("[y] should return a command")
+	}
+
+	// Notification should contain file:line format
+	if !strings.Contains(m.notification, "auth.go:") {
+		t.Errorf("notification should contain path:line format, got %q", m.notification)
+	}
+}
+
+func TestYankPath_DirectoryIgnored(t *testing.T) {
+	// Yanking when a directory is selected should be a no-op
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.loading = false
+	m.treeMode = true
+	m.collapsedDirs = make(map[string]bool)
+	m.mode = FileDiffMode
+	m.focus = SidebarFocus
+	m.committedFiles = []string{"pkg/foo.go", "pkg/bar.go"}
+	m.updateLayout()
+	m.updateSidebarItems()
+
+	// Find and select a directory
+	for i, item := range m.sidebar.items {
+		if item.isDir {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+
+	result, cmd := m.Update(tea.KeyPressMsg{Text: "y", Code: 'y'})
+	m = result.(*Model)
+
+	if cmd != nil {
+		t.Error("[y] on directory should be a no-op (nil cmd)")
+	}
+	if m.notification != "" {
+		t.Errorf("no notification expected for directory yank, got %q", m.notification)
+	}
+}
+
 func TestCopySelection_NoDrag(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.loading = false
