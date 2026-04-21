@@ -5,4 +5,5 @@ cover.out
 .claude/*.local.md
 mousetest
 EXAMPLES.md
+AGENT_FEEDBACK.md
 bugreport/
