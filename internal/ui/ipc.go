@@ -121,11 +121,6 @@ func (m *Model) handleIPC(msg ipcMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// DefaultIPCSocketPath returns the default IPC socket path for a prwatch instance.
-func DefaultIPCSocketPath() string {
-	return fmt.Sprintf("/tmp/prwatch-%d.sock", os.Getpid())
-}
-
 // IPCSocketPathFromEnv returns the socket path from PRWATCH_IPC_SOCKET, or empty string.
 func IPCSocketPathFromEnv() string {
 	return os.Getenv("PRWATCH_IPC_SOCKET")
