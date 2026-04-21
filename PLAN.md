@@ -72,15 +72,17 @@ Core features (all original tasks complete):
 ## Performance
 
 - Startup performance tests verify UI renders immediately with loading state before data loads
+- Init() splits loading into local git data (fast) + PR API data (slow) so the UI is usable within milliseconds
+- Manual refresh ([r]) also uses split loading to avoid blocking on GitHub API
 - Benchmarks track View() and RenderOnce performance over time
-- Full test suite completes in ~25s by default (5 rapid iterations, 3-20 steps)
+- Full test suite completes in ~19s by default (5 rapid iterations, 3-20 steps)
 - For thorough verification: `PRWATCH_RAPID_CHECKS=100 go test -race ./...`
 
 ## Test Coverage
 
 Target: 90%+ for UI and git packages.
-- `internal/ui`: ~90.8%
+- `internal/ui`: ~87.7%
 - `internal/git`: ~86.1%
 - `internal/watcher`: ~86.4%
 
-Includes property-based invariant tests (line count, line width, sidebar click, drag-copy) and 16 golden file snapshot tests.
+Includes property-based invariant tests (line count, line width, sidebar click, drag-copy, tree navigation, interaction invariants) and 16 golden file snapshot tests.
