@@ -217,7 +217,7 @@ each command maps to one or more keys. keys listed on the same row are interchan
 | `down` | `j`, `down` | sidebar: select next item. main pane: scroll down one line. |
 | `page-up` | `pgup`, `shift+space` | page up the focused view |
 | `page-down` | `pgdn`, `space` | page down the focused view |
-| `go-top` | `gg` | go to the top of the focused view |
+| `go-top` | `g` | go to the top of the focused view |
 | `go-bottom` | `G` | go to the bottom of the focused view |
 
 when not in tree mode, `focus-right` and `confirm` on a sidebar entry switch focus to the main pane. navigating over directories (keys or click) does not change the main panel content — only landing on a file does.

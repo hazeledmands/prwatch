@@ -42,7 +42,7 @@ Three modes, switchable with `m` or by clicking the mode bar in the status bar. 
 | `h`/`l` / left/right | Scroll horizontally (when word wrap is off) |
 | `space`/`pgdn` | Page down |
 | `shift+space`/`pgup` | Page up |
-| `gg` `G` | Go to top / bottom |
+| `g` `G` | Go to top / bottom |
 | `enter` | Sidebar: focus main. Main (files mode): open `$EDITOR` |
 | `N`/`P` | Jump to next/previous file (leaf) in sidebar |
 | `/` | Search (incremental, then `n`/`p`/`shift+N` to navigate matches) |

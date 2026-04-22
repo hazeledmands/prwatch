@@ -4,6 +4,7 @@ prwatch
 cover.out
 cover-*.out
 .claude/*.local.md
+.claude/*.lock
 mousetest
 EXAMPLES.md
 AGENT_FEEDBACK.md

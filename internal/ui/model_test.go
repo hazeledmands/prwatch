@@ -1681,7 +1681,7 @@ func TestTabTogglesFocus(t *testing.T) {
 	}
 }
 
-func TestGG_GoToTop_Sidebar(t *testing.T) {
+func TestG_GoToTop_Sidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.committedFiles = []string{"a.go", "b.go", "c.go"}
 	m.mode = FilesMode
@@ -1695,18 +1695,11 @@ func TestGG_GoToTop_Sidebar(t *testing.T) {
 		t.Fatalf("expected index 3, got %d", m.sidebar.SelectedIndex())
 	}
 
-	// Press g once
+	// Press g once — jumps to first selectable (index 1, skipping header)
 	result, _ := m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
 	m = result.(*Model)
-	if m.sidebar.SelectedIndex() != 3 {
-		t.Error("single g should not move selection")
-	}
-
-	// Press g again (gg) — goes to first selectable (index 1, skipping header)
-	result, _ = m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
-	m = result.(*Model)
 	if m.sidebar.SelectedIndex() != 1 {
-		t.Errorf("gg should go to first selectable, got index %d", m.sidebar.SelectedIndex())
+		t.Errorf("g should go to first selectable, got index %d", m.sidebar.SelectedIndex())
 	}
 }
 
@@ -1725,21 +1718,23 @@ func TestG_GoToBottom_Sidebar(t *testing.T) {
 	}
 }
 
-func TestGG_GoToTop_MainPane(t *testing.T) {
+func TestG_GoToTop_MainPane(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
-	m.height = 24
+	m.height = 6 // small viewport so scrolling is meaningful
 	m.updateLayout()
 	m.focus = MainFocus
-	m.mainPane.SetContent("line1\nline2\nline3\nline4\nline5")
+	m.mainPane.SetContent("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10")
+	m.mainPane.GoToBottom()
+	if m.mainPane.ScrollTop() == 0 {
+		t.Fatal("expected main pane to be scrolled down before go-top test")
+	}
 
-	// Press g, then g
+	// Press g — jumps to top.
 	result, _ := m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
 	m = result.(*Model)
-	result, _ = m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
-	m = result.(*Model)
 	if m.mainPane.ScrollTop() != 0 {
-		t.Errorf("gg should scroll to top, got offset %d", m.mainPane.ScrollTop())
+		t.Errorf("g should scroll to top, got offset %d", m.mainPane.ScrollTop())
 	}
 }
 
@@ -2493,25 +2488,6 @@ func TestSearch_ExecutesOnContent(t *testing.T) {
 
 	if m.mainPane.ScrollTop() != 2 {
 		t.Errorf("search should scroll to target line (2), got %d", m.mainPane.ScrollTop())
-	}
-}
-
-func TestG_SingleG_DoesNotMove(t *testing.T) {
-	m := NewModel("/tmp", testGit())
-	m.committedFiles = []string{"a.go", "b.go", "c.go"}
-	m.mode = FilesMode
-	m.updateSidebarItems()
-	m.focus = SidebarFocus
-	m.sidebar.SelectLast()
-
-	// Press g once, then something else — should NOT go to top
-	result, _ := m.Update(tea.KeyPressMsg{Text: "g", Code: 'g'})
-	m = result.(*Model)
-	result, _ = m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
-	m = result.(*Model)
-	// lastKeyG should be cleared, no jump to top
-	if m.lastKeyG {
-		t.Error("lastKeyG should be cleared after non-g key")
 	}
 }
 
