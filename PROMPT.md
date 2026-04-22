@@ -8,6 +8,10 @@ if [dir] is provided, then it should run against that directory; if not, it shou
 
 the UI should show the delta between the merge-base of the current branch and the origin's base branch (like GitHub's three-dot diff). for committed files, diff against HEAD. for uncommitted files, diff against the working tree. the tool should use origin/<base> rather than the local base branch ref to stay consistent with GitHub's view.
 
+## commands and keybindings
+
+everything the user can do in the app is a named *command*. commands are context-aware: the same command may be bound in multiple places (sidebar vs. main pane, search input vs. normal mode, help overlay) and do the right thing for that context. the rest of this spec refers to behaviors by command name (e.g. `toggle-tree`, `next-diff`); the `## keybindings` section at the bottom is the single source of truth for which keys trigger which command. rebinding a key in one place rebinds it everywhere.
+
 ## layout
 
 the UI should have a "status bar" at the top, with two panes arranged horizontally taking up the rest of the available space. the left pane should be a sidebar - smaller than the "main" pane on the right.
@@ -39,11 +43,11 @@ line 2: local git status (not shown if this is not a git repo)
   - number of unpushed commits (2 unpushed)
   - number of commits after base (3 commits) - or just the number of commits if we're in the main branch.
     this should always be the true total count (e.g. via `git rev-list --count`), not the number of commits currently loaded.
-    clicking this should switch to [commits] mode
+    clicking this should invoke `commits-mode`
   - number of commits that this branch is behind base, if any (4 behind)
-    clicking this should switch to [commits] mode
+    clicking this should invoke `commits-mode`
   - number of changed files in this branch, if any (16 changed files)
-    clicking this should switch to file view mode
+    clicking this should invoke `files-mode`
   - if no PR, "No PR"
 line 3: github status (not shown if there is no PR)
   - if the github API is returning errors, then put the error message here! otherwise:
@@ -84,25 +88,25 @@ change-type indicators: in the new changes, staged, and committed sections, each
   - `[+]` in green for entirely new files (file was added or diff is all additions)
   - `[±]` in the default color for files with a mix of additions and deletions
 
-[i] should toggle on/off view of gitignored files in all files mode. it should be on by default. ignored files should show up in a dimmed color.
+`toggle-ignored` should toggle on/off view of gitignored files in all files mode. it should be on by default. ignored files should show up in a dimmed color.
 
 tree view (enabled by default): files should be grouped under directories, and subsequently indented.
 - directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
-- [t] should toggle this mode on/off
-- files and subdirectories in directories can be hidden/shown by clicking on them or selecting them by keyboard and pressing [enter].
+- `toggle-tree` toggles this mode on/off.
+- files and subdirectories in directories can be hidden/shown by clicking on them or by selecting them in the sidebar and invoking `confirm`.
 - for new changes, staged files, and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
 - compact directories: when a chain of directories each have only one child (e.g. `foo/bar/baz/`), collapse them into a single line showing the combined path. this applies even if the leafmost directory contains multiple files — the combined directory entry is expandable/collapsible as a single unit. if the entire chain leads to a single file with no sibling directories, display the whole path including the filename on one line (no directory entry).
 - cursor vs. pinned file: the sidebar cursor moves freely over files and directories, but the main panel only updates when the cursor lands on a file. navigating over directories (keys or click) keeps the previous file's content visible. the sidebar should visually distinguish the cursor position from the pinned (currently viewing) file when they differ.
 
 this mode should have a "gutter":
-- [n] should toggle on/off line numbers when displaying full files (defaulting to on)
+- `toggle-line-numbers` toggles line numbers when displaying full files (defaulting to on).
 - if there is a diff for the current file, there should be a "diff gutter" that flags new lines (+), removed lines (-), and changed lines (~). if the file being viewed was COMPLETELY removed or is totally new, then the gutter should indicate that too.
 - changed lines should have ~ in the gutter. if the diff is less than 1/4 of the width of the active pane, show both the deleted content (in red) and the new content (in green) inline on the same line. if the diff is bigger than that, duplicate the line with the deleted version on top (red) and the new version on bottom (green). retained (unchanged) text within a changed line should be yellow, deleted text red, new text green.
-- wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line
-- [shift]+[d] should show/hide removed content from the diff, in its own line (defaulting to showing)
-- [shift]+[j]/[k]/[up]/[down] should jump directly to the next or previous diff hunk. this should wrap around, just like search results.
-- entering into this view should jump immediately to the first diff
-- gutter should stick even when the user scrolls horizontally
+- wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line.
+- `toggle-removed-lines` shows/hides removed content from the diff, in its own line (defaulting to showing).
+- `next-diff` / `prev-diff` jump directly to the next or previous diff hunk. this should wrap around, just like search results.
+- entering into this view should jump immediately to the first diff.
+- gutter should stick even when the user scrolls horizontally.
 
 ### commits mode
 
@@ -129,25 +133,25 @@ sidebar should show:
       - tags, assignees, reviewers (and review status for each), projects, milestone
       - PR description with markdown formatting
       - deployments
-      - pressing [enter] when the main panel is highlighted should open a browser to the PR url
+      - `confirm` in the main panel should open a browser to the PR url
 - Comments section header
   - one line per comment: dim index, author name, dim relative timestamp
   - sorted by date descending (most recent first)
   - main panel shows author with timestamp, then the comment body
-    - pressing [enter] when the main panel is highlighted should open a browser to the comment URL
+    - `confirm` in the main panel should open a browser to the comment URL
 - horizontal rule
 - Reviews section header
   - one line per review: dim index, state indicator (✓ ✗ c …), author name, dim relative timestamp
   - sorted by date descending (most recent first)
   - main panel shows author with timestamp, review state, body, and inline code-level comments (file:line plus body for each)
     - inline review comments are fetched via GitHub GraphQL API (gh pr view --json doesn't include them)
-    - pressing [enter] when the main panel is highlighted should open a browser to the review URL
+    - `confirm` in the main panel should open a browser to the review URL
 - horizontal rule
 - CI section header
   - one line per CI check: state indicator, check name, dim relative last updated time
   - sorted by: failures first, then pending, then passing; secondary order preserves GitHub's canonical order
   - main panel shows check name, status, start/completion timestamps, URL, and (for RWX) fetched logs
-    - pressing [enter] when the main panel is highlighted should open a browser to the CI URL
+    - `confirm` in the main panel should open a browser to the CI URL
 
 #### CI logs
 - support RWX as a CI provider. if the github CI status points to RWX and there are failures, use the rwx CLI tool to display details about the failures (including failing test results).
@@ -175,96 +179,91 @@ running in a branch without a base branch (i.e. directly in main, or a detached 
 
 detached HEAD works normally, status bar shows `detached @ <short sha>` instead of a branch name.
 
-## keybindings
+## search
 
-### mode switching
-| key | action |
-|-----|--------|
-| [m] | cycle modes (files -> commits -> pr -> files) |
-| [v] or [1] | jump to files mode |
-| [c] or [2] | jump to commits mode |
-| [b] or [3] | jump to pr mode |
+`search` opens the search input at the bottom of the screen. while the input is active, searching matches as you type and scrolls to put results in view. results are highlighted (text background should be a contrasting color). the number of matches and the index of the current match should display at the bottom of the screen.
 
-### focus & navigation
-| key | action |
-|-----|--------|
-| [tab] | toggle focus between sidebar and main panel |
-| [,] | focus the sidebar |
-| [.] | focus the main panel |
-| [j]/[k] or [up]/[down] | sidebar: select item. main pane: scroll vertically |
-| [space]/[pgdn] | page down the focused view |
-| [shift]+[space]/[pgup] | page up the focused view |
-| [gg] | go to the top of the focused view |
-| [G] | go to the bottom of the focused view |
-
-### horizontal scrolling (main pane focused, word wrap off)
-| key | action |
-|-----|--------|
-| [h]/[l] or [left]/[right] | scroll left/right. left at scroll=0 switches focus to sidebar. cannot scroll past the last visible character. |
-
-### sidebar tree navigation (sidebar focused, tree mode on)
-| key | action |
-|-----|--------|
-| [left]/[h] | collapse directory (if expanded), or go to nearest parent directory |
-| [right]/[l] or [enter] | expand directory (if collapsed), go to first child (if expanded), or (leaf file) switch to main pane |
-
-navigating over directories with any of these keys does not change the main panel content — only landing on a file does.
-
-when not in tree mode, [enter]/[right]/[l] on a sidebar entry switches to the main pane.
-
-### main pane actions
-| key | action |
-|-----|--------|
-| [enter] | file modes: open $EDITOR at current line. commit mode: no-op for now. |
-| [shift]+[n]/[p] | jump to next/previous leaf node in the sidebar, even if the sidebar is not selected |
-| [y] | sidebar focused: copy the relative path of the selected file to the system clipboard. main pane focused: copy the file path plus the line number range currently in view (e.g. `path/to/file.go:42-87`). |
-
-### files specific
-| key | action |
-|-----|--------|
-| [n] | toggle line numbers |
-| [shift]+[d] | toggle showing removed diff lines inline |
-| [shift]+[j]/[k]/[up]/[down] | jump to next/previous diff (wraps around) |
-| [i] | toggle gitignored files in all-files section |
-| [t] | toggle tree view |
-
-### display
-| key | action |
-|-----|--------|
-| [+]/[-] | resize sidebar |
-| [f] | hide/show sidebar |
-| [w] | toggle word wrapping (default: on). word-wrap should break at word boundaries, except words longer than 1/8 of the screen width should be broken mid-word. |
-| [r] | manual refresh |
-
-### search
-| key | action |
-|-----|--------|
-| [/] | open search input at bottom of screen |
-| [esc] | cancel search |
-| [backspace] | if search text is empty, cancel search |
-| [enter] | if search text is empty, cancel search. otherwise confirm search and enter n/p navigation mode |
-| [n] | next search result (wraps around) |
-| [p] or [shift]+[n] | previous search result (wraps around) |
+`confirm` with non-empty text confirms the search and enters navigation mode, where `search-next` and `search-prev` cycle through matches (wrapping). `confirm` on empty text exits search. `quit` exits search. pressing backspace on empty text also exits search.
 
 searching should match against the content in the main pane only (not the sidebar), including content that is scrolled offscreen.
-searching should match as you type, and scroll to put the results of the search in view.
-the number of matches, and the index of the current match, should display at the bottom of the screen.
-results should be highlighted (text background should be a contrasting color).
 
-### quit
-| key | action |
-|-----|--------|
-| [q]/[esc] | show confirmation prompt. press [q] again to confirm, or any other key to cancel. |
-| [Q]/[ctrl-c] | quit immediately |
+## quit & help
 
-### help
-| key | action |
-|-----|--------|
-| [?] | open help page showing all keybindings |
+`quit` is context-aware. when a search input is active, it cancels search. when help is open, it closes help. otherwise it shows a confirmation prompt — invoking `quit` again confirms; any other key cancels. `quit-immediate` always exits without confirmation.
 
-help goes away when you hit [esc] or [q].
-[/] within help opens a search scoped to help content, with the same n/p navigation as regular search.
-help should be scrollable by mouse and also by all the same scrolling keys as in other views (page up/down, etc)
+`help` opens a help page showing all commands and their bindings. inside help, `search` opens a search scoped to help content (same `search-next`/`search-prev` navigation). help should be scrollable by mouse and by the same scrolling commands (`page-up`, `page-down`, `go-top`, `go-bottom`, `up`, `down`) as other views.
+
+## keybindings
+
+each command maps to one or more keys. keys listed on the same row are interchangeable.
+
+### mode switching
+| command | default key(s) | action |
+|---------|----------------|--------|
+| `toggle-mode` | `m` | cycle modes: files → commits → pr → files (skips pr if no PR) |
+| `files-mode` | `v`, `1` | jump to files mode |
+| `commits-mode` | `c`, `2` | jump to commits mode |
+| `pr-mode` | `b`, `3` | jump to pr mode (no-op if no PR) |
+
+### focus & navigation
+| command | default key(s) | action |
+|---------|----------------|--------|
+| `focus-toggle` | `tab` | toggle focus between sidebar and main panel |
+| `focus-sidebar` | `,` | focus the sidebar |
+| `focus-main` | `.` | focus the main panel |
+| `focus-left` | `h`, `left` | sidebar (tree mode): collapse dir, or go to nearest parent. main pane: scroll left (or, if word wrap is off and scroll is at 0, switch focus to sidebar). |
+| `focus-right` | `l`, `right` | sidebar (tree mode): expand dir, descend into first child, or (leaf file) switch focus to main pane. main pane: scroll right when word wrap is off. |
+| `up` | `k`, `up` | sidebar: select previous item. main pane: scroll up one line. |
+| `down` | `j`, `down` | sidebar: select next item. main pane: scroll down one line. |
+| `page-up` | `pgup`, `shift+space` | page up the focused view |
+| `page-down` | `pgdn`, `space` | page down the focused view |
+| `go-top` | `gg` | go to the top of the focused view |
+| `go-bottom` | `G` | go to the bottom of the focused view |
+
+when not in tree mode, `focus-right` and `confirm` on a sidebar entry switch focus to the main pane. navigating over directories (keys or click) does not change the main panel content — only landing on a file does.
+
+horizontal scrolling via `focus-left` / `focus-right` only applies when the main pane is focused and word wrap is off. when word wrap is on, `focus-right` on the main pane is a no-op, and `focus-left` at the left edge still switches focus to the sidebar.
+
+### main pane & sidebar actions
+| command | default key(s) | action |
+|---------|----------------|--------|
+| `confirm` | `enter` | sidebar (tree, on a dir): expand/collapse. sidebar (file or non-tree): switch focus to main pane. main pane (files mode): open `$EDITOR` at the line currently at the top of the viewport. main pane (pr mode): open a browser to the URL of the selected item. main pane (commits mode): no-op for now. active search input: confirm (empty text cancels). |
+| `next-leaf` | `shift+n` | jump to next leaf node in the sidebar, regardless of focus |
+| `prev-leaf` | `shift+p` | jump to previous leaf node in the sidebar, regardless of focus |
+| `yank-path` | `y` | sidebar focused: copy the selected file's relative path to the system clipboard. main pane focused (files mode): copy `path/to/file.go:N-M` where N-M is the line range currently in view. |
+
+### files-mode toggles
+| command | default key(s) | action |
+|---------|----------------|--------|
+| `toggle-line-numbers` | `n` | toggle line numbers when displaying full files |
+| `toggle-removed-lines` | `shift+d` | toggle showing removed diff lines inline |
+| `next-diff` | `shift+j`, `shift+down` | jump to next diff hunk (wraps) |
+| `prev-diff` | `shift+k`, `shift+up` | jump to previous diff hunk (wraps) |
+| `toggle-ignored` | `i` | toggle gitignored files in all-files section |
+| `toggle-tree` | `t` | toggle tree view |
+
+### display
+| command | default key(s) | action |
+|---------|----------------|--------|
+| `sidebar-grow` | `+`, `=` | grow sidebar width |
+| `sidebar-shrink` | `-` | shrink sidebar width |
+| `toggle-sidebar` | `f` | hide/show sidebar |
+| `toggle-wrap` | `w` | toggle word wrapping (default: on). word-wrap breaks at word boundaries, except words longer than 1/8 of the screen width are broken mid-word. |
+| `refresh` | `r` | manual refresh |
+
+### search
+| command | default key(s) | action |
+|---------|----------------|--------|
+| `search` | `/` | open search input |
+| `search-next` | `n` | next search match (wraps) — available after `confirm` in search mode |
+| `search-prev` | `p`, `shift+n` | previous search match (wraps) |
+
+### quit & help
+| command | default key(s) | action |
+|---------|----------------|--------|
+| `quit` | `q`, `esc` | context-aware: cancel active search, close help overlay, or show quit confirmation |
+| `quit-immediate` | `Q`, `ctrl+c` | quit without confirmation |
+| `help` | `?` | open help overlay |
 
 ## mouse behavior
 
