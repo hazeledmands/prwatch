@@ -98,15 +98,13 @@ tree view (enabled by default): files should be grouped under directories, and s
 - compact directories: when a chain of directories each have only one child (e.g. `foo/bar/baz/`), collapse them into a single line showing the combined path. this applies even if the leafmost directory contains multiple files — the combined directory entry is expandable/collapsible as a single unit. if the entire chain leads to a single file with no sibling directories, display the whole path including the filename on one line (no directory entry).
 - cursor vs. pinned file: the sidebar cursor moves freely over files and directories, but the main panel only updates when the cursor lands on a file. navigating over directories (keys or click) keeps the previous file's content visible. the sidebar should visually distinguish the cursor position from the pinned (currently viewing) file when they differ.
 
-this mode should have a "gutter":
-- `toggle-line-numbers` toggles line numbers when displaying full files (defaulting to on).
-- if there is a diff for the current file, there should be a "diff gutter" that flags new lines (+), removed lines (-), and changed lines (~). if the file being viewed was COMPLETELY removed or is totally new, then the gutter should indicate that too.
-- changed lines should have ~ in the gutter. if the diff is less than 1/4 of the width of the active pane, show both the deleted content (in red) and the new content (in green) inline on the same line. if the diff is bigger than that, duplicate the line with the deleted version on top (red) and the new version on bottom (green). retained (unchanged) text within a changed line should be yellow, deleted text red, new text green.
-- wrapped text should not wrap into the gutter, instead, the gutter should just be empty for that line.
-- `toggle-removed-lines` shows/hides removed content from the diff, in its own line (defaulting to showing).
-- `next-diff` / `prev-diff` jump directly to the next or previous diff hunk. this should wrap around, just like search results.
-- entering into this view should jump immediately to the first diff.
-- gutter should stick even when the user scrolls horizontally.
+this mode should have a "gutter" — a narrow column to the left of each line showing line numbers and diff indicators.
+
+- **line numbers.** `toggle-line-numbers` toggles line numbers when displaying full files (defaulting to on).
+- **diff markers.** if there is a diff for the current file, the gutter flags new lines with `+`, removed lines with `-`, and changed lines with `~`. if the file being viewed was COMPLETELY removed or is totally new, the gutter should indicate that too.
+- **changed line rendering.** if the diff on a `~` line is less than 1/4 of the pane's width, show both the deleted content (red) and the new content (green) inline on the same line. if the diff is bigger than that, duplicate the line with the deleted version on top (red) and the new version on bottom (green). retained (unchanged) text within a changed line is yellow; deleted text is red; new text is green. `toggle-removed-lines` shows/hides the removed content as its own line (defaulting to showing).
+- **diff navigation.** entering files mode jumps immediately to the first diff. `next-diff` and `prev-diff` jump to adjacent hunks and wrap around, just like search results.
+- **wrapping & horizontal scroll.** wrapped text does not wrap into the gutter — continuation lines have an empty gutter. the gutter stays pinned when the user scrolls horizontally.
 
 ### commits mode
 
