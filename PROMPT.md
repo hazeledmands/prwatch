@@ -8,6 +8,30 @@ if [dir] is provided, then it should run against that directory; if not, it shou
 
 the UI should show the delta between the merge-base of the current branch and the origin's base branch (like GitHub's three-dot diff). for committed files, diff against HEAD. for uncommitted files, diff against the working tree. the tool should use origin/<base> rather than the local base branch ref to stay consistent with GitHub's view.
 
+## live refresh
+
+the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
+- avoid repainting the UI unless the state has changed in some way.
+- the view should refresh not only when files change on disk, but also when git state changes in ways that don't modify working tree files — for example, pushing commits, fetching, editing the global gitignore, or garbage collection repacking refs. a periodic background poll can serve as a fallback to catch state changes that filesystem watchers miss.
+- if the user has interacted with the app, and there is an update, the app should endeavor to keep the current view as stable as possible (so the currently highlighted file should stay highlighted, and scrolled to the same-ish spot, even while the surrounding content changes)
+
+checking against the github server:
+- state updates from the server should happen at most every 30s.
+- this automatic refresh interval should decrease to every 10m if there have been no UI events in the last 10m (including mouse movements or window size changes), or if there have been no updates in the state from the remote server in over 24 hours.
+- respond to rate limits appropriately, backing off as needed
+
+
+## base branch detection
+
+the base branch is determined using the first of the following that yields a valid merge-base with HEAD. this information should be regularly refreshed, in case something in the remote or filesystem state has changed:
+
+1. **`gh pr view --json baseRefName`** — if there's a GitHub PR for the current branch, use its base branch. prefer `origin/<base>` for the merge-base, falling back to the local `<base>` ref if `origin` isn't available. this call to the github API should be non-blocking -- if we don't have the information yet, we should fall through to the next option and update again when we have the API response.
+2. **`origin/main`**
+3. **`origin/master`**
+4. local **`main`** (for repos with no remote configured)
+5. local **`master`**
+6. **`HEAD~1`** — final fallback. the resulting "delta" is just the latest commit. on a single-commit repo with no remote, even this fails and detection returns an error; the app should then behave as if there is no base (see `## edge cases`).
+
 ## commands and keybindings
 
 everything the user can do in the app is a named *command*. commands are context-aware: the same command may be bound in multiple places (sidebar vs. main pane, search input vs. normal mode, help overlay) and do the right thing for that context. the rest of this spec refers to behaviors by command name (e.g. `toggle-tree`, `next-diff`); the `## keybindings` section at the bottom is the single source of truth for which keys trigger which command. rebinding a key in one place rebinds it everywhere.
@@ -153,18 +177,6 @@ sidebar should show:
 
 #### CI logs
 - support RWX as a CI provider. if the github CI status points to RWX and there are failures, use the rwx CLI tool to display details about the failures (including failing test results).
-
-## live refresh
-
-the UI should stay up-to-date as the git status changes, ideally refreshing its state from the filesystem unobtrusively and performantly.
-- avoid repainting the UI unless the state has changed in some way.
-- the view should refresh not only when files change on disk, but also when git state changes in ways that don't modify working tree files — for example, pushing commits, fetching, editing the global gitignore, or garbage collection repacking refs. a periodic background poll can serve as a fallback to catch state changes that filesystem watchers miss.
-- if the user has interacted with the app, and there is an update, the app should endeavor to keep the current view as stable as possible (so the currently highlighted file should stay highlighted, and scrolled to the same-ish spot, even while the surrounding content changes)
-
-checking against the github server:
-- state updates from the server should happen at most every 30s.
-- this automatic refresh interval should decrease to every 10m if there have been no UI events in the last 10m (including mouse movements or window size changes), or if there have been no updates in the state from the remote server in over 24 hours.
-- respond to rate limits appropriately, backing off as needed
 
 
 ## edge cases

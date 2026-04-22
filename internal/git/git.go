@@ -15,10 +15,8 @@ import (
 
 // Git wraps git CLI operations for a specific working directory.
 type Git struct {
-	dir          string
-	cmdFactory   command.Factory
-	cachedGHBase string // cached result from gh pr view --baseRefName
-	hasGHBase    bool   // true once we've queried gh for the base ref
+	dir        string
+	cmdFactory command.Factory
 }
 
 func New(dir string) *Git {
@@ -264,40 +262,21 @@ func (g *Git) RepoInfo() (RepoInfoResult, error) {
 	}, nil
 }
 
-// DetectBase finds the merge-base commit between HEAD and origin's base branch.
-// Uses origin/<base> refs to stay consistent with GitHub's three-dot diff view.
-// Tries: gh pr base → origin/main → origin/master → local main → local master → HEAD~1.
-func (g *Git) DetectBase() (string, error) {
-	// Try gh pr view first — use origin/<base> for GitHub consistency
-	if base, err := g.ghPRBase(); err == nil && base != "" {
-		if sha, err := g.run("merge-base", "HEAD", "origin/"+base); err == nil {
+// DetectBaseLocal finds the merge-base commit between HEAD and a base branch,
+// using only local git state (no GitHub API calls). Intended as the synchronous
+// startup path; callers can upgrade to a PR-reported base via DetectBaseFromPR
+// once PR data has been fetched asynchronously.
+//
+// Tries in order: origin/main → origin/master → local main → local master →
+// HEAD~1. Returns the merge-base SHA of the first ref that succeeds.
+func (g *Git) DetectBaseLocal() (string, error) {
+	refs := []string{"origin/main", "origin/master", "main", "master"}
+	for _, ref := range refs {
+		if sha, err := g.run("merge-base", "HEAD", ref); err == nil {
 			return sha, nil
 		}
-		// Fall back to local ref if origin not available
-		if sha, err := g.run("merge-base", "HEAD", base); err == nil {
-			return sha, nil
-		}
 	}
-
-	// Try origin/main
-	if sha, err := g.run("merge-base", "HEAD", "origin/main"); err == nil {
-		return sha, nil
-	}
-
-	// Try origin/master
-	if sha, err := g.run("merge-base", "HEAD", "origin/master"); err == nil {
-		return sha, nil
-	}
-
-	// Fall back to local refs (no remote configured)
-	if sha, err := g.run("merge-base", "HEAD", "main"); err == nil {
-		return sha, nil
-	}
-	if sha, err := g.run("merge-base", "HEAD", "master"); err == nil {
-		return sha, nil
-	}
-
-	// Fallback to HEAD~1
+	// Fallback to HEAD~1 — the "delta" is just the latest commit.
 	sha, err := g.run("rev-parse", "HEAD~1")
 	if err != nil {
 		return "", fmt.Errorf("cannot detect base branch: %w", err)
@@ -305,21 +284,24 @@ func (g *Git) DetectBase() (string, error) {
 	return sha, nil
 }
 
-func (g *Git) ghPRBase() (string, error) {
-	if g.hasGHBase {
-		return g.cachedGHBase, nil
+// DetectBaseFromPR computes the merge-base for a specific base branch name
+// (typically the baseRefName returned by gh pr view). Prefers origin/<base> to
+// stay consistent with GitHub's three-dot diff; falls back to the local <base>
+// ref if origin isn't available.
+//
+// Returns an error if neither ref produces a valid merge-base. Caller should
+// fall back to DetectBaseLocal in that case.
+func (g *Git) DetectBaseFromPR(baseRefName string) (string, error) {
+	if baseRefName == "" {
+		return "", fmt.Errorf("empty base ref name")
 	}
-	base, err := g.runExternal("gh", "pr", "view", "--json", "baseRefName", "-q", ".baseRefName")
-	if err != nil {
-		// Cache empty result so we don't keep calling gh when there's no PR.
-		// The cache gets refreshed when PRAll succeeds.
-		g.cachedGHBase = ""
-		g.hasGHBase = true
-		return "", err
+	if sha, err := g.run("merge-base", "HEAD", "origin/"+baseRefName); err == nil {
+		return sha, nil
 	}
-	g.cachedGHBase = base
-	g.hasGHBase = true
-	return base, nil
+	if sha, err := g.run("merge-base", "HEAD", baseRefName); err == nil {
+		return sha, nil
+	}
+	return "", fmt.Errorf("no merge-base for %q (tried origin/%s and %s)", baseRefName, baseRefName, baseRefName)
 }
 
 // BehindCount returns the number of commits the current branch is behind the
@@ -765,12 +747,6 @@ func (g *Git) PRAll() (PRAllResult, error) {
 	// Fetch deployments for this PR (best-effort, don't fail if this errors)
 	if deploys, err := g.fetchDeployments(result.Info.Number); err == nil {
 		result.Deployments = deploys
-	}
-
-	// Update the cached base ref so DetectBase doesn't need to call gh
-	if result.Info.BaseRef != "" {
-		g.cachedGHBase = result.Info.BaseRef
-		g.hasGHBase = true
 	}
 
 	return result, nil

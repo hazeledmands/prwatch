@@ -64,7 +64,8 @@ type GitDataSource interface {
 	RepoInfo() (gitpkg.RepoInfoResult, error)
 	PRAll() (gitpkg.PRAllResult, error)
 	PRChecksAll() (gitpkg.PRChecksResult, error)
-	DetectBase() (string, error)
+	DetectBaseLocal() (string, error)
+	DetectBaseFromPR(baseRefName string) (string, error)
 	ChangedFiles(base string) (gitpkg.ChangedFilesResult, error)
 	Commits(base string, skip, limit int) ([]gitpkg.Commit, error)
 	AllCommits(skip, limit int) ([]gitpkg.Commit, error)
@@ -504,9 +505,19 @@ func (m *Model) loadGitData() tea.Msg {
 		ciChecks = checksResult.Checks
 	}
 
-	base, err := m.git.DetectBase()
-	if err != nil {
-		return gitDataMsg{err: err}
+	// Prefer the PR-reported base when available; fall back to local detection.
+	var base string
+	if prInfo.BaseRef != "" {
+		if sha, berr := m.git.DetectBaseFromPR(prInfo.BaseRef); berr == nil {
+			base = sha
+		}
+	}
+	if base == "" {
+		var berr error
+		base, berr = m.git.DetectBaseLocal()
+		if berr != nil {
+			return gitDataMsg{err: berr}
+		}
 	}
 
 	files, err := m.git.ChangedFiles(base)
@@ -596,6 +607,18 @@ func (m *Model) loadGitData() tea.Msg {
 	}
 }
 
+// detectBase returns the merge-base SHA to use for diff computations,
+// preferring the PR-reported base when available and falling back to
+// local detection. Never invokes gh.
+func (m *Model) detectBase() (string, error) {
+	if m.prInfo.BaseRef != "" {
+		if sha, err := m.git.DetectBaseFromPR(m.prInfo.BaseRef); err == nil {
+			return sha, nil
+		}
+	}
+	return m.git.DetectBaseLocal()
+}
+
 // loadLocalGitData refreshes only local git state (no GitHub API calls).
 // Existing PR data in the model is preserved via prFetchFailed.
 func (m *Model) loadLocalGitData() tea.Msg {
@@ -615,7 +638,11 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		}
 	}
 
-	base, err := m.git.DetectBase()
+	// Prefer the PR-reported base if PR data has loaded; otherwise use
+	// local detection (no gh shell-out). When PR data arrives later, the
+	// prRefreshMsg handler re-dispatches loadLocalGitData so the base
+	// upgrades to match the PR's baseRefName.
+	base, err := m.detectBase()
 	if err != nil {
 		return gitDataMsg{err: err}
 	}
@@ -646,11 +673,12 @@ func (m *Model) loadLocalGitData() tea.Msg {
 
 	var behindCount int
 	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
+		// Prefer the PR's base branch when available. Without a PR, fall back
+		// to origin/main; BehindCount returns 0 cleanly if that ref doesn't
+		// exist (e.g. master-default repos or no remote).
 		baseRef := "origin/main"
 		if m.prInfo.BaseRef != "" {
 			baseRef = "origin/" + m.prInfo.BaseRef
-		} else if info.Upstream != "" {
-			baseRef = info.Upstream
 		}
 		behindCount = m.git.BehindCount(baseRef)
 	}
@@ -859,6 +887,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			len(msg.reviews) != len(m.prReviews) {
 			m.lastServerChange = time.Now()
 		}
+		// Detect base-branch change (either newly-learned from PR data, or the
+		// PR's base ref was edited server-side). If so, re-dispatch the local
+		// git refresh so diffs/commits/changed-files recompute against the new
+		// base.
+		baseRefChanged := msg.prInfo.BaseRef != m.prInfo.BaseRef && msg.prInfo.BaseRef != ""
 		// Successful fetch — reset interval based on activity and clear error
 		m.prInterval = m.computePRInterval()
 		m.prError = ""
@@ -879,6 +912,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateLayout()
 		m.updateSidebarItems()
 		m.updateMainContent()
+		if baseRefChanged && m.git != nil {
+			return m, m.loadLocalGitData
+		}
 		return m, nil
 
 	case rwxLogMsg:

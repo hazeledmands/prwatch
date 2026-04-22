@@ -48,6 +48,8 @@ type mockGit struct {
 	commentCount   int
 	base           string
 	baseErr        error
+	baseFromPR     string // if non-empty, DetectBaseFromPR returns this instead of base
+	baseFromPRErr  error
 	changedFiles   git.ChangedFilesResult
 	changedErr     error
 	commits        []git.Commit
@@ -90,7 +92,14 @@ func (m *mockGit) PRChecksAll() (git.PRChecksResult, error) {
 		Status: m.ciStatus,
 	}, m.ciStatusErr
 }
-func (m *mockGit) DetectBase() (string, error) { return m.base, m.baseErr }
+func (m *mockGit) DetectBaseLocal() (string, error) { return m.base, m.baseErr }
+func (m *mockGit) DetectBaseFromPR(baseRef string) (string, error) {
+	if m.baseFromPR != "" {
+		return m.baseFromPR, m.baseFromPRErr
+	}
+	// Default: behave like local detection (so existing tests don't break).
+	return m.base, m.baseErr
+}
 func (m *mockGit) ChangedFiles(base string) (git.ChangedFilesResult, error) {
 	return m.changedFiles, m.changedErr
 }
@@ -165,9 +174,14 @@ func (s *slowMockGit) PRChecksAll() (git.PRChecksResult, error) {
 	return s.mockGit.PRChecksAll()
 }
 
-func (s *slowMockGit) DetectBase() (string, error) {
+func (s *slowMockGit) DetectBaseLocal() (string, error) {
 	time.Sleep(s.delay)
-	return s.mockGit.DetectBase()
+	return s.mockGit.DetectBaseLocal()
+}
+
+func (s *slowMockGit) DetectBaseFromPR(baseRef string) (string, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.DetectBaseFromPR(baseRef)
 }
 
 func (s *slowMockGit) ChangedFiles(base string) (git.ChangedFilesResult, error) {
@@ -346,6 +360,56 @@ func TestStartupSwitchesToPRModeAfterPRDataArrives(t *testing.T) {
 	}
 	if !m.prLoadedOnce {
 		t.Error("prLoadedOnce should be true after PR data arrives")
+	}
+}
+
+func TestBaseDetection_UpgradesFromLocalToPRBaseOnPRLoad(t *testing.T) {
+	// Startup: local detection returns a fallback SHA. Once PR data arrives
+	// with a non-empty BaseRef, the model should re-dispatch loadLocalGitData
+	// so subsequent computations (changed files, behind count) use the PR's
+	// base ref. Verifies the prRefreshMsg handler returns a loadLocalGitData
+	// command when it learns a new BaseRef.
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:     "local-fallback-sha",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go", "go.mod"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+
+	// Phase 1: local load — no PR data yet, m.prInfo.BaseRef is "".
+	m.Update(m.loadLocalGitData())
+	if m.base != "local-fallback-sha" {
+		t.Errorf("after local load, expected base=%q, got %q", "local-fallback-sha", m.base)
+	}
+	if m.prInfo.BaseRef != "" {
+		t.Errorf("prInfo.BaseRef should be empty before PR data, got %q", m.prInfo.BaseRef)
+	}
+
+	// Phase 2: PR data arrives with a specific base ref.
+	_, cmd := m.Update(prRefreshMsg{
+		prInfo: git.PRInfoResult{Number: 42, Title: "Test PR", BaseRef: "develop"},
+	})
+	if m.prInfo.BaseRef != "develop" {
+		t.Errorf("after PR data, expected BaseRef=develop, got %q", m.prInfo.BaseRef)
+	}
+	if cmd == nil {
+		t.Fatal("prRefreshMsg handler should return a command to re-dispatch loadLocalGitData when the BaseRef is newly learned")
+	}
+
+	// Phase 3: same PR data arrives again — base didn't change, no re-dispatch.
+	_, cmd2 := m.Update(prRefreshMsg{
+		prInfo: git.PRInfoResult{Number: 42, Title: "Test PR", BaseRef: "develop"},
+	})
+	if cmd2 != nil {
+		t.Error("prRefreshMsg handler should NOT re-dispatch when BaseRef is unchanged")
 	}
 }
 
