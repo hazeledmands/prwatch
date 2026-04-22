@@ -121,7 +121,6 @@ type Model struct {
 	sidebarPct          int // sidebar width as percentage of total width (10-50)
 	dir                 string
 	confirming          bool
-	lastKeyG            bool // tracks whether last key was 'g' for gg binding
 	showHelp            bool
 	helpScrollOffset    int             // scroll offset within help overlay
 	helpSearching       bool            // search active within help
@@ -1021,19 +1020,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle gg (go to top) — second g in sequence
-	if m.lastKeyG && key.Matches(msg, keys.GoTop) {
-		m.lastKeyG = false
-		if m.focus == SidebarFocus {
-			m.sidebar.SelectFirst()
-			m.updateMainContent()
-		} else {
-			m.mainPane.GoToTop()
-		}
-		return m, nil
-	}
-	m.lastKeyG = false
-
 	switch {
 	case key.Matches(msg, keys.QuitImmediate):
 		return m, tea.Quit
@@ -1129,8 +1115,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.GoTop):
-		// First 'g' — wait for second
-		m.lastKeyG = true
+		if m.focus == SidebarFocus {
+			m.sidebar.SelectFirst()
+			m.updateMainContent()
+		} else {
+			m.mainPane.GoToTop()
+		}
 		return m, nil
 
 	case key.Matches(msg, keys.GoBottom):
