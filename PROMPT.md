@@ -298,27 +298,43 @@ help should be scrollable by mouse and also by all the same scrolling keys as in
 
 ## DEVELOPING
 - `PRWATCH_DEBUG_LOG` enables verbose debug logging to a file. it should log all UI actions, timer fires, filesystem changes, signals from the OS, and re-renders.
-- when starting, run git status; if there are any changes to the PROMPT.md commit those first
-- check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then put the bug report plus a little one-liner about how it was fixed in a log at the bottom of the doc.
-- this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress. If PLAN.md seems outdated - clean it up so that it doesn't take up unnecessary context for future agents.
-- re-check this file occasionally to see if the user has made changes to it. if there are uncommitted changes to this file, commit them and follow the newly updated instructions
-- use test-driven development.
-- make small, iterative commits to keep your work trackable.
-- before starting work on any new feature or bug fix, create a new git branch. when work is complete on that branch, merge it back into main.
-- re-build the binary after every commit.
-- push to github after every commit.
-- there should be continuous integration with GHA
-- after each commit, run `PRWATCH_RENDER_ONCE=1 go run .` to see the current state of the TUI rendered as text. review the output yourself to verify the UI looks correct before moving on.
-- if everything looks good from the outside, see if you can explore the app yourself, as a user might, to verify things that way. use EXAMPLES.md to find some local directories to explore in to try out various features. give yourself a mechanism by which you can navigate around in the app to try out various features. it should be posisble to run these commands without needing special permission from the user each time. run PRwatch in the background, send it commands via a helper app that communicates with it via IPC, and gets rendered screens on command. commands you run should be one-liners without inlined env vars, since that will cause the user to be prompted to give new permissions.
-- if everything still looks good, audit the code for things that could possibly be refactored for clarity, consistency, maintainability or other forms of code quality. 
+- there should be continuous integration with GHA.
 - there should be tests that cover every behavior listed in this prompt file. if a behavior is described here, there should be a test asserting it works.
-- if anything in this spec is ambiguous, contradictory, or impossible to implement as written, make a reasonable choice and then flag it in INCONSISTENCIES.md so the human-in-the-loop can clarify.
-  - for each inconsistency, provide a short list of proposed paths forward to address them
-- think through the app from different personas: an engineer end user, a UX designer, a product manager, a QA specialist, and a staff software engineer implementing the program. add actionable feedback, in bulled-point form, to AGENT_FEEDBACK.md. Make sure that the feedback file is in .gitignore. if anything in agent feedback seems like it would be in keeping with a reading of the prompt, please make the change proactively.
 
 ## DOCUMENTATION
 - the readme file should be up-to-date and provide a relatively concise overview of what this tool is meant to do.
 
 ## EXAMPLES
 Take a look at EXAMPLES.md (should be in .gitignore since these examples may contain sensitive data) for some links to PRs and CI logs that you can use as example cases.
+
+---
+
+## WORKFLOW (for Claude)
+
+Everything above describes the product. The rules below bind the agent working on this codebase, not the app itself.
+
+### spec & planning
+- this PROMPT.md is the "spec" for this program. it should not be edited; it is the source of truth. if you're looking for a task, check to make sure that this spec has been properly implemented, and if not add running notes to PLAN.md to keep track of your progress. If PLAN.md seems outdated - clean it up so that it doesn't take up unnecessary context for future agents.
+- re-check this file occasionally to see if the user has made changes to it. if there are uncommitted changes to this file, commit them and follow the newly updated instructions.
+- when starting, run git status; if there are any changes to the PROMPT.md commit those first.
+- if anything in this spec is ambiguous, contradictory, or impossible to implement as written, make a reasonable choice and then flag it in INCONSISTENCIES.md so the human-in-the-loop can clarify.
+  - for each inconsistency, provide a short list of proposed paths forward to address them.
+
+### bug triage
+- check BUG_REPORTS.md, if there are bugs reported there: add a regression test that shows the existence of the bug, and then fix them, and then put the bug report plus a little one-liner about how it was fixed in a log at the bottom of the doc.
+
+### git & commits
+- use test-driven development.
+- make small, iterative commits to keep your work trackable.
+- before starting work on any new feature or bug fix, create a new git branch. when work is complete on that branch, merge it back into main.
+- re-build the binary after every commit.
+- push to github after every commit.
+
+### verification after commits
+- after each commit, run `PRWATCH_RENDER_ONCE=1 go run .` to see the current state of the TUI rendered as text. review the output yourself to verify the UI looks correct before moving on.
+- if everything looks good from the outside, see if you can explore the app yourself, as a user might, to verify things that way. use EXAMPLES.md to find some local directories to explore in to try out various features. give yourself a mechanism by which you can navigate around in the app to try out various features. it should be possible to run these commands without needing special permission from the user each time. run prwatch in the background, send it commands via a helper app that communicates with it via IPC, and gets rendered screens on command. commands you run should be one-liners without inlined env vars, since that will cause the user to be prompted to give new permissions.
+- if everything still looks good, audit the code for things that could possibly be refactored for clarity, consistency, maintainability or other forms of code quality.
+
+### persona review
+- think through the app from different personas: an engineer end user, a UX designer, a product manager, a QA specialist, and a staff software engineer implementing the program. add actionable feedback, in bulled-point form, to AGENT_FEEDBACK.md. Make sure that the feedback file is in .gitignore. if anything in agent feedback seems like it would be in keeping with a reading of the prompt, please make the change proactively.
 
