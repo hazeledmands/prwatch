@@ -106,7 +106,7 @@ func TestDetectBase(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestChangedFiles_CommittedOnly(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestChangedFiles_UncommittedOnly(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestChangedFiles_FileInBothGoesToUncommitted(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestFileDiffCommitted(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestCommits(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestCommitPatch(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestCommits_OnMainBranch(t *testing.T) {
 	runGit(t, dir, "checkout", "main")
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ func TestDetectBase_OnMainBranch(t *testing.T) {
 	runGit(t, dir, "checkout", "main")
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +432,7 @@ func TestDetectBase_DetachedHead(t *testing.T) {
 	runGit(t, dir, "checkout", "--detach")
 	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +450,7 @@ func TestChangedFiles_Sorted(t *testing.T) {
 	writeFile(t, dir, "alpha.go", "package a\n")
 	writeFile(t, dir, "middle.go", "package m\n")
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +495,7 @@ func TestDetectBase_NoMainBranch(t *testing.T) {
 	runGit(t, dir, "commit", "-m", "feature commit")
 
 	g := noGH(dir)
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +529,7 @@ func TestDetectBase_FallbackToHEAD(t *testing.T) {
 	runGit(t, dir, "commit", "-m", "second")
 
 	g := noGH(dir)
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -580,7 +580,7 @@ func TestDetectBase_WithOrigin(t *testing.T) {
 	runGit(t, cloneDir, "commit", "-m", "feature")
 
 	g := noGH(cloneDir)
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +626,7 @@ func TestDetectBase_WithOriginMaster(t *testing.T) {
 	runGit(t, cloneDir, "commit", "-m", "feature")
 
 	g := noGH(cloneDir)
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseLocal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -658,7 +658,7 @@ func TestCommits_FallbackToRecentHistory(t *testing.T) {
 	g := noGH(dir)
 
 	// Use HEAD as base — range HEAD..HEAD is empty
-	sha, _ := g.DetectBase()
+	sha, _ := g.DetectBaseLocal()
 	commits, err := g.Commits(sha, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
@@ -750,32 +750,56 @@ func TestPRAll_GHError(t *testing.T) {
 	}
 }
 
-func TestDetectBase_WithGHPRBase(t *testing.T) {
+func TestDetectBaseFromPR_LocalRef(t *testing.T) {
 	dir := setupTestRepo(t)
-	// Mock gh to return "main" as PR base
-	g := git.NewWithFactory(dir, mockGHFactory("main", nil))
+	g := noGH(dir)
 
-	base, err := g.DetectBase()
+	base, err := g.DetectBaseFromPR("main")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if base == "" {
-		t.Error("should detect base via gh PR base")
+		t.Error("should detect base via local main fallback")
 	}
 }
 
-func TestDetectBase_GHReturnsNonExistentBranch(t *testing.T) {
+func TestDetectBaseFromPR_NonExistentBranch(t *testing.T) {
 	dir := setupTestRepo(t)
-	// Mock gh to return a branch that doesn't exist as origin ref or local ref
-	g := git.NewWithFactory(dir, mockGHFactory("nonexistent-branch-xyz", nil))
+	g := noGH(dir)
 
-	base, err := g.DetectBase()
-	if err != nil {
+	_, err := g.DetectBaseFromPR("nonexistent-branch-xyz")
+	if err == nil {
+		t.Error("expected error for non-existent base ref")
+	}
+}
+
+func TestDetectBaseFromPR_EmptyString(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	_, err := g.DetectBaseFromPR("")
+	if err == nil {
+		t.Error("expected error for empty base ref name")
+	}
+}
+
+func TestDetectBaseLocal_DoesNotInvokeGH(t *testing.T) {
+	// Verify DetectBaseLocal never shells out to gh. A mock runner tracks
+	// any "gh" invocation; DetectBaseLocal should not trigger one.
+	dir := setupTestRepo(t)
+	ghCalls := 0
+	g := git.NewWithFactory(dir, func(name string, args ...string) command.Command {
+		if name == "gh" {
+			ghCalls++
+		}
+		return command.DefaultFactory(name, args...)
+	})
+
+	if _, err := g.DetectBaseLocal(); err != nil {
 		t.Fatal(err)
 	}
-	// Should fall through to main/master/HEAD~1 fallback
-	if base == "" {
-		t.Error("should still find a base via fallback")
+	if ghCalls != 0 {
+		t.Errorf("DetectBaseLocal should never invoke gh, got %d calls", ghCalls)
 	}
 }
 
@@ -817,8 +841,9 @@ func TestCommits_Error(t *testing.T) {
 	}
 }
 
-func TestDetectBase_GHWithOriginRef(t *testing.T) {
-	// Create a repo with an origin remote so origin/<base> works
+func TestDetectBaseFromPR_UsesOriginRef(t *testing.T) {
+	// Create a repo with an origin remote so origin/<base> works, then verify
+	// DetectBaseFromPR picks origin/main over the local main ref.
 	originDir := t.TempDir()
 	cmds := [][]string{
 		{"git", "init", "--initial-branch=main", "--bare"},
@@ -850,60 +875,13 @@ func TestDetectBase_GHWithOriginRef(t *testing.T) {
 	runGit(t, cloneDir, "add", ".")
 	runGit(t, cloneDir, "commit", "-m", "feature")
 
-	// Mock gh to return "main" — origin/main exists in this repo
-	g := git.NewWithFactory(cloneDir, mockGHFactory("main", nil))
-	base, err := g.DetectBase()
+	g := noGH(cloneDir)
+	base, err := g.DetectBaseFromPR("main")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if base == "" {
-		t.Error("should detect base via origin/main from gh PR base")
-	}
-}
-
-func TestDetectBase_GHReturnsEmpty(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := git.NewWithFactory(dir, mockGHFactory("", nil))
-
-	base, err := g.DetectBase()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if base == "" {
-		t.Error("should fall through to main when gh returns empty")
-	}
-}
-
-func TestDetectBase_CachesGHResult(t *testing.T) {
-	dir := setupTestRepo(t)
-	ghCalls := 0
-	g := git.NewWithFactory(dir, func(name string, args ...string) command.Command {
-		if name == "gh" {
-			ghCalls++
-			return command.StubCommand("main", nil)
-		}
-		return command.DefaultFactory(name, args...)
-	})
-
-	// First call should invoke gh
-	base1, err := g.DetectBase()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ghCalls != 1 {
-		t.Fatalf("expected 1 gh call after first DetectBase, got %d", ghCalls)
-	}
-
-	// Second call should use cached result, not call gh again
-	base2, err := g.DetectBase()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ghCalls != 1 {
-		t.Fatalf("expected 1 gh call after second DetectBase (cached), got %d", ghCalls)
-	}
-	if base1 != base2 {
-		t.Fatalf("cached result differs: %q vs %q", base1, base2)
+		t.Error("should detect base via origin/main")
 	}
 }
 
