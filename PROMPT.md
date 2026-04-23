@@ -112,7 +112,7 @@ change-type indicators: in the new changes, staged, and committed sections, each
   - `[+]` in green for entirely new files (file was added or diff is all additions)
   - `[±]` in the default color for files with a mix of additions and deletions
 
-`toggle-ignored` should toggle on/off view of gitignored files in all files mode. it should be on by default. ignored files should show up in a dimmed color.
+`toggle-ignored` should toggle on/off view of gitignored files in all files mode. the default setting should be to show ignored files. ignored files should show up in a dimmed color.
 
 tree view (enabled by default): files should be grouped under directories, and subsequently indented.
 - directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
@@ -189,7 +189,11 @@ running in a branch without a base branch (i.e. directly in main, or a detached 
 
 detached HEAD works normally, status bar shows `detached @ <short sha>` instead of a branch name.
 
-## search
+## global commands
+
+The following commands should be available from all modes, regardless of the UI state:
+
+### search
 
 `search` opens the search input at the bottom of the screen. while the input is active, searching matches as you type and scrolls to put results in view. results are highlighted (text background should be a contrasting color). the number of matches and the index of the current match should display at the bottom of the screen.
 
@@ -197,11 +201,18 @@ detached HEAD works normally, status bar shows `detached @ <short sha>` instead 
 
 searching should match against the content in the main pane only (not the sidebar), including content that is scrolled offscreen.
 
-## quit & help
+### quit
 
 `quit` is context-aware. when a search input is active, it cancels search. when help is open, it closes help. otherwise it shows a confirmation prompt — invoking `quit` again confirms; any other key cancels. `quit-immediate` always exits without confirmation.
 
+### help
+
 `help` opens a help page showing all commands and their bindings. inside help, `search` opens a search scoped to help content (same `search-next`/`search-prev` navigation). help should be scrollable by mouse and by the same scrolling commands (`page-up`, `page-down`, `go-top`, `go-bottom`, `up`, `down`) as other views.
+
+
+### pr-browse
+
+`pr-browse` opens the browser to the active PR, if there is one.
 
 ## keybindings
 
@@ -268,9 +279,10 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 | `search-next` | `n` | next search match (wraps) — available after `confirm` in search mode |
 | `search-prev` | `p`, `shift+n` | previous search match (wraps) |
 
-### quit & help
+### other global commands
 | command | default key(s) | action |
 |---------|----------------|--------|
+| `pr-browse` | `o` | open the browser to the active PR |
 | `quit` | `q`, `esc` | context-aware: cancel active search, close help overlay, or show quit confirmation |
 | `quit-immediate` | `Q`, `ctrl+c` | quit without confirmation |
 | `help` | `?` | open help overlay |
