@@ -3,28 +3,28 @@
   PR #42: Add authentication                                                                        
 Keybindings:                                                                                        
                                                                                                     
-  [m]          Cycle mode (file -> diff -> commit -> pr)                                            
-  [v] [1]      File view mode                                                                       
-  [d] [2]      File diff mode                                                                       
-  [c] [3]      Commit mode                                                                          
-  [b] [4]      PR view mode (when PR exists)                                                        
+  [m]                   Cycle mode (files → commits → pr)                                           
+  [v] [1]               Files mode                                                                  
+  [c] [2]               Commits mode                                                                
+  [b] [3]               PR mode (when PR exists)                                                    
                                                                                                     
-  [h] [left]   Scroll left (when wrap off)                                                          
-  [l] [right]  Scroll right (when wrap off)                                                         
-  [,]          Focus sidebar                                                                        
-  [.]          Focus main pane                                                                      
-  [tab]        Toggle focus (sidebar / main pane)                                                   
+  [h] [left]            Scroll left (when wrap off)                                                 
+  [l] [right]           Scroll right (when wrap off)                                                
+  [,]                   Focus sidebar                                                               
+  [.]                   Focus main pane                                                             
+  [tab]                 Toggle focus (sidebar / main pane)                                          
                                                                                                     
-  [j] [down]   Move down / scroll down                                                              
-  [k] [up]     Move up / scroll up                                                                  
-  [pgup/pgdn]  Page up / page down                                                                  
-  [gg]         Go to top                                                                            
-  [G]          Go to bottom                                                                         
+  [j] [down]            Move down / scroll down                                                     
+  [k] [up]              Move up / scroll up                                                         
+  [pgdown] [space]      Page down                                                                   
+  [pgup] [shift+space]  Page up                                                                     
+  [g]                   Go to top (press twice)                                                     
+  [G]                   Go to bottom                                                                
                                                                                                     
-  [+] [=]      Grow sidebar                                                                         
-  [-]          Shrink sidebar                                                                       
-  [f]          Toggle sidebar visibility                                                            
+  [+] [=]               Grow sidebar                                                                
+  [-]                   Shrink sidebar                                                              
+  [f]                   Toggle sidebar visibility                                                   
                                                                                                     
-  [w]          Toggle word wrap                                                                     
+  [w]                   Toggle word wrap                                                            
                                                                                                     
                                                                                                     

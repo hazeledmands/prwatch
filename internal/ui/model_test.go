@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/hazeledmands/prwatch/internal/command"
 	"github.com/hazeledmands/prwatch/internal/git"
@@ -1840,6 +1842,36 @@ func TestHelp_ShowAndDismiss(t *testing.T) {
 	m = result.(*Model)
 	if m.showHelp {
 		t.Error("any key should dismiss help")
+	}
+}
+
+// TestHelp_AllBindingsDocumented asserts that every field of the `keys` struct
+// appears in the rendered help output. This is the drift-guard for the help
+// overlay: adding a new binding without adding a help entry fails here.
+func TestHelp_AllBindingsDocumented(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	rendered := strings.Join(m.helpContentLines(), "\n")
+
+	v := reflect.ValueOf(keys)
+	tp := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		fieldName := tp.Field(i).Name
+		b, ok := v.Field(i).Interface().(key.Binding)
+		if !ok {
+			t.Fatalf("keys.%s is not a key.Binding", fieldName)
+		}
+		found := false
+		for _, k := range b.Keys() {
+			if strings.Contains(rendered, "["+k+"]") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("binding keys.%s (%v) is not documented in help; "+
+				"add a helpContentLines entry that renders one of its keys as [key]",
+				fieldName, b.Keys())
+		}
 	}
 }
 

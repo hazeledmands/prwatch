@@ -39,6 +39,7 @@ type keyMap struct {
 	NextLeaf       key.Binding
 	PrevLeaf       key.Binding
 	YankPath       key.Binding
+	PRBrowse       key.Binding
 }
 
 var keys = keyMap{
@@ -149,5 +150,8 @@ var keys = keyMap{
 	),
 	YankPath: key.NewBinding(
 		key.WithKeys("y"),
+	),
+	PRBrowse: key.NewBinding(
+		key.WithKeys("o"),
 	),
 }

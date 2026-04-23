@@ -1213,6 +1213,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.loadLocalGitData, m.loadPRStatus)
 
+	case key.Matches(msg, keys.PRBrowse):
+		if m.prInfo.Number == 0 || m.prInfo.URL == "" {
+			return m, nil
+		}
+		return m, m.openInBrowser(m.prInfo.URL)
+
 	case key.Matches(msg, keys.ToggleSidebar):
 		m.sidebarHidden = !m.sidebarHidden
 		m.updateLayout()
@@ -3473,52 +3479,104 @@ func (m *Model) renderPRDescription() string {
 	return b.String()
 }
 
-func (m *Model) helpContentLines() []string {
-	return []string{
-		"Keybindings:",
-		"",
-		"  [m]          Cycle mode (file -> diff -> commit -> pr)",
-		"  [v] [1]      File view mode",
-		"  [d] [2]      File diff mode",
-		"  [c] [3]      Commit mode",
-		"  [b] [4]      PR view mode (when PR exists)",
-		"",
-		"  [h] [left]   Scroll left (when wrap off)",
-		"  [l] [right]  Scroll right (when wrap off)",
-		"  [,]          Focus sidebar",
-		"  [.]          Focus main pane",
-		"  [tab]        Toggle focus (sidebar / main pane)",
-		"",
-		"  [j] [down]   Move down / scroll down",
-		"  [k] [up]     Move up / scroll up",
-		"  [pgup/pgdn]  Page up / page down",
-		"  [gg]         Go to top",
-		"  [G]          Go to bottom",
-		"",
-		"  [+] [=]      Grow sidebar",
-		"  [-]          Shrink sidebar",
-		"  [f]          Toggle sidebar visibility",
-		"",
-		"  [w]          Toggle word wrap",
-		"  [n]          Toggle line numbers (file view)",
-		"  [i]          Toggle gitignored files (file view)",
-		"  [t]          Toggle tree mode (file modes, default: on)",
-		"  [D]          Toggle removed lines in diff gutter (file view)",
-		"  [J] [S-down] Jump to next diff hunk (file view)",
-		"  [K] [S-up]   Jump to previous diff hunk (file view)",
-		"",
-		"  [enter]      Open file in $EDITOR / switch to main pane",
-		"  [y]          Copy file path (sidebar) or path:lines (main pane)",
-		"  [/]          Search (type to match, enter to confirm)",
-		"  [n]          Next search result (after search)",
-		"  [p]          Previous search result (after search)",
-		"  [?]          Show this help (scroll with j/k/mouse)",
-		"",
-		"  [q] [esc]    Quit (confirm)",
-		"  [Q] [ctrl-c] Quit immediately",
-		"",
-		"Press q/esc to dismiss. Use j/k or mouse to scroll. / to search.",
+// helpEntry pairs one or more key bindings with a description line.
+type helpEntry struct {
+	bindings []key.Binding
+	desc     string
+}
+
+// keyList formats a set of bindings as "[key1] [key2] ..." so the help overlay
+// always reflects the actual keymap in keys.go rather than hard-coded strings.
+func keyList(bs ...key.Binding) string {
+	var parts []string
+	for _, b := range bs {
+		for _, k := range b.Keys() {
+			parts = append(parts, "["+k+"]")
+		}
 	}
+	return strings.Join(parts, " ")
+}
+
+func (m *Model) helpContentLines() []string {
+	sections := [][]helpEntry{
+		{
+			{bindings: []key.Binding{keys.ToggleMode}, desc: "Cycle mode (files → commits → pr)"},
+			{bindings: []key.Binding{keys.FilesMode}, desc: "Files mode"},
+			{bindings: []key.Binding{keys.CommitsMode}, desc: "Commits mode"},
+			{bindings: []key.Binding{keys.PRMode}, desc: "PR mode (when PR exists)"},
+		},
+		{
+			{bindings: []key.Binding{keys.FocusLeft}, desc: "Scroll left (when wrap off)"},
+			{bindings: []key.Binding{keys.FocusRight}, desc: "Scroll right (when wrap off)"},
+			{bindings: []key.Binding{keys.FocusSidebar}, desc: "Focus sidebar"},
+			{bindings: []key.Binding{keys.FocusMain}, desc: "Focus main pane"},
+			{bindings: []key.Binding{keys.FocusToggle}, desc: "Toggle focus (sidebar / main pane)"},
+		},
+		{
+			{bindings: []key.Binding{keys.Down}, desc: "Move down / scroll down"},
+			{bindings: []key.Binding{keys.Up}, desc: "Move up / scroll up"},
+			{bindings: []key.Binding{keys.PageDown}, desc: "Page down"},
+			{bindings: []key.Binding{keys.PageUp}, desc: "Page up"},
+			{bindings: []key.Binding{keys.GoTop}, desc: "Go to top (press twice)"},
+			{bindings: []key.Binding{keys.GoBottom}, desc: "Go to bottom"},
+		},
+		{
+			{bindings: []key.Binding{keys.SidebarGrow}, desc: "Grow sidebar"},
+			{bindings: []key.Binding{keys.SidebarShrink}, desc: "Shrink sidebar"},
+			{bindings: []key.Binding{keys.ToggleSidebar}, desc: "Toggle sidebar visibility"},
+		},
+		{
+			{bindings: []key.Binding{keys.ToggleWrap}, desc: "Toggle word wrap"},
+			{bindings: []key.Binding{keys.ToggleLineNums}, desc: "Toggle line numbers (files mode)"},
+			{bindings: []key.Binding{keys.ToggleIgnored}, desc: "Toggle gitignored files (files mode)"},
+			{bindings: []key.Binding{keys.ToggleTree}, desc: "Toggle tree mode (files mode)"},
+			{bindings: []key.Binding{keys.ToggleRemoved}, desc: "Toggle removed lines in diff gutter (files mode)"},
+		},
+		{
+			{bindings: []key.Binding{keys.NextDiff}, desc: "Jump to next diff hunk (files mode)"},
+			{bindings: []key.Binding{keys.PrevDiff}, desc: "Jump to previous diff hunk (files mode)"},
+			{bindings: []key.Binding{keys.NextLeaf}, desc: "Jump to next leaf (tree mode)"},
+			{bindings: []key.Binding{keys.PrevLeaf}, desc: "Jump to previous leaf (tree mode)"},
+		},
+		{
+			{bindings: []key.Binding{keys.Enter}, desc: "Open file in $EDITOR / switch to main pane"},
+			{bindings: []key.Binding{keys.YankPath}, desc: "Copy file path (sidebar) or path:lines (main pane)"},
+			{bindings: []key.Binding{keys.Search}, desc: "Search (type to match, enter to confirm)"},
+			{bindings: []key.Binding{keys.SearchNext}, desc: "Next search result (after search confirmed)"},
+			{bindings: []key.Binding{keys.SearchPrev}, desc: "Previous search result (after search confirmed)"},
+		},
+		{
+			{bindings: []key.Binding{keys.Refresh}, desc: "Refresh git state"},
+			{bindings: []key.Binding{keys.PRBrowse}, desc: "Open the active PR in the browser"},
+			{bindings: []key.Binding{keys.Help}, desc: "Show this help (scroll with j/k/mouse)"},
+		},
+		{
+			{bindings: []key.Binding{keys.QuitConfirm}, desc: "Quit (confirm)"},
+			{bindings: []key.Binding{keys.QuitImmediate}, desc: "Quit immediately"},
+		},
+	}
+
+	// Column-align descriptions: pad the key list to the widest one.
+	width := 0
+	for _, section := range sections {
+		for _, e := range section {
+			if w := len(keyList(e.bindings...)); w > width {
+				width = w
+			}
+		}
+	}
+
+	lines := []string{"Keybindings:", ""}
+	for i, section := range sections {
+		if i > 0 {
+			lines = append(lines, "")
+		}
+		for _, e := range section {
+			lines = append(lines, fmt.Sprintf("  %-*s  %s", width, keyList(e.bindings...), e.desc))
+		}
+	}
+	lines = append(lines, "", "Press q/esc to dismiss. Use j/k or mouse to scroll. / to search.")
+	return lines
 }
 
 func (m *Model) renderHelp() string {
