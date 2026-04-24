@@ -32,7 +32,9 @@ const (
 	prRefreshMax     = 15 * time.Minute // max backoff on rate limit
 	prIdleThreshold  = 10 * time.Minute // no UI events for this long = idle
 	prStaleThreshold = 24 * time.Hour   // no server changes for this long = stale
-	gitPollInterval  = 5 * time.Second
+	gitRefreshActive = 5 * time.Second  // local git poll interval when active
+	gitRefreshIdle   = 1 * time.Minute  // local git poll interval when idle
+	gitActiveWindow  = 2 * time.Minute  // fs event within this window keeps poll fast
 )
 
 type searchMatch struct {
@@ -142,8 +144,10 @@ type Model struct {
 	searchMatchIdx      int           // current match index
 	hoverX, hoverY      int           // last mouse position for hover highlighting
 	prInterval          time.Duration // adaptive PR refresh interval
+	gitInterval         time.Duration // adaptive local git poll interval
 	lastUIEvent         time.Time     // last user interaction (keys, mouse, resize)
 	lastServerChange    time.Time     // last time server data actually changed
+	lastGitChange       time.Time     // last fs-watcher event (proxy for local git activity)
 	dragStartX          int           // drag start position (-1 = not dragging)
 	dragStartY          int
 	dragEndX            int
@@ -320,8 +324,10 @@ func NewModel(dir string, g GitDataSource) *Model {
 		wordWrap:         true,
 		lineNumbers:      true,
 		prInterval:       prRefreshActive,
+		gitInterval:      gitRefreshActive,
 		lastUIEvent:      time.Now(),
 		lastServerChange: time.Now(),
+		lastGitChange:    time.Now(),
 		loading:          g != nil,
 		dragStartX:       -1,
 		dragStartY:       -1,
@@ -332,7 +338,7 @@ func (m *Model) Init() tea.Cmd {
 	if m.git == nil {
 		return m.loadNonGitFiles
 	}
-	return tea.Batch(m.loadLocalGitData, m.loadPRStatus, schedulePRTick(m.prInterval), scheduleGitTick())
+	return tea.Batch(m.loadLocalGitData, m.loadPRStatus, schedulePRTick(m.prInterval), scheduleGitTick(m.gitInterval))
 }
 
 func schedulePRTick(interval time.Duration) tea.Cmd {
@@ -341,8 +347,8 @@ func schedulePRTick(interval time.Duration) tea.Cmd {
 	})
 }
 
-func scheduleGitTick() tea.Cmd {
-	return tea.Tick(gitPollInterval, func(t time.Time) tea.Msg {
+func scheduleGitTick(interval time.Duration) tea.Cmd {
+	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return gitTickMsg{}
 	})
 }
@@ -939,12 +945,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case gitTickMsg:
+		m.gitInterval = m.computeGitInterval()
 		if m.git == nil {
-			return m, scheduleGitTick()
+			return m, scheduleGitTick(m.gitInterval)
 		}
-		return m, tea.Batch(m.loadLocalGitData, scheduleGitTick())
+		return m, tea.Batch(m.loadLocalGitData, scheduleGitTick(m.gitInterval))
 
 	case RefreshMsg:
+		// Any fs-watcher event means the working directory is active;
+		// stamp lastGitChange so computeGitInterval keeps us on the fast poll.
+		m.lastGitChange = time.Now()
 		if m.git == nil {
 			return m, m.loadNonGitFiles
 		}
@@ -2761,6 +2771,19 @@ func (m *Model) computePRInterval() time.Duration {
 		return prRefreshIdle
 	}
 	return prRefreshActive
+}
+
+// computeGitInterval returns the appropriate local git poll interval.
+// Either UI activity OR a recent filesystem event keeps the poll fast;
+// only when both are quiet do we fall back to the idle interval.
+func (m *Model) computeGitInterval() time.Duration {
+	now := time.Now()
+	uiIdle := now.Sub(m.lastUIEvent) >= prIdleThreshold
+	fsQuiet := now.Sub(m.lastGitChange) >= gitActiveWindow
+	if uiIdle && fsQuiet {
+		return gitRefreshIdle
+	}
+	return gitRefreshActive
 }
 
 func (m *Model) updateLayout() {

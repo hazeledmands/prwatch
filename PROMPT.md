@@ -20,6 +20,11 @@ checking against the github server:
 - this automatic refresh interval should decrease to every 10m if there have been no UI events in the last 10m (including mouse movements or window size changes), or if there have been no updates in the state from the remote server in over 24 hours.
 - respond to rate limits appropriately, backing off as needed
 
+local git polling (fallback for filesystem watcher misses):
+- state polls from the local filesystem should happen at most every 5s while the directory is active.
+- this interval should decrease to every 1m if there have been no UI events in the last 10m AND no filesystem events in the last 2m.
+- any event from the filesystem watcher (working tree, .git/, or refs) is a signal that the directory is active and should immediately reset the poll to the fast interval, even if the user hasn't interacted with the app recently.
+
 
 ## base branch detection
 

@@ -3848,6 +3848,76 @@ func TestAdaptiveRefresh_IdleAndStale(t *testing.T) {
 	}
 }
 
+func TestComputeGitInterval(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{
+			Branch: "feat", RepoName: "test", DirName: "test",
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Active user with recent git activity → active interval
+	m.lastUIEvent = time.Now()
+	m.lastGitChange = time.Now()
+	if got := m.computeGitInterval(); got != gitRefreshActive {
+		t.Errorf("active user+fs: got %v, want %v", got, gitRefreshActive)
+	}
+
+	// UI idle but filesystem changed recently → active interval
+	// (fs activity alone keeps the poll fast)
+	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.lastGitChange = time.Now()
+	if got := m.computeGitInterval(); got != gitRefreshActive {
+		t.Errorf("ui-idle but fs-active: got %v, want %v", got, gitRefreshActive)
+	}
+
+	// UI active but filesystem quiet for longer than the active window → active interval
+	// (UI activity alone keeps the poll fast)
+	m.lastUIEvent = time.Now()
+	m.lastGitChange = time.Now().Add(-3 * time.Minute)
+	if got := m.computeGitInterval(); got != gitRefreshActive {
+		t.Errorf("ui-active but fs-quiet: got %v, want %v", got, gitRefreshActive)
+	}
+
+	// Both UI idle and filesystem quiet → idle interval
+	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.lastGitChange = time.Now().Add(-3 * time.Minute)
+	if got := m.computeGitInterval(); got != gitRefreshIdle {
+		t.Errorf("both idle: got %v, want %v", got, gitRefreshIdle)
+	}
+}
+
+func TestRefreshMsg_UpdatesLastGitChange(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// Simulate both UI and fs going quiet, so interval is idle.
+	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.lastGitChange = time.Now().Add(-3 * time.Minute)
+	if got := m.computeGitInterval(); got != gitRefreshIdle {
+		t.Fatalf("precondition: got %v, want %v", got, gitRefreshIdle)
+	}
+
+	// A RefreshMsg from the fs watcher should stamp lastGitChange,
+	// reviving the fast interval even though the UI is still idle.
+	before := time.Now()
+	result, _ := m.Update(RefreshMsg{})
+	m = result.(*Model)
+	if !m.lastGitChange.After(before.Add(-time.Second)) {
+		t.Errorf("expected lastGitChange to be stamped to ~now, got %v", m.lastGitChange)
+	}
+	if got := m.computeGitInterval(); got != gitRefreshActive {
+		t.Errorf("after RefreshMsg: got %v, want %v", got, gitRefreshActive)
+	}
+}
+
 func TestIsRateLimited(t *testing.T) {
 	tests := []struct {
 		name string
