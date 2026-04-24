@@ -1,0 +1,1 @@
+- graceful handling of SIGTERM and SIGKILL
