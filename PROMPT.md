@@ -92,6 +92,12 @@ line 3: github status (not shown if there is no PR)
   - CI status as an emoji plus a simple textual indicator (CI failing)
     - clicking this should jump straight to CI results (the first failure, if any)
 
+## title bars
+
+each main pane view has a sticky one-row title bar inside the pane border, with a left-aligned label and a right-aligned context string. when they'd collide, the left side is truncated with an ellipsis so the right stays flush. the title bar is dim + bold; per-mode content lives with each mode.
+
+the sidebar's section headers use the same visual treatment. when scrolled past a header, it's pinned to the topmost sidebar row, overlaying whatever item would be there. selection navigation never lands on the covered row — clamping bumps the offset one extra row when it would. clicking the overlay falls on the non-selectable header (a no-op).
+
 ## modes
 
 main modes: "files", "commits", "pr".
@@ -111,6 +117,17 @@ order within these categories should be alphabetical.
 deleted files should still show up in this view, but they should be red.
 
 the main pane should be the currently-selected file, and it should highlight the diff for the current changeset.
+
+title bar: file path on the left. on the right:
+- when the file has a diff, derived from the visible viewport range against the file's hunk list:
+  - single hunk visible: `hunk N/M · funcCtx()` (function context from the `@@` header, omitted when empty)
+  - multiple hunks visible: `viewing hunks N through M · funcCtx()` (context from the topmost visible hunk)
+  - no hunks visible: `between hunks (N–N+1)` / `before hunk 1` / `after hunk M`
+- when the file has no diff:
+  - `<sha7> · <relative-time>` for tracked files (most recent commit touching the file)
+  - `untracked · <relative-time>` for untracked files (working-tree mtime)
+  - binary files prefix the result: `binary · <sha7> · <relative-time>` or `binary · untracked · <relative-time>`
+  - falls back to `no changes` if nothing is available
 
 change-type indicators: in the new changes, staged, and committed sections, each changed file should display a right-aligned badge indicating the nature of the change:
   - `[-]` in red for files that are entirely deletions (file was removed or diff is all removals)
@@ -147,11 +164,15 @@ the list of commits should be separated into categories, each with a section hea
 
 if this list is very long, we should paginate it. load the first 100 commits initially, then load the next 100 when the user scrolls to the end of the list. show a "load more" entry at the bottom of the list while more commits are available.
 
+title bar: for a real commit, left shows `<sha7> · <subject>` and right shows `@<author> · <relative-time>`. for the "new changes" or "staged changes" pseudo-entries, right shows the diff shortstat (e.g. `3 files changed, 42 insertions(+), 11 deletions(-)`).
+
 
 ### pr mode
 
 only available if there is an active PR.
 main panel should show the content associated with the currently-selected sidebar item.
+
+title bar: left shows the section/item label (`Description`, `comment #N`, `review #N · <state>`, `CI · <check-name>`); right shows `@<author> · <relative-time>` for comments and reviews, the check status (bucket name preferred, falling back to state) for CI, or empty for the description.
 sidebar should show:
 - description
   - main panel should show:
