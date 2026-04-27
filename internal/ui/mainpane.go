@@ -26,6 +26,14 @@ type diffAnnotation struct {
 	removedLines []string // removed lines before this line (for Shift+D display)
 }
 
+// diffHunk describes a single @@ chunk in a unified diff, mapped to the new
+// file's line range. Hunks are 1-indexed and the range is inclusive.
+type diffHunk struct {
+	StartLine int    // first new-file line covered by the hunk
+	EndLine   int    // last new-file line covered by the hunk
+	Context   string // optional function context from the @@ header
+}
+
 type mainPane struct {
 	viewport           viewport.Model
 	content            string
@@ -42,6 +50,10 @@ type mainPane struct {
 	gutterWidth        int                    // gutter width from last formatting
 	sourceToFormatLine map[int]int            // source line number (1-indexed) → formatted line index (0-indexed)
 	wrapContinuation   []bool                 // per viewport line: true if this line is a word-wrap continuation
+	titleLeft          string                 // left-aligned content of the sticky title bar
+	titleRight         string                 // right-aligned content of the sticky title bar (when titleDynamic is false)
+	titleDynamic       bool                   // when true, View renders the right side from current hunk position
+	diffHunks          []diffHunk             // sorted by StartLine, used for sticky title position
 }
 
 func newMainPane() *mainPane {
@@ -59,6 +71,79 @@ func (m *mainPane) SetDiffAnnotations(annotations map[int]diffAnnotation) {
 func (m *mainPane) ClearDiffAnnotations() {
 	m.diffAnnotations = nil
 	m.refreshViewport()
+}
+
+// SetDiffHunks installs the per-file hunk list used by the sticky title bar to
+// describe the user's current scroll position.
+func (m *mainPane) SetDiffHunks(hunks []diffHunk) {
+	m.diffHunks = hunks
+}
+
+// ClearDiffHunks removes the hunk list.
+func (m *mainPane) ClearDiffHunks() {
+	m.diffHunks = nil
+}
+
+// hunkPosition describes where a source line sits relative to the diff hunks.
+type hunkPosition struct {
+	total     int    // len(hunks); 0 means "no hunks"
+	insideIdx int    // 0-based hunk index when inside a hunk, else -1
+	beforeIdx int    // 0-based index of the next hunk when between/before, else -1
+	afterIdx  int    // 0-based index of the previous hunk when between/after, else -1
+	context   string // function context for the inside hunk, else ""
+}
+
+// hunkPositionForLine classifies sourceLine relative to the hunk list:
+//   - inside a hunk → insideIdx is set
+//   - before all hunks → beforeIdx == 0
+//   - after all hunks → afterIdx == total-1
+//   - between two hunks → both beforeIdx and afterIdx are set
+//   - no hunks → total == 0
+func hunkPositionForLine(hunks []diffHunk, sourceLine int) hunkPosition {
+	pos := hunkPosition{total: len(hunks), insideIdx: -1, beforeIdx: -1, afterIdx: -1}
+	if len(hunks) == 0 {
+		return pos
+	}
+	for i, h := range hunks {
+		if sourceLine >= h.StartLine && sourceLine <= h.EndLine {
+			pos.insideIdx = i
+			pos.context = h.Context
+			return pos
+		}
+		if sourceLine < h.StartLine {
+			pos.beforeIdx = i
+			if i > 0 {
+				pos.afterIdx = i - 1
+			}
+			return pos
+		}
+	}
+	pos.afterIdx = len(hunks) - 1
+	return pos
+}
+
+// parseDiffHunks extracts hunks (with optional function context) from a unified
+// diff. Empty hunks (count == 0, e.g. pure deletions) are dropped.
+func parseDiffHunks(unifiedDiff string) []diffHunk {
+	if unifiedDiff == "" {
+		return nil
+	}
+	var hunks []diffHunk
+	for _, line := range strings.Split(unifiedDiff, "\n") {
+		if !strings.HasPrefix(line, "@@") {
+			continue
+		}
+		start, count, context := parseHunkHeader(line)
+		if start <= 0 || count <= 0 {
+			continue
+		}
+		hunks = append(hunks, diffHunk{
+			StartLine: start,
+			EndLine:   start + count - 1,
+			Context:   context,
+		})
+	}
+	return hunks
 }
 
 // ToggleShowRemoved toggles display of removed lines.
@@ -196,7 +281,103 @@ func (m *mainPane) SetSize(w, h int) {
 	m.width = w
 	m.height = h
 	m.viewport.SetWidth(w)
-	m.viewport.SetHeight(h)
+	m.viewport.SetHeight(viewportHeightFor(h))
+}
+
+// SetTitle sets the sticky title bar content. Left is shown left-aligned, right
+// right-aligned. When the two would collide, left is truncated with an ellipsis
+// before right is touched. Plain strings only — colors are applied at render
+// time.
+func (m *mainPane) SetTitle(left, right string) {
+	m.titleLeft = left
+	m.titleRight = right
+	m.titleDynamic = false
+}
+
+// SetTitleWithHunks sets the title's left side and switches the pane into
+// dynamic-title mode: each render computes the right side from the current
+// scroll position against the installed hunk list.
+func (m *mainPane) SetTitleWithHunks(left string) {
+	m.titleLeft = left
+	m.titleRight = ""
+	m.titleDynamic = true
+}
+
+// hunkTitleRight formats the right side of the title bar for files mode based
+// on the hunks intersecting the visible viewport range.
+//
+// Format:
+//   - 0 hunks visible:
+//     "before hunk 1" / "between hunks (N–N+1)" / "after hunk M"
+//     (classified from the top visible source line)
+//   - 1 hunk visible:
+//     "hunk N/M · funcCtx()" (context omitted when empty)
+//   - 2+ hunks visible:
+//     "viewing hunks N through M · funcCtx()" where funcCtx is the topmost
+//     visible hunk's context (omitted when empty)
+//   - no hunks at all in the file:
+//     "no changes"
+func (m *mainPane) hunkTitleRight() string {
+	if len(m.diffHunks) == 0 {
+		return "no changes"
+	}
+	topLine := m.ViewportToSourceLine()
+	bottomLine := m.ViewportBottomSourceLine()
+	if bottomLine < topLine {
+		bottomLine = topLine
+	}
+	first, last := visibleHunkRange(m.diffHunks, topLine, bottomLine)
+	switch {
+	case first < 0:
+		// Nothing visible — classify off the top line.
+		pos := hunkPositionForLine(m.diffHunks, topLine)
+		switch {
+		case pos.afterIdx < 0 && pos.beforeIdx == 0:
+			return "before hunk 1"
+		case pos.beforeIdx < 0 && pos.afterIdx == pos.total-1:
+			return fmt.Sprintf("after hunk %d", pos.total)
+		default:
+			return fmt.Sprintf("between hunks (%d–%d)", pos.afterIdx+1, pos.beforeIdx+1)
+		}
+	case first == last:
+		right := fmt.Sprintf("hunk %d/%d", first+1, len(m.diffHunks))
+		if ctx := m.diffHunks[first].Context; ctx != "" {
+			right += " · " + ctx
+		}
+		return right
+	default:
+		right := fmt.Sprintf("viewing hunks %d through %d", first+1, last+1)
+		if ctx := m.diffHunks[first].Context; ctx != "" {
+			right += " · " + ctx
+		}
+		return right
+	}
+}
+
+// visibleHunkRange returns the inclusive [first, last] indices of hunks that
+// intersect the visible source-line range [topLine, bottomLine]. Returns
+// (-1, -1) when no hunks intersect.
+func visibleHunkRange(hunks []diffHunk, topLine, bottomLine int) (int, int) {
+	first, last := -1, -1
+	for i, h := range hunks {
+		if h.EndLine < topLine || h.StartLine > bottomLine {
+			continue
+		}
+		if first < 0 {
+			first = i
+		}
+		last = i
+	}
+	return first, last
+}
+
+// viewportHeightFor returns the viewport height for a given pane height,
+// reserving one row for the sticky title bar.
+func viewportHeightFor(paneHeight int) int {
+	if paneHeight <= 1 {
+		return 0
+	}
+	return paneHeight - 1
 }
 
 func (m *mainPane) SetContent(content string) {
@@ -453,9 +634,69 @@ func (m *mainPane) View(focused bool) string {
 	if focused {
 		style = mainPaneFocusedStyle
 	}
+	body := m.viewport.View()
+	if m.height >= 1 {
+		right := m.titleRight
+		if m.titleDynamic {
+			right = m.hunkTitleRight()
+		}
+		title := mainPaneTitleStyle.Render(renderTitleRow(m.titleLeft, right, m.width))
+		body = lipgloss.JoinVertical(lipgloss.Left, title, body)
+	}
 	// lipgloss v2: Width/Height set the outer dimensions (includes borders).
 	// Add 2 for border characters on each axis.
-	return style.Width(m.width + 2).Height(m.height + 2).Render(m.viewport.View())
+	return style.Width(m.width + 2).Height(m.height + 2).Render(body)
+}
+
+// renderTitleRow lays out a left-aligned and right-aligned string into a single
+// row of exactly width display columns. When left+right would collide, left is
+// truncated with an ellipsis. If right alone is wider than width, right is
+// truncated and left is dropped entirely.
+func renderTitleRow(left, right string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	rightW := runewidth.StringWidth(right)
+	if rightW > width {
+		return fitToWidth(runewidth.Truncate(right, width, ""), width)
+	}
+	leftW := runewidth.StringWidth(left)
+	gap := 1
+	if leftW == 0 || rightW == 0 {
+		gap = 0
+	}
+	if leftW+gap+rightW > width {
+		budget := width - rightW - gap
+		if budget <= 0 {
+			left = ""
+			leftW = 0
+		} else {
+			left = runewidth.Truncate(left, budget, "…")
+			leftW = runewidth.StringWidth(left)
+		}
+	}
+	pad := width - leftW - rightW
+	if pad < 0 {
+		pad = 0
+	}
+	return fitToWidth(left+strings.Repeat(" ", pad)+right, width)
+}
+
+// fitToWidth pads or truncates s so its display width is exactly width. Acts as
+// a safety net against width-estimate drift from combining characters.
+func fitToWidth(s string, width int) string {
+	w := runewidth.StringWidth(s)
+	if w == width {
+		return s
+	}
+	if w < width {
+		return s + strings.Repeat(" ", width-w)
+	}
+	s = runewidth.Truncate(s, width, "")
+	if w := runewidth.StringWidth(s); w < width {
+		s += strings.Repeat(" ", width-w)
+	}
+	return s
 }
 
 // ScrollTop returns the line number at the top of the viewport.
@@ -580,7 +821,7 @@ func (m *mainPane) ViewportToSourceLine() int {
 // ViewportBottomSourceLine returns the source line number at the bottom of the
 // visible viewport.
 func (m *mainPane) ViewportBottomSourceLine() int {
-	bottomOffset := m.viewport.YOffset() + m.height - 1
+	bottomOffset := m.viewport.YOffset() + m.viewport.Height() - 1
 	if bottomOffset < 0 {
 		bottomOffset = 0
 	}

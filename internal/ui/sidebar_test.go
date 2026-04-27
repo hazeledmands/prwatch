@@ -1,6 +1,9 @@
 package ui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func items(labels ...string) []sidebarItem {
 	result := make([]sidebarItem, len(labels))
@@ -342,5 +345,136 @@ func TestBuildTreeItems_SingleLeafPreservesKind(t *testing.T) {
 	}
 	if items[0].kind != itemDim {
 		t.Errorf("single-leaf should preserve kind, got %v", items[0].kind)
+	}
+}
+
+// === Sticky section header (Option A: overlay) ===
+//
+// Invariants:
+//   I1. At offset 0, no overlay is rendered.
+//   I2. When the topmost visible item is itself a header, no overlay is rendered.
+//   I3. When scrolled past a header onto a non-header item, the overlay is the
+//       most recent header before the offset.
+//   I4. After clampOffset, selected != offset whenever an overlay would activate
+//       (the cursor is never hidden under the sticky row).
+
+func sectionedItems() []sidebarItem {
+	return []sidebarItem{
+		{label: "New Changes (1)", kind: itemHeader}, // 0
+		{label: "  z.go", kind: itemNormal},          // 1
+		{label: "Committed (3)", kind: itemHeader},   // 2
+		{label: "  a.go", kind: itemNormal},          // 3
+		{label: "  b.go", kind: itemNormal},          // 4
+		{label: "  c.go", kind: itemNormal},          // 5
+	}
+}
+
+func TestSidebar_StickyHeader_NoneAtTop(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(sectionedItems())
+	s.SetSize(20, 4)
+	if got := s.stickyHeaderIndex(); got != -1 {
+		t.Errorf("offset 0: expected no overlay, got idx %d", got)
+	}
+}
+
+func TestSidebar_StickyHeader_NoneOnHeaderRow(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(sectionedItems())
+	s.SetSize(20, 4)
+	s.offset = 2 // "Committed (3)" header is the topmost visible row
+	if got := s.stickyHeaderIndex(); got != -1 {
+		t.Errorf("topmost is header: expected no overlay, got idx %d", got)
+	}
+}
+
+func TestSidebar_StickyHeader_FindsPreviousHeader(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(sectionedItems())
+	s.SetSize(20, 4)
+	s.offset = 4 // "  b.go" — topmost; nearest header before is "Committed (3)" at idx 2
+	if got := s.stickyHeaderIndex(); got != 2 {
+		t.Errorf("expected sticky idx 2, got %d", got)
+	}
+	s.offset = 1 // "  z.go" — first item under "New Changes" header
+	if got := s.stickyHeaderIndex(); got != 0 {
+		t.Errorf("expected sticky idx 0, got %d", got)
+	}
+}
+
+// I4: clampOffset must never leave selection at the row that would be covered
+// by a sticky header.
+func TestSidebar_ClampOffset_KeepsCursorVisible(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(sectionedItems())
+	s.SetSize(20, 3) // tiny visible area to stress the clamping
+	s.SelectIndex(5) // select "  c.go"
+	if s.selected == s.offset && s.stickyHeaderIndex() >= 0 {
+		t.Fatalf("after selecting c.go: cursor hidden under sticky (selected=%d, offset=%d, sticky=%d)",
+			s.selected, s.offset, s.stickyHeaderIndex())
+	}
+	// Manually pin the offset onto the cursor's index, simulating an external
+	// update path that doesn't go through clampOffset's adjustment.
+	s.SelectIndex(4)
+	s.offset = 4 // selected == offset, sticky would activate
+	s.clampOffset()
+	if s.selected == s.offset && s.stickyHeaderIndex() >= 0 {
+		t.Fatalf("clampOffset failed to bump offset: selected=%d, offset=%d, sticky=%d",
+			s.selected, s.offset, s.stickyHeaderIndex())
+	}
+}
+
+// View output: row 0 should contain the sticky header text rather than the
+// hidden item's label when an overlay is active.
+func TestSidebar_View_OverlaysStickyHeader(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(sectionedItems())
+	s.SetSize(30, 4)
+	s.offset = 4 // overlay "Committed (3)" hiding "  b.go"
+
+	out := stripANSI(s.View(false))
+	lines := strings.Split(out, "\n")
+	// lines[0] is top border (╭...╮); lines[1] is the first content row.
+	if !strings.Contains(lines[1], "Committed") {
+		t.Errorf("row 1 should contain sticky header 'Committed', got %q", lines[1])
+	}
+	if strings.Contains(lines[1], "b.go") {
+		t.Errorf("row 1 should not still show the hidden item 'b.go', got %q", lines[1])
+	}
+	// The hidden item is at offset, so rows 2+ should show items[5] = c.go etc.
+	bodyJoined := strings.Join(lines[2:], "\n")
+	if !strings.Contains(bodyJoined, "c.go") {
+		t.Errorf("body rows should show c.go, got: %q", bodyJoined)
+	}
+}
+
+// At offset 0 there's no overlay, so row 1 shows items[0] (the section header
+// itself, naturally placed).
+func TestSidebar_View_NoOverlayAtTop(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(sectionedItems())
+	s.SetSize(30, 4)
+	out := stripANSI(s.View(false))
+	lines := strings.Split(out, "\n")
+	if !strings.Contains(lines[1], "New Changes") {
+		t.Errorf("row 1 at top should show first item 'New Changes', got %q", lines[1])
+	}
+}
+
+// Cross-section scroll: when offset crosses from one section into the next,
+// the sticky overlay swaps to the new section's header.
+func TestSidebar_StickyHeader_CrossesSections(t *testing.T) {
+	s := newSidebar()
+	s.SetItems(sectionedItems())
+	s.SetSize(30, 3)
+	// In "New Changes" section: items[1] is the first non-header item.
+	s.offset = 1
+	if got := s.stickyHeaderIndex(); got != 0 {
+		t.Errorf("inside New Changes: sticky idx = %d, want 0", got)
+	}
+	// Move offset into the "Committed" section.
+	s.offset = 3
+	if got := s.stickyHeaderIndex(); got != 2 {
+		t.Errorf("inside Committed: sticky idx = %d, want 2", got)
 	}
 }

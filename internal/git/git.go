@@ -61,8 +61,10 @@ type RepoInfoResult struct {
 }
 
 type Commit struct {
-	SHA     string
-	Subject string
+	SHA        string
+	Subject    string
+	Author     string
+	AuthorDate time.Time
 }
 
 type PRInfoResult struct {
@@ -503,7 +505,7 @@ func (g *Git) FileDiffUncommitted(file string) (string, error) {
 
 // AllCommits returns the commit history of HEAD with pagination.
 func (g *Git) AllCommits(skip, limit int) ([]Commit, error) {
-	out, err := g.run("log", "--skip", fmt.Sprintf("%d", skip), "-n", fmt.Sprintf("%d", limit), "--format=%H %s", "HEAD")
+	out, err := g.run("log", "--skip", fmt.Sprintf("%d", skip), "-n", fmt.Sprintf("%d", limit), "--format=%H%x09%an%x09%aI%x09%s", "HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -513,7 +515,7 @@ func (g *Git) AllCommits(skip, limit int) ([]Commit, error) {
 // Commits returns the list of commits between base and HEAD, newest first.
 // If no commits exist in the range (e.g. on main), falls back to AllCommits.
 func (g *Git) Commits(base string, skip, limit int) ([]Commit, error) {
-	out, err := g.run("log", "--skip", fmt.Sprintf("%d", skip), "-n", fmt.Sprintf("%d", limit), "--format=%H %s", base+"..HEAD")
+	out, err := g.run("log", "--skip", fmt.Sprintf("%d", skip), "-n", fmt.Sprintf("%d", limit), "--format=%H%x09%an%x09%aI%x09%s", base+"..HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -554,7 +556,7 @@ func (g *Git) CommitCountRange(base string) (int, error) {
 // BaseCommits returns commits from the base branch that are already in the
 // history (before the feature branch diverged). Limited to a reasonable count.
 func (g *Git) BaseCommits(base string, limit int) ([]Commit, error) {
-	out, err := g.run("log", "-n", fmt.Sprintf("%d", limit), "--format=%H %s", base)
+	out, err := g.run("log", "-n", fmt.Sprintf("%d", limit), "--format=%H%x09%an%x09%aI%x09%s", base)
 	if err != nil {
 		return nil, err
 	}
@@ -564,16 +566,25 @@ func (g *Git) BaseCommits(base string, limit int) ([]Commit, error) {
 func parseCommitLog(out string) []Commit {
 	var commits []Commit
 	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
+		line = strings.TrimRight(line, "\r")
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, " ", 2)
-		subject := ""
+		// Tab-separated: %H \t %an \t %aI \t %s
+		parts := strings.SplitN(line, "\t", 4)
+		c := Commit{SHA: parts[0]}
 		if len(parts) > 1 {
-			subject = parts[1]
+			c.Author = parts[1]
 		}
-		commits = append(commits, Commit{SHA: parts[0], Subject: subject})
+		if len(parts) > 2 {
+			if t, err := time.Parse(time.RFC3339, parts[2]); err == nil {
+				c.AuthorDate = t
+			}
+		}
+		if len(parts) > 3 {
+			c.Subject = parts[3]
+		}
+		commits = append(commits, c)
 	}
 	return commits
 }

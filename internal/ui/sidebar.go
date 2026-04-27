@@ -377,6 +377,31 @@ func (s *sidebar) clampOffset() {
 	if s.selected >= s.offset+visible {
 		s.offset = s.selected - visible + 1
 	}
+	// If a sticky section header would otherwise hide the selected item under
+	// the topmost visible row, scroll one extra line up so selection lands at
+	// row 1 instead of row 0.
+	if s.selected == s.offset && s.stickyHeaderIndex() >= 0 && s.offset > 0 {
+		s.offset--
+	}
+}
+
+// stickyHeaderIndex returns the index of the section header that should be
+// pinned to the topmost visible row, or -1 if no overlay is needed. An overlay
+// is shown when the user has scrolled past a header and the topmost visible
+// item is not itself a header.
+func (s *sidebar) stickyHeaderIndex() int {
+	if s.offset <= 0 || s.offset >= len(s.items) {
+		return -1
+	}
+	if s.items[s.offset].kind == itemHeader {
+		return -1
+	}
+	for i := s.offset - 1; i >= 0; i-- {
+		if s.items[i].kind == itemHeader {
+			return i
+		}
+	}
+	return -1
 }
 
 // clampOffsetBounds keeps the offset within valid range [0, len-visible]
@@ -417,12 +442,22 @@ func (s *sidebar) View(focused bool) string {
 		end = len(s.items)
 	}
 
+	stickyIdx := s.stickyHeaderIndex()
+
 	var b strings.Builder
 	for i := s.offset; i < end; i++ {
 		if i > s.offset {
 			b.WriteString("\n")
 		}
-		item := s.items[i]
+		// Sticky overlay: replace the topmost visible item with the section
+		// header that's logically above it. The hidden item lives at index
+		// s.offset; clampOffset keeps the cursor off it.
+		var item sidebarItem
+		if i == s.offset && stickyIdx >= 0 {
+			item = s.items[stickyIdx]
+		} else {
+			item = s.items[i]
+		}
 
 		if item.kind == itemSeparator {
 			sep := strings.Repeat("─", s.width)

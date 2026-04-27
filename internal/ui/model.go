@@ -411,6 +411,76 @@ func isRateLimited(err error) bool {
 }
 
 // relativeTime returns a short human-readable relative timestamp like "2h ago" or "3d ago".
+// formatAuthorAndTime joins "@author" and a relative timestamp with " · ", omitting either if missing.
+func formatAuthorAndTime(author string, t time.Time) string {
+	var parts []string
+	if author != "" {
+		parts = append(parts, "@"+author)
+	}
+	if rel := relativeTime(t); rel != "" {
+		parts = append(parts, rel)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// shortstatFromDiff produces a one-line summary like
+// "3 files changed, 42 insertions(+), 11 deletions(-)" from a unified diff.
+func shortstatFromDiff(diff string) string {
+	if diff == "" {
+		return ""
+	}
+	files, ins, del := 0, 0, 0
+	inHunk := false
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			files++
+			inHunk = false
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case !inHunk:
+			// Skip headers between files.
+		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
+			// File header markers, not insertions/deletions.
+		case strings.HasPrefix(line, "+"):
+			ins++
+		case strings.HasPrefix(line, "-"):
+			del++
+		}
+	}
+	if files == 0 {
+		return ""
+	}
+	parts := []string{pluralize(files, "file") + " changed"}
+	if ins > 0 {
+		parts = append(parts, pluralize(ins, "insertion")+"(+)")
+	}
+	if del > 0 {
+		parts = append(parts, pluralize(del, "deletion")+"(-)")
+	}
+	return strings.Join(parts, ", ")
+}
+
+func pluralize(n int, word string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, word)
+	}
+	return fmt.Sprintf("%d %ss", n, word)
+}
+
+// commitTitleLeft formats the left-side of the title bar for a commit:
+// "<short-sha> · <subject>".
+func commitTitleLeft(c gitpkg.Commit) string {
+	short := c.SHA
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	if c.Subject == "" {
+		return short
+	}
+	return short + " · " + c.Subject
+}
+
 func relativeTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -1628,6 +1698,15 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		m.focus = SidebarFocus
 		// Content starts after status bar (2 lines) + top border (1 line) = row 3
 		itemIdx := contentY - 1 + m.sidebar.offset
+		// If the user clicked the topmost row while a sticky header is being
+		// overlaid there, route the click to the header itself (which is
+		// non-selectable, so this becomes a no-op rather than selecting the
+		// hidden item underneath).
+		if contentY == 1 {
+			if sticky := m.sidebar.stickyHeaderIndex(); sticky >= 0 {
+				itemIdx = sticky
+			}
+		}
 		m.sidebar.SelectIndex(itemIdx)
 		// "Load more" in commit mode triggers pagination
 		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
@@ -1897,6 +1976,44 @@ func parseHunkNewStart(hunkLine string) int {
 		return 0
 	}
 	return n
+}
+
+// parseHunkHeader parses an @@ -X,Y +A,B @@ <context> line. Returns the
+// new-file start line, new-file line count, and the context text after the
+// closing @@. Returns zeros and "" if the line is malformed.
+func parseHunkHeader(line string) (start, count int, context string) {
+	if !strings.HasPrefix(line, "@@") {
+		return 0, 0, ""
+	}
+	closeIdx := strings.Index(line[2:], "@@")
+	if closeIdx < 0 {
+		return 0, 0, ""
+	}
+	inner := line[2 : 2+closeIdx]
+	after := line[2+closeIdx+2:]
+	plusIdx := strings.Index(inner, "+")
+	if plusIdx < 0 {
+		return 0, 0, ""
+	}
+	numPart := strings.TrimSpace(inner[plusIdx+1:])
+	if commaIdx := strings.Index(numPart, ","); commaIdx >= 0 {
+		s, err := strconv.Atoi(numPart[:commaIdx])
+		if err != nil {
+			return 0, 0, ""
+		}
+		c, err := strconv.Atoi(numPart[commaIdx+1:])
+		if err != nil {
+			return 0, 0, ""
+		}
+		start, count = s, c
+	} else {
+		s, err := strconv.Atoi(numPart)
+		if err != nil {
+			return 0, 0, ""
+		}
+		start, count = s, 1
+	}
+	return start, count, strings.TrimSpace(after)
 }
 
 // isBinaryContent checks if content appears to be binary by looking for null bytes
@@ -2597,6 +2714,8 @@ func (m *Model) updateMainContent() {
 		if file == "" {
 			m.mainPane.SetPlainContent("")
 			m.mainPane.ClearDiffAnnotations()
+			m.mainPane.ClearDiffHunks()
+			m.mainPane.SetTitle("", "")
 			return
 		}
 		if m.sidebar.SelectedIsDir() {
@@ -2606,11 +2725,15 @@ func (m *Model) updateMainContent() {
 		if err != nil {
 			m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
 			m.mainPane.ClearDiffAnnotations()
+			m.mainPane.ClearDiffHunks()
+			m.mainPane.SetTitle(file, "error")
 			return
 		}
 		if isBinaryContent(content) {
 			m.mainPane.SetPlainContent("[binary content]")
 			m.mainPane.ClearDiffAnnotations()
+			m.mainPane.ClearDiffHunks()
+			m.mainPane.SetTitle(file, "binary")
 			return
 		}
 		// Compute diff annotations for the gutter
@@ -2631,8 +2754,10 @@ func (m *Model) updateMainContent() {
 				}
 			}
 			m.mainPane.SetDiffAnnotations(annotations)
+			m.mainPane.SetDiffHunks(parseDiffHunks(diff))
 		} else {
 			m.mainPane.ClearDiffAnnotations()
+			m.mainPane.ClearDiffHunks()
 		}
 		m.mainPane.SetPlainContent(content)
 		// Auto-jump to first diff only when the file changes
@@ -2640,16 +2765,19 @@ func (m *Model) updateMainContent() {
 			m.lastViewedFile = file
 			m.jumpToFirstDiff()
 		}
+		m.mainPane.SetTitleWithHunks(file)
 
 	case CommitsMode:
 		selected := m.sidebar.SelectedItem()
 		if selected == "" {
 			m.mainPane.SetContent("")
+			m.mainPane.SetTitle("", "")
 			return
 		}
 		// Check if this is the "load more" entry
 		if strings.HasPrefix(selected, "load more") {
 			m.mainPane.SetPlainContent("Loading more commits...")
+			m.mainPane.SetTitle(selected, "")
 			return
 		}
 		// Check if this is the "new changes" or "staged changes" entry
@@ -2657,29 +2785,38 @@ func (m *Model) updateMainContent() {
 			// Show combined diff of all uncommitted/staged files
 			diff, _ := m.git.FileDiffUncommitted("")
 			m.mainPane.SetContent(diff)
+			m.mainPane.SetTitle(selected, shortstatFromDiff(diff))
 			return
 		}
 		// Otherwise it's a commit — extract SHA from "abcdef0 subject"
 		commitIdx := m.commitIndexFromSidebarItem(selected)
 		if commitIdx < 0 || commitIdx >= len(m.commits) {
 			m.mainPane.SetContent("")
+			m.mainPane.SetTitle("", "")
 			return
 		}
-		patch, err := m.git.CommitPatch(m.commits[commitIdx].SHA)
+		commit := m.commits[commitIdx]
+		patch, err := m.git.CommitPatch(commit.SHA)
+		titleLeft := commitTitleLeft(commit)
+		titleRight := formatAuthorAndTime(commit.Author, commit.AuthorDate)
 		if err != nil {
 			m.mainPane.SetContent(fmt.Sprintf("Error: %v", err))
+			m.mainPane.SetTitle(titleLeft, titleRight)
 			return
 		}
 		if isBinaryContent(patch) {
 			m.mainPane.SetPlainContent("[binary content]")
+			m.mainPane.SetTitle(titleLeft, titleRight)
 			return
 		}
 		m.mainPane.SetContent(patch)
+		m.mainPane.SetTitle(titleLeft, titleRight)
 
 	case PRMode:
 		selected := m.sidebar.SelectedItem()
 		if selected == "Description" {
 			m.mainPane.SetPlainContent(m.renderPRDescription())
+			m.mainPane.SetTitle("Description", "")
 		} else if matched, i := matchNumberedItem(selected, m.prComments, func(j int, c gitpkg.PRComment) string {
 			return fmt.Sprintf("#%d @%s", len(m.prComments)-j, c.Author)
 		}); matched {
@@ -2694,6 +2831,10 @@ func (m *Model) updateMainContent() {
 				body = rendered
 			}
 			m.mainPane.SetPlainContent(fmt.Sprintf("%s\n\n%s", header, body))
+			m.mainPane.SetTitle(
+				fmt.Sprintf("comment #%d", len(m.prComments)-i),
+				formatAuthorAndTime(c.Author, c.CreatedAt),
+			)
 		} else if matched, i := matchNumberedItem(selected, m.prReviews, func(j int, r gitpkg.PRReview) string {
 			var emoji string
 			switch r.State {
@@ -2726,8 +2867,13 @@ func (m *Model) updateMainContent() {
 				content += fmt.Sprintf("\n\n--- %s:%d ---\n%s", c.Path, c.Line, c.Body)
 			}
 			m.mainPane.SetPlainContent(content)
+			m.mainPane.SetTitle(
+				fmt.Sprintf("review #%d · %s", len(m.prReviews)-i, reviewStateLabel(r.State)),
+				formatAuthorAndTime(r.Author, r.SubmittedAt),
+			)
 		} else {
 			// CI check — find the matching check
+			matched := false
 			for _, check := range m.ciChecks {
 				if strings.Contains(selected, check.Name) {
 					status := check.Bucket
@@ -2754,10 +2900,32 @@ func (m *Model) updateMainContent() {
 						}
 					}
 					m.mainPane.SetPlainContent(content)
+					m.mainPane.SetTitle("CI · "+check.Name, status)
+					matched = true
 					break
 				}
 			}
+			if !matched {
+				m.mainPane.SetTitle(selected, "")
+			}
 		}
+	}
+}
+
+// reviewStateLabel returns a short human-readable label for a PR review state.
+func reviewStateLabel(state string) string {
+	switch state {
+	case "APPROVED":
+		return "approved"
+	case "CHANGES_REQUESTED":
+		return "changes requested"
+	case "COMMENTED":
+		return "commented"
+	default:
+		if state == "" {
+			return "pending"
+		}
+		return strings.ToLower(state)
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	runewidth "github.com/mattn/go-runewidth"
+	"pgregory.net/rapid"
 )
 
 func TestMainPane_SetContent(t *testing.T) {
@@ -797,5 +799,183 @@ func TestWrapLinesWithContinuationMap_WithIndent(t *testing.T) {
 		if !contMap[i] {
 			t.Errorf("line %d should be marked as continuation", i)
 		}
+	}
+}
+
+// === Sticky title bar — structural invariants ===
+//
+// Invariants enforced here:
+//   I1. renderTitleRow always returns a string of exactly `width` display columns.
+//   I2. The right segment is preserved when it fits, and its trailing characters
+//       always sit at the right edge of the row.
+//   I3. When left+right would collide, left is truncated (not right).
+//   I4. mainPane.View renders exactly height+2 lines (border + content + border).
+//   I5. The viewport's height is height-1 (one row reserved for the title).
+//   I6. The title bar appears as the second line of View output (just inside
+//       the top border) and is independent of viewport content.
+//   I7. Setting/clearing the title does not change the dimensions of View.
+
+func TestRenderTitleRow_AlwaysExactWidth(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		left := rapid.StringN(0, 60, 200).Draw(t, "left")
+		right := rapid.StringN(0, 60, 200).Draw(t, "right")
+		width := rapid.IntRange(1, 120).Draw(t, "width")
+
+		row := renderTitleRow(left, right, width)
+		got := runewidth.StringWidth(row)
+		if got != width {
+			t.Fatalf("renderTitleRow width=%d, got display width %d for left=%q right=%q result=%q",
+				width, got, left, right, row)
+		}
+	})
+}
+
+func TestRenderTitleRow_RightFlushedWhenFits(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		// ASCII-only generator so we can compare exact suffix bytes.
+		left := rapid.StringMatching(`[a-zA-Z0-9 _.-]{0,40}`).Draw(t, "left")
+		right := rapid.StringMatching(`[a-zA-Z0-9 _.-]{0,40}`).Draw(t, "right")
+		width := rapid.IntRange(1, 120).Draw(t, "width")
+
+		leftW := runewidth.StringWidth(left)
+		rightW := runewidth.StringWidth(right)
+		gap := 1
+		if leftW == 0 || rightW == 0 {
+			gap = 0
+		}
+		if leftW+gap+rightW > width {
+			return // collision; covered by Truncation test
+		}
+
+		row := renderTitleRow(left, right, width)
+		if !strings.HasSuffix(row, right) {
+			t.Fatalf("right %q should be flush with the right edge, got %q", right, row)
+		}
+	})
+}
+
+func TestRenderTitleRow_LeftTruncatesBeforeRight(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		// Pick a right that always fits, and a left long enough to force collision.
+		right := rapid.StringMatching(`[a-zA-Z0-9 ]{1,30}`).Draw(t, "right")
+		width := rapid.IntRange(runewidth.StringWidth(right)+1, 80).Draw(t, "width")
+		// Left long enough that left+gap+right > width.
+		minLeftLen := width - runewidth.StringWidth(right) // collision guaranteed when len(left) >= this
+		leftLen := rapid.IntRange(minLeftLen, minLeftLen+60).Draw(t, "leftLen")
+		left := strings.Repeat("L", leftLen)
+
+		row := renderTitleRow(left, right, width)
+		// Right is preserved verbatim.
+		if !strings.HasSuffix(row, right) {
+			t.Fatalf("right %q should be preserved on collision, got %q", right, row)
+		}
+		// Left was truncated: it should not contain the original full left content.
+		// We don't assert the ellipsis position (depends on width), only that
+		// the row's display width matches width (already covered by I1).
+	})
+}
+
+func TestRenderTitleRow_RightTooWideTruncates(t *testing.T) {
+	right := strings.Repeat("R", 50)
+	row := renderTitleRow("ignored left", right, 10)
+	if w := runewidth.StringWidth(row); w != 10 {
+		t.Fatalf("expected width 10, got %d for row %q", w, row)
+	}
+	// Left should be dropped entirely when right doesn't fit.
+	if strings.Contains(row, "ignored") {
+		t.Fatalf("left should be dropped when right doesn't fit, got %q", row)
+	}
+}
+
+func TestRenderTitleRow_ZeroWidth(t *testing.T) {
+	if got := renderTitleRow("hi", "bye", 0); got != "" {
+		t.Fatalf("width 0 should yield empty string, got %q", got)
+	}
+}
+
+func TestRenderTitleRow_BothEmpty(t *testing.T) {
+	row := renderTitleRow("", "", 12)
+	if w := runewidth.StringWidth(row); w != 12 {
+		t.Fatalf("empty title should still be 12 wide, got width %d row=%q", w, row)
+	}
+}
+
+// I4 + I5 + I7: the View renders the same number of lines regardless of title
+// content, and the viewport always gets one less row than the pane height.
+func TestMainPane_TitleDoesNotChangeOuterDimensions(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(40, 10)
+	mp.SetPlainContent("line1\nline2\nline3\nline4\nline5")
+
+	noTitle := mp.View(false)
+	mp.SetTitle("some/file.go", "5 hunks")
+	withTitle := mp.View(false)
+
+	noLines := strings.Count(noTitle, "\n") + 1
+	withLines := strings.Count(withTitle, "\n") + 1
+	if noLines != withLines {
+		t.Fatalf("View line count changed when title was set: %d → %d", noLines, withLines)
+	}
+	// height+2 = 12 (10 inner + top/bottom border)
+	if noLines != 12 {
+		t.Fatalf("expected 12 lines (height+2), got %d", noLines)
+	}
+	if mp.viewport.Height() != 9 {
+		t.Fatalf("viewport should reserve one row for title, got height %d", mp.viewport.Height())
+	}
+}
+
+// I6: when SetTitle is called, the title text is the first line of the inner
+// pane (between the top border and the viewport content).
+func TestMainPane_TitleAppearsInsideTopBorder(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(40, 6)
+	mp.SetPlainContent("body content")
+	mp.SetTitle("LEFT_MARKER", "RIGHT_MARKER")
+
+	out := stripANSI(mp.View(false))
+	lines := strings.Split(out, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected multiple lines, got %d", len(lines))
+	}
+	// lines[0] is top border (╭...╮); lines[1] is first inner row, which is
+	// the title. The borders sit at columns 0 and width+1.
+	titleRow := lines[1]
+	if !strings.Contains(titleRow, "LEFT_MARKER") {
+		t.Fatalf("title row should contain left marker, got %q", titleRow)
+	}
+	if !strings.Contains(titleRow, "RIGHT_MARKER") {
+		t.Fatalf("title row should contain right marker, got %q", titleRow)
+	}
+	// Body content should appear later, not on the title row.
+	if strings.Contains(titleRow, "body content") {
+		t.Fatalf("body should not appear on title row, got %q", titleRow)
+	}
+}
+
+// I5/I6: title renders even when the content is empty.
+func TestMainPane_TitleRendersWithEmptyContent(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(40, 6)
+	mp.SetTitle("only-title", "")
+
+	out := stripANSI(mp.View(false))
+	lines := strings.Split(out, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected multiple lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[1], "only-title") {
+		t.Fatalf("title row should appear even with empty content, got %q", lines[1])
+	}
+}
+
+// Tiny pane sizes shouldn't crash and should still produce stable output.
+func TestMainPane_TitleSurvivesTinyHeight(t *testing.T) {
+	for _, h := range []int{0, 1, 2} {
+		mp := newMainPane()
+		mp.SetSize(20, h)
+		mp.SetTitle("file.go", "1 hunk")
+		// Should not panic; we don't assert content here, just stability.
+		_ = mp.View(false)
 	}
 }

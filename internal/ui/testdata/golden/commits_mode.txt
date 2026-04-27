@@ -2,13 +2,13 @@
   feature/add-auth → main · 1 uncommitted · 2 commits · 3 changed files                             
   PR #42: Add authentication                                                                        
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
-│New Changes (1 files)         ││diff --git a/README.md b/README.md                                │
-│new changes                   ││--- a/README.md                                                   │
-│──────────────────────────────││+++ b/README.md                                                   │
-│Pushed (2)                    ││@@ -1,3 +1,4 @@                                                   │
-│abc1234 Add auth middleware   ││ # My App                                                         │
-│def5678 Update config parsing ││+Authentication docs                                              │
-│                              ││                                                                  │
+│New Changes (1 files)         ││new changes                         1 file changed, 1 insertion(+)│
+│new changes                   ││diff --git a/README.md b/README.md                                │
+│──────────────────────────────││--- a/README.md                                                   │
+│Pushed (2)                    ││+++ b/README.md                                                   │
+│abc1234 Add auth middleware   ││@@ -1,3 +1,4 @@                                                   │
+│def5678 Update config parsing ││ # My App                                                         │
+│                              ││+Authentication docs                                              │
 │                              ││                                                                  │
 │                              ││                                                                  │
 │                              ││                                                                  │

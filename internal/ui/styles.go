@@ -36,6 +36,11 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("#7D56F4"))
 
+	// Main pane sticky title bar (above viewport, inside border).
+	mainPaneTitleStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#888")).
+				Bold(true)
+
 	// Sidebar uncommitted files
 	sidebarUncommittedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#888"))
