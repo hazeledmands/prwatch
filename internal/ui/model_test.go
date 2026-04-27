@@ -72,6 +72,9 @@ type mockGit struct {
 	prDeployments  []git.PRDeployment
 	ciChecks       []git.CICheck
 	reviewRequests []git.PRReviewRequest
+
+	lastCommitForFile    git.Commit
+	lastCommitForFileErr error
 }
 
 func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
@@ -134,7 +137,10 @@ func (m *mockGit) FileDiffUncommitted(file string) (string, error) {
 	return m.fileDiff, m.fileDiffErr
 }
 func (m *mockGit) FileContent(file string) (string, error) { return m.fileContent, m.contentErr }
-func (m *mockGit) CommitPatch(sha string) (string, error)  { return m.commitPatch, m.patchErr }
+func (m *mockGit) LastCommitForFile(file string) (git.Commit, error) {
+	return m.lastCommitForFile, m.lastCommitForFileErr
+}
+func (m *mockGit) CommitPatch(sha string) (string, error) { return m.commitPatch, m.patchErr }
 func (m *mockGit) AllFiles(includeIgnored bool) ([]string, error) {
 	return m.allFiles, m.allFilesErr
 }

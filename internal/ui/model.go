@@ -76,6 +76,7 @@ type GitDataSource interface {
 	FileDiffCommitted(base, file string) (string, error)
 	FileDiffUncommitted(file string) (string, error)
 	FileContent(file string) (string, error)
+	LastCommitForFile(file string) (gitpkg.Commit, error)
 	CommitPatch(sha string) (string, error)
 	AllFiles(includeIgnored bool) ([]string, error)
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
@@ -466,6 +467,50 @@ func pluralize(n int, word string) string {
 		return fmt.Sprintf("%d %s", n, word)
 	}
 	return fmt.Sprintf("%d %ss", n, word)
+}
+
+// fileContextRight produces the right-hand title text for a file with no
+// active diff. The components are joined with " · " in this order:
+//
+//	[binary] [<sha7>|untracked] [<relative-time>]
+//
+// Tracked files show the most recent commit's short SHA + author time;
+// untracked files show "untracked" + the file's mtime. Binary files prefix
+// the result with "binary". Returns "" when nothing is available (mainPane
+// then falls back to its default "no changes").
+func (m *Model) fileContextRight(file string, binary bool) string {
+	var parts []string
+	if binary {
+		parts = append(parts, "binary")
+	}
+
+	var trackedInfo, rel string
+	if m.git != nil {
+		if c, err := m.git.LastCommitForFile(file); err == nil && c.SHA != "" {
+			short := c.SHA
+			if len(short) > 7 {
+				short = short[:7]
+			}
+			trackedInfo = short
+			rel = relativeTime(c.AuthorDate)
+		}
+	}
+	if trackedInfo == "" {
+		trackedInfo = "untracked"
+		if m.dir != "" {
+			if info, err := os.Stat(filepath.Join(m.dir, file)); err == nil {
+				rel = relativeTime(info.ModTime())
+			}
+		}
+	}
+
+	if trackedInfo != "" {
+		parts = append(parts, trackedInfo)
+	}
+	if rel != "" {
+		parts = append(parts, rel)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // commitTitleLeft formats the left-side of the title bar for a commit:
@@ -2733,7 +2778,8 @@ func (m *Model) updateMainContent() {
 			m.mainPane.SetPlainContent("[binary content]")
 			m.mainPane.ClearDiffAnnotations()
 			m.mainPane.ClearDiffHunks()
-			m.mainPane.SetTitle(file, "binary")
+			m.mainPane.SetNoHunkRight(m.fileContextRight(file, true))
+			m.mainPane.SetTitleWithHunks(file)
 			return
 		}
 		// Compute diff annotations for the gutter
@@ -2755,9 +2801,11 @@ func (m *Model) updateMainContent() {
 			}
 			m.mainPane.SetDiffAnnotations(annotations)
 			m.mainPane.SetDiffHunks(parseDiffHunks(diff))
+			m.mainPane.SetNoHunkRight("")
 		} else {
 			m.mainPane.ClearDiffAnnotations()
 			m.mainPane.ClearDiffHunks()
+			m.mainPane.SetNoHunkRight(m.fileContextRight(file, false))
 		}
 		m.mainPane.SetPlainContent(content)
 		// Auto-jump to first diff only when the file changes

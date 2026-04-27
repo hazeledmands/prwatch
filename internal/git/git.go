@@ -589,6 +589,21 @@ func parseCommitLog(out string) []Commit {
 	return commits
 }
 
+// LastCommitForFile returns the most recent commit that touched the given
+// file. Returns an empty Commit and an error if the file has no history (e.g.
+// it's untracked or doesn't exist in HEAD).
+func (g *Git) LastCommitForFile(file string) (Commit, error) {
+	out, err := g.run("log", "-1", "--format=%H%x09%an%x09%aI%x09%s", "--", file)
+	if err != nil {
+		return Commit{}, err
+	}
+	commits := parseCommitLog(out)
+	if len(commits) == 0 {
+		return Commit{}, fmt.Errorf("no commits for %s", file)
+	}
+	return commits[0], nil
+}
+
 // CommitPatch returns the full patch for a single commit.
 func (g *Git) CommitPatch(sha string) (string, error) {
 	return g.run("show", sha)

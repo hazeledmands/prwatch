@@ -54,6 +54,7 @@ type mainPane struct {
 	titleRight         string                 // right-aligned content of the sticky title bar (when titleDynamic is false)
 	titleDynamic       bool                   // when true, View renders the right side from current hunk position
 	diffHunks          []diffHunk             // sorted by StartLine, used for sticky title position
+	noHunkRight        string                 // shown as the right side in dynamic-title mode when there are no hunks; defaults to "no changes"
 }
 
 func newMainPane() *mainPane {
@@ -303,6 +304,13 @@ func (m *mainPane) SetTitleWithHunks(left string) {
 	m.titleDynamic = true
 }
 
+// SetNoHunkRight overrides the text shown on the right side of the sticky
+// title when there are no hunks (e.g. an unchanged file). Pass "" to fall
+// back to the default "no changes".
+func (m *mainPane) SetNoHunkRight(right string) {
+	m.noHunkRight = right
+}
+
 // hunkTitleRight formats the right side of the title bar for files mode based
 // on the hunks intersecting the visible viewport range.
 //
@@ -319,6 +327,9 @@ func (m *mainPane) SetTitleWithHunks(left string) {
 //     "no changes"
 func (m *mainPane) hunkTitleRight() string {
 	if len(m.diffHunks) == 0 {
+		if m.noHunkRight != "" {
+			return m.noHunkRight
+		}
 		return "no changes"
 	}
 	topLine := m.ViewportToSourceLine()

@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -235,32 +238,168 @@ func newTitleTestModel(t *testing.T, mock *mockGit, mode Mode) *Model {
 	return m
 }
 
-func TestTitle_FilesMode_NoChanges(t *testing.T) {
+func TestTitle_FilesMode_NoDiff_FallsBackToUntracked(t *testing.T) {
+	// No commit history and no on-disk mtime → just "untracked" (no time component).
 	mock := &mockGit{
-		repoInfo:     git.RepoInfoResult{Branch: "main"},
-		base:         "origin/main",
-		changedFiles: git.ChangedFilesResult{},
-		allFiles:     []string{"unchanged.go"},
-		fileContent:  "package main\n",
-		fileDiff:     "",
+		repoInfo:             git.RepoInfoResult{Branch: "main"},
+		base:                 "origin/main",
+		changedFiles:         git.ChangedFilesResult{},
+		allFiles:             []string{"missing.go"},
+		fileContent:          "package main\n",
+		fileDiff:             "",
+		lastCommitForFileErr: errors.New("no commits"),
 	}
 	m := newTitleTestModel(t, mock, FilesMode)
-	m.allFiles = []string{"unchanged.go"}
+	m.allFiles = []string{"missing.go"}
 	m.updateSidebarItems()
 	for i, item := range m.sidebar.items {
-		if item.filePath == "unchanged.go" {
+		if item.filePath == "missing.go" {
 			m.sidebar.SelectIndex(i)
 			break
 		}
 	}
 	m.updateMainContent()
 
-	if got := m.mainPane.titleLeft; got != "unchanged.go" {
-		t.Errorf("FilesMode left: got %q, want %q", got, "unchanged.go")
+	if got := m.mainPane.titleLeft; got != "missing.go" {
+		t.Errorf("FilesMode left: got %q, want %q", got, "missing.go")
 	}
-	// Files mode uses dynamic title; the right side is computed at render time.
-	if got := m.mainPane.hunkTitleRight(); got != "no changes" {
-		t.Errorf("FilesMode right (no diff): got %q, want %q", got, "no changes")
+	if got := m.mainPane.hunkTitleRight(); got != "untracked" {
+		t.Errorf("FilesMode right (no commit, no file): got %q, want %q", got, "untracked")
+	}
+}
+
+func TestTitle_FilesMode_NoDiff_TrackedShowsLastCommit(t *testing.T) {
+	authoredAt := time.Now().Add(-2 * time.Hour)
+	mock := &mockGit{
+		repoInfo:          git.RepoInfoResult{Branch: "main"},
+		base:              "origin/main",
+		changedFiles:      git.ChangedFilesResult{},
+		allFiles:          []string{"tracked.go"},
+		fileContent:       "package main\n",
+		fileDiff:          "",
+		lastCommitForFile: git.Commit{SHA: "abcdef0123456789", AuthorDate: authoredAt, Subject: "x", Author: "hazel"},
+	}
+	m := newTitleTestModel(t, mock, FilesMode)
+	m.allFiles = []string{"tracked.go"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "tracked.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	got := m.mainPane.hunkTitleRight()
+	if !strings.HasPrefix(got, "abcdef0 · ") {
+		t.Errorf("tracked file: got %q, want 'abcdef0 · <relative-time>'", got)
+	}
+}
+
+func TestTitle_FilesMode_NoDiff_UntrackedShowsMtime(t *testing.T) {
+	// No commit history → fall back to filesystem mtime, prefixed "untracked".
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fresh.txt")
+	if err := os.WriteFile(path, []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mock := &mockGit{
+		repoInfo:             git.RepoInfoResult{Branch: "main"},
+		base:                 "origin/main",
+		changedFiles:         git.ChangedFilesResult{},
+		allFiles:             []string{"fresh.txt"},
+		fileContent:          "hi\n",
+		fileDiff:             "",
+		lastCommitForFileErr: errors.New("untracked"),
+	}
+	m := NewModel(dir, mock)
+	m.width = 100
+	m.height = 30
+	m.base = "origin/main"
+	m.mode = FilesMode
+	m.updateLayout()
+	m.allFiles = []string{"fresh.txt"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "fresh.txt" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	got := m.mainPane.hunkTitleRight()
+	if !strings.HasPrefix(got, "untracked · ") {
+		t.Errorf("untracked file: got %q, want 'untracked · <relative-time>'", got)
+	}
+}
+
+func TestTitle_FilesMode_BinaryUntracked(t *testing.T) {
+	// Binary content + no commit history → "binary · untracked · <time>".
+	dir := t.TempDir()
+	path := filepath.Join(dir, "logo.png")
+	binaryPayload := []byte{0x89, 'P', 'N', 'G', 0x00, 0x01, 0x02, 0x03}
+	if err := os.WriteFile(path, binaryPayload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mock := &mockGit{
+		repoInfo:             git.RepoInfoResult{Branch: "main"},
+		base:                 "origin/main",
+		changedFiles:         git.ChangedFilesResult{},
+		allFiles:             []string{"logo.png"},
+		fileContent:          string(binaryPayload),
+		fileDiff:             "",
+		lastCommitForFileErr: errors.New("untracked"),
+	}
+	m := NewModel(dir, mock)
+	m.width = 100
+	m.height = 30
+	m.base = "origin/main"
+	m.mode = FilesMode
+	m.updateLayout()
+	m.allFiles = []string{"logo.png"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "logo.png" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	got := m.mainPane.hunkTitleRight()
+	if !strings.HasPrefix(got, "binary · untracked · ") {
+		t.Errorf("binary untracked: got %q, want 'binary · untracked · <relative-time>'", got)
+	}
+}
+
+func TestTitle_FilesMode_BinaryTracked(t *testing.T) {
+	// Binary content + tracked → "binary · <sha7> · <time>".
+	authoredAt := time.Now().Add(-1 * time.Hour)
+	binaryPayload := []byte{0x89, 'P', 'N', 'G', 0x00, 0x01, 0x02, 0x03}
+	mock := &mockGit{
+		repoInfo:          git.RepoInfoResult{Branch: "main"},
+		base:              "origin/main",
+		changedFiles:      git.ChangedFilesResult{},
+		allFiles:          []string{"logo.png"},
+		fileContent:       string(binaryPayload),
+		fileDiff:          "",
+		lastCommitForFile: git.Commit{SHA: "deadbee0000000", AuthorDate: authoredAt, Author: "hazel", Subject: "add logo"},
+	}
+	m := newTitleTestModel(t, mock, FilesMode)
+	m.allFiles = []string{"logo.png"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "logo.png" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	got := m.mainPane.hunkTitleRight()
+	if !strings.HasPrefix(got, "binary · deadbee · ") {
+		t.Errorf("binary tracked: got %q, want 'binary · deadbee · <relative-time>'", got)
 	}
 }
 
