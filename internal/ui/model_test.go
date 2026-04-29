@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -64,7 +65,8 @@ type mockGit struct {
 	patchErr       error
 	allCommits     []git.Commit
 	allCommitsErr  error
-	allFiles       []string
+	allFiles       []string // tracked + untracked (excluding ignored)
+	ignoredFiles   []string // gitignored files; included in AllFiles(true) only
 	allFilesErr    error
 	baseCommits    []git.Commit
 	baseCommitsErr error
@@ -142,7 +144,21 @@ func (m *mockGit) LastCommitForFile(file string) (git.Commit, error) {
 }
 func (m *mockGit) CommitPatch(sha string) (string, error) { return m.commitPatch, m.patchErr }
 func (m *mockGit) AllFiles(includeIgnored bool) ([]string, error) {
-	return m.allFiles, m.allFilesErr
+	if !includeIgnored || len(m.ignoredFiles) == 0 {
+		return m.allFiles, m.allFilesErr
+	}
+	combined := make([]string, 0, len(m.allFiles)+len(m.ignoredFiles))
+	combined = append(combined, m.allFiles...)
+	combined = append(combined, m.ignoredFiles...)
+	sort.Strings(combined)
+	// Dedupe in case the test author put a path in both lists.
+	out := combined[:0]
+	for i, f := range combined {
+		if i == 0 || f != combined[i-1] {
+			out = append(out, f)
+		}
+	}
+	return out, m.allFilesErr
 }
 func (m *mockGit) BaseCommits(base string, limit int) ([]git.Commit, error) {
 	return m.baseCommits, m.baseCommitsErr

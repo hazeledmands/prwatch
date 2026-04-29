@@ -92,12 +92,28 @@ func genMockGit(t *rapid.T) *mockGit {
 	for i := range otherFiles {
 		otherFiles[i] = fmt.Sprintf("other%d.go", i)
 	}
-	// allFiles is a superset: changed files + unchanged files
+	// allFiles is a superset: changed files + unchanged files (excludes ignored)
 	allFiles := make([]string, 0, nCommitted+nUncommitted+nStaged+nOther)
 	allFiles = append(allFiles, committed...)
 	allFiles = append(allFiles, uncommitted...)
 	allFiles = append(allFiles, staged...)
 	allFiles = append(allFiles, otherFiles...)
+
+	// Generate gitignored files. Mix of bare files at the root and files
+	// nested inside an "ignored directory" (the latter is the shape that
+	// matters for upcoming per-directory lazy loading).
+	nIgnored := rapid.IntRange(0, 8).Draw(t, "nIgnored")
+	ignoredFiles := make([]string, 0, nIgnored)
+	for i := range nIgnored {
+		switch rapid.IntRange(0, 2).Draw(t, fmt.Sprintf("ignoredKind%d", i)) {
+		case 0:
+			ignoredFiles = append(ignoredFiles, fmt.Sprintf(".env%d", i))
+		case 1:
+			ignoredFiles = append(ignoredFiles, fmt.Sprintf("node_modules/pkg%d/index.js", i))
+		case 2:
+			ignoredFiles = append(ignoredFiles, fmt.Sprintf(".cache/blob%d.bin", i))
+		}
+	}
 
 	commits := make([]git.Commit, nCommits)
 	for i := range commits {
@@ -145,12 +161,13 @@ func genMockGit(t *rapid.T) *mockGit {
 			Deleted:     deleted,
 			Added:       added,
 		},
-		commits:     commits,
-		allCommits:  commits,
-		allFiles:    allFiles,
-		fileDiff:    maybeEmoji(t, "fileDiff", "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new"),
-		fileContent: maybeEmoji(t, "fileContent", "line1\nline2\nline3"),
-		commitPatch: maybeEmoji(t, "commitPatch", "commit 0000000\n\n    msg\n\ndiff\n+added"),
+		commits:      commits,
+		allCommits:   commits,
+		allFiles:     allFiles,
+		ignoredFiles: ignoredFiles,
+		fileDiff:     maybeEmoji(t, "fileDiff", "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new"),
+		fileContent:  maybeEmoji(t, "fileContent", "line1\nline2\nline3"),
+		commitPatch:  maybeEmoji(t, "commitPatch", "commit 0000000\n\n    msg\n\ndiff\n+added"),
 	}
 }
 
@@ -1612,6 +1629,56 @@ func checkInitialCollapseState(t *rapid.T, m *Model, context string) {
 	}
 }
 
+// checkIgnoredInvariants verifies the ignored-file rendering rules:
+//
+//  1. With showIgnored=false, no visible leaf item's filePath is in the
+//     ignored set.
+//  2. With showIgnored=true, every visible leaf whose path is in the
+//     ignored set has kind=itemDim, and conversely every itemDim leaf
+//     with a non-empty filePath is in the ignored set.
+//  3. Ignored files only appear under the "All Files" section header,
+//     never under New Changes / Staged / Committed.
+//
+// `ignoredSet` is the source of truth for which paths are gitignored
+// (typically derived from mockGit.ignoredFiles, since the model's own
+// m.ignoredFiles is only a cached projection).
+func checkIgnoredInvariants(t *rapid.T, m *Model, ignoredSet map[string]bool, context string) {
+	t.Helper()
+	if m.mode != FilesMode {
+		return
+	}
+	section := ""
+	for i, item := range m.sidebar.items {
+		if item.kind == itemHeader {
+			section = item.label
+			continue
+		}
+		if !item.kind.selectable() || item.isDir || item.filePath == "" {
+			continue
+		}
+		isIgnored := ignoredSet[item.filePath]
+
+		if !m.showIgnored && isIgnored {
+			t.Fatalf("%s: ignored file %q is visible at item %d but showIgnored is off",
+				context, item.filePath, i)
+		}
+		if m.showIgnored {
+			if isIgnored && item.kind != itemDim {
+				t.Fatalf("%s: ignored file %q at item %d should render itemDim (got kind=%d)",
+					context, item.filePath, i, item.kind)
+			}
+			if item.kind == itemDim && !isIgnored {
+				t.Fatalf("%s: itemDim leaf %q at item %d is not in the ignored set",
+					context, item.filePath, i)
+			}
+			if isIgnored && !strings.HasPrefix(section, "All Files") {
+				t.Fatalf("%s: ignored file %q appears under section %q (should only appear under All Files)",
+					context, item.filePath, section)
+			}
+		}
+	}
+}
+
 func TestProperty_TreeModeNavigation(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 160).Draw(t, "width")
@@ -1651,11 +1718,29 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		mockAllFiles = append(mockAllFiles, uncommitted...)
 		mockAllFiles = append(mockAllFiles, staged...)
 		mockAllFiles = append(mockAllFiles, otherFiles...)
+
+		// Gitignored fixtures: bare files at the root and nested under
+		// ignored directories. Disjoint from mockAllFiles so the model's
+		// ignored-set diff produces exactly this slice.
+		nIgnored := rapid.IntRange(0, 6).Draw(t, "treeNIgnored")
+		ignoredFiles := make([]string, 0, nIgnored)
+		for i := range nIgnored {
+			switch rapid.IntRange(0, 2).Draw(t, fmt.Sprintf("treeIgnoredKind%d", i)) {
+			case 0:
+				ignoredFiles = append(ignoredFiles, fmt.Sprintf(".env%d", i))
+			case 1:
+				ignoredFiles = append(ignoredFiles, fmt.Sprintf("node_modules/pkg%d/index.js", i))
+			case 2:
+				ignoredFiles = append(ignoredFiles, fmt.Sprintf(".cache/blob%d.bin", i))
+			}
+		}
 		// The set of files the sidebar must account for depends on mode:
-		// FilesMode only shows committed+uncommitted+staged; FilesMode shows all.
+		// FilesMode shows tracked + untracked + ignored (showIgnored defaults
+		// to true); CommitsMode only shows committed+uncommitted+staged.
 		var sidebarFiles []string
 		if mode == FilesMode {
-			sidebarFiles = mockAllFiles
+			sidebarFiles = append([]string{}, mockAllFiles...)
+			sidebarFiles = append(sidebarFiles, ignoredFiles...)
 		} else {
 			sidebarFiles = append(append(append([]string{}, committed...), uncommitted...), staged...)
 		}
@@ -1676,12 +1761,18 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 				Deleted:     treeDeleted,
 				Added:       treeAdded,
 			},
-			allFiles:    mockAllFiles,
-			commits:     []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
-			allCommits:  []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
-			fileDiff:    "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new",
-			fileContent: "line1\nline2\nline3",
-			commitPatch: "commit abc1234\n\n    test\n\ndiff\n+added",
+			allFiles:     mockAllFiles,
+			ignoredFiles: ignoredFiles,
+			commits:      []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
+			allCommits:   []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
+			fileDiff:     "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new",
+			fileContent:  "line1\nline2\nline3",
+			commitPatch:  "commit abc1234\n\n    test\n\ndiff\n+added",
+		}
+
+		ignoredSet := make(map[string]bool, len(ignoredFiles))
+		for _, f := range ignoredFiles {
+			ignoredSet[f] = true
 		}
 
 		m := initModel(mock, mode, width, height)
@@ -1694,6 +1785,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		checkInitialCollapseState(t, m, "after init")
 		checkRenderInvariants(t, m, "after init")
 		checkChangeBadgeInvariants(t, m, "after init")
+		checkIgnoredInvariants(t, m, ignoredSet, "after init")
 
 		nSteps := rapid.IntRange(3, 20).Draw(t, "nSteps")
 		for step := range nSteps {
@@ -1729,6 +1821,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			checkRenderInvariants(t, m, context)
 			checkSidebarInvariants(t, m, context)
 			checkChangeBadgeInvariants(t, m, context)
+			checkIgnoredInvariants(t, m, ignoredSet, context)
 
 			// Navigation invariants for specific key actions
 			switch msg := msg.(type) {
@@ -1924,10 +2017,19 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 		width := rapid.IntRange(40, 200).Draw(t, "width")
 		height := rapid.IntRange(10, 60).Draw(t, "height")
 
+		var ignoredSet map[string]bool
+		if mock != nil {
+			ignoredSet = make(map[string]bool, len(mock.ignoredFiles))
+			for _, f := range mock.ignoredFiles {
+				ignoredSet[f] = true
+			}
+		}
+
 		m := initModel(mock, mode, width, height)
 
 		// Check invariants after initial load
 		checkAllInvariants(t, m, "after init")
+		checkIgnoredInvariants(t, m, ignoredSet, "after init")
 
 		// Run random interactions
 		nSteps := rapid.IntRange(1, 30).Draw(t, "nSteps")
@@ -1953,6 +2055,7 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 
 			context := fmt.Sprintf("step %d (mode=%d, focus=%d)", step, m.mode, m.focus)
 			checkAllInvariants(t, m, context+" after action")
+			checkIgnoredInvariants(t, m, ignoredSet, context+" after action")
 
 			// Capture sidebar scroll state before ticks
 			offsetBefore := m.sidebar.offset
@@ -1961,6 +2064,7 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			// Simulate periodic refresh ticks firing between user interactions
 			applyTicks(m, mock != nil)
 			checkAllInvariants(t, m, context+" after ticks")
+			checkIgnoredInvariants(t, m, ignoredSet, context+" after ticks")
 
 			// Tick refreshes should not move the sidebar scroll position
 			// when the selection hasn't changed. This is the "jump to
@@ -1970,6 +2074,54 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			if m.sidebar.selected == selectedBefore && m.sidebar.offset != offsetBefore {
 				t.Fatalf("%s: sidebar offset changed from %d to %d after tick (selected=%d, items=%d)",
 					context, offsetBefore, m.sidebar.offset, m.sidebar.selected, len(m.sidebar.items))
+			}
+		}
+	})
+}
+
+// TestProperty_ToggleIgnoredSymmetry verifies that pressing `i` twice from
+// any starting state returns the sidebar to the same set of visible file
+// paths (with the same kinds). Selection isn't required to round-trip
+// because the selectable index can shift if the visible item count changes.
+func TestProperty_ToggleIgnoredSymmetry(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		mock := genMockGit(t)
+		width := rapid.IntRange(60, 160).Draw(t, "width")
+		height := rapid.IntRange(15, 50).Draw(t, "height")
+
+		m := initModel(mock, FilesMode, width, height)
+		m.focus = SidebarFocus
+
+		snapshot := func() []sidebarItem {
+			out := make([]sidebarItem, 0, len(m.sidebar.items))
+			for _, it := range m.sidebar.items {
+				if it.kind.selectable() && !it.isDir {
+					out = append(out, sidebarItem{
+						filePath: it.filePath,
+						kind:     it.kind,
+					})
+				}
+			}
+			sort.Slice(out, func(i, j int) bool { return out[i].filePath < out[j].filePath })
+			return out
+		}
+
+		before := snapshot()
+		m = applyAction(m, tea.KeyPressMsg{Text: "i", Code: 'i'})
+		m = applyAction(m, tea.KeyPressMsg{Text: "i", Code: 'i'})
+		after := snapshot()
+
+		if len(before) != len(after) {
+			t.Fatalf("toggle-i twice changed visible leaf count: before=%d after=%d", len(before), len(after))
+		}
+		for i := range before {
+			if before[i].filePath != after[i].filePath {
+				t.Fatalf("toggle-i twice changed visible leaves at %d: before=%q after=%q",
+					i, before[i].filePath, after[i].filePath)
+			}
+			if before[i].kind != after[i].kind {
+				t.Fatalf("toggle-i twice changed kind for %q: before=%d after=%d",
+					before[i].filePath, before[i].kind, after[i].kind)
 			}
 		}
 	})
