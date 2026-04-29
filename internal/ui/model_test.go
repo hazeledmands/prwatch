@@ -2065,7 +2065,6 @@ func TestMouseClick_DirectoryToggle(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.loading = false
-	m.treeMode = true
 	m.collapsedDirs = make(map[string]bool)
 	m.mode = FilesMode
 	// Need multiple files under one directory to create an expandable dir node
@@ -2526,7 +2525,6 @@ func TestModeSwitching_FilesCommitsRoundTrip(t *testing.T) {
 	m := NewModel("/tmp", mock)
 	m.width = 80
 	m.height = 30
-	m.treeMode = false // flat mode for simpler reasoning
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
@@ -4246,58 +4244,6 @@ func TestShiftD_ToggleRemoved(t *testing.T) {
 	}
 }
 
-func TestTreeMode(t *testing.T) {
-	mg := &mockGit{
-		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
-		base:     "abc",
-		changedFiles: git.ChangedFilesResult{
-			Committed: []string{"internal/ui/model.go", "internal/ui/keys.go", "main.go"},
-		},
-		allFiles:   []string{"internal/ui/model.go", "internal/ui/keys.go", "main.go"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:   "+new",
-	}
-	m := NewModel("/tmp", mg)
-	m.width = 80
-	m.height = 24
-	m.updateLayout()
-	msg := m.loadGitData()
-	m.Update(msg)
-
-	// Tree mode is on by default
-	if !m.treeMode {
-		t.Fatal("tree mode should be on by default")
-	}
-
-	// In tree mode, sidebar should have directory entries
-	hasDir := false
-	for _, item := range m.sidebar.items {
-		if item.isDir {
-			hasDir = true
-			break
-		}
-	}
-	if !hasDir {
-		t.Error("tree mode should create directory entries for nested files")
-	}
-
-	// Toggle tree mode off
-	result, _ := m.Update(tea.KeyPressMsg{Text: "t", Code: 't'})
-	m = result.(*Model)
-	if m.treeMode {
-		t.Error("tree mode should be off after t")
-	}
-
-	// In flat mode, no directory entries
-	for _, item := range m.sidebar.items {
-		if item.isDir {
-			t.Error("flat mode should not have directory entries")
-			break
-		}
-	}
-}
-
 func TestBuildTreeItems(t *testing.T) {
 	files := []string{
 		"internal/ui/model.go",
@@ -4631,7 +4577,6 @@ func TestHandleSidebarLeft_CollapseDir(t *testing.T) {
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
-	m.treeMode = true
 	m.focus = SidebarFocus
 	m.updateSidebarItems()
 
@@ -4668,7 +4613,6 @@ func TestHandleSidebarLeft_GoToParent(t *testing.T) {
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
-	m.treeMode = true
 	m.focus = SidebarFocus
 	m.updateSidebarItems()
 
@@ -4706,7 +4650,6 @@ func TestHandleSidebarRight_ExpandCollapsed(t *testing.T) {
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
-	m.treeMode = true
 	m.focus = SidebarFocus
 	m.updateSidebarItems()
 
@@ -4758,7 +4701,6 @@ func TestHandleSidebarRight_GoToFirstChild(t *testing.T) {
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
-	m.treeMode = true
 	m.focus = SidebarFocus
 	m.updateSidebarItems()
 
@@ -4791,7 +4733,6 @@ func TestHandleSidebarRight_LeafSwitchesToMain(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.loading = false
-	m.treeMode = true
 	m.collapsedDirs = make(map[string]bool)
 	m.mode = FilesMode
 	m.focus = SidebarFocus
@@ -4809,28 +4750,6 @@ func TestHandleSidebarRight_LeafSwitchesToMain(t *testing.T) {
 
 	if m.focus != MainFocus {
 		t.Error("right on leaf file should switch focus to main pane")
-	}
-}
-
-func TestHandleEnter_NonTreeModeSwitchesToMain(t *testing.T) {
-	// Spec: "when not in tree mode, [enter]/[right]/[l] on a sidebar entry
-	// switches to the main pane"
-	m := NewModel("/tmp", testGit())
-	m.width = 80
-	m.height = 24
-	m.loading = false
-	m.treeMode = false
-	m.mode = FilesMode
-	m.focus = SidebarFocus
-	m.committedFiles = []string{"file.go"}
-	m.updateLayout()
-	m.updateSidebarItems()
-
-	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = result.(*Model)
-
-	if m.focus != MainFocus {
-		t.Error("enter in non-tree mode should switch to main pane")
 	}
 }
 
@@ -5621,7 +5540,6 @@ func TestJumpToNextLeaf(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 	m.mode = FilesMode
-	m.treeMode = true
 	m.updateSidebarItems()
 
 	// Select the first item (may be a directory)
@@ -6429,7 +6347,6 @@ func TestYankPath_DirectoryIgnored(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.loading = false
-	m.treeMode = true
 	m.collapsedDirs = make(map[string]bool)
 	m.mode = FilesMode
 	m.focus = SidebarFocus

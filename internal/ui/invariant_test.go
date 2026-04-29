@@ -263,7 +263,7 @@ func genKeyPress(t *rapid.T, tag string) tea.KeyPressMsg {
 		// Focus
 		{",", ','}, {".", '.'},
 		// Toggles
-		{"t", 't'}, {"f", 'f'}, {"w", 'w'}, {"i", 'i'},
+		{"f", 'f'}, {"w", 'w'}, {"i", 'i'},
 		{"D", 'D'},
 		// Sidebar resize
 		{"+", '+'}, {"-", '-'},
@@ -1398,12 +1398,9 @@ func genTreeAction(t *rapid.T, m *Model, step int) tea.Msg {
 	return tea.KeyPressMsg{Text: "j", Code: 'j'}
 }
 
-// checkTreeStructure verifies structural invariants of the tree mode sidebar.
+// checkTreeStructure verifies structural invariants of the tree sidebar.
 func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string) {
 	t.Helper()
-	if !m.treeMode {
-		return
-	}
 	items := m.sidebar.items
 
 	// Invariant 1: selection on a selectable item (covered by checkSidebarInvariants too)
@@ -1555,9 +1552,6 @@ func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string)
 // after earlier sections have already been built.
 func checkInitialCollapseState(t *rapid.T, m *Model, context string) {
 	t.Helper()
-	if !m.treeMode {
-		return
-	}
 	// Build set of dirs from committed/uncommitted files so we can exempt
 	// shared dirs in the "All Files" section from the must-be-collapsed rule.
 	changedDirs := make(map[string]bool)
@@ -1691,7 +1685,6 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		}
 
 		m := initModel(mock, mode, width, height)
-		m.treeMode = true
 		m.focus = SidebarFocus
 		m.updateSidebarItems()
 		m.updateMainContent()

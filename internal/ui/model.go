@@ -133,7 +133,6 @@ type Model struct {
 	helpSearchMatches   []int           // line indices of matches in help
 	helpSearchIdx       int             // current match index
 	showIgnored         bool            // whether to show gitignored files in all-files section
-	treeMode            bool            // [t] toggles tree view in file modes
 	collapsedDirs       map[string]bool // tracks collapsed directory paths
 	sidebarHidden       bool            // [f] toggles sidebar visibility
 	wordWrap            bool            // [w] toggles word wrapping in main pane
@@ -318,7 +317,6 @@ func NewModel(dir string, g GitDataSource) *Model {
 		mainPane:         newMainPane(),
 		sidebarPct:       30, // default 30% of width
 		showIgnored:      true,
-		treeMode:         true,
 		collapsedDirs:    make(map[string]bool),
 		rwxLogCache:      make(map[string]string),
 		modeStates:       make(map[Mode]modeViewState),
@@ -1314,13 +1312,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case key.Matches(msg, keys.ToggleTree):
-		if m.mode == FilesMode {
-			m.treeMode = !m.treeMode
-			m.updateSidebarItems()
-		}
-		return m, nil
-
 	case key.Matches(msg, keys.NextLeaf):
 		m.jumpToNextLeaf(1)
 		return m, nil
@@ -1757,8 +1748,8 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
 			return m, m.loadMoreCommits
 		}
-		// If a directory was clicked in tree mode, toggle collapse
-		if m.treeMode && m.sidebar.SelectedIsDir() {
+		// If a directory was clicked, toggle collapse
+		if m.sidebar.SelectedIsDir() {
 			dir := m.sidebar.SelectedItem()
 			m.collapsedDirs[dir] = !m.collapsedDirs[dir]
 			selectedBefore := m.sidebar.SelectedItem()
@@ -1823,7 +1814,7 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
 			return m, m.loadMoreCommits
 		}
-		// Enter behaves like Right in tree mode
+		// Enter behaves like Right
 		return m.handleSidebarRight()
 	}
 
@@ -1838,12 +1829,8 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 }
 
 // handleSidebarLeft handles left/h key when sidebar is focused.
-// Tree mode: collapse directory or go to parent. Non-tree: no-op.
+// Collapses the selected directory or jumps to its parent.
 func (m *Model) handleSidebarLeft() (tea.Model, tea.Cmd) {
-	if !m.treeMode {
-		return m, nil
-	}
-
 	if m.sidebar.SelectedIsDir() {
 		// Collapse the directory if it's open
 		dir := m.sidebar.SelectedItem()
@@ -1872,14 +1859,9 @@ func (m *Model) handleSidebarLeft() (tea.Model, tea.Cmd) {
 }
 
 // handleSidebarRight handles right/l/enter key when sidebar is focused.
-// Tree mode: expand directory or go to first child. Leaf: switch to main.
-// Non-tree: switch to main pane.
+// Expands a collapsed directory, jumps to its first child, or (on a leaf
+// file) switches focus to the main pane.
 func (m *Model) handleSidebarRight() (tea.Model, tea.Cmd) {
-	if !m.treeMode {
-		m.focus = MainFocus
-		return m, nil
-	}
-
 	if m.sidebar.SelectedIsDir() {
 		dir := m.sidebar.SelectedItem()
 		if m.collapsedDirs[dir] {
@@ -2347,15 +2329,15 @@ func (m *Model) updateSidebarItems() {
 		// Log collapse state changes
 		for d, v := range m.collapsedDirs {
 			if collapseBefore[d] != v {
-				m.debugLog.Printf("[collapse-change] %s: %q: %v -> %v (caller=%s mode=%d tree=%v)",
-					"after", d, collapseBefore[d], v, caller, m.mode, m.treeMode)
+				m.debugLog.Printf("[collapse-change] %s: %q: %v -> %v (caller=%s mode=%d)",
+					"after", d, collapseBefore[d], v, caller, m.mode)
 			}
 		}
 		// Log dirs removed from collapse map (shouldn't happen, but just in case)
 		for d, v := range collapseBefore {
 			if _, exists := m.collapsedDirs[d]; !exists {
-				m.debugLog.Printf("[collapse-removed] %s: %q was %v (caller=%s mode=%d tree=%v)",
-					"after", d, v, caller, m.mode, m.treeMode)
+				m.debugLog.Printf("[collapse-removed] %s: %q was %v (caller=%s mode=%d)",
+					"after", d, v, caller, m.mode)
 			}
 		}
 		// Log selection/scroll changes
@@ -2363,12 +2345,12 @@ func (m *Model) updateSidebarItems() {
 		selectedItemAfter := m.sidebar.SelectedItem()
 		offsetAfter := m.sidebar.offset
 		if selectedAfter != selectedBefore || selectedItemAfter != selectedItemBefore {
-			m.debugLog.Printf("[selection-change] %d(%q) -> %d(%q) (caller=%s mode=%d tree=%v)",
-				selectedBefore, selectedItemBefore, selectedAfter, selectedItemAfter, caller, m.mode, m.treeMode)
+			m.debugLog.Printf("[selection-change] %d(%q) -> %d(%q) (caller=%s mode=%d)",
+				selectedBefore, selectedItemBefore, selectedAfter, selectedItemAfter, caller, m.mode)
 		}
 		if offsetAfter != offsetBefore {
-			m.debugLog.Printf("[scroll-change] offset %d -> %d (caller=%s mode=%d tree=%v)",
-				offsetBefore, offsetAfter, caller, m.mode, m.treeMode)
+			m.debugLog.Printf("[scroll-change] offset %d -> %d (caller=%s mode=%d)",
+				offsetBefore, offsetAfter, caller, m.mode)
 		}
 	}()
 
@@ -2393,104 +2375,64 @@ func (m *Model) updateSidebarItems() {
 			}
 		}
 
-		if m.treeMode {
-			// Auto-collapse directories by default
-			dotDirs := extractDirs(m.uncommittedFiles)
-			dotDirs = append(dotDirs, extractDirs(m.stagedFiles)...)
-			dotDirs = append(dotDirs, extractDirs(m.committedFiles)...)
-			for _, d := range dotDirs {
+		// Auto-collapse directories by default
+		dotDirs := extractDirs(m.uncommittedFiles)
+		dotDirs = append(dotDirs, extractDirs(m.stagedFiles)...)
+		dotDirs = append(dotDirs, extractDirs(m.committedFiles)...)
+		for _, d := range dotDirs {
+			if _, exists := m.collapsedDirs[d]; !exists {
+				if m.git == nil {
+					// Non-git: collapse all dirs by default (no concept of "changed" files)
+					m.collapsedDirs[d] = true
+				} else {
+					// Git: auto-collapse hidden (dot-prefixed) directories,
+					// explicitly expand others so the "All Files" section's
+					// default-closed logic doesn't override them.
+					base := d
+					if i := strings.LastIndex(d, "/"); i >= 0 {
+						base = d[i+1:]
+					}
+					m.collapsedDirs[d] = strings.HasPrefix(base, ".")
+				}
+			}
+		}
+		if len(m.uncommittedFiles) > 0 {
+			items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
+			items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
+		}
+		if len(m.stagedFiles) > 0 {
+			if len(items) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
+			items = append(items, buildTreeItems(m.stagedFiles, itemNormal, m.collapsedDirs)...)
+		}
+		if len(m.committedFiles) > 0 {
+			if len(items) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
+			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
+		}
+		if len(otherFiles) > 0 {
+			if len(items) > 0 {
+				items = append(items, sidebarItem{kind: itemSeparator})
+			}
+			items = append(items, sidebarItem{label: fmt.Sprintf("All Files (%d)", len(otherFiles)), kind: itemHeader})
+			// All-files trees default to collapsed (spec: "trees should start out closed")
+			// Use collapsedDirs but auto-collapse dirs not already tracked
+			allFilesDirs := extractDirs(otherFiles)
+			for _, d := range allFilesDirs {
 				if _, exists := m.collapsedDirs[d]; !exists {
-					if m.git == nil {
-						// Non-git: collapse all dirs by default (no concept of "changed" files)
-						m.collapsedDirs[d] = true
-					} else {
-						// Git: auto-collapse hidden (dot-prefixed) directories,
-						// explicitly expand others so the "All Files" section's
-						// default-closed logic doesn't override them.
-						base := d
-						if i := strings.LastIndex(d, "/"); i >= 0 {
-							base = d[i+1:]
-						}
-						m.collapsedDirs[d] = strings.HasPrefix(base, ".")
-					}
+					m.collapsedDirs[d] = true // default closed for all-files
 				}
 			}
-			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
-				items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
-			}
-			if len(m.stagedFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
+			items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind {
+				if m.ignoredFiles[f] {
+					return itemDim
 				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
-				items = append(items, buildTreeItems(m.stagedFiles, itemNormal, m.collapsedDirs)...)
-			}
-			if len(m.committedFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
-				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
-				items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
-			}
-			if len(otherFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
-				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("All Files (%d)", len(otherFiles)), kind: itemHeader})
-				// All-files trees default to collapsed (spec: "trees should start out closed")
-				// Use collapsedDirs but auto-collapse dirs not already tracked
-				allFilesDirs := extractDirs(otherFiles)
-				for _, d := range allFilesDirs {
-					if _, exists := m.collapsedDirs[d]; !exists {
-						m.collapsedDirs[d] = true // default closed for all-files
-					}
-				}
-				items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind {
-					if m.ignoredFiles[f] {
-						return itemDim
-					}
-					return itemNormal
-				})...)
-			}
-		} else {
-			if len(m.uncommittedFiles) > 0 {
-				items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
-				for _, f := range m.uncommittedFiles {
-					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
-				}
-			}
-			if len(m.stagedFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
-				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
-				for _, f := range m.stagedFiles {
-					items = append(items, sidebarItem{label: f, filePath: f, kind: itemNormal})
-				}
-			}
-			if len(m.committedFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
-				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
-				for _, f := range m.committedFiles {
-					items = append(items, sidebarItem{label: f, filePath: f, kind: m.fileItemKind(f, itemNormal)})
-				}
-			}
-			if len(otherFiles) > 0 {
-				if len(items) > 0 {
-					items = append(items, sidebarItem{kind: itemSeparator})
-				}
-				items = append(items, sidebarItem{label: fmt.Sprintf("All Files (%d)", len(otherFiles)), kind: itemHeader})
-				for _, f := range otherFiles {
-					kind := m.fileItemKind(f, itemNormal)
-					if kind == itemNormal && m.ignoredFiles[f] {
-						kind = itemDim
-					}
-					items = append(items, sidebarItem{label: f, filePath: f, kind: kind})
-				}
-			}
+				return itemNormal
+			})...)
 		}
 		m.sidebar.SetItems(m.applyChangeBadges(items))
 	case CommitsMode:
@@ -3167,8 +3109,8 @@ func parseKeyName(name string) tea.KeyPressMsg {
 
 func (m *Model) View() tea.View {
 	if m.debugLog != nil {
-		m.debugLog.Printf("[render] mode=%d focus=%d tree=%v items=%d selected=%d offset=%d",
-			m.mode, m.focus, m.treeMode, len(m.sidebar.items), m.sidebar.selected, m.sidebar.offset)
+		m.debugLog.Printf("[render] mode=%d focus=%d items=%d selected=%d offset=%d",
+			m.mode, m.focus, len(m.sidebar.items), m.sidebar.selected, m.sidebar.offset)
 	}
 
 	var v tea.View
@@ -3768,14 +3710,13 @@ func (m *Model) helpContentLines() []string {
 			{bindings: []key.Binding{keys.ToggleWrap}, desc: "Toggle word wrap"},
 			{bindings: []key.Binding{keys.ToggleLineNums}, desc: "Toggle line numbers (files mode)"},
 			{bindings: []key.Binding{keys.ToggleIgnored}, desc: "Toggle gitignored files (files mode)"},
-			{bindings: []key.Binding{keys.ToggleTree}, desc: "Toggle tree mode (files mode)"},
 			{bindings: []key.Binding{keys.ToggleRemoved}, desc: "Toggle removed lines in diff gutter (files mode)"},
 		},
 		{
 			{bindings: []key.Binding{keys.NextDiff}, desc: "Jump to next diff hunk (files mode)"},
 			{bindings: []key.Binding{keys.PrevDiff}, desc: "Jump to previous diff hunk (files mode)"},
-			{bindings: []key.Binding{keys.NextLeaf}, desc: "Jump to next leaf (tree mode)"},
-			{bindings: []key.Binding{keys.PrevLeaf}, desc: "Jump to previous leaf (tree mode)"},
+			{bindings: []key.Binding{keys.NextLeaf}, desc: "Jump to next leaf"},
+			{bindings: []key.Binding{keys.PrevLeaf}, desc: "Jump to previous leaf"},
 		},
 		{
 			{bindings: []key.Binding{keys.Enter}, desc: "Open file in $EDITOR / switch to main pane"},

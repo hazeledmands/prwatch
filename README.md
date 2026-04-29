@@ -52,7 +52,6 @@ Three modes, switchable with `m` or by clicking the mode bar in the status bar. 
 | `i` | Toggle gitignored files (files mode) |
 | `D` | Toggle removed lines in diff gutter (files mode) |
 | `J`/`K`/`shift+up/down` | Jump to next/previous diff hunk (files mode) |
-| `t` | Toggle tree view (files mode) |
 | `r` | Manual refresh |
 | `f` | Toggle sidebar visibility |
 | `+`/`-` | Resize sidebar |

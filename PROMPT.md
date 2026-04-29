@@ -39,7 +39,7 @@ the base branch is determined using the first of the following that yields a val
 
 ## commands and keybindings
 
-everything the user can do in the app is a named *command*. commands are context-aware: the same command may be bound in multiple places (sidebar vs. main pane, search input vs. normal mode, help overlay) and do the right thing for that context. the rest of this spec refers to behaviors by command name (e.g. `toggle-tree`, `next-diff`); the `## keybindings` section at the bottom is the single source of truth for which keys trigger which command. rebinding a key in one place rebinds it everywhere.
+everything the user can do in the app is a named *command*. commands are context-aware: the same command may be bound in multiple places (sidebar vs. main pane, search input vs. normal mode, help overlay) and do the right thing for that context. the rest of this spec refers to behaviors by command name (e.g. `toggle-ignored`, `next-diff`); the `## keybindings` section at the bottom is the single source of truth for which keys trigger which command. rebinding a key in one place rebinds it everywhere.
 
 ## layout
 
@@ -136,9 +136,8 @@ change-type indicators: in the new changes, staged, and committed sections, each
 
 `toggle-ignored` should toggle on/off view of gitignored files in all files mode. the default setting should be to show ignored files. ignored files should show up in a dimmed color.
 
-tree view (enabled by default): files should be grouped under directories, and subsequently indented.
+files are grouped under directories, and subsequently indented.
 - directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
-- `toggle-tree` toggles this mode on/off.
 - files and subdirectories in directories can be hidden/shown by clicking on them or by selecting them in the sidebar and invoking `confirm`.
 - for new changes, staged files, and committed files in the current PR, trees should start out open. in the "all files" section, trees should start out closed.
 - compact directories: when a chain of directories each have only one child (e.g. `foo/bar/baz/`), collapse them into a single line showing the combined path. this applies even if the leafmost directory contains multiple files — the combined directory entry is expandable/collapsible as a single unit. if the entire chain leads to a single file with no sibling directories, display the whole path including the filename on one line (no directory entry).
@@ -258,8 +257,8 @@ each command maps to one or more keys. keys listed on the same row are interchan
 | `focus-toggle` | `tab` | toggle focus between sidebar and main panel |
 | `focus-sidebar` | `,` | focus the sidebar |
 | `focus-main` | `.` | focus the main panel |
-| `focus-left` | `h`, `left` | sidebar (tree mode): collapse dir, or go to nearest parent. main pane: scroll left (or, if word wrap is off and scroll is at 0, switch focus to sidebar). |
-| `focus-right` | `l`, `right` | sidebar (tree mode): expand dir, descend into first child, or (leaf file) switch focus to main pane. main pane: scroll right when word wrap is off. |
+| `focus-left` | `h`, `left` | sidebar: collapse dir, or go to nearest parent. main pane: scroll left (or, if word wrap is off and scroll is at 0, switch focus to sidebar). |
+| `focus-right` | `l`, `right` | sidebar: expand dir, descend into first child, or (leaf file) switch focus to main pane. main pane: scroll right when word wrap is off. |
 | `up` | `k`, `up` | sidebar: select previous item. main pane: scroll up one line. |
 | `down` | `j`, `down` | sidebar: select next item. main pane: scroll down one line. |
 | `page-up` | `pgup`, `shift+space` | page up the focused view |
@@ -267,14 +266,12 @@ each command maps to one or more keys. keys listed on the same row are interchan
 | `go-top` | `g` | go to the top of the focused view |
 | `go-bottom` | `G` | go to the bottom of the focused view |
 
-when not in tree mode, `focus-right` and `confirm` on a sidebar entry switch focus to the main pane. navigating over directories (keys or click) does not change the main panel content — only landing on a file does.
-
 horizontal scrolling via `focus-left` / `focus-right` only applies when the main pane is focused and word wrap is off. when word wrap is on, `focus-right` on the main pane is a no-op, and `focus-left` at the left edge still switches focus to the sidebar.
 
 ### main pane & sidebar actions
 | command | default key(s) | action |
 |---------|----------------|--------|
-| `confirm` | `enter` | sidebar (tree, on a dir): expand/collapse. sidebar (file or non-tree): switch focus to main pane. main pane (files mode): open `$EDITOR` at the line currently at the top of the viewport. main pane (pr mode): open a browser to the URL of the selected item. main pane (commits mode): no-op for now. active search input: confirm (empty text cancels). |
+| `confirm` | `enter` | sidebar (on a dir): expand/collapse. sidebar (on a file): switch focus to main pane. main pane (files mode): open `$EDITOR` at the line currently at the top of the viewport. main pane (pr mode): open a browser to the URL of the selected item. main pane (commits mode): no-op for now. active search input: confirm (empty text cancels). |
 | `next-leaf` | `shift+n` | jump to next leaf node in the sidebar, regardless of focus |
 | `prev-leaf` | `shift+p` | jump to previous leaf node in the sidebar, regardless of focus |
 | `yank-path` | `y` | sidebar focused: copy the selected file's relative path to the system clipboard. main pane focused (files mode): copy `path/to/file.go:N-M` where N-M is the line range currently in view. |
@@ -287,7 +284,6 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 | `next-diff` | `shift+j`, `shift+down` | jump to next diff hunk (wraps) |
 | `prev-diff` | `shift+k`, `shift+up` | jump to previous diff hunk (wraps) |
 | `toggle-ignored` | `i` | toggle gitignored files in all-files section |
-| `toggle-tree` | `t` | toggle tree view |
 
 ### display
 | command | default key(s) | action |
