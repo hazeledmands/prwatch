@@ -626,6 +626,58 @@ func (g *Git) FileContent(file string) (string, error) {
 	return string(content), nil
 }
 
+// IgnoredEntry is a single top-level gitignored entry. Use IgnoredEntries
+// to fetch the full set; use IgnoredFilesInDir to recursively enumerate the
+// contents of a specific ignored directory on demand.
+type IgnoredEntry struct {
+	Path  string // relative path, no trailing slash
+	IsDir bool   // true if this is a directory collapsed by --directory
+}
+
+// IgnoredEntries returns top-level gitignored entries via
+// `git ls-files --others --ignored --exclude-standard --directory`. Ignored
+// directories collapse to a single entry; bare ignored files appear
+// individually. This is dramatically cheaper than enumerating every file
+// under each ignored directory (e.g. node_modules/ on a JS monorepo).
+func (g *Git) IgnoredEntries() ([]IgnoredEntry, error) {
+	out, err := g.run("ls-files", "--others", "--ignored", "--exclude-standard", "--directory")
+	if err != nil {
+		return nil, err
+	}
+	var entries []IgnoredEntry
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		isDir := strings.HasSuffix(line, "/")
+		path := strings.TrimSuffix(line, "/")
+		entries = append(entries, IgnoredEntry{Path: path, IsDir: isDir})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries, nil
+}
+
+// IgnoredFilesInDir returns the recursive contents of a specific ignored
+// directory using `git ls-files --others --ignored --exclude-standard <dir>/`.
+// Used to lazily expand a top-level ignored directory entry when the user
+// drills in.
+func (g *Git) IgnoredFilesInDir(dir string) ([]string, error) {
+	out, err := g.run("ls-files", "--others", "--ignored", "--exclude-standard", dir+"/")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
 // AllFiles returns all files in the repo (tracked + untracked).
 // If includeIgnored is true, gitignored files are also included.
 // Results are sorted alphabetically.

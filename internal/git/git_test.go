@@ -1210,6 +1210,103 @@ func TestAllFiles(t *testing.T) {
 	})
 }
 
+func TestIgnoredEntries(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	// Add a gitignore that ignores a directory and a bare file. The whole
+	// directory should collapse to a single entry under --directory; the
+	// bare file should appear individually.
+	writeFile(t, dir, ".gitignore", "node_modules/\n.env\n")
+	writeFile(t, dir, ".env", "secret\n")
+	for _, sub := range []string{"node_modules/pkg-a", "node_modules/pkg-b", "node_modules/pkg-c/lib"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, dir, "node_modules/pkg-a/index.js", "a\n")
+	writeFile(t, dir, "node_modules/pkg-b/index.js", "b\n")
+	writeFile(t, dir, "node_modules/pkg-c/lib/inner.js", "c\n")
+	runGit(t, dir, "add", ".gitignore")
+	runGit(t, dir, "commit", "-m", "add gitignore")
+
+	entries, err := g.IgnoredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a map for easy lookup.
+	got := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		got[e.Path] = e.IsDir
+	}
+
+	// node_modules should appear as a single dir entry (no individual files
+	// under it). Crucial: the perf win comes from never enumerating its
+	// 350k+ contents on a real monorepo.
+	isDir, ok := got["node_modules"]
+	if !ok {
+		t.Errorf("expected node_modules in entries, got %+v", entries)
+	}
+	if !isDir {
+		t.Errorf("node_modules should be marked IsDir=true")
+	}
+	for path := range got {
+		if strings.HasPrefix(path, "node_modules/") {
+			t.Errorf("ignored entries should not include paths inside collapsed dirs, got %q", path)
+		}
+	}
+
+	// .env is a bare file at the root and should appear with IsDir=false.
+	isDir, ok = got[".env"]
+	if !ok {
+		t.Errorf("expected .env in entries, got %+v", entries)
+	}
+	if isDir {
+		t.Errorf(".env should be marked IsDir=false")
+	}
+
+	// Tracked files and untracked-but-not-ignored files must not appear.
+	for path := range got {
+		if path == "README.md" || path == "feature.go" {
+			t.Errorf("ignored entries should not include tracked file %q", path)
+		}
+	}
+}
+
+func TestIgnoredFilesInDir(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	writeFile(t, dir, ".gitignore", "node_modules/\n")
+	for _, sub := range []string{"node_modules/pkg-a", "node_modules/pkg-b/lib"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, dir, "node_modules/pkg-a/index.js", "a\n")
+	writeFile(t, dir, "node_modules/pkg-b/lib/inner.js", "b\n")
+	runGit(t, dir, "add", ".gitignore")
+	runGit(t, dir, "commit", "-m", "add gitignore")
+
+	files, err := g.IgnoredFilesInDir("node_modules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"node_modules/pkg-a/index.js":     true,
+		"node_modules/pkg-b/lib/inner.js": true,
+	}
+	if len(files) != len(want) {
+		t.Fatalf("expected %d files, got %d: %v", len(want), len(files), files)
+	}
+	for _, f := range files {
+		if !want[f] {
+			t.Errorf("unexpected file in result: %q", f)
+		}
+	}
+}
+
 func TestBehindCount(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)

@@ -160,6 +160,52 @@ func (m *mockGit) AllFiles(includeIgnored bool) ([]string, error) {
 	}
 	return out, m.allFilesErr
 }
+
+// IgnoredEntries computes the collapsed top-level ignored set from
+// m.ignoredFiles, matching the behavior of `git ls-files --others
+// --ignored --exclude-standard --directory`. Files whose first path
+// segment contains any other ignored file collapse into a single
+// IsDir=true entry; bare ignored files at the root are reported individually.
+func (m *mockGit) IgnoredEntries() ([]git.IgnoredEntry, error) {
+	if m.allFilesErr != nil {
+		return nil, m.allFilesErr
+	}
+	dirs := make(map[string]bool)
+	files := make(map[string]bool)
+	for _, f := range m.ignoredFiles {
+		if i := strings.IndexByte(f, '/'); i >= 0 {
+			dirs[f[:i]] = true
+		} else {
+			files[f] = true
+		}
+	}
+	entries := make([]git.IgnoredEntry, 0, len(dirs)+len(files))
+	for d := range dirs {
+		entries = append(entries, git.IgnoredEntry{Path: d, IsDir: true})
+	}
+	for f := range files {
+		entries = append(entries, git.IgnoredEntry{Path: f, IsDir: false})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries, nil
+}
+
+// IgnoredFilesInDir returns the recursive ignored contents of a specific dir.
+// Used by lazy expansion when the user opens an ignored directory entry.
+func (m *mockGit) IgnoredFilesInDir(dir string) ([]string, error) {
+	if m.allFilesErr != nil {
+		return nil, m.allFilesErr
+	}
+	prefix := dir + "/"
+	var out []string
+	for _, f := range m.ignoredFiles {
+		if strings.HasPrefix(f, prefix) {
+			out = append(out, f)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
 func (m *mockGit) BaseCommits(base string, limit int) ([]git.Commit, error) {
 	return m.baseCommits, m.baseCommitsErr
 }
@@ -221,6 +267,16 @@ func (s *slowMockGit) Commits(base string, skip, limit int) ([]git.Commit, error
 func (s *slowMockGit) AllFiles(includeIgnored bool) ([]string, error) {
 	time.Sleep(s.delay)
 	return s.mockGit.AllFiles(includeIgnored)
+}
+
+func (s *slowMockGit) IgnoredEntries() ([]git.IgnoredEntry, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.IgnoredEntries()
+}
+
+func (s *slowMockGit) IgnoredFilesInDir(dir string) ([]string, error) {
+	time.Sleep(s.delay)
+	return s.mockGit.IgnoredFilesInDir(dir)
 }
 
 func TestStartupRendersBeforeDataLoads(t *testing.T) {

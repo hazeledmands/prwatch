@@ -79,6 +79,8 @@ type GitDataSource interface {
 	LastCommitForFile(file string) (gitpkg.Commit, error)
 	CommitPatch(sha string) (string, error)
 	AllFiles(includeIgnored bool) ([]string, error)
+	IgnoredEntries() ([]gitpkg.IgnoredEntry, error)
+	IgnoredFilesInDir(dir string) ([]string, error)
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
 	BehindCount(baseRef string) int
 	RWXResults(runID string) (*gitpkg.RWXResult, error)
@@ -591,8 +593,24 @@ type allFilesMsg struct {
 }
 
 func (m *Model) reloadAllFiles() tea.Msg {
-	files, _ := m.git.AllFiles(m.showIgnored)
+	files, _ := m.git.AllFiles(false)
 	return allFilesMsg{files: files}
+}
+
+// loadIgnoredSet fetches gitignored top-level entries via IgnoredEntries
+// and returns them as a set keyed by entry path (no trailing slash).
+// Returns nil on error so callers can treat it the same as "no ignored
+// state was loaded yet."
+func loadIgnoredSet(g GitDataSource) map[string]bool {
+	entries, err := g.IgnoredEntries()
+	if err != nil {
+		return nil
+	}
+	set := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		set[e.Path] = true
+	}
+	return set
 }
 
 func (m *Model) loadGitData() tea.Msg {
@@ -681,24 +699,11 @@ func (m *Model) loadGitData() tea.Msg {
 		baseCommits, _ = m.git.BaseCommits(base, 50)
 	}
 
-	// Fetch all files for files mode sidebar
-	allFiles, _ := m.git.AllFiles(m.showIgnored)
-
-	// Compute ignored files set
-	var ignoredSet map[string]bool
-	if m.showIgnored {
-		nonIgnored, _ := m.git.AllFiles(false)
-		nonIgnoredSet := make(map[string]bool, len(nonIgnored))
-		for _, f := range nonIgnored {
-			nonIgnoredSet[f] = true
-		}
-		ignoredSet = make(map[string]bool)
-		for _, f := range allFiles {
-			if !nonIgnoredSet[f] {
-				ignoredSet[f] = true
-			}
-		}
-	}
+	// Fetch tracked + untracked files (no ignored — those come from the
+	// dedicated --directory query so giant ignored trees like node_modules/
+	// don't blow up the file list).
+	allFiles, _ := m.git.AllFiles(false)
+	ignoredSet := loadIgnoredSet(m.git)
 
 	return gitDataMsg{
 		repoInfo:         info,
@@ -807,22 +812,8 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		baseCommits, _ = m.git.BaseCommits(base, 50)
 	}
 
-	allFiles, _ := m.git.AllFiles(m.showIgnored)
-
-	var ignoredSet map[string]bool
-	if m.showIgnored {
-		nonIgnored, _ := m.git.AllFiles(false)
-		nonIgnoredSet := make(map[string]bool, len(nonIgnored))
-		for _, f := range nonIgnored {
-			nonIgnoredSet[f] = true
-		}
-		ignoredSet = make(map[string]bool)
-		for _, f := range allFiles {
-			if !nonIgnoredSet[f] {
-				ignoredSet[f] = true
-			}
-		}
-	}
+	allFiles, _ := m.git.AllFiles(false)
+	ignoredSet := loadIgnoredSet(m.git)
 
 	return gitDataMsg{
 		repoInfo:         info,
@@ -1308,7 +1299,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.ToggleIgnored):
 		if m.mode == FilesMode {
 			m.showIgnored = !m.showIgnored
-			return m, m.reloadAllFiles
+			m.updateSidebarItems()
 		}
 		return m, nil
 
@@ -2372,6 +2363,16 @@ func (m *Model) updateSidebarItems() {
 		for _, f := range m.allFiles {
 			if !changedSet[f] {
 				otherFiles = append(otherFiles, f)
+			}
+		}
+		// Add gitignored top-level entries to the All Files section. These
+		// come from IgnoredEntries (--directory), so an entire ignored
+		// subtree like node_modules/ shows up as a single dim leaf.
+		if m.showIgnored {
+			for path := range m.ignoredFiles {
+				if !changedSet[path] {
+					otherFiles = append(otherFiles, path)
+				}
 			}
 		}
 

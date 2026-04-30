@@ -1629,6 +1629,22 @@ func checkInitialCollapseState(t *rapid.T, m *Model, context string) {
 	}
 }
 
+// collapsedIgnoredSet returns the set of top-level ignored entry names that
+// `git ls-files --others --ignored --exclude-standard --directory` would
+// produce from the given flat ignored file list. Files with a "/" collapse
+// to their first path segment; bare files at the root are reported as-is.
+func collapsedIgnoredSet(ignored []string) map[string]bool {
+	set := make(map[string]bool, len(ignored))
+	for _, f := range ignored {
+		if i := strings.IndexByte(f, '/'); i >= 0 {
+			set[f[:i]] = true
+		} else {
+			set[f] = true
+		}
+	}
+	return set
+}
+
 // checkIgnoredInvariants verifies the ignored-file rendering rules:
 //
 //  1. With showIgnored=false, no visible leaf item's filePath is in the
@@ -1735,12 +1751,15 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			}
 		}
 		// The set of files the sidebar must account for depends on mode:
-		// FilesMode shows tracked + untracked + ignored (showIgnored defaults
-		// to true); CommitsMode only shows committed+uncommitted+staged.
+		// FilesMode shows tracked + untracked + ignored top-level entries
+		// (deep paths under ignored dirs collapse to their parent);
+		// CommitsMode only shows committed+uncommitted+staged.
 		var sidebarFiles []string
 		if mode == FilesMode {
 			sidebarFiles = append([]string{}, mockAllFiles...)
-			sidebarFiles = append(sidebarFiles, ignoredFiles...)
+			for entry := range collapsedIgnoredSet(ignoredFiles) {
+				sidebarFiles = append(sidebarFiles, entry)
+			}
 		} else {
 			sidebarFiles = append(append(append([]string{}, committed...), uncommitted...), staged...)
 		}
@@ -1770,10 +1789,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			commitPatch:  "commit abc1234\n\n    test\n\ndiff\n+added",
 		}
 
-		ignoredSet := make(map[string]bool, len(ignoredFiles))
-		for _, f := range ignoredFiles {
-			ignoredSet[f] = true
-		}
+		ignoredSet := collapsedIgnoredSet(ignoredFiles)
 
 		m := initModel(mock, mode, width, height)
 		m.focus = SidebarFocus
@@ -2019,10 +2035,7 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 
 		var ignoredSet map[string]bool
 		if mock != nil {
-			ignoredSet = make(map[string]bool, len(mock.ignoredFiles))
-			for _, f := range mock.ignoredFiles {
-				ignoredSet[f] = true
-			}
+			ignoredSet = collapsedIgnoredSet(mock.ignoredFiles)
 		}
 
 		m := initModel(mock, mode, width, height)
