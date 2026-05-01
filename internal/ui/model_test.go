@@ -7641,7 +7641,12 @@ func TestBug_MultipleRemovedLinesShownInFileView(t *testing.T) {
 			name:        "removals replaced by single line (changed)",
 			diff:        "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,4 +1,2 @@\n line1\n-old_line_a\n-old_line_b\n+new_line\n",
 			fileContent: "line1\nnew_line\n",
-			wantLines:   []string{"old_line_a", "old_line_b"},
+			// old_line_a is shown as a pure deletion (contiguous). old_line_b
+			// is paired with new_line for an intra-line diff: the
+			// diffmatchpatch-backed renderer recognizes "_line" as retained
+			// and fragments the deletion into "old" and "_b" — both must
+			// still be visible in the view.
+			wantLines: []string{"old_line_a", "old", "_b"},
 		},
 	}
 

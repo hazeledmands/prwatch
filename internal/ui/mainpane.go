@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	runewidth "github.com/mattn/go-runewidth"
+	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 // diffLineKind describes how a source line relates to a diff.
@@ -438,86 +439,45 @@ func (m *mainPane) refreshViewport() {
 	m.viewport.SetContent(content)
 }
 
+// intraLineDiffs computes a character-level diff between old and new, then runs
+// semantic cleanup so the segments correspond to humanly meaningful chunks
+// rather than fragmenting on incidental shared characters.
+func intraLineDiffs(oldText, newText string) []diffmatchpatch.Diff {
+	dmp := diffmatchpatch.New()
+	diffs := dmp.DiffMain(oldText, newText, false)
+	return dmp.DiffCleanupSemantic(diffs)
+}
+
 // inlineDiffSize returns the total display width of the changed characters
 // between old and new text (characters that differ).
 func inlineDiffSize(oldText, newText string) int {
-	oldRunes := []rune(oldText)
-	newRunes := []rune(newText)
-
-	// Find common prefix length
-	prefixLen := 0
-	for prefixLen < len(oldRunes) && prefixLen < len(newRunes) && oldRunes[prefixLen] == newRunes[prefixLen] {
-		prefixLen++
+	size := 0
+	for _, d := range intraLineDiffs(oldText, newText) {
+		if d.Type == diffmatchpatch.DiffEqual {
+			continue
+		}
+		size += runewidth.StringWidth(d.Text)
 	}
-
-	// Find common suffix length
-	suffixLen := 0
-	for suffixLen < len(oldRunes)-prefixLen && suffixLen < len(newRunes)-prefixLen &&
-		oldRunes[len(oldRunes)-1-suffixLen] == newRunes[len(newRunes)-1-suffixLen] {
-		suffixLen++
-	}
-
-	// The diff size is the changed portion in both old and new
-	oldDiffLen := len(oldRunes) - prefixLen - suffixLen
-	newDiffLen := len(newRunes) - prefixLen - suffixLen
-	if oldDiffLen < 0 {
-		oldDiffLen = 0
-	}
-	if newDiffLen < 0 {
-		newDiffLen = 0
-	}
-	return oldDiffLen + newDiffLen
+	return size
 }
 
 // renderInlineDiff renders a changed line with inline diff coloring.
-// Retained text is yellow, deleted text is red, new text is green.
+// Retained text is yellow, deleted text is red, new text is green. Deletes are
+// emitted before inserts at the same position to keep the visual order
+// "old then new".
 func renderInlineDiff(oldText, newText string) string {
-	oldRunes := []rune(oldText)
-	newRunes := []rune(newText)
-
-	// Find common prefix
-	prefixLen := 0
-	for prefixLen < len(oldRunes) && prefixLen < len(newRunes) && oldRunes[prefixLen] == newRunes[prefixLen] {
-		prefixLen++
-	}
-
-	// Find common suffix
-	suffixLen := 0
-	for suffixLen < len(oldRunes)-prefixLen && suffixLen < len(newRunes)-prefixLen &&
-		oldRunes[len(oldRunes)-1-suffixLen] == newRunes[len(newRunes)-1-suffixLen] {
-		suffixLen++
-	}
-
+	diffs := intraLineDiffs(oldText, newText)
 	var b strings.Builder
-
-	// Common prefix (yellow — retained)
-	if prefixLen > 0 {
-		b.WriteString(diffRetainedStyle.Render(string(newRunes[:prefixLen])))
+	for _, d := range diffs {
+		switch d.Type {
+		case diffmatchpatch.DiffEqual:
+			b.WriteString(diffRetainedStyle.Render(d.Text))
+		case diffmatchpatch.DiffDelete:
+			b.WriteString(diffRemoveStyle.Render(d.Text))
+		case diffmatchpatch.DiffInsert:
+			b.WriteString(diffAddStyle.Render(d.Text))
+		}
 	}
-
-	// Deleted middle (red)
-	oldMidEnd := len(oldRunes) - suffixLen
-	if oldMidEnd < prefixLen {
-		oldMidEnd = prefixLen
-	}
-	if oldMidEnd > prefixLen {
-		b.WriteString(diffRemoveStyle.Render(string(oldRunes[prefixLen:oldMidEnd])))
-	}
-
-	// Added middle (green)
-	newMidEnd := len(newRunes) - suffixLen
-	if newMidEnd < prefixLen {
-		newMidEnd = prefixLen
-	}
-	if newMidEnd > prefixLen {
-		b.WriteString(diffAddStyle.Render(string(newRunes[prefixLen:newMidEnd])))
-	}
-
-	// Common suffix (yellow — retained)
-	if suffixLen > 0 {
-		b.WriteString(diffRetainedStyle.Render(string(newRunes[len(newRunes)-suffixLen:])))
-	}
-
 	return b.String()
 }
 
