@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Run rapid property tests with a higher iteration count than the default.
+#
+# Usage:
+#   scripts/rapid [checks] [extra go-test args...]
+#
+# Examples:
+#   scripts/rapid                                          # 200 iterations, all rapid tests
+#   scripts/rapid 50 -run TestProperty_TreeModeNavigation  # focused, 50 iterations
+#   scripts/rapid 1000 -run TestRenderTitleRow             # heavy, single test
+#
+# The first positional arg sets PRWATCH_RAPID_CHECKS. Anything after is forwarded
+# to `go test`, so you can pass -run, -v, -timeout, etc.
+set -euo pipefail
+checks="${1:-200}"
+shift || true
+PRWATCH_RAPID_CHECKS="$checks" exec go test -race -count=1 ./internal/ui/... "$@"
