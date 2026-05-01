@@ -491,6 +491,34 @@ func TestRenderInlineDiff_SmallChange(t *testing.T) {
 	}
 }
 
+// TestRenderInlineDiff_MultiSegment exercises the case where two changes are
+// separated by retained text. A naive prefix/suffix differ would collapse the
+// middle into one big delete+insert block; the diffmatchpatch-backed renderer
+// keeps the middle as retained context.
+func TestRenderInlineDiff_MultiSegment(t *testing.T) {
+	result := renderInlineDiff("foo(a, b)", "foo(x, y)")
+
+	// All three retained chunks should be styled as retained.
+	for _, retained := range []string{"foo(", ", ", ")"} {
+		if !strings.Contains(result, diffRetainedStyle.Render(retained)) {
+			t.Errorf("expected retained chunk %q to be styled as retained; got %q", retained, result)
+		}
+	}
+
+	// Both deletes appear as their own red chunks (not merged with the retained
+	// middle). Same for both inserts.
+	for _, deleted := range []string{"a", "b"} {
+		if !strings.Contains(result, diffRemoveStyle.Render(deleted)) {
+			t.Errorf("expected deleted chunk %q to be styled as removed; got %q", deleted, result)
+		}
+	}
+	for _, added := range []string{"x", "y"} {
+		if !strings.Contains(result, diffAddStyle.Render(added)) {
+			t.Errorf("expected added chunk %q to be styled as added; got %q", added, result)
+		}
+	}
+}
+
 func TestChangedLine_InlineWhenSmall(t *testing.T) {
 	// When change is small (< 1/4 pane width), render inline
 	mp := newMainPane()
