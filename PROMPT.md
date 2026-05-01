@@ -136,6 +136,8 @@ change-type indicators: in the new changes, staged, and committed sections, each
 
 `toggle-ignored` should toggle on/off view of gitignored files in all files mode. the default setting should be to show ignored files. ignored files should show up in a dimmed color.
 
+ignored directories should not be eagerly enumerated — a tree like `node_modules/` containing hundreds of thousands of files would otherwise dominate startup and every refresh. instead, gitignored entries are collected via `git ls-files --directory`, which collapses entire ignored subtrees into a single top-level entry. that entry renders as a dimmed directory in the "all files" section; pressing `focus-right` (or `confirm`) on it lazily fetches the contents on demand. once expanded, the dir behaves like any other tree node.
+
 files are grouped under directories, and subsequently indented.
 - directories should be prefixed with a triangle glyph that is facing to the right if the directory is closed, and down if the directory is open.
 - files and subdirectories in directories can be hidden/shown by clicking on them or by selecting them in the sidebar and invoking `confirm`.

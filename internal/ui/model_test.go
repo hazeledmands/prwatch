@@ -143,22 +143,8 @@ func (m *mockGit) LastCommitForFile(file string) (git.Commit, error) {
 	return m.lastCommitForFile, m.lastCommitForFileErr
 }
 func (m *mockGit) CommitPatch(sha string) (string, error) { return m.commitPatch, m.patchErr }
-func (m *mockGit) AllFiles(includeIgnored bool) ([]string, error) {
-	if !includeIgnored || len(m.ignoredFiles) == 0 {
-		return m.allFiles, m.allFilesErr
-	}
-	combined := make([]string, 0, len(m.allFiles)+len(m.ignoredFiles))
-	combined = append(combined, m.allFiles...)
-	combined = append(combined, m.ignoredFiles...)
-	sort.Strings(combined)
-	// Dedupe in case the test author put a path in both lists.
-	out := combined[:0]
-	for i, f := range combined {
-		if i == 0 || f != combined[i-1] {
-			out = append(out, f)
-		}
-	}
-	return out, m.allFilesErr
+func (m *mockGit) AllFiles() ([]string, error) {
+	return m.allFiles, m.allFilesErr
 }
 
 // IgnoredEntries computes the collapsed top-level ignored set from
@@ -264,9 +250,9 @@ func (s *slowMockGit) Commits(base string, skip, limit int) ([]git.Commit, error
 	return s.mockGit.Commits(base, skip, limit)
 }
 
-func (s *slowMockGit) AllFiles(includeIgnored bool) ([]string, error) {
+func (s *slowMockGit) AllFiles() ([]string, error) {
 	time.Sleep(s.delay)
-	return s.mockGit.AllFiles(includeIgnored)
+	return s.mockGit.AllFiles()
 }
 
 func (s *slowMockGit) IgnoredEntries() ([]git.IgnoredEntry, error) {
@@ -3601,6 +3587,141 @@ func TestFilesMode_ThreeCategories(t *testing.T) {
 	}
 	if items[9].filePath != "readme.md" {
 		t.Errorf("item 9: expected readme.md, got filePath=%q", items[9].filePath)
+	}
+}
+
+// TestIgnoredDirRendersAsDirEntry verifies that an ignored top-level
+// directory (returned by IgnoredEntries with IsDir=true) appears in the
+// sidebar as a directory entry — isDir=true, with a ▶/▼ glyph in the
+// label and a trailing slash. Without this, the user has no affordance
+// to press right and lazy-load the contents.
+func TestIgnoredDirRendersAsDirEntry(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"main.go"},
+		},
+		allFiles: []string{"main.go"},
+		// node_modules has files inside → mock collapses to a dir entry.
+		ignoredFiles: []string{"node_modules/pkg-a/index.js", "node_modules/pkg-b/index.js"},
+		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent:  "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 30
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	var found *sidebarItem
+	for i := range m.sidebar.items {
+		if m.sidebar.items[i].filePath == "node_modules" {
+			found = &m.sidebar.items[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("node_modules entry missing from sidebar; items=%d", len(m.sidebar.items))
+	}
+	if !found.isDir {
+		t.Fatalf("node_modules should render as a directory entry (isDir=true), got isDir=%v label=%q", found.isDir, found.label)
+	}
+	if found.kind != itemDim {
+		t.Errorf("node_modules dir entry should be itemDim, got kind=%v", found.kind)
+	}
+	if !strings.Contains(found.label, "▶") && !strings.Contains(found.label, "▼") {
+		t.Errorf("node_modules dir entry should have a ▶/▼ glyph, got label=%q", found.label)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(found.label), "/") {
+		t.Errorf("node_modules dir entry label should end with '/', got %q", found.label)
+	}
+}
+
+// TestExpandIgnoredDir_LazyLoadsContents verifies that pressing right on an
+// unloaded ignored directory fires IgnoredFilesInDir and that the resulting
+// children show up under the dir on the next render.
+func TestExpandIgnoredDir_LazyLoadsContents(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"main.go"},
+		},
+		allFiles: []string{"main.go"},
+		ignoredFiles: []string{
+			"node_modules/pkg-a/index.js",
+			"node_modules/pkg-b/index.js",
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 30
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Find and select the node_modules dir entry
+	var idx = -1
+	for i, item := range m.sidebar.items {
+		if item.filePath == "node_modules" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("node_modules entry missing")
+	}
+	m.focus = SidebarFocus
+	m.sidebar.SelectIndex(idx)
+
+	// Sanity: not yet loaded.
+	if m.loadedIgnoredDirs["node_modules"] {
+		t.Fatalf("node_modules should not be loaded yet")
+	}
+
+	// Press right — should fire a Cmd that loads node_modules contents.
+	result, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = result.(*Model)
+	if cmd == nil {
+		t.Fatalf("expected a Cmd to fetch ignored dir contents")
+	}
+
+	// Run the cmd and feed its message back.
+	loadedMsg := cmd()
+	if loadedMsg == nil {
+		t.Fatalf("Cmd returned nil msg")
+	}
+	result, _ = m.Update(loadedMsg)
+	m = result.(*Model)
+
+	// node_modules is now loaded.
+	if !m.loadedIgnoredDirs["node_modules"] {
+		t.Fatalf("after expand, node_modules should be in loadedIgnoredDirs")
+	}
+
+	// Children should now be in m.ignoredFiles.
+	for _, child := range []string{"node_modules/pkg-a/index.js", "node_modules/pkg-b/index.js"} {
+		if !m.ignoredFiles[child] {
+			t.Errorf("after expand, expected %q in m.ignoredFiles", child)
+		}
+	}
+
+	// And the children should be visible in the sidebar (somewhere under node_modules).
+	var childVisible bool
+	for _, item := range m.sidebar.items {
+		if strings.HasPrefix(item.filePath, "node_modules/") && !item.isDir {
+			childVisible = true
+			break
+		}
+	}
+	if !childVisible {
+		t.Errorf("after expand, expected at least one node_modules child to be visible in the sidebar; items=%d", len(m.sidebar.items))
 	}
 }
 

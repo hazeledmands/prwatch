@@ -78,7 +78,7 @@ type GitDataSource interface {
 	FileContent(file string) (string, error)
 	LastCommitForFile(file string) (gitpkg.Commit, error)
 	CommitPatch(sha string) (string, error)
-	AllFiles(includeIgnored bool) ([]string, error)
+	AllFiles() ([]string, error)
 	IgnoredEntries() ([]gitpkg.IgnoredEntry, error)
 	IgnoredFilesInDir(dir string) ([]string, error)
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
@@ -111,6 +111,8 @@ type Model struct {
 	addedFiles          []string        // files that are entirely new additions
 	allFiles            []string        // all files in the repo (for files mode)
 	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
+	ignoredDirs         map[string]bool // ignored entries that are directories — render as expandable
+	loadedIgnoredDirs   map[string]bool // ignored dirs whose contents have been lazy-loaded
 	commits             []gitpkg.Commit
 	commitCount         int                   // true total commit count (from rev-list --count)
 	commitsLoaded       int                   // how many commits have been loaded so far
@@ -195,6 +197,7 @@ type gitDataMsg struct {
 	addedFiles       []string
 	allFiles         []string
 	ignoredFiles     map[string]bool
+	ignoredDirs      map[string]bool // subset of ignoredFiles whose entries are directories
 	commits          []gitpkg.Commit
 	commitCount      int
 	baseCommits      []gitpkg.Commit
@@ -592,25 +595,75 @@ type allFilesMsg struct {
 	files []string
 }
 
+// ignoredDirLoadedMsg is the result of a lazy-load fired when the user
+// expands a previously unloaded ignored directory.
+type ignoredDirLoadedMsg struct {
+	dir   string   // the dir that was expanded
+	files []string // recursive ignored contents under dir
+}
+
+// expandIgnoredDir returns a Cmd that fetches the contents of an ignored
+// directory in the background and posts an ignoredDirLoadedMsg.
+func (m *Model) expandIgnoredDir(dir string) tea.Cmd {
+	return func() tea.Msg {
+		files, _ := m.git.IgnoredFilesInDir(dir)
+		return ignoredDirLoadedMsg{dir: dir, files: files}
+	}
+}
+
 func (m *Model) reloadAllFiles() tea.Msg {
-	files, _ := m.git.AllFiles(false)
+	files, _ := m.git.AllFiles()
 	return allFilesMsg{files: files}
 }
 
+// promoteIgnoredDirs rewrites leaf entries whose filePath is in
+// m.ignoredDirs into directory entries with the appropriate ▶/▼ glyph,
+// trailing slash, and isDir=true. They start out as leaves because the
+// raw path has no slash (e.g. "node_modules"), and buildTreeItems treats
+// pathless single-segment names as files. After promotion, the user can
+// press right on the entry to lazy-load its children.
+func (m *Model) promoteIgnoredDirs(items []sidebarItem) []sidebarItem {
+	if len(m.ignoredDirs) == 0 {
+		return items
+	}
+	for i := range items {
+		it := &items[i]
+		if it.isDir || !it.kind.selectable() || it.filePath == "" {
+			continue
+		}
+		if !m.ignoredDirs[it.filePath] {
+			continue
+		}
+		prefix := "▶"
+		if !m.collapsedDirs[it.filePath] {
+			prefix = "▼"
+		}
+		// Reconstruct the label using the standard dir layout — indent +
+		// prefix + name + trailing slash — instead of trying to patch the
+		// existing leaf label, which keeps us in sync with sidebar.go.
+		it.label = strings.Repeat("  ", it.indent) + prefix + " " + it.filePath + "/"
+		it.isDir = true
+	}
+	return items
+}
+
 // loadIgnoredSet fetches gitignored top-level entries via IgnoredEntries
-// and returns them as a set keyed by entry path (no trailing slash).
-// Returns nil on error so callers can treat it the same as "no ignored
-// state was loaded yet."
-func loadIgnoredSet(g GitDataSource) map[string]bool {
+// and returns them as two sets: all entry paths, and the subset that are
+// directories (eligible for lazy expansion). Returns nil maps on error.
+func loadIgnoredSet(g GitDataSource) (files map[string]bool, dirs map[string]bool) {
 	entries, err := g.IgnoredEntries()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	set := make(map[string]bool, len(entries))
+	files = make(map[string]bool, len(entries))
+	dirs = make(map[string]bool)
 	for _, e := range entries {
-		set[e.Path] = true
+		files[e.Path] = true
+		if e.IsDir {
+			dirs[e.Path] = true
+		}
 	}
-	return set
+	return files, dirs
 }
 
 func (m *Model) loadGitData() tea.Msg {
@@ -621,7 +674,7 @@ func (m *Model) loadGitData() tea.Msg {
 
 	// Empty repo (no commits yet): skip diff/commit operations that require HEAD
 	if info.IsEmpty {
-		allFiles, _ := m.git.AllFiles(m.showIgnored)
+		allFiles, _ := m.git.AllFiles()
 		return gitDataMsg{
 			repoInfo:         info,
 			uncommittedFiles: allFiles,
@@ -702,8 +755,8 @@ func (m *Model) loadGitData() tea.Msg {
 	// Fetch tracked + untracked files (no ignored — those come from the
 	// dedicated --directory query so giant ignored trees like node_modules/
 	// don't blow up the file list).
-	allFiles, _ := m.git.AllFiles(false)
-	ignoredSet := loadIgnoredSet(m.git)
+	allFiles, _ := m.git.AllFiles()
+	ignoredSet, ignoredDirSet := loadIgnoredSet(m.git)
 
 	return gitDataMsg{
 		repoInfo:         info,
@@ -719,6 +772,7 @@ func (m *Model) loadGitData() tea.Msg {
 		addedFiles:       files.Added,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
+		ignoredDirs:      ignoredDirSet,
 		commits:          commits,
 		commitCount:      commitCount,
 		baseCommits:      baseCommits,
@@ -753,7 +807,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 
 	// Empty repo (no commits yet): skip diff/commit operations that require HEAD
 	if info.IsEmpty {
-		allFiles, _ := m.git.AllFiles(m.showIgnored)
+		allFiles, _ := m.git.AllFiles()
 		return gitDataMsg{
 			repoInfo:         info,
 			uncommittedFiles: allFiles,
@@ -812,8 +866,8 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		baseCommits, _ = m.git.BaseCommits(base, 50)
 	}
 
-	allFiles, _ := m.git.AllFiles(false)
-	ignoredSet := loadIgnoredSet(m.git)
+	allFiles, _ := m.git.AllFiles()
+	ignoredSet, ignoredDirSet := loadIgnoredSet(m.git)
 
 	return gitDataMsg{
 		repoInfo:         info,
@@ -825,6 +879,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		addedFiles:       files.Added,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
+		ignoredDirs:      ignoredDirSet,
 		commits:          commits,
 		commitCount:      commitCount,
 		baseCommits:      baseCommits,
@@ -899,6 +954,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				msg.localOnly, len(msg.committedFiles), len(msg.uncommittedFiles), len(msg.allFiles))
 		case allFilesMsg:
 			m.debugLog.Printf("[data] allFilesMsg files=%d", len(msg.files))
+		case ignoredDirLoadedMsg:
+			m.debugLog.Printf("[data] ignoredDirLoadedMsg dir=%q files=%d", msg.dir, len(msg.files))
 		case moreCommitsMsg:
 			m.debugLog.Printf("[data] moreCommitsMsg commits=%d", len(msg.commits))
 		case prRefreshMsg:
@@ -950,7 +1007,35 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deletedFiles = msg.deletedFiles
 		m.addedFiles = msg.addedFiles
 		m.allFiles = msg.allFiles
+		// Snapshot deep paths from the previous ignoredFiles before we
+		// overwrite — we need to reattach them after the new top-level set
+		// is in place, so refresh ticks don't lose the lazy-loaded contents
+		// the user has been navigating inside.
+		var preservedDeep []string
+		for f := range m.ignoredFiles {
+			if strings.Contains(f, "/") {
+				preservedDeep = append(preservedDeep, f)
+			}
+		}
 		m.ignoredFiles = msg.ignoredFiles
+		m.ignoredDirs = msg.ignoredDirs
+		if m.loadedIgnoredDirs == nil {
+			m.loadedIgnoredDirs = make(map[string]bool)
+		}
+		for d := range m.loadedIgnoredDirs {
+			if !m.ignoredDirs[d] {
+				delete(m.loadedIgnoredDirs, d)
+			}
+		}
+		// Reattach deep paths whose top-level dir is still loaded.
+		for _, p := range preservedDeep {
+			for d := range m.loadedIgnoredDirs {
+				if strings.HasPrefix(p, d+"/") {
+					m.ignoredFiles[p] = true
+					break
+				}
+			}
+		}
 		m.commits = msg.commits
 		m.commitCount = msg.commitCount
 		m.commitsLoaded = len(msg.commits)
@@ -977,6 +1062,20 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.allFiles = msg.files
 		m.updateSidebarItems()
 		m.updateMainContent()
+		return m, nil
+
+	case ignoredDirLoadedMsg:
+		if m.loadedIgnoredDirs == nil {
+			m.loadedIgnoredDirs = make(map[string]bool)
+		}
+		m.loadedIgnoredDirs[msg.dir] = true
+		for _, f := range msg.files {
+			m.ignoredFiles[f] = true
+		}
+		// Auto-expand the dir now that its contents are loaded — the user
+		// asked for them, so don't make them press right a second time.
+		m.collapsedDirs[msg.dir] = false
+		m.updateSidebarItems()
 		return m, nil
 
 	case prRefreshMsg:
@@ -1852,9 +1951,17 @@ func (m *Model) handleSidebarLeft() (tea.Model, tea.Cmd) {
 // handleSidebarRight handles right/l/enter key when sidebar is focused.
 // Expands a collapsed directory, jumps to its first child, or (on a leaf
 // file) switches focus to the main pane.
+//
+// Special case: an unloaded ignored directory (in m.ignoredDirs but not
+// m.loadedIgnoredDirs) fires a Cmd to lazy-load its contents. The dir
+// transitions from collapsed-empty to expanded-with-contents once the
+// resulting ignoredDirLoadedMsg arrives.
 func (m *Model) handleSidebarRight() (tea.Model, tea.Cmd) {
 	if m.sidebar.SelectedIsDir() {
 		dir := m.sidebar.SelectedItem()
+		if m.ignoredDirs[dir] && !m.loadedIgnoredDirs[dir] {
+			return m, m.expandIgnoredDir(dir)
+		}
 		if m.collapsedDirs[dir] {
 			// Expand the directory
 			m.collapsedDirs[dir] = false
@@ -2428,12 +2535,22 @@ func (m *Model) updateSidebarItems() {
 					m.collapsedDirs[d] = true // default closed for all-files
 				}
 			}
-			items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind {
+			// Ignored top-level dirs are leaves in the file list (no slash),
+			// but the user needs to be able to drill in. Default-collapse so
+			// they render with ▶; the post-processing pass below promotes
+			// them to dir entries.
+			for d := range m.ignoredDirs {
+				if _, exists := m.collapsedDirs[d]; !exists {
+					m.collapsedDirs[d] = true
+				}
+			}
+			treeItems := buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind {
 				if m.ignoredFiles[f] {
 					return itemDim
 				}
 				return itemNormal
-			})...)
+			})
+			items = append(items, m.promoteIgnoredDirs(treeItems)...)
 		}
 		m.sidebar.SetItems(m.applyChangeBadges(items))
 	case CommitsMode:
@@ -3045,7 +3162,7 @@ func (m *Model) execFollowUps(cmd tea.Cmd) {
 					m.execFollowUps(sub)
 				}
 			}
-		case gitDataMsg, prRefreshMsg, allFilesMsg, moreCommitsMsg:
+		case gitDataMsg, prRefreshMsg, allFilesMsg, moreCommitsMsg, ignoredDirLoadedMsg:
 			result, cmd2 := m.Update(msg)
 			*m = *(result.(*Model))
 			m.execFollowUps(cmd2)

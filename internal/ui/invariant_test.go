@@ -638,7 +638,7 @@ func execSafeCmd(m *Model, cmd tea.Cmd) {
 					execSafeCmd(m, sub)
 				}
 			}
-		case moreCommitsMsg, gitDataMsg, prRefreshMsg, allFilesMsg:
+		case moreCommitsMsg, gitDataMsg, prRefreshMsg, allFilesMsg, ignoredDirLoadedMsg:
 			result, cmd2 := m.Update(msg)
 			*m = *(result.(*Model))
 			if cmd2 != nil {
@@ -1416,7 +1416,13 @@ func genTreeAction(t *rapid.T, m *Model, step int) tea.Msg {
 }
 
 // checkTreeStructure verifies structural invariants of the tree sidebar.
-func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string) {
+//
+// `allFiles` is the universe of file paths the sidebar is allowed to show.
+// `ignoredDirs` is the subset of those paths that are top-level ignored
+// directories — they may render either as leaves (when contents haven't
+// been lazy-loaded) or as stub dir entries (default after phase 2), so
+// invariants 4 and 5 relax their checks for these paths.
+func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, ignoredDirs map[string]bool, context string) {
 	t.Helper()
 	items := m.sidebar.items
 
@@ -1445,7 +1451,8 @@ func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string)
 	}
 
 	// Invariant 4: directory items have isDir=true and their filePath is a
-	// proper prefix of at least one actual file.
+	// proper prefix of at least one actual file (with the exception of
+	// unloaded ignored stub directories — they're allowed to be empty).
 	fileSet := make(map[string]bool)
 	for _, f := range allFiles {
 		fileSet[f] = true
@@ -1455,6 +1462,9 @@ func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string)
 			continue
 		}
 		if item.isDir {
+			if ignoredDirs[item.filePath] {
+				continue // stub dir — no prefix-of-file requirement
+			}
 			if fileSet[item.filePath] {
 				t.Fatalf("%s: item %d is marked isDir but filePath %q is an actual file",
 					context, i, item.filePath)
@@ -1531,6 +1541,7 @@ func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string)
 
 	// Invariant 5: every file is accounted for — either visible as a leaf item
 	// or hidden under a collapsed directory that has a visible dir entry.
+	// Ignored stub dirs may also satisfy this by being visible as a dir entry.
 	visibleLeaves := make(map[string]bool)
 	visibleDirEntries := make(map[string]bool)
 	for _, item := range items {
@@ -1543,6 +1554,46 @@ func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, context string)
 	}
 	for _, f := range allFiles {
 		if visibleLeaves[f] {
+			continue
+		}
+		if ignoredDirs[f] {
+			if visibleDirEntries[f] {
+				continue // stub dir entry — counted as accounted-for
+			}
+			// After lazy-load, the single-leaf compaction may merge the
+			// stub dir into a visible leaf path like "node_modules/pkg/foo.js".
+			// Accept the dir as accounted-for if any visible row is under it.
+			under := false
+			for leaf := range visibleLeaves {
+				if strings.HasPrefix(leaf, f+"/") {
+					under = true
+					break
+				}
+			}
+			if !under {
+				for dir := range visibleDirEntries {
+					if strings.HasPrefix(dir, f+"/") {
+						under = true
+						break
+					}
+				}
+			}
+			if under {
+				continue
+			}
+		}
+		// A file under an unloaded ignored dir is allowed to be "hidden"
+		// behind the stub dir entry — the sidebar just hasn't fetched the
+		// children yet. Counts as accounted-for if any ancestor is in
+		// ignoredDirs and is visible as a dir entry.
+		hiddenByIgnored := false
+		for dir := range ignoredDirs {
+			if visibleDirEntries[dir] && strings.HasPrefix(f, dir+"/") {
+				hiddenByIgnored = true
+				break
+			}
+		}
+		if hiddenByIgnored {
 			continue
 		}
 		// Must be hidden under a collapsed dir that has a visible dir entry
@@ -1640,6 +1691,18 @@ func collapsedIgnoredSet(ignored []string) map[string]bool {
 			set[f[:i]] = true
 		} else {
 			set[f] = true
+		}
+	}
+	return set
+}
+
+// collapsedIgnoredDirSet returns the subset of collapsed entries that are
+// directories (i.e. their source path had a "/").
+func collapsedIgnoredDirSet(ignored []string) map[string]bool {
+	set := make(map[string]bool)
+	for _, f := range ignored {
+		if i := strings.IndexByte(f, '/'); i >= 0 {
+			set[f[:i]] = true
 		}
 	}
 	return set
@@ -1752,14 +1815,17 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		}
 		// The set of files the sidebar must account for depends on mode:
 		// FilesMode shows tracked + untracked + ignored top-level entries
-		// (deep paths under ignored dirs collapse to their parent);
-		// CommitsMode only shows committed+uncommitted+staged.
+		// at first; once the user expands an ignored dir, the deep paths
+		// inside it also become visible. We include both forms so the
+		// invariant accepts the sidebar in either pre- or post-expansion
+		// state. CommitsMode only shows committed+uncommitted+staged.
 		var sidebarFiles []string
 		if mode == FilesMode {
 			sidebarFiles = append([]string{}, mockAllFiles...)
 			for entry := range collapsedIgnoredSet(ignoredFiles) {
 				sidebarFiles = append(sidebarFiles, entry)
 			}
+			sidebarFiles = append(sidebarFiles, ignoredFiles...)
 		} else {
 			sidebarFiles = append(append(append([]string{}, committed...), uncommitted...), staged...)
 		}
@@ -1789,7 +1855,15 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			commitPatch:  "commit abc1234\n\n    test\n\ndiff\n+added",
 		}
 
+		// ignoredSet covers both forms a file can take in the sidebar:
+		// the top-level collapsed entry, and the deep paths after lazy
+		// expansion. checkIgnoredInvariants accepts any visible itemDim
+		// leaf that matches either form.
 		ignoredSet := collapsedIgnoredSet(ignoredFiles)
+		for _, f := range ignoredFiles {
+			ignoredSet[f] = true
+		}
+		ignoredDirSet := collapsedIgnoredDirSet(ignoredFiles)
 
 		m := initModel(mock, mode, width, height)
 		m.focus = SidebarFocus
@@ -1797,7 +1871,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		m.updateMainContent()
 
 		// Structural invariants after init
-		checkTreeStructure(t, m, sidebarFiles, "after init")
+		checkTreeStructure(t, m, sidebarFiles, ignoredDirSet, "after init")
 		checkInitialCollapseState(t, m, "after init")
 		checkRenderInvariants(t, m, "after init")
 		checkChangeBadgeInvariants(t, m, "after init")
@@ -1833,7 +1907,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			selAfter := m.sidebar.SelectedIndex()
 
 			// Structural invariants after every action
-			checkTreeStructure(t, m, sidebarFiles, context)
+			checkTreeStructure(t, m, sidebarFiles, ignoredDirSet, context)
 			checkRenderInvariants(t, m, context)
 			checkSidebarInvariants(t, m, context)
 			checkChangeBadgeInvariants(t, m, context)
@@ -1987,7 +2061,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			applyTicks(m, true)
 
 			// Structural invariants still hold after ticks
-			checkTreeStructure(t, m, sidebarFiles, context+" after ticks")
+			checkTreeStructure(t, m, sidebarFiles, ignoredDirSet, context+" after ticks")
 			checkRenderInvariants(t, m, context+" after ticks")
 			checkSidebarInvariants(t, m, context+" after ticks")
 
@@ -2036,6 +2110,9 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 		var ignoredSet map[string]bool
 		if mock != nil {
 			ignoredSet = collapsedIgnoredSet(mock.ignoredFiles)
+			for _, f := range mock.ignoredFiles {
+				ignoredSet[f] = true
+			}
 		}
 
 		m := initModel(mock, mode, width, height)

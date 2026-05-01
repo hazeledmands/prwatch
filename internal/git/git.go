@@ -678,10 +678,11 @@ func (g *Git) IgnoredFilesInDir(dir string) ([]string, error) {
 	return files, nil
 }
 
-// AllFiles returns all files in the repo (tracked + untracked).
-// If includeIgnored is true, gitignored files are also included.
+// AllFiles returns all tracked + untracked files in the repo, excluding
+// gitignored content. Use IgnoredEntries to fetch ignored top-level
+// entries separately (much cheaper than enumerating every ignored file).
 // Results are sorted alphabetically.
-func (g *Git) AllFiles(includeIgnored bool) ([]string, error) {
+func (g *Git) AllFiles() ([]string, error) {
 	fileSet := make(map[string]bool)
 
 	// Tracked files
@@ -703,19 +704,6 @@ func (g *Git) AllFiles(includeIgnored bool) ([]string, error) {
 			f = strings.TrimSpace(f)
 			if f != "" {
 				fileSet[f] = true
-			}
-		}
-	}
-
-	// Ignored files
-	if includeIgnored {
-		out, err = g.run("ls-files", "--others", "--ignored", "--exclude-standard")
-		if err == nil {
-			for _, f := range strings.Split(out, "\n") {
-				f = strings.TrimSpace(f)
-				if f != "" {
-					fileSet[f] = true
-				}
 			}
 		}
 	}
