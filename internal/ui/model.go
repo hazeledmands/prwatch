@@ -616,37 +616,6 @@ func (m *Model) reloadAllFiles() tea.Msg {
 	return allFilesMsg{files: files}
 }
 
-// promoteIgnoredDirs rewrites leaf entries whose filePath is in
-// m.ignoredDirs into directory entries with the appropriate ▶/▼ glyph,
-// trailing slash, and isDir=true. They start out as leaves because the
-// raw path has no slash (e.g. "node_modules"), and buildTreeItems treats
-// pathless single-segment names as files. After promotion, the user can
-// press right on the entry to lazy-load its children.
-func (m *Model) promoteIgnoredDirs(items []sidebarItem) []sidebarItem {
-	if len(m.ignoredDirs) == 0 {
-		return items
-	}
-	for i := range items {
-		it := &items[i]
-		if it.isDir || !it.kind.selectable() || it.filePath == "" {
-			continue
-		}
-		if !m.ignoredDirs[it.filePath] {
-			continue
-		}
-		prefix := "▶"
-		if !m.collapsedDirs[it.filePath] {
-			prefix = "▼"
-		}
-		// Reconstruct the label using the standard dir layout — indent +
-		// prefix + name + trailing slash — instead of trying to patch the
-		// existing leaf label, which keeps us in sync with sidebar.go.
-		it.label = strings.Repeat("  ", it.indent) + prefix + " " + it.filePath + "/"
-		it.isDir = true
-	}
-	return items
-}
-
 // loadIgnoredSet fetches gitignored top-level entries via IgnoredEntries
 // and returns them as two sets: all entry paths, and the subset that are
 // directories (eligible for lazy expansion). Returns nil maps on error.
@@ -2506,21 +2475,21 @@ func (m *Model) updateSidebarItems() {
 		}
 		if len(m.uncommittedFiles) > 0 {
 			items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
-			items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs)...)
+			items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs, nil)...)
 		}
 		if len(m.stagedFiles) > 0 {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 			items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
-			items = append(items, buildTreeItems(m.stagedFiles, itemNormal, m.collapsedDirs)...)
+			items = append(items, buildTreeItems(m.stagedFiles, itemNormal, m.collapsedDirs, nil)...)
 		}
 		if len(m.committedFiles) > 0 {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 			items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
-			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
+			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, nil, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
 		}
 		if len(otherFiles) > 0 {
 			if len(items) > 0 {
@@ -2535,22 +2504,22 @@ func (m *Model) updateSidebarItems() {
 					m.collapsedDirs[d] = true // default closed for all-files
 				}
 			}
-			// Ignored top-level dirs are leaves in the file list (no slash),
-			// but the user needs to be able to drill in. Default-collapse so
-			// they render with ▶; the post-processing pass below promotes
-			// them to dir entries.
+			// Ignored top-level dirs are single-segment paths in the file
+			// list. Default-collapse them, and pass them as forceDirs so
+			// buildTreeItems classifies them in the dir bucket from the
+			// start — without this, an unloaded ignored dir sorts as a
+			// leaf and jumps when the user expands it.
 			for d := range m.ignoredDirs {
 				if _, exists := m.collapsedDirs[d]; !exists {
 					m.collapsedDirs[d] = true
 				}
 			}
-			treeItems := buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, func(f string) sidebarItemKind {
+			items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, m.ignoredDirs, func(f string) sidebarItemKind {
 				if m.ignoredFiles[f] {
 					return itemDim
 				}
 				return itemNormal
-			})
-			items = append(items, m.promoteIgnoredDirs(treeItems)...)
+			})...)
 		}
 		m.sidebar.SetItems(m.applyChangeBadges(items))
 	case CommitsMode:

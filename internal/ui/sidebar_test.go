@@ -307,7 +307,7 @@ func TestBuildTreeItems_SingleLeafFlatPath(t *testing.T) {
 	// Spec: "if there is only one leaf node in the tree, display the whole
 	// relevant subtree on the same line, kind of like when tree mode is disabled."
 	collapsed := make(map[string]bool)
-	items := buildTreeItems([]string{"dir/sub/file.go"}, itemNormal, collapsed)
+	items := buildTreeItems([]string{"dir/sub/file.go"}, itemNormal, collapsed, nil)
 
 	if len(items) != 1 {
 		t.Fatalf("single-leaf tree should produce 1 item, got %d", len(items))
@@ -323,7 +323,7 @@ func TestBuildTreeItems_SingleLeafFlatPath(t *testing.T) {
 func TestBuildTreeItems_MultipleLeaves_NotFlattened(t *testing.T) {
 	// Multiple files under a directory should still use tree structure
 	collapsed := make(map[string]bool)
-	items := buildTreeItems([]string{"dir/a.go", "dir/b.go"}, itemNormal, collapsed)
+	items := buildTreeItems([]string{"dir/a.go", "dir/b.go"}, itemNormal, collapsed, nil)
 
 	hasDirItem := false
 	for _, item := range items {
@@ -338,7 +338,7 @@ func TestBuildTreeItems_MultipleLeaves_NotFlattened(t *testing.T) {
 
 func TestBuildTreeItems_SingleLeafPreservesKind(t *testing.T) {
 	collapsed := make(map[string]bool)
-	items := buildTreeItems([]string{"pkg/file.go"}, itemDim, collapsed)
+	items := buildTreeItems([]string{"pkg/file.go"}, itemDim, collapsed, nil)
 
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))

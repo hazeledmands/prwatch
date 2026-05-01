@@ -3725,6 +3725,70 @@ func TestExpandIgnoredDir_LazyLoadsContents(t *testing.T) {
 	}
 }
 
+// TestIgnoredDir_OrderingStableAcrossExpansion verifies that an unloaded
+// ignored directory appears in the directory section of the All Files list
+// (before any file leaf) the same way a loaded one does. Reported in
+// hound where ".config" sat far down the list pre-expand and jumped to
+// the top once expanded — because the tree builder bucketed it with
+// file leaves (single-segment path, no children) until lazy-load
+// materialized children, after which it joined the dir bucket.
+//
+// The fix needs to make ignored top-level dirs sort with the *dirs*
+// from the start. Concretely: in the All Files section, no file-leaf
+// entry should appear before an ignored-dir entry.
+func TestIgnoredDir_OrderingStableAcrossExpansion(t *testing.T) {
+	mg := &mockGit{
+		repoInfo:     git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:         "abc",
+		changedFiles: git.ChangedFilesResult{},
+		// One tracked file leaf at root (".aaa.txt", chosen so it
+		// alphabetically sorts BEFORE ".config" inside the file-leaves
+		// bucket). In the buggy state, both ".aaa.txt" and ".config" land
+		// in fileNames and sort alphabetically — ".aaa.txt" first. With
+		// the fix, ".config" goes to dirNames and renders before any leaf
+		// regardless of alphabetical order.
+		allFiles:     []string{".aaa.txt"},
+		ignoredFiles: []string{".config/settings.json"},
+		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent:  "x",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 30
+	m.updateLayout()
+	m.Update(m.loadGitData())
+
+	// Find the All Files section and capture the ordering within it.
+	allFilesStart := -1
+	for i, it := range m.sidebar.items {
+		if it.kind == itemHeader && strings.HasPrefix(it.label, "All Files") {
+			allFilesStart = i + 1
+			break
+		}
+	}
+	if allFilesStart < 0 {
+		t.Fatalf("All Files header missing")
+	}
+
+	configIdx, aaaIdx := -1, -1
+	for i := allFilesStart; i < len(m.sidebar.items); i++ {
+		it := m.sidebar.items[i]
+		switch it.filePath {
+		case ".config":
+			configIdx = i
+		case ".aaa.txt":
+			aaaIdx = i
+		}
+	}
+	if configIdx < 0 || aaaIdx < 0 {
+		t.Fatalf("expected .config and .aaa.txt in All Files; got items=%v", m.sidebar.items[allFilesStart:])
+	}
+	if configIdx > aaaIdx {
+		t.Errorf(".config (ignored dir) should appear before .aaa.txt (a file leaf), regardless of alphabetical order; configIdx=%d aaaIdx=%d", configIdx, aaaIdx)
+	}
+}
+
 func TestToggleSidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
@@ -4445,7 +4509,7 @@ func TestBuildTreeItems(t *testing.T) {
 		"main.go",
 	}
 	collapsed := make(map[string]bool)
-	items := buildTreeItems(files, itemNormal, collapsed)
+	items := buildTreeItems(files, itemNormal, collapsed, nil)
 
 	// Should have: internal/ dir, git/ dir, git.go file, ui/ dir, keys.go, model.go, main.go
 	// Dirs first, sorted
@@ -4460,7 +4524,7 @@ func TestBuildTreeItems(t *testing.T) {
 
 	// Collapse internal/
 	collapsed["internal"] = true
-	items = buildTreeItems(files, itemNormal, collapsed)
+	items = buildTreeItems(files, itemNormal, collapsed, nil)
 
 	// After collapse, should only have internal/ (collapsed) and main.go
 	nonSepCount := 0

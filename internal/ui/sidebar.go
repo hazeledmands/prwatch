@@ -38,9 +38,13 @@ type sidebarItem struct {
 // of sidebar items with directories and indentation. Directories start expanded.
 // The collapsed map tracks which directory paths are collapsed.
 // kindFunc returns the item kind for a given file path. If nil, the default kind is used.
+// forceDirs is the set of paths that must be classified as directories even
+// when they appear as leafmost segments with no children — used for ignored
+// top-level dirs whose contents haven't been lazy-loaded yet, so they sort
+// in the dir bucket alongside other directories.
 type kindFunc func(filePath string) sidebarItemKind
 
-func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]bool, kf ...kindFunc) []sidebarItem {
+func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]bool, forceDirs map[string]bool, kf ...kindFunc) []sidebarItem {
 	if len(files) == 0 {
 		return nil
 	}
@@ -68,13 +72,15 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 					name:     part,
 					path:     path,
 					children: make(map[string]*treeNode),
-					isFile:   isLast,
+					isFile:   isLast && !forceDirs[path],
 					kind:     kind,
 				}
 				node.children[part] = child
 			}
 			if isLast {
-				child.isFile = true
+				if !forceDirs[child.path] {
+					child.isFile = true
+				}
 				if len(kf) > 0 && kf[0] != nil {
 					child.kind = kf[0](f)
 				} else {
@@ -180,10 +186,15 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 			if collapsed[compacted.path] {
 				prefix = "▶"
 			}
+			// Use compacted.kind so an ignored dir entry can render dim
+			// (kindFunc was applied when the path was added as a leafmost
+			// entry). For purely intermediate dirs that never appeared as
+			// a leafmost path, compacted.kind defaults to the kind parameter.
+			dirKind := compacted.kind
 			label := strings.Repeat("  ", indent) + prefix + " " + displayName + "/"
 			items = append(items, sidebarItem{
 				label:    label,
-				kind:     kind,
+				kind:     dirKind,
 				filePath: compacted.path,
 				isDir:    true,
 				indent:   indent,
