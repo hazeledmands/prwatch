@@ -1708,6 +1708,22 @@ func collapsedIgnoredDirSet(ignored []string) map[string]bool {
 	return set
 }
 
+// checkIgnoredDirsLoadedIfExpanded asserts that no ignored top-level
+// directory is in the {unloaded, expanded} state — that combination
+// would render an empty ▼ entry with no way to populate it short of a
+// refresh tick. Whenever the user expands an unloaded ignored dir
+// (right key or click), the handler must fire the lazy-load Cmd so
+// that loadedIgnoredDirs catches up before collapsedDirs flips.
+func checkIgnoredDirsLoadedIfExpanded(t *rapid.T, m *Model, context string) {
+	t.Helper()
+	for d := range m.ignoredDirs {
+		if !m.collapsedDirs[d] && !m.loadedIgnoredDirs[d] {
+			t.Fatalf("%s: ignored dir %q is expanded (collapsedDirs=false) but not loaded (loadedIgnoredDirs=false) — would render as empty forever",
+				context, d)
+		}
+	}
+}
+
 // checkIgnoredInvariants verifies the ignored-file rendering rules:
 //
 //  1. With showIgnored=false, no visible leaf item's filePath is in the
@@ -1876,6 +1892,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 		checkRenderInvariants(t, m, "after init")
 		checkChangeBadgeInvariants(t, m, "after init")
 		checkIgnoredInvariants(t, m, ignoredSet, "after init")
+		checkIgnoredDirsLoadedIfExpanded(t, m, "after init")
 
 		nSteps := rapid.IntRange(3, 20).Draw(t, "nSteps")
 		for step := range nSteps {
@@ -1912,6 +1929,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			checkSidebarInvariants(t, m, context)
 			checkChangeBadgeInvariants(t, m, context)
 			checkIgnoredInvariants(t, m, ignoredSet, context)
+			checkIgnoredDirsLoadedIfExpanded(t, m, context)
 
 			// Navigation invariants for specific key actions
 			switch msg := msg.(type) {
@@ -2120,6 +2138,7 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 		// Check invariants after initial load
 		checkAllInvariants(t, m, "after init")
 		checkIgnoredInvariants(t, m, ignoredSet, "after init")
+		checkIgnoredDirsLoadedIfExpanded(t, m, "after init")
 
 		// Run random interactions
 		nSteps := rapid.IntRange(1, 30).Draw(t, "nSteps")
@@ -2146,6 +2165,7 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			context := fmt.Sprintf("step %d (mode=%d, focus=%d)", step, m.mode, m.focus)
 			checkAllInvariants(t, m, context+" after action")
 			checkIgnoredInvariants(t, m, ignoredSet, context+" after action")
+			checkIgnoredDirsLoadedIfExpanded(t, m, context+" after action")
 
 			// Capture sidebar scroll state before ticks
 			offsetBefore := m.sidebar.offset
@@ -2155,6 +2175,7 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			applyTicks(m, mock != nil)
 			checkAllInvariants(t, m, context+" after ticks")
 			checkIgnoredInvariants(t, m, ignoredSet, context+" after ticks")
+			checkIgnoredDirsLoadedIfExpanded(t, m, context+" after ticks")
 
 			// Tick refreshes should not move the sidebar scroll position
 			// when the selection hasn't changed. This is the "jump to

@@ -3725,6 +3725,76 @@ func TestExpandIgnoredDir_LazyLoadsContents(t *testing.T) {
 	}
 }
 
+// TestClickIgnoredDir_LazyLoadsContents verifies that clicking on an
+// unloaded ignored directory triggers the same lazy-load that pressing
+// right does. Without this, the click handler just flips
+// m.collapsedDirs[dir] and the user sees an expanded dir with no
+// children (forever, since no load fires).
+func TestClickIgnoredDir_LazyLoadsContents(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"main.go"},
+		},
+		allFiles: []string{"main.go"},
+		ignoredFiles: []string{
+			"node_modules/pkg-a/index.js",
+			"node_modules/pkg-b/index.js",
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 30
+	m.updateLayout()
+	m.Update(m.loadGitData())
+
+	// Find the row coordinate of the node_modules entry.
+	nodeRow := -1
+	for i, item := range m.sidebar.items {
+		if item.filePath == "node_modules" {
+			// Sidebar starts after the status bar. Compute the row the
+			// click handler resolves to: status bar height + 1 + i.
+			nodeRow = statusBarLineCount(statusBarData{info: m.repoInfo, pr: m.prInfo}) + 1 + i
+			break
+		}
+	}
+	if nodeRow < 0 {
+		t.Fatalf("node_modules entry missing from sidebar")
+	}
+
+	if m.loadedIgnoredDirs["node_modules"] {
+		t.Fatalf("node_modules should not be loaded yet")
+	}
+
+	// Click on the node_modules row (column 2 = inside the sidebar).
+	result, cmd := m.Update(tea.MouseClickMsg{X: 2, Y: nodeRow, Button: tea.MouseLeft})
+	m = result.(*Model)
+	if cmd == nil {
+		t.Fatalf("clicking an unloaded ignored dir should fire a Cmd to load it")
+	}
+
+	// Run the cmd and feed the resulting message back.
+	loadedMsg := cmd()
+	if loadedMsg == nil {
+		t.Fatalf("Cmd returned nil msg")
+	}
+	result, _ = m.Update(loadedMsg)
+	m = result.(*Model)
+
+	if !m.loadedIgnoredDirs["node_modules"] {
+		t.Errorf("after click+load, node_modules should be in loadedIgnoredDirs")
+	}
+	for _, child := range []string{"node_modules/pkg-a/index.js", "node_modules/pkg-b/index.js"} {
+		if !m.ignoredFiles[child] {
+			t.Errorf("after click+load, expected %q in m.ignoredFiles", child)
+		}
+	}
+}
+
 // TestIgnoredDir_OrderingStableAcrossExpansion verifies that an unloaded
 // ignored directory appears in the directory section of the All Files list
 // (before any file leaf) the same way a loaded one does. Reported in

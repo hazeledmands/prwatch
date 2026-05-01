@@ -1,0 +1,177 @@
+# 2026/05/01 15:42:40.200900 [TestProperty_InteractionInvariants] [rapid] draw isGit: 1
+# 2026/05/01 15:42:40.200917 [TestProperty_InteractionInvariants] [rapid] draw nCommitted: 4
+# 2026/05/01 15:42:40.200927 [TestProperty_InteractionInvariants] [rapid] draw nUncommitted: 0
+# 2026/05/01 15:42:40.200935 [TestProperty_InteractionInvariants] [rapid] draw nStaged: 3
+# 2026/05/01 15:42:40.200944 [TestProperty_InteractionInvariants] [rapid] draw nCommits: 2
+# 2026/05/01 15:42:40.200960 [TestProperty_InteractionInvariants] [rapid] draw changeType_file0.go: 1
+# 2026/05/01 15:42:40.200969 [TestProperty_InteractionInvariants] [rapid] draw changeType_file1.go: 1
+# 2026/05/01 15:42:40.200977 [TestProperty_InteractionInvariants] [rapid] draw changeType_file2.go: 1
+# 2026/05/01 15:42:40.200983 [TestProperty_InteractionInvariants] [rapid] draw changeType_file3.go: 1
+# 2026/05/01 15:42:40.200998 [TestProperty_InteractionInvariants] [rapid] draw addStaged_staged0.go: 1
+# 2026/05/01 15:42:40.201006 [TestProperty_InteractionInvariants] [rapid] draw addStaged_staged1.go: 1
+# 2026/05/01 15:42:40.201013 [TestProperty_InteractionInvariants] [rapid] draw addStaged_staged2.go: 1
+# 2026/05/01 15:42:40.201020 [TestProperty_InteractionInvariants] [rapid] draw nOtherFiles: 0
+# 2026/05/01 15:42:40.201028 [TestProperty_InteractionInvariants] [rapid] draw nIgnored: 1
+# 2026/05/01 15:42:40.201036 [TestProperty_InteractionInvariants] [rapid] draw ignoredKind0: 1
+# 2026/05/01 15:42:40.201053 [TestProperty_InteractionInvariants] [rapid] draw commit0_emoji: 1
+# 2026/05/01 15:42:40.201067 [TestProperty_InteractionInvariants] [rapid] draw commit1_emoji: 1
+# 2026/05/01 15:42:40.201077 [TestProperty_InteractionInvariants] [rapid] draw branch: "main"
+# 2026/05/01 15:42:40.201084 [TestProperty_InteractionInvariants] [rapid] draw detached: false
+# 2026/05/01 15:42:40.201091 [TestProperty_InteractionInvariants] [rapid] draw prNum: 42
+# 2026/05/01 15:42:40.201099 [TestProperty_InteractionInvariants] [rapid] draw prTitle_emoji: 1
+# 2026/05/01 15:42:40.201105 [TestProperty_InteractionInvariants] [rapid] draw isDraft: false
+# 2026/05/01 15:42:40.201111 [TestProperty_InteractionInvariants] [rapid] draw aheadCount: 0
+# 2026/05/01 15:42:40.201119 [TestProperty_InteractionInvariants] [rapid] draw fileDiff_emoji: 1
+# 2026/05/01 15:42:40.201127 [TestProperty_InteractionInvariants] [rapid] draw fileContent_emoji: 1
+# 2026/05/01 15:42:40.201134 [TestProperty_InteractionInvariants] [rapid] draw commitPatch_emoji: 1
+# 2026/05/01 15:42:40.201142 [TestProperty_InteractionInvariants] [rapid] draw hasReviews: false
+# 2026/05/01 15:42:40.201147 [TestProperty_InteractionInvariants] [rapid] draw hasComments: false
+# 2026/05/01 15:42:40.201153 [TestProperty_InteractionInvariants] [rapid] draw hasAPIError: false
+# 2026/05/01 15:42:40.201159 [TestProperty_InteractionInvariants] [rapid] draw hasBaseCommits: false
+# 2026/05/01 15:42:40.201165 [TestProperty_InteractionInvariants] [rapid] draw mode: 1
+# 2026/05/01 15:42:40.201171 [TestProperty_InteractionInvariants] [rapid] draw width: 40
+# 2026/05/01 15:42:40.201178 [TestProperty_InteractionInvariants] [rapid] draw height: 10
+# 2026/05/01 15:42:40.207313 [TestProperty_InteractionInvariants] after init: ignored dir "node_modules" is expanded (collapsedDirs=false) but not loaded (loadedIgnoredDirs=false) — would render as empty forever
+# 
+v0.4.8#13181852288926640124
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x4
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

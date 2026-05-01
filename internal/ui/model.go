@@ -996,6 +996,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.loadedIgnoredDirs, d)
 			}
 		}
+		// Default-collapse ignored dirs that we haven't seen yet, regardless
+		// of mode. updateSidebarItems' FilesMode branch does this too, but
+		// it doesn't run in CommitsMode/PRMode — without this, a freshly-
+		// loaded ignored dir would be in the {unloaded, expanded} state,
+		// which is fine for those modes (it isn't rendered) but trips the
+		// state invariant and would render as an empty ▼ if the user
+		// switched to FilesMode.
+		for d := range m.ignoredDirs {
+			if _, exists := m.collapsedDirs[d]; !exists {
+				m.collapsedDirs[d] = true
+			}
+		}
 		// Reattach deep paths whose top-level dir is still loaded.
 		for _, p := range preservedDeep {
 			for d := range m.loadedIgnoredDirs {
@@ -1045,6 +1057,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// asked for them, so don't make them press right a second time.
 		m.collapsedDirs[msg.dir] = false
 		m.updateSidebarItems()
+		// updateSidebarItems can change which item lives at the selected
+		// index — single-leaf compaction can swallow a dir entry whose
+		// only child is a file, leaving SelectedItem() pointing at the
+		// child path instead of the dir we just expanded. Refresh the
+		// main pane so it matches whatever's now under the cursor.
+		m.updateMainContent()
 		return m, nil
 
 	case prRefreshMsg:
@@ -1807,9 +1825,15 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
 			return m, m.loadMoreCommits
 		}
-		// If a directory was clicked, toggle collapse
+		// If a directory was clicked, toggle collapse — except for an
+		// unloaded ignored dir, where clicking should fire the lazy-load
+		// cmd just like pressing right does. Without this branch, the
+		// dir would flip to expanded with no children visible (forever).
 		if m.sidebar.SelectedIsDir() {
 			dir := m.sidebar.SelectedItem()
+			if m.ignoredDirs[dir] && !m.loadedIgnoredDirs[dir] {
+				return m, m.expandIgnoredDir(dir)
+			}
 			m.collapsedDirs[dir] = !m.collapsedDirs[dir]
 			selectedBefore := m.sidebar.SelectedItem()
 			m.updateSidebarItems()
