@@ -564,6 +564,27 @@ func renderInlineDiff(oldText, newText string) string {
 	return b.String()
 }
 
+// renderInlineDiffWithBg is the files-mode variant of renderInlineDiff: each
+// segment carries its own background tint instead of a uniform bg over the
+// whole line. Retained text gets no bg (looks like neutral context), removed
+// text gets the red diff bg, and added text gets the green diff bg. The
+// foregrounds match renderInlineDiff so the signal is doubly encoded.
+func renderInlineDiffWithBg(oldText, newText string) string {
+	diffs := intraLineDiffs(oldText, newText)
+	var b strings.Builder
+	for _, d := range diffs {
+		switch d.Type {
+		case diffmatchpatch.DiffEqual:
+			b.WriteString(diffRetainedStyle.Render(d.Text))
+		case diffmatchpatch.DiffDelete:
+			b.WriteString(diffRemoveLineStyle.Render(d.Text))
+		case diffmatchpatch.DiffInsert:
+			b.WriteString(diffAddLineStyle.Render(d.Text))
+		}
+	}
+	return b.String()
+}
+
 // applyFileViewFormatting adds line numbers and diff gutter to plain content.
 // Returns the formatted content and the gutter width (for wrapping indentation).
 func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
@@ -631,13 +652,14 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 			}
 			diffSize := inlineDiffSize(oldLine, line)
 			if diffSize <= contentWidth/4 {
-				// Small diff: inline old (red) + new (green) on same line.
+				// Small diff: gutter stays yellow-bg; body switches to
+				// per-segment bg so retained text reads as neutral context
+				// while red/green tints flag the actual edits.
 				gutterPart := diffChangeLineStyle.Render(prefix + gutter)
-				bodyPart := applyDiffBg(renderInlineDiff(oldLine, line), diffChangeBgOpen)
 				if !m.lineNumbers {
 					gutterPart = diffChangeLineStyle.Render(gutter)
 				}
-				result = append(result, gutterPart+bodyPart)
+				result = append(result, gutterPart+renderInlineDiffWithBg(oldLine, line))
 			} else {
 				// Large diff: deleted version (red bg) on top, new version
 				// (green bg, syntax-highlighted) on bottom.
