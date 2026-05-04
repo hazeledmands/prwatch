@@ -4419,14 +4419,18 @@ func TestFileView_ScrollToLastLine(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Text: "G", Code: 'G'})
 	m = result.(*Model)
 
-	// The view should contain line 27
+	// The view should contain line 27. Strip ANSI: with chroma syntax
+	// highlighting, the go.mod lexer tokenizes "line 27 content" into
+	// separate tokens around the number, so the raw view content has escape
+	// sequences between tokens.
 	v := m.View()
-	if !strings.Contains(v.Content, "line 27 content") {
+	visible := stripANSI(v.Content)
+	if !strings.Contains(visible, "line 27 content") {
 		t.Errorf("after GoToBottom, view should contain 'line 27 content' but it doesn't")
 		// Find what's visible
 		for i := 20; i <= 27; i++ {
 			marker := fmt.Sprintf("line %d content", i)
-			if strings.Contains(v.Content, marker) {
+			if strings.Contains(visible, marker) {
 				t.Logf("  found: %s", marker)
 			} else {
 				t.Logf("  MISSING: %s", marker)
@@ -4441,7 +4445,7 @@ func TestFileView_ScrollToLastLine(t *testing.T) {
 		m.mainPane.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
 	}
 	v = m.View()
-	if !strings.Contains(v.Content, "line 27 content") {
+	if !strings.Contains(stripANSI(v.Content), "line 27 content") {
 		t.Errorf("after scrolling down many times, view should contain 'line 27 content'")
 	}
 }
@@ -7641,12 +7645,10 @@ func TestBug_MultipleRemovedLinesShownInFileView(t *testing.T) {
 			name:        "removals replaced by single line (changed)",
 			diff:        "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,4 +1,2 @@\n line1\n-old_line_a\n-old_line_b\n+new_line\n",
 			fileContent: "line1\nnew_line\n",
-			// old_line_a is shown as a pure deletion (contiguous). old_line_b
-			// is paired with new_line for an intra-line diff: the
-			// diffmatchpatch-backed renderer recognizes "_line" as retained
-			// and fragments the deletion into "old" and "_b" — both must
-			// still be visible in the view.
-			wantLines: []string{"old_line_a", "old", "_b"},
+			// Multi-line block changes render as N pure `-` rows then M
+			// pure `+` rows (no inline-diff pairing), so both removed
+			// lines should appear contiguously.
+			wantLines: []string{"old_line_a", "old_line_b"},
 		},
 	}
 

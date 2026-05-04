@@ -29,6 +29,57 @@ func TestMainPane_SetPlainContent(t *testing.T) {
 	}
 }
 
+// TestSyntaxHighlight_AppliesToContextAndDiffLines verifies that when a
+// filename is set, both unchanged context lines AND diff lines (e.g. added
+// lines) receive chroma syntax highlighting. Diff lines are additionally
+// distinguished from context lines by a tinted background — applied via the
+// "re-establish bg after each inner reset" technique so chroma's per-token
+// foreground colors stay visible.
+func TestSyntaxHighlight_AppliesToContextAndDiffLines(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 24)
+	mp.lineNumbers = false
+	mp.showRemoved = false
+
+	// Two lines: line 1 unchanged context, line 2 added.
+	mp.SetFilename("foo.go")
+	mp.diffAnnotations = map[int]diffAnnotation{
+		2: {kind: diffLineAdded},
+	}
+	mp.SetPlainContent("func ctx() {}\nfunc added() {}")
+
+	rendered := mp.viewport.View()
+	lines := strings.Split(rendered, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected 2 rendered lines, got %d", len(lines))
+	}
+
+	// Both lines should have multiple chroma per-token foreground codes
+	// (the Go lexer styles "func" as a keyword distinct from identifiers).
+	for idx, label := range []string{"context", "added"} {
+		ln := lines[idx]
+		fgEscapes := strings.Count(ln, "\x1b[38;2;")
+		if fgEscapes < 2 {
+			t.Errorf("%s line should have multiple chroma color tokens; got %d in %q", label, fgEscapes, ln)
+		}
+		if !strings.Contains(stripANSI(ln), "func") {
+			t.Errorf("%s line missing literal 'func' after stripANSI: %q", label, stripANSI(ln))
+		}
+	}
+
+	// The added line should additionally carry a bg-tint open code. It
+	// should appear at the start (line-level tint) AND repeat after each
+	// chroma reset to survive into the next token.
+	addedLine := lines[1]
+	bgOpens := strings.Count(addedLine, diffAddBgOpen)
+	if bgOpens < 2 {
+		t.Errorf("added line should re-establish bg tint after every chroma reset; got %d open seqs in %q", bgOpens, addedLine)
+	}
+	if strings.Count(lines[0], diffAddBgOpen) > 0 {
+		t.Errorf("context line should not carry the added bg tint; got %q", lines[0])
+	}
+}
+
 func TestMainPane_ScrollTop(t *testing.T) {
 	mp := newMainPane()
 	mp.SetSize(80, 5)
@@ -488,6 +539,41 @@ func TestRenderInlineDiff_SmallChange(t *testing.T) {
 	}
 	if !strings.Contains(stripped, "earth") {
 		t.Error("inline diff should contain added text 'earth'")
+	}
+}
+
+// TestParseDiffAnnotations_MultiLineBlockNotPaired guards against the bug
+// where a multi-line block rewrite (N removed, M added in the same hunk)
+// would mark the first added line as "changed" and pair it with the last
+// removed line for an inline-diff. That produces a confusing hybrid: a `~`
+// gutter on a body that's fully one color, with no real 1-to-1
+// correspondence. With more than one pending removed, lines should annotate
+// as plain additions; the deletions render above as `-` rows.
+func TestParseDiffAnnotations_MultiLineBlockNotPaired(t *testing.T) {
+	diff := `@@ -1,5 +1,5 @@
+ unchanged
+-old line 1
+-old line 2
+-old line 3
++new line 1
++new line 2
++new line 3
+ unchanged
+`
+	annotations := parseDiffAnnotations(diff)
+	for _, lineNo := range []int{2, 3, 4} {
+		ann, ok := annotations[lineNo]
+		if !ok {
+			t.Fatalf("expected annotation for line %d", lineNo)
+		}
+		if ann.kind != diffLineAdded {
+			t.Errorf("line %d should be plain added (got kind=%v) — multi-line block changes must not be paired as ~", lineNo, ann.kind)
+		}
+	}
+	// All three pending deletions should hang off the first added line so
+	// the file view emits them as `-` rows above.
+	if got := len(annotations[2].removedLines); got != 3 {
+		t.Errorf("first added line should carry all 3 removed siblings; got %d", got)
 	}
 }
 
