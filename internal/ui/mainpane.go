@@ -566,21 +566,75 @@ func renderInlineDiff(oldText, newText string) string {
 
 // renderInlineDiffWithBg is the files-mode variant of renderInlineDiff: each
 // segment carries its own background tint instead of a uniform bg over the
-// whole line. Retained text gets no bg (looks like neutral context), removed
-// text gets the red diff bg, and added text gets the green diff bg. The
-// foregrounds match renderInlineDiff so the signal is doubly encoded.
-func renderInlineDiffWithBg(oldText, newText string) string {
+// whole line. Retained text inherits chroma syntax fg (so it reads as normal
+// code) with no bg; removed segments get the red diff bg with a flat red fg
+// (the deleted text wasn't lexed); added segments get the green diff bg over
+// the appropriate slice of chroma's per-token fg.
+//
+// When lexer is nil, the function falls back to flat fg colors (yellow /
+// red / green) so non-source content still gets a usable inline diff.
+func renderInlineDiffWithBg(oldText, newText string, lexer chroma.Lexer) string {
 	diffs := intraLineDiffs(oldText, newText)
-	var b strings.Builder
-	for _, d := range diffs {
-		switch d.Type {
-		case diffmatchpatch.DiffEqual:
-			b.WriteString(diffRetainedStyle.Render(d.Text))
-		case diffmatchpatch.DiffDelete:
-			b.WriteString(diffRemoveLineStyle.Render(d.Text))
-		case diffmatchpatch.DiffInsert:
-			b.WriteString(diffAddLineStyle.Render(d.Text))
+
+	if lexer == nil {
+		var b strings.Builder
+		for _, d := range diffs {
+			switch d.Type {
+			case diffmatchpatch.DiffEqual:
+				b.WriteString(diffRetainedStyle.Render(d.Text))
+			case diffmatchpatch.DiffDelete:
+				b.WriteString(diffRemoveLineStyle.Render(d.Text))
+			case diffmatchpatch.DiffInsert:
+				b.WriteString(diffAddLineStyle.Render(d.Text))
+			}
 		}
+		return b.String()
+	}
+
+	// Lex newText so we can pull per-token chroma styling for the retained
+	// and inserted segments. The diff cursor advances byte-for-byte through
+	// newText for Equal and Insert segments; Delete segments don't consume
+	// any newText bytes (the deleted content lives in oldText only).
+	iter, err := lexer.Tokenise(nil, newText)
+	if err != nil {
+		return renderInlineDiffWithBg(oldText, newText, nil)
+	}
+	tokens := iter.Tokens()
+
+	var b strings.Builder
+	tokIdx, tokOffset := 0, 0
+	for _, d := range diffs {
+		if d.Type == diffmatchpatch.DiffDelete {
+			b.WriteString(diffRemoveLineStyle.Render(d.Text))
+			continue
+		}
+		// Slice tokens to cover len(d.Text) bytes from newText.
+		need := len(d.Text)
+		var segTokens []chroma.Token
+		for need > 0 && tokIdx < len(tokens) {
+			tk := tokens[tokIdx]
+			avail := len(tk.Value) - tokOffset
+			if avail <= need {
+				segTokens = append(segTokens, chroma.Token{Type: tk.Type, Value: tk.Value[tokOffset:]})
+				need -= avail
+				tokIdx++
+				tokOffset = 0
+			} else {
+				segTokens = append(segTokens, chroma.Token{Type: tk.Type, Value: tk.Value[tokOffset : tokOffset+need]})
+				tokOffset += need
+				need = 0
+			}
+		}
+		var segBuf strings.Builder
+		if err := chromaFormatter.Format(&segBuf, chromaStyle, chroma.Literator(segTokens...)); err != nil {
+			// Fallback: emit raw text with no styling for this segment.
+			segBuf.WriteString(d.Text)
+		}
+		seg := segBuf.String()
+		if d.Type == diffmatchpatch.DiffInsert {
+			seg = applyDiffBg(seg, diffAddBgOpen)
+		}
+		b.WriteString(seg)
 	}
 	return b.String()
 }
@@ -659,7 +713,7 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 				if !m.lineNumbers {
 					gutterPart = diffChangeLineStyle.Render(gutter)
 				}
-				result = append(result, gutterPart+renderInlineDiffWithBg(oldLine, line))
+				result = append(result, gutterPart+renderInlineDiffWithBg(oldLine, line, m.lexer))
 			} else {
 				// Large diff: deleted version (red bg) on top, new version
 				// (green bg, syntax-highlighted) on bottom.
