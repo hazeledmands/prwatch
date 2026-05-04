@@ -2,14 +2,57 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	chroma "github.com/alecthomas/chroma/v2"
+	chromaformatters "github.com/alecthomas/chroma/v2/formatters"
+	chromalexers "github.com/alecthomas/chroma/v2/lexers"
+	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	runewidth "github.com/mattn/go-runewidth"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
+
+// chromaStyle and chromaFormatter back files-mode syntax highlighting.
+// catppuccin-mocha matches the existing diff palette (#A6E3A1 / #F38BA8 / etc.)
+// and terminal16m emits truecolor — falls back gracefully on terminals that
+// downgrade to 256-color via the user's terminfo.
+var (
+	chromaStyle     = chromastyles.Get("catppuccin-mocha")
+	chromaFormatter = chromaformatters.Get("terminal16m")
+
+	// Pre-computed open-sequences for the diff backgrounds, used to apply a
+	// uniform bg tint to a line that contains chroma's per-token ANSI
+	// resets. See applyDiffBg.
+	diffAddBgOpen    = bgOpenSeq(diffAddBg)
+	diffRemoveBgOpen = bgOpenSeq(diffRemoveBg)
+	diffChangeBgOpen = bgOpenSeq(diffChangeBg)
+)
+
+// bgOpenSeq returns just the ANSI open-sequence for a background color, with
+// no trailing reset. Used by applyDiffBg to re-establish the bg after each
+// inner reset emitted by chroma.
+func bgOpenSeq(c color.Color) string {
+	rendered := lipgloss.NewStyle().Background(c).Render("")
+	return strings.TrimSuffix(strings.TrimSuffix(rendered, "\x1b[0m"), "\x1b[m")
+}
+
+// applyDiffBg wraps content with a uniform background tint while preserving
+// any per-token foreground styling already embedded in content (e.g. chroma
+// syntax tokens or renderInlineDiff segments). The trick: every inner SGR
+// reset is followed by a re-emission of the bg-open sequence, so the bg
+// "sticks" across resets that would otherwise clear it.
+func applyDiffBg(content, bgOpen string) string {
+	if bgOpen == "" {
+		return content
+	}
+	s := strings.ReplaceAll(content, "\x1b[0m", "\x1b[0m"+bgOpen)
+	s = strings.ReplaceAll(s, "\x1b[m", "\x1b[m"+bgOpen)
+	return bgOpen + s + "\x1b[0m"
+}
 
 // diffLineKind describes how a source line relates to a diff.
 type diffLineKind int
@@ -56,6 +99,9 @@ type mainPane struct {
 	titleDynamic       bool                   // when true, View renders the right side from current hunk position
 	diffHunks          []diffHunk             // sorted by StartLine, used for sticky title position
 	noHunkRight        string                 // shown as the right side in dynamic-title mode when there are no hunks; defaults to "no changes"
+	filename           string                 // filename for chroma syntax highlighting; empty = no highlighting
+	lexer              chroma.Lexer           // cached lexer for filename
+	highlightedLines   []string               // per-source-line ANSI; nil when not highlighted (or content empty)
 }
 
 func newMainPane() *mainPane {
@@ -401,7 +447,44 @@ func (m *mainPane) SetContent(content string) {
 func (m *mainPane) SetPlainContent(content string) {
 	m.content = content
 	m.isDiff = false
+	m.recomputeHighlightedLines()
 	m.refreshViewport()
+}
+
+// SetFilename installs (or clears) the filename used to pick a chroma lexer for
+// files-mode syntax highlighting. Pass "" to disable highlighting.
+func (m *mainPane) SetFilename(name string) {
+	if m.filename == name {
+		return
+	}
+	m.filename = name
+	m.lexer = nil
+	if name != "" {
+		if lx := chromalexers.Match(name); lx != nil {
+			m.lexer = chroma.Coalesce(lx)
+		}
+	}
+	m.recomputeHighlightedLines()
+	m.refreshViewport()
+}
+
+// recomputeHighlightedLines re-runs chroma over m.content into per-line ANSI
+// strings. The result is cached and only invalidated when content or filename
+// changes.
+func (m *mainPane) recomputeHighlightedLines() {
+	m.highlightedLines = nil
+	if m.lexer == nil || chromaStyle == nil || chromaFormatter == nil || m.content == "" {
+		return
+	}
+	iter, err := m.lexer.Tokenise(nil, m.content)
+	if err != nil {
+		return
+	}
+	var b strings.Builder
+	if err := chromaFormatter.Format(&b, chromaStyle, iter); err != nil {
+		return
+	}
+	m.highlightedLines = strings.Split(b.String(), "\n")
 }
 
 // SetSearchQuery updates the search highlighting in the viewport.
@@ -503,6 +586,15 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 			prefix = fmt.Sprintf("%*d", numWidth, lineNo)
 		}
 
+		// highlighted holds the chroma-rendered version of the current source
+		// line (when a lexer is set). It's used as the body for added/
+		// changed/whole-file-removed cases so syntax tokens stay visible
+		// under the bg tint.
+		highlighted := line
+		if i < len(m.highlightedLines) {
+			highlighted = m.highlightedLines[i]
+		}
+
 		ann, hasAnn := m.diffAnnotations[lineNo]
 		if hasAnn && m.showRemoved && len(ann.removedLines) > 0 && ann.kind != diffLineChanged {
 			// Insert removed lines before this line (for non-changed lines only;
@@ -512,7 +604,7 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 				if m.lineNumbers {
 					gutterMark = strings.Repeat(" ", numWidth) + " - "
 				}
-				result = append(result, diffRemoveStyle.Render(gutterMark+removed))
+				result = append(result, diffRemoveLineStyle.Render(gutterMark+removed))
 			}
 		}
 
@@ -528,7 +620,7 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 					gutterMarkDel = strings.Repeat(" ", numWidth) + " - "
 				}
 				for _, extra := range ann.removedLines[:len(ann.removedLines)-1] {
-					result = append(result, diffRemoveStyle.Render(gutterMarkDel+extra))
+					result = append(result, diffRemoveLineStyle.Render(gutterMarkDel+extra))
 				}
 			}
 
@@ -539,55 +631,58 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 			}
 			diffSize := inlineDiffSize(oldLine, line)
 			if diffSize <= contentWidth/4 {
-				// Small diff: show inline with old (red) + new (green) on same line
-				rendered := renderInlineDiff(oldLine, line)
-				if m.lineNumbers {
-					result = append(result, prefix+gutter+rendered)
-				} else {
-					result = append(result, gutter+rendered)
+				// Small diff: inline old (red) + new (green) on same line.
+				gutterPart := diffChangeLineStyle.Render(prefix + gutter)
+				bodyPart := applyDiffBg(renderInlineDiff(oldLine, line), diffChangeBgOpen)
+				if !m.lineNumbers {
+					gutterPart = diffChangeLineStyle.Render(gutter)
 				}
+				result = append(result, gutterPart+bodyPart)
 			} else {
-				// Large diff: show deleted version (red) on top, new version (green) on bottom
+				// Large diff: deleted version (red bg) on top, new version
+				// (green bg, syntax-highlighted) on bottom.
 				gutterMarkDel := " ~ "
 				if m.lineNumbers {
 					gutterMarkDel = strings.Repeat(" ", numWidth) + " ~ "
 				}
-				result = append(result, diffRemoveStyle.Render(gutterMarkDel+oldLine))
-				if m.lineNumbers {
-					result = append(result, diffAddStyle.Render(prefix+gutter+line))
-				} else {
-					result = append(result, diffAddStyle.Render(gutter+line))
+				result = append(result, diffRemoveLineStyle.Render(gutterMarkDel+oldLine))
+				addGutter := diffAddLineStyle.Render(prefix + gutter)
+				if !m.lineNumbers {
+					addGutter = diffAddLineStyle.Render(gutter)
 				}
+				result = append(result, addGutter+applyDiffBg(highlighted, diffAddBgOpen))
 			}
 		} else if hasAnn && ann.kind == diffLineRemoved {
 			// Completely deleted file — mark every line with "-"
 			gutter := " - "
-			if m.lineNumbers {
-				result = append(result, diffRemoveStyle.Render(prefix+gutter+line))
-			} else {
-				result = append(result, diffRemoveStyle.Render(gutter+line))
+			gutterPart := diffRemoveLineStyle.Render(prefix + gutter)
+			if !m.lineNumbers {
+				gutterPart = diffRemoveLineStyle.Render(gutter)
 			}
+			result = append(result, gutterPart+applyDiffBg(highlighted, diffRemoveBgOpen))
 		} else if hasAnn && (ann.kind == diffLineAdded || ann.kind == diffLineChanged) {
-			var gutter string
-			var style lipgloss.Style
+			var gutter, bgOpen string
+			var lineStyle lipgloss.Style
 			if ann.kind == diffLineChanged {
 				gutter = " ~ "
-				style = diffChangeStyle
+				lineStyle = diffChangeLineStyle
+				bgOpen = diffChangeBgOpen
 			} else {
 				gutter = " + "
-				style = diffAddStyle
+				lineStyle = diffAddLineStyle
+				bgOpen = diffAddBgOpen
 			}
-			if m.lineNumbers {
-				result = append(result, style.Render(prefix+gutter+line))
-			} else {
-				result = append(result, style.Render(gutter+line))
+			gutterPart := lineStyle.Render(prefix + gutter)
+			if !m.lineNumbers {
+				gutterPart = lineStyle.Render(gutter)
 			}
+			result = append(result, gutterPart+applyDiffBg(highlighted, bgOpen))
 		} else {
 			gutter := "   "
 			if m.lineNumbers {
-				result = append(result, prefix+gutter+line)
+				result = append(result, prefix+gutter+highlighted)
 			} else {
-				result = append(result, gutter+line)
+				result = append(result, gutter+highlighted)
 			}
 		}
 	}

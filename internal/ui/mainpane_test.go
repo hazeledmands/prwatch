@@ -29,6 +29,57 @@ func TestMainPane_SetPlainContent(t *testing.T) {
 	}
 }
 
+// TestSyntaxHighlight_AppliesToContextAndDiffLines verifies that when a
+// filename is set, both unchanged context lines AND diff lines (e.g. added
+// lines) receive chroma syntax highlighting. Diff lines are additionally
+// distinguished from context lines by a tinted background — applied via the
+// "re-establish bg after each inner reset" technique so chroma's per-token
+// foreground colors stay visible.
+func TestSyntaxHighlight_AppliesToContextAndDiffLines(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 24)
+	mp.lineNumbers = false
+	mp.showRemoved = false
+
+	// Two lines: line 1 unchanged context, line 2 added.
+	mp.SetFilename("foo.go")
+	mp.diffAnnotations = map[int]diffAnnotation{
+		2: {kind: diffLineAdded},
+	}
+	mp.SetPlainContent("func ctx() {}\nfunc added() {}")
+
+	rendered := mp.viewport.View()
+	lines := strings.Split(rendered, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected 2 rendered lines, got %d", len(lines))
+	}
+
+	// Both lines should have multiple chroma per-token foreground codes
+	// (the Go lexer styles "func" as a keyword distinct from identifiers).
+	for idx, label := range []string{"context", "added"} {
+		ln := lines[idx]
+		fgEscapes := strings.Count(ln, "\x1b[38;2;")
+		if fgEscapes < 2 {
+			t.Errorf("%s line should have multiple chroma color tokens; got %d in %q", label, fgEscapes, ln)
+		}
+		if !strings.Contains(stripANSI(ln), "func") {
+			t.Errorf("%s line missing literal 'func' after stripANSI: %q", label, stripANSI(ln))
+		}
+	}
+
+	// The added line should additionally carry a bg-tint open code. It
+	// should appear at the start (line-level tint) AND repeat after each
+	// chroma reset to survive into the next token.
+	addedLine := lines[1]
+	bgOpens := strings.Count(addedLine, diffAddBgOpen)
+	if bgOpens < 2 {
+		t.Errorf("added line should re-establish bg tint after every chroma reset; got %d open seqs in %q", bgOpens, addedLine)
+	}
+	if strings.Count(lines[0], diffAddBgOpen) > 0 {
+		t.Errorf("context line should not carry the added bg tint; got %q", lines[0])
+	}
+}
+
 func TestMainPane_ScrollTop(t *testing.T) {
 	mp := newMainPane()
 	mp.SetSize(80, 5)

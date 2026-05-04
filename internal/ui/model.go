@@ -2783,6 +2783,7 @@ func (m *Model) updateMainContent() {
 		if m.mode == FilesMode {
 			file := m.sidebar.SelectedItem()
 			if file == "" {
+				m.mainPane.SetFilename("")
 				m.mainPane.SetPlainContent("")
 				return
 			}
@@ -2791,13 +2792,16 @@ func (m *Model) updateMainContent() {
 			}
 			content, err := os.ReadFile(filepath.Join(m.dir, file))
 			if err != nil {
+				m.mainPane.SetFilename("")
 				m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
 				return
 			}
 			if isBinaryContent(string(content)) {
+				m.mainPane.SetFilename("")
 				m.mainPane.SetPlainContent("[binary content]")
 				return
 			}
+			m.mainPane.SetFilename(file)
 			m.mainPane.SetPlainContent(string(content))
 		}
 		return
@@ -2810,6 +2814,7 @@ func (m *Model) updateMainContent() {
 	case FilesMode:
 		file := m.sidebar.SelectedItem()
 		if file == "" {
+			m.mainPane.SetFilename("")
 			m.mainPane.SetPlainContent("")
 			m.mainPane.ClearDiffAnnotations()
 			m.mainPane.ClearDiffHunks()
@@ -2821,6 +2826,7 @@ func (m *Model) updateMainContent() {
 		}
 		content, err := m.git.FileContent(file)
 		if err != nil {
+			m.mainPane.SetFilename("")
 			m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
 			m.mainPane.ClearDiffAnnotations()
 			m.mainPane.ClearDiffHunks()
@@ -2828,6 +2834,7 @@ func (m *Model) updateMainContent() {
 			return
 		}
 		if isBinaryContent(content) {
+			m.mainPane.SetFilename("")
 			m.mainPane.SetPlainContent("[binary content]")
 			m.mainPane.ClearDiffAnnotations()
 			m.mainPane.ClearDiffHunks()
@@ -2860,6 +2867,7 @@ func (m *Model) updateMainContent() {
 			m.mainPane.ClearDiffHunks()
 			m.mainPane.SetNoHunkRight(m.fileContextRight(file, false))
 		}
+		m.mainPane.SetFilename(file)
 		m.mainPane.SetPlainContent(content)
 		// Auto-jump to first diff only when the file changes
 		if file != m.lastViewedFile {

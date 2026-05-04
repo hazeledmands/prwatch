@@ -61,12 +61,25 @@ var (
 					Background(lipgloss.Color("#2A2A2A")).
 					Foreground(lipgloss.Color("#F38BA8"))
 
-	// Diff coloring
+	// Diff coloring (foreground only — used for inline ~ segments and the
+	// gutter mark; layered with chroma syntax highlighting on the body).
 	diffAddStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
 	diffRemoveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
 	diffChangeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")) // yellow for changed
 	diffHunkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#89DCEB"))
 	diffHeaderStyle = lipgloss.NewStyle().Bold(true)
+
+	// Files-mode diff backgrounds. Subtle tints that read as "added/removed/
+	// changed line" while leaving chroma's per-token foreground colors
+	// visible. Combined fg+bg variants are used for the gutter mark and for
+	// flat (un-highlighted) rows like pre-context removed lines.
+	diffAddBg    = lipgloss.Color("#1F2D24")
+	diffRemoveBg = lipgloss.Color("#3A1F26")
+	diffChangeBg = lipgloss.Color("#33301F")
+
+	diffAddLineStyle    = diffAddStyle.Background(diffAddBg)
+	diffRemoveLineStyle = diffRemoveStyle.Background(diffRemoveBg)
+	diffChangeLineStyle = diffChangeStyle.Background(diffChangeBg)
 
 	// Status bar confirm
 	statusBarConfirmStyle = lipgloss.NewStyle().
