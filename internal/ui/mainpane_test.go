@@ -542,6 +542,41 @@ func TestRenderInlineDiff_SmallChange(t *testing.T) {
 	}
 }
 
+// TestParseDiffAnnotations_MultiLineBlockNotPaired guards against the bug
+// where a multi-line block rewrite (N removed, M added in the same hunk)
+// would mark the first added line as "changed" and pair it with the last
+// removed line for an inline-diff. That produces a confusing hybrid: a `~`
+// gutter on a body that's fully one color, with no real 1-to-1
+// correspondence. With more than one pending removed, lines should annotate
+// as plain additions; the deletions render above as `-` rows.
+func TestParseDiffAnnotations_MultiLineBlockNotPaired(t *testing.T) {
+	diff := `@@ -1,5 +1,5 @@
+ unchanged
+-old line 1
+-old line 2
+-old line 3
++new line 1
++new line 2
++new line 3
+ unchanged
+`
+	annotations := parseDiffAnnotations(diff)
+	for _, lineNo := range []int{2, 3, 4} {
+		ann, ok := annotations[lineNo]
+		if !ok {
+			t.Fatalf("expected annotation for line %d", lineNo)
+		}
+		if ann.kind != diffLineAdded {
+			t.Errorf("line %d should be plain added (got kind=%v) — multi-line block changes must not be paired as ~", lineNo, ann.kind)
+		}
+	}
+	// All three pending deletions should hang off the first added line so
+	// the file view emits them as `-` rows above.
+	if got := len(annotations[2].removedLines); got != 3 {
+		t.Errorf("first added line should carry all 3 removed siblings; got %d", got)
+	}
+}
+
 // TestRenderInlineDiff_MultiSegment exercises the case where two changes are
 // separated by retained text. A naive prefix/suffix differ would collapse the
 // middle into one big delete+insert block; the diffmatchpatch-backed renderer

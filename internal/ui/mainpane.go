@@ -286,12 +286,23 @@ func parseDiffAnnotations(unifiedDiff string) map[int]diffAnnotation {
 		}
 		if strings.HasPrefix(line, "+") {
 			ann := annotations[newLineNo]
-			if len(pendingRemoved) > 0 {
-				// Removed lines followed by added = changed line
+			switch {
+			case len(pendingRemoved) == 1:
+				// One-for-one swap → mark as changed and drive the
+				// inline/split renderer.
 				ann.kind = diffLineChanged
 				ann.removedLines = append(ann.removedLines, pendingRemoved...)
 				pendingRemoved = nil
-			} else {
+			case len(pendingRemoved) > 1:
+				// Multi-line block change. The 1-to-1 inline-diff pairing
+				// breaks down here: the user expects N red lines followed
+				// by M green lines, not a confused mix. Attach the
+				// pendingRemoved as removedLines so the file view shows
+				// them as `-` rows above; mark this line plainly added.
+				ann.kind = diffLineAdded
+				ann.removedLines = append(ann.removedLines, pendingRemoved...)
+				pendingRemoved = nil
+			default:
 				ann.kind = diffLineAdded
 			}
 			annotations[newLineNo] = ann
