@@ -1,7 +1,7 @@
   files commits help · myapp                                                                        
   feature/add-auth → main · 1 uncommitted · 2 commits · 3 changed files · No PR                     
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
-│New Changes (1)               ││README.md                                                 hunk 1/1│
+│New Changes (1)               ││README.md                                          hunk 1/1 · 100%│
 │  README.md                [+]││1   # My App                                                      │
 │──────────────────────────────││2 + Authentication docs                                           │
 │Committed (2)                 ││3                                                                 │

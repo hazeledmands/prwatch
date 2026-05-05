@@ -423,6 +423,32 @@ func (m *mainPane) hunkTitleRight() string {
 	}
 }
 
+// progressPercent returns the user's vertical position in the file as an
+// integer percent in [0, 100], based on the bottom-most visible source line.
+// Empty content, or content that fits entirely in the viewport, both report
+// 100% (nothing left to scroll past). The trailing newline at end-of-file is
+// not counted as a separate logical line.
+func (m *mainPane) progressPercent() int {
+	if m.content == "" {
+		return 100
+	}
+	total := strings.Count(m.content, "\n")
+	if !strings.HasSuffix(m.content, "\n") {
+		total++
+	}
+	if total <= 0 {
+		return 100
+	}
+	bottom := m.ViewportBottomSourceLine()
+	if bottom >= total {
+		return 100
+	}
+	if bottom < 0 {
+		bottom = 0
+	}
+	return (bottom * 100) / total
+}
+
 // visibleHunkRange returns the inclusive [first, last] indices of hunks that
 // intersect the visible source-line range [topLine, bottomLine]. Returns
 // (-1, -1) when no hunks intersect.
@@ -791,7 +817,7 @@ func (m *mainPane) View(focused bool) string {
 	if m.height >= 1 {
 		right := m.titleRight
 		if m.titleDynamic {
-			right = m.hunkTitleRight()
+			right = fmt.Sprintf("%s · %d%%", m.hunkTitleRight(), m.progressPercent())
 		}
 		title := mainPaneTitleStyle.Render(renderTitleRow(m.titleLeft, right, m.width))
 		body = lipgloss.JoinVertical(lipgloss.Left, title, body)

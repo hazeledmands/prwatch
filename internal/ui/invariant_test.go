@@ -2237,3 +2237,71 @@ func TestProperty_ToggleIgnoredSymmetry(t *testing.T) {
 		}
 	})
 }
+
+// genProgressMainPane builds a mainPane with a randomly sized content body
+// (no trailing newline) and a random pane size for property testing.
+func genProgressMainPane(t *rapid.T) *mainPane {
+	sourceLines := rapid.IntRange(1, 200).Draw(t, "sourceLines")
+	width := rapid.IntRange(40, 200).Draw(t, "paneWidth")
+	height := rapid.IntRange(3, 60).Draw(t, "paneHeight")
+
+	mp := newMainPane()
+	mp.SetSize(width, height)
+	content := strings.Repeat("line\n", sourceLines-1) + "line"
+	mp.SetPlainContent(content)
+	return mp
+}
+
+// TestProperty_ProgressPercent_Bounds asserts that progressPercent is always
+// in [0, 100] for any valid scroll offset.
+func TestProperty_ProgressPercent_Bounds(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		mp := genProgressMainPane(t)
+		// Try a random scroll offset within the viewport's allowed range.
+		// The viewport clamps internally, so feeding any non-negative int is fine.
+		off := rapid.IntRange(0, 500).Draw(t, "yOffset")
+		mp.viewport.SetYOffset(off)
+
+		got := mp.progressPercent()
+		if got < 0 || got > 100 {
+			t.Fatalf("progressPercent out of [0,100]: got %d (yOffset=%d)", got, off)
+		}
+	})
+}
+
+// TestProperty_ProgressPercent_Monotonic asserts that for any two scroll
+// offsets A ≤ B, progressPercent(A) ≤ progressPercent(B). Scrolling down
+// must never decrease the value.
+func TestProperty_ProgressPercent_Monotonic(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		mp := genProgressMainPane(t)
+
+		offA := rapid.IntRange(0, 500).Draw(t, "offA")
+		offB := rapid.IntRange(0, 500).Draw(t, "offB")
+		if offA > offB {
+			offA, offB = offB, offA
+		}
+
+		mp.viewport.SetYOffset(offA)
+		pctA := mp.progressPercent()
+		mp.viewport.SetYOffset(offB)
+		pctB := mp.progressPercent()
+
+		if pctA > pctB {
+			t.Fatalf("progressPercent decreased while scrolling down: offA=%d pctA=%d → offB=%d pctB=%d",
+				offA, pctA, offB, pctB)
+		}
+	})
+}
+
+// TestProperty_ProgressPercent_BottomIs100 asserts that GotoBottom() always
+// produces 100% for any non-empty content.
+func TestProperty_ProgressPercent_BottomIs100(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		mp := genProgressMainPane(t)
+		mp.viewport.GotoBottom()
+		if got := mp.progressPercent(); got != 100 {
+			t.Fatalf("at bottom, expected 100, got %d", got)
+		}
+	})
+}

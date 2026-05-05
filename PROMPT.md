@@ -128,6 +128,7 @@ title bar: file path on the left. on the right:
   - `untracked · <relative-time>` for untracked files (working-tree mtime)
   - binary files prefix the result: `binary · <sha7> · <relative-time>` or `binary · untracked · <relative-time>`
   - falls back to `no changes` if nothing is available
+- the right side is followed by ` · N%`, the user's progress through the file based on the bottom-most visible source line. 100% means the last line is in view; empty content or content that fits entirely in the viewport both report 100%.
 
 change-type indicators: in the new changes, staged, and committed sections, each changed file should display a right-aligned badge indicating the nature of the change:
   - `[-]` in red for files that are entirely deletions (file was removed or diff is all removals)

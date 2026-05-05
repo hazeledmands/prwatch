@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -606,6 +607,102 @@ func TestHunkTitleRight_InsideHunkNoContext(t *testing.T) {
 	got := mp.hunkTitleRight()
 	if got != "hunk 1/1" {
 		t.Errorf("inside no-context: got %q", got)
+	}
+}
+
+// === Files mode: progress percent ===
+
+// progressHarness builds a mainPane with N source lines (no trailing newline,
+// so total source lines == N exactly). Viewport height is height-1.
+func progressHarness(sourceLines, paneHeight int) *mainPane {
+	mp := newMainPane()
+	mp.SetSize(80, paneHeight)
+	if sourceLines <= 0 {
+		mp.SetPlainContent("")
+		return mp
+	}
+	content := strings.Repeat("line\n", sourceLines-1) + "line"
+	mp.SetPlainContent(content)
+	return mp
+}
+
+func TestProgressPercent_AtTop_SmallFraction(t *testing.T) {
+	// 50 source lines, viewport height = 5 → bottom = line 5 → 10%.
+	mp := progressHarness(50, 6)
+	mp.viewport.SetYOffset(0)
+	if got := mp.progressPercent(); got != 10 {
+		t.Errorf("expected 10, got %d", got)
+	}
+}
+
+func TestProgressPercent_AtBottom_Is100(t *testing.T) {
+	mp := progressHarness(50, 6)
+	mp.viewport.GotoBottom()
+	if got := mp.progressPercent(); got != 100 {
+		t.Errorf("expected 100, got %d", got)
+	}
+}
+
+func TestProgressPercent_ContentFitsInViewport(t *testing.T) {
+	// 3 source lines in a 10-line viewport → bottom is past EOF → 100%.
+	mp := progressHarness(3, 11)
+	if got := mp.progressPercent(); got != 100 {
+		t.Errorf("expected 100, got %d", got)
+	}
+}
+
+func TestProgressPercent_EmptyContent(t *testing.T) {
+	mp := progressHarness(0, 6)
+	if got := mp.progressPercent(); got != 100 {
+		t.Errorf("expected 100, got %d", got)
+	}
+}
+
+// Dynamic title in View() output should include the progress suffix alongside
+// the hunk position, separated by " · ".
+func TestMainPane_DynamicTitle_IncludesProgressSuffix(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 6)                                // viewport height = 5
+	content := strings.Repeat("line\n", 79) + "line" // 80 source lines
+	mp.SetPlainContent(content)
+	mp.SetDiffHunks([]diffHunk{
+		{StartLine: 30, EndLine: 32, Context: "func a"},
+	})
+	mp.SetTitleWithHunks("file.go")
+
+	suffixRE := regexp.MustCompile(` · \d+%`)
+
+	mp.viewport.SetYOffset(0)
+	out := stripANSI(mp.View(false))
+	titleRow := strings.Split(out, "\n")[1]
+	if !strings.Contains(titleRow, "before hunk 1") {
+		t.Errorf("title row missing hunk text: %q", titleRow)
+	}
+	if !suffixRE.MatchString(titleRow) {
+		t.Errorf("title row missing progress suffix: %q", titleRow)
+	}
+
+	mp.viewport.GotoBottom()
+	out = stripANSI(mp.View(false))
+	titleRow = strings.Split(out, "\n")[1]
+	if !strings.Contains(titleRow, "100%") {
+		t.Errorf("at bottom, title row should contain 100%%: %q", titleRow)
+	}
+}
+
+// Static-title mode (SetTitle, not SetTitleWithHunks) should NOT have the
+// progress suffix appended — that's reserved for dynamic mode.
+func TestMainPane_StaticTitle_NoProgressSuffix(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 6)
+	content := strings.Repeat("line\n", 79) + "line"
+	mp.SetPlainContent(content)
+	mp.SetTitle("file.go", "@hazel · 5m ago")
+
+	out := stripANSI(mp.View(false))
+	titleRow := strings.Split(out, "\n")[1]
+	if regexp.MustCompile(`\d+%`).MatchString(titleRow) {
+		t.Errorf("static-title row should not include progress percent: %q", titleRow)
 	}
 }
 
