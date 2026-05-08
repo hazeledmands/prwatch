@@ -281,7 +281,7 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 | `confirm` | `enter` | sidebar (on a dir): expand/collapse. sidebar (on a file): switch focus to main pane. main pane (files mode): open `$EDITOR` at the line currently at the top of the viewport. main pane (pr mode): open a browser to the URL of the selected item. main pane (commits mode): no-op for now. active search input: confirm (empty text cancels). |
 | `next-leaf` | `shift+n` | jump to next leaf node in the sidebar, regardless of focus |
 | `prev-leaf` | `shift+p` | jump to previous leaf node in the sidebar, regardless of focus |
-| `yank-path` | `y` | sidebar focused: copy the selected file's relative path to the system clipboard. main pane focused (files mode): copy `path/to/file.go:N-M` where N-M is the line range currently in view. |
+| `yank-path` | `y` | sidebar focused: copy the selected file's relative path to the system clipboard. main pane focused (files mode): copy `path/to/file.go:N-M` where N-M is the line range currently in view. shows a transient toast in the bottom-left confirming what was copied. |
 
 ### files-mode toggles
 | command | default key(s) | action |
@@ -327,6 +327,7 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
   - the highlight should only cover the relevant content that will be copied — not TUI glyphs, border characters, or gutter content.
   - copied text should be the same as the text from the file (or diff) that is being copied - it should not carry over extra newlines when the text in the UI wraps
   - copied text should not include TUI glyphs, gutter characters, or ANSI codes.
+  - on release, a transient toast appears in the bottom-left in the form `copied selection (N lines, M bytes)` (same toast style as `yank-path`).
 
 ---
 

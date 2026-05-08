@@ -1231,7 +1231,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dragging = false
 			m.dragEndX = msg.X
 			m.dragEndY = msg.Y
-			m.copySelection()
+			return m, m.copySelection()
 		}
 		return m, nil
 	}
@@ -3687,12 +3687,26 @@ func (m *Model) yankPath() tea.Cmd {
 	})
 }
 
-func (m *Model) copySelection() {
+func (m *Model) copySelection() tea.Cmd {
 	text := m.selectedText()
 	if text == "" {
-		return
+		return nil
 	}
 	m.copyToClipboard(text)
+	lines := strings.Count(text, "\n") + 1
+	lineWord := "lines"
+	if lines == 1 {
+		lineWord = "line"
+	}
+	bytes := len(text)
+	byteWord := "bytes"
+	if bytes == 1 {
+		byteWord = "byte"
+	}
+	m.notification = fmt.Sprintf("copied selection (%d %s, %d %s)", lines, lineWord, bytes, byteWord)
+	return tea.Tick(4*time.Second, func(time.Time) tea.Msg {
+		return notificationExpiredMsg{}
+	})
 }
 
 // copyToClipboard copies the given text to the system clipboard.

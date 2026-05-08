@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -23,6 +24,8 @@ func init() {
 	// Tests that need real git commands still get them via DefaultFactory delegation.
 	defaultCmdFactory = noGHFactory
 }
+
+var copySelectionNotificationRE = regexp.MustCompile(`^copied selection \(\d+ lines?, \d+ bytes?\)$`)
 
 // noGHFactory is a Factory that stubs out blocked external commands so UI tests
 // never hit the real GitHub API or system clipboard.
@@ -6715,7 +6718,13 @@ func TestCopySelection_NoDrag(t *testing.T) {
 	m.dragStartY = 5
 	m.dragEndX = 5
 	m.dragEndY = 5
-	m.copySelection() // same point = no drag, should return early
+	cmd := m.copySelection() // same point = no drag, should return early
+	if cmd != nil {
+		t.Error("no-drag copySelection should return nil cmd")
+	}
+	if m.notification != "" {
+		t.Errorf("no-drag copySelection should not set notification, got %q", m.notification)
+	}
 }
 
 func TestCopySelection_WithContent(t *testing.T) {
@@ -6741,7 +6750,13 @@ func TestCopySelection_WithContent(t *testing.T) {
 	m.dragStartY = 5
 	m.dragEndX = 50
 	m.dragEndY = 7
-	m.copySelection() // exercises coordinate conversion, line extraction
+	cmd := m.copySelection() // exercises coordinate conversion, line extraction
+	if cmd == nil {
+		t.Fatal("copySelection with content should return a notification timer cmd")
+	}
+	if !copySelectionNotificationRE.MatchString(m.notification) {
+		t.Errorf("notification should match 'copied selection (N line[s], M byte[s])', got %q", m.notification)
+	}
 }
 
 func TestCopySelection_ReversedCoordinates(t *testing.T) {
@@ -6820,6 +6835,40 @@ func TestCopySelection_HiddenSidebar(t *testing.T) {
 	m.dragEndX = 40
 	m.dragEndY = 7
 	m.copySelection() // exercises sidebarHidden=true path
+}
+
+func TestMouseDragRelease_ShowsCopiedNotification(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "alpha beta gamma\ndelta epsilon zeta\neta theta iota",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Click in main pane to start drag, drag across content, then release.
+	result, _ := m.Update(tea.MouseClickMsg{X: 30, Y: 5, Button: tea.MouseLeft})
+	m = result.(*Model)
+	result, _ = m.Update(tea.MouseMotionMsg{X: 50, Y: 7})
+	m = result.(*Model)
+	result, cmd := m.Update(tea.MouseReleaseMsg{X: 50, Y: 7})
+	m = result.(*Model)
+
+	if cmd == nil {
+		t.Fatal("mouse-release after drag should return a notification timer cmd")
+	}
+	if !copySelectionNotificationRE.MatchString(m.notification) {
+		t.Errorf("mouse-release notification should match 'copied selection (N line[s], M byte[s])', got %q", m.notification)
+	}
 }
 
 func TestRenderPRDescription_ClosedState(t *testing.T) {
