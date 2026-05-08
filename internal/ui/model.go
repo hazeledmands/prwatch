@@ -472,6 +472,38 @@ func pluralize(n int, word string) string {
 	return fmt.Sprintf("%d %ss", n, word)
 }
 
+// fileDiffPrefix produces the string prepended to the hunk-position right
+// side for a file with a diff:
+//   - Uncommitted: "uncommitted · <relative-time>" (working-tree mtime), or
+//     just "uncommitted" when the mtime is unavailable.
+//   - Committed: "<sha7> · <relative-time>" (most recent commit touching the
+//     file).
+//
+// Returns "" when neither path applies or no information is available.
+func (m *Model) fileDiffPrefix(file string) string {
+	if m.isUncommittedFile(file) {
+		if m.dir != "" {
+			if info, err := os.Stat(filepath.Join(m.dir, file)); err == nil {
+				return "uncommitted · " + relativeTime(info.ModTime())
+			}
+		}
+		return "uncommitted"
+	}
+	if m.isCommittedFile(file) {
+		if m.git == nil {
+			return ""
+		}
+		if c, err := m.git.LastCommitForFile(file); err == nil && c.SHA != "" {
+			short := c.SHA
+			if len(short) > 7 {
+				short = short[:7]
+			}
+			return short + " · " + relativeTime(c.AuthorDate)
+		}
+	}
+	return ""
+}
+
 // fileContextRight produces the right-hand title text for a file with no
 // active diff. The components are joined with " · " in this order:
 //
@@ -2096,42 +2128,38 @@ func parseHunkNewStart(hunkLine string) int {
 	return n
 }
 
-// parseHunkHeader parses an @@ -X,Y +A,B @@ <context> line. Returns the
-// new-file start line, new-file line count, and the context text after the
-// closing @@. Returns zeros and "" if the line is malformed.
-func parseHunkHeader(line string) (start, count int, context string) {
+// parseHunkHeader parses an @@ -X,Y +A,B @@ line. Returns the new-file start
+// line and new-file line count. Returns zeros if the line is malformed.
+func parseHunkHeader(line string) (start, count int) {
 	if !strings.HasPrefix(line, "@@") {
-		return 0, 0, ""
+		return 0, 0
 	}
 	closeIdx := strings.Index(line[2:], "@@")
 	if closeIdx < 0 {
-		return 0, 0, ""
+		return 0, 0
 	}
 	inner := line[2 : 2+closeIdx]
-	after := line[2+closeIdx+2:]
 	plusIdx := strings.Index(inner, "+")
 	if plusIdx < 0 {
-		return 0, 0, ""
+		return 0, 0
 	}
 	numPart := strings.TrimSpace(inner[plusIdx+1:])
 	if commaIdx := strings.Index(numPart, ","); commaIdx >= 0 {
 		s, err := strconv.Atoi(numPart[:commaIdx])
 		if err != nil {
-			return 0, 0, ""
+			return 0, 0
 		}
 		c, err := strconv.Atoi(numPart[commaIdx+1:])
 		if err != nil {
-			return 0, 0, ""
+			return 0, 0
 		}
-		start, count = s, c
-	} else {
-		s, err := strconv.Atoi(numPart)
-		if err != nil {
-			return 0, 0, ""
-		}
-		start, count = s, 1
+		return s, c
 	}
-	return start, count, strings.TrimSpace(after)
+	s, err := strconv.Atoi(numPart)
+	if err != nil {
+		return 0, 0
+	}
+	return s, 1
 }
 
 // isBinaryContent checks if content appears to be binary by looking for null bytes
@@ -2839,6 +2867,7 @@ func (m *Model) updateMainContent() {
 			m.mainPane.ClearDiffAnnotations()
 			m.mainPane.ClearDiffHunks()
 			m.mainPane.SetNoHunkRight(m.fileContextRight(file, true))
+			m.mainPane.SetDiffPrefix("")
 			m.mainPane.SetTitleWithHunks(file)
 			return
 		}
@@ -2862,10 +2891,12 @@ func (m *Model) updateMainContent() {
 			m.mainPane.SetDiffAnnotations(annotations)
 			m.mainPane.SetDiffHunks(parseDiffHunks(diff))
 			m.mainPane.SetNoHunkRight("")
+			m.mainPane.SetDiffPrefix(m.fileDiffPrefix(file))
 		} else {
 			m.mainPane.ClearDiffAnnotations()
 			m.mainPane.ClearDiffHunks()
 			m.mainPane.SetNoHunkRight(m.fileContextRight(file, false))
+			m.mainPane.SetDiffPrefix("")
 		}
 		m.mainPane.SetFilename(file)
 		m.mainPane.SetPlainContent(content)

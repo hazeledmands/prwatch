@@ -120,13 +120,16 @@ the main pane should be the currently-selected file, and it should highlight the
 
 title bar: file path on the left. on the right:
 - when the file has a diff, derived from the visible viewport range against the file's hunk list:
-  - single hunk visible: `hunk N/M · funcCtx()` (function context from the `@@` header, omitted when empty)
-  - multiple hunks visible: `viewing hunks N through M · funcCtx()` (context from the topmost visible hunk)
+  - single hunk visible: `hunk N/M`
+  - multiple hunks visible: `viewing hunks N through M`
   - no hunks visible: `between hunks (N–N+1)` / `before hunk 1` / `after hunk M`
+  - the hunk-position string above is preceded by the file's most-recently-changed metadata (joined with ` · `):
+    - uncommitted changes: `uncommitted · <relative-time>` (working-tree mtime); falls back to just `uncommitted` when the mtime is unavailable
+    - committed changes: `<sha7> · <relative-time>` (most recent commit touching the file)
 - when the file has no diff:
   - `<sha7> · <relative-time>` for tracked files (most recent commit touching the file)
   - `untracked · <relative-time>` for untracked files (working-tree mtime)
-  - binary files prefix the result: `binary · <sha7> · <relative-time>` or `binary · untracked · <relative-time>`
+  - binary files prefix the result: `binary · <sha7> · <relative-time>` or `binary · untracked · <relative-time>`. binary files always render via this no-diff format regardless of whether they have a diff, since their content can't be hunk-displayed.
   - falls back to `no changes` if nothing is available
 - the right side is followed by ` · N%`, the user's progress through the file based on the bottom-most visible source line. 100% means the last line is in view; empty content or content that fits entirely in the viewport both report 100%.
 

@@ -73,9 +73,8 @@ type diffAnnotation struct {
 // diffHunk describes a single @@ chunk in a unified diff, mapped to the new
 // file's line range. Hunks are 1-indexed and the range is inclusive.
 type diffHunk struct {
-	StartLine int    // first new-file line covered by the hunk
-	EndLine   int    // last new-file line covered by the hunk
-	Context   string // optional function context from the @@ header
+	StartLine int // first new-file line covered by the hunk
+	EndLine   int // last new-file line covered by the hunk
 }
 
 type mainPane struct {
@@ -99,6 +98,7 @@ type mainPane struct {
 	titleDynamic       bool                   // when true, View renders the right side from current hunk position
 	diffHunks          []diffHunk             // sorted by StartLine, used for sticky title position
 	noHunkRight        string                 // shown as the right side in dynamic-title mode when there are no hunks; defaults to "no changes"
+	diffPrefix         string                 // prepended to the dynamic right side (with " · " separator) when len(diffHunks) > 0
 	filename           string                 // filename for chroma syntax highlighting; empty = no highlighting
 	lexer              chroma.Lexer           // cached lexer for filename
 	highlightedLines   []string               // per-source-line ANSI; nil when not highlighted (or content empty)
@@ -134,11 +134,10 @@ func (m *mainPane) ClearDiffHunks() {
 
 // hunkPosition describes where a source line sits relative to the diff hunks.
 type hunkPosition struct {
-	total     int    // len(hunks); 0 means "no hunks"
-	insideIdx int    // 0-based hunk index when inside a hunk, else -1
-	beforeIdx int    // 0-based index of the next hunk when between/before, else -1
-	afterIdx  int    // 0-based index of the previous hunk when between/after, else -1
-	context   string // function context for the inside hunk, else ""
+	total     int // len(hunks); 0 means "no hunks"
+	insideIdx int // 0-based hunk index when inside a hunk, else -1
+	beforeIdx int // 0-based index of the next hunk when between/before, else -1
+	afterIdx  int // 0-based index of the previous hunk when between/after, else -1
 }
 
 // hunkPositionForLine classifies sourceLine relative to the hunk list:
@@ -155,7 +154,6 @@ func hunkPositionForLine(hunks []diffHunk, sourceLine int) hunkPosition {
 	for i, h := range hunks {
 		if sourceLine >= h.StartLine && sourceLine <= h.EndLine {
 			pos.insideIdx = i
-			pos.context = h.Context
 			return pos
 		}
 		if sourceLine < h.StartLine {
@@ -170,8 +168,8 @@ func hunkPositionForLine(hunks []diffHunk, sourceLine int) hunkPosition {
 	return pos
 }
 
-// parseDiffHunks extracts hunks (with optional function context) from a unified
-// diff. Empty hunks (count == 0, e.g. pure deletions) are dropped.
+// parseDiffHunks extracts hunks from a unified diff. Empty hunks (count == 0,
+// e.g. pure deletions) are dropped.
 func parseDiffHunks(unifiedDiff string) []diffHunk {
 	if unifiedDiff == "" {
 		return nil
@@ -181,14 +179,13 @@ func parseDiffHunks(unifiedDiff string) []diffHunk {
 		if !strings.HasPrefix(line, "@@") {
 			continue
 		}
-		start, count, context := parseHunkHeader(line)
+		start, count := parseHunkHeader(line)
 		if start <= 0 || count <= 0 {
 			continue
 		}
 		hunks = append(hunks, diffHunk{
 			StartLine: start,
 			EndLine:   start + count - 1,
-			Context:   context,
 		})
 	}
 	return hunks
@@ -369,6 +366,14 @@ func (m *mainPane) SetNoHunkRight(right string) {
 	m.noHunkRight = right
 }
 
+// SetDiffPrefix sets a string that is prepended (with " · " separator) to the
+// dynamic right side when the file has hunks. Used in files mode to surface
+// the file's most-recently-changed metadata next to the hunk position.
+// Pass "" to clear.
+func (m *mainPane) SetDiffPrefix(prefix string) {
+	m.diffPrefix = prefix
+}
+
 // hunkTitleRight formats the right side of the title bar for files mode based
 // on the hunks intersecting the visible viewport range.
 //
@@ -377,10 +382,9 @@ func (m *mainPane) SetNoHunkRight(right string) {
 //     "before hunk 1" / "between hunks (N–N+1)" / "after hunk M"
 //     (classified from the top visible source line)
 //   - 1 hunk visible:
-//     "hunk N/M · funcCtx()" (context omitted when empty)
+//     "hunk N/M"
 //   - 2+ hunks visible:
-//     "viewing hunks N through M · funcCtx()" where funcCtx is the topmost
-//     visible hunk's context (omitted when empty)
+//     "viewing hunks N through M"
 //   - no hunks at all in the file:
 //     "no changes"
 func (m *mainPane) hunkTitleRight() string {
@@ -409,17 +413,9 @@ func (m *mainPane) hunkTitleRight() string {
 			return fmt.Sprintf("between hunks (%d–%d)", pos.afterIdx+1, pos.beforeIdx+1)
 		}
 	case first == last:
-		right := fmt.Sprintf("hunk %d/%d", first+1, len(m.diffHunks))
-		if ctx := m.diffHunks[first].Context; ctx != "" {
-			right += " · " + ctx
-		}
-		return right
+		return fmt.Sprintf("hunk %d/%d", first+1, len(m.diffHunks))
 	default:
-		right := fmt.Sprintf("viewing hunks %d through %d", first+1, last+1)
-		if ctx := m.diffHunks[first].Context; ctx != "" {
-			right += " · " + ctx
-		}
-		return right
+		return fmt.Sprintf("viewing hunks %d through %d", first+1, last+1)
 	}
 }
 
@@ -817,7 +813,11 @@ func (m *mainPane) View(focused bool) string {
 	if m.height >= 1 {
 		right := m.titleRight
 		if m.titleDynamic {
-			right = fmt.Sprintf("%s · %d%%", m.hunkTitleRight(), m.progressPercent())
+			hunkPart := m.hunkTitleRight()
+			if m.diffPrefix != "" && len(m.diffHunks) > 0 {
+				hunkPart = m.diffPrefix + " · " + hunkPart
+			}
+			right = fmt.Sprintf("%s · %d%%", hunkPart, m.progressPercent())
 		}
 		title := mainPaneTitleStyle.Render(renderTitleRow(m.titleLeft, right, m.width))
 		body = lipgloss.JoinVertical(lipgloss.Left, title, body)

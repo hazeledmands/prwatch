@@ -102,25 +102,24 @@ func TestFormatAuthorAndTime(t *testing.T) {
 
 func TestParseHunkHeader(t *testing.T) {
 	cases := []struct {
-		in      string
-		start   int
-		count   int
-		context string
+		in    string
+		start int
+		count int
 	}{
-		{"@@ -1,3 +1,4 @@", 1, 4, ""},
-		{"@@ -1,3 +1,4 @@ func foo() {", 1, 4, "func foo() {"},
-		{"@@ -10 +20 @@", 20, 1, ""},
-		{"@@ -10 +20,5 @@ class Bar:", 20, 5, "class Bar:"},
-		{"@@ -1,0 +1,3 @@", 1, 3, ""},
-		{"@@ -5,3 +0,0 @@", 0, 0, ""}, // pure deletion → start=0
-		{"not a header", 0, 0, ""},
-		{"@@ malformed", 0, 0, ""},
+		{"@@ -1,3 +1,4 @@", 1, 4},
+		{"@@ -1,3 +1,4 @@ func foo() {", 1, 4},
+		{"@@ -10 +20 @@", 20, 1},
+		{"@@ -10 +20,5 @@ class Bar:", 20, 5},
+		{"@@ -1,0 +1,3 @@", 1, 3},
+		{"@@ -5,3 +0,0 @@", 0, 0}, // pure deletion → start=0
+		{"not a header", 0, 0},
+		{"@@ malformed", 0, 0},
 	}
 	for _, c := range cases {
-		s, n, ctx := parseHunkHeader(c.in)
-		if s != c.start || n != c.count || ctx != c.context {
-			t.Errorf("parseHunkHeader(%q) = (%d, %d, %q), want (%d, %d, %q)",
-				c.in, s, n, ctx, c.start, c.count, c.context)
+		s, n := parseHunkHeader(c.in)
+		if s != c.start || n != c.count {
+			t.Errorf("parseHunkHeader(%q) = (%d, %d), want (%d, %d)",
+				c.in, s, n, c.start, c.count)
 		}
 	}
 }
@@ -148,8 +147,8 @@ diff --git a/b.go b/b.go
 `
 	got := parseDiffHunks(diff)
 	want := []diffHunk{
-		{StartLine: 1, EndLine: 4, Context: "func one()"},
-		{StartLine: 11, EndLine: 13, Context: "func two()"},
+		{StartLine: 1, EndLine: 4},
+		{StartLine: 11, EndLine: 13},
 		// pure-deletion hunk dropped (count == 0)
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -167,9 +166,9 @@ func TestParseDiffHunks_Empty(t *testing.T) {
 
 func TestHunkPositionForLine(t *testing.T) {
 	hunks := []diffHunk{
-		{StartLine: 5, EndLine: 7, Context: "func a"},
-		{StartLine: 20, EndLine: 25, Context: "func b"},
-		{StartLine: 40, EndLine: 41, Context: ""},
+		{StartLine: 5, EndLine: 7},
+		{StartLine: 20, EndLine: 25},
+		{StartLine: 40, EndLine: 41},
 	}
 	cases := []struct {
 		line      int
@@ -177,29 +176,28 @@ func TestHunkPositionForLine(t *testing.T) {
 		insideIdx int
 		beforeIdx int
 		afterIdx  int
-		context   string
 	}{
-		{1, "before all", -1, 0, -1, ""},
-		{4, "before all (just before)", -1, 0, -1, ""},
-		{5, "inside first start", 0, -1, -1, "func a"},
-		{6, "inside first middle", 0, -1, -1, "func a"},
-		{7, "inside first end", 0, -1, -1, "func a"},
-		{8, "between first and second", -1, 1, 0, ""},
-		{19, "between (just before second)", -1, 1, 0, ""},
-		{22, "inside second", 1, -1, -1, "func b"},
-		{30, "between second and third", -1, 2, 1, ""},
-		{40, "inside third start", 2, -1, -1, ""},
-		{50, "after all", -1, -1, 2, ""},
+		{1, "before all", -1, 0, -1},
+		{4, "before all (just before)", -1, 0, -1},
+		{5, "inside first start", 0, -1, -1},
+		{6, "inside first middle", 0, -1, -1},
+		{7, "inside first end", 0, -1, -1},
+		{8, "between first and second", -1, 1, 0},
+		{19, "between (just before second)", -1, 1, 0},
+		{22, "inside second", 1, -1, -1},
+		{30, "between second and third", -1, 2, 1},
+		{40, "inside third start", 2, -1, -1},
+		{50, "after all", -1, -1, 2},
 	}
 	for _, c := range cases {
 		got := hunkPositionForLine(hunks, c.line)
 		if got.total != len(hunks) {
 			t.Errorf("[%s] total: got %d, want %d", c.desc, got.total, len(hunks))
 		}
-		if got.insideIdx != c.insideIdx || got.beforeIdx != c.beforeIdx || got.afterIdx != c.afterIdx || got.context != c.context {
-			t.Errorf("[%s] line %d: got (inside=%d, before=%d, after=%d, ctx=%q), want (inside=%d, before=%d, after=%d, ctx=%q)",
-				c.desc, c.line, got.insideIdx, got.beforeIdx, got.afterIdx, got.context,
-				c.insideIdx, c.beforeIdx, c.afterIdx, c.context)
+		if got.insideIdx != c.insideIdx || got.beforeIdx != c.beforeIdx || got.afterIdx != c.afterIdx {
+			t.Errorf("[%s] line %d: got (inside=%d, before=%d, after=%d), want (inside=%d, before=%d, after=%d)",
+				c.desc, c.line, got.insideIdx, got.beforeIdx, got.afterIdx,
+				c.insideIdx, c.beforeIdx, c.afterIdx)
 		}
 	}
 }
@@ -466,6 +464,108 @@ func TestTitle_CommitsMode_CommitSelected(t *testing.T) {
 	}
 }
 
+// === Files mode: diff prefix (mtime / sha7 + commit time) ===
+
+func TestTitle_FilesMode_Diff_Uncommitted_PrependsMtime(t *testing.T) {
+	// Uncommitted file with a diff → prefix is the working-tree mtime.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "edited.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Backdate mtime so relativeTime renders "<N> ago" instead of "now".
+	mtime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/edited.go b/edited.go
+--- a/edited.go
++++ b/edited.go
+@@ -1,1 +1,2 @@
+ package main
++// comment
+`
+	mock := &mockGit{
+		repoInfo:     git.RepoInfoResult{Branch: "main"},
+		base:         "origin/main",
+		changedFiles: git.ChangedFilesResult{Uncommitted: []string{"edited.go"}},
+		fileContent:  "package main\n// comment\n",
+		fileDiff:     diff,
+	}
+	m := NewModel(dir, mock)
+	m.width = 100
+	m.height = 30
+	m.base = "origin/main"
+	m.mode = FilesMode
+	m.updateLayout()
+	m.uncommittedFiles = []string{"edited.go"}
+	m.allFiles = []string{"edited.go"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "edited.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	titleRow := strings.Split(stripANSI(m.mainPane.View(false)), "\n")[1]
+	if !regexp.MustCompile(`uncommitted · \S+ ago · hunk 1/1`).MatchString(titleRow) {
+		t.Errorf("uncommitted diff: title row = %q, want 'uncommitted · <time> ago · hunk 1/1'", titleRow)
+	}
+}
+
+func TestTitle_FilesMode_Diff_Committed_PrependsShaAndTime(t *testing.T) {
+	// Committed file with a diff → prefix is "<sha7> · <relative-time>".
+	authoredAt := time.Now().Add(-2 * time.Hour)
+	diff := `diff --git a/done.go b/done.go
+--- a/done.go
++++ b/done.go
+@@ -1,1 +1,2 @@
+ package main
++// landed
+`
+	mock := &mockGit{
+		repoInfo:          git.RepoInfoResult{Branch: "main"},
+		base:              "origin/main",
+		changedFiles:      git.ChangedFilesResult{Committed: []string{"done.go"}},
+		fileContent:       "package main\n// landed\n",
+		fileDiff:          diff,
+		lastCommitForFile: git.Commit{SHA: "feedfac0123456", AuthorDate: authoredAt, Author: "hazel", Subject: "land"},
+	}
+	m := newTitleTestModel(t, mock, FilesMode)
+	m.committedFiles = []string{"done.go"}
+	m.allFiles = []string{"done.go"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "done.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	titleRow := strings.Split(stripANSI(m.mainPane.View(false)), "\n")[1]
+	if !regexp.MustCompile(`feedfac · \S+ ago · hunk 1/1`).MatchString(titleRow) {
+		t.Errorf("committed diff: title row = %q, want 'feedfac · <time> ago · hunk 1/1'", titleRow)
+	}
+}
+
+// When the prefix is set but no hunks are present, View() must NOT prepend
+// the prefix (the right side falls back to noHunkRight).
+func TestMainPane_DiffPrefix_OmittedWhenNoHunks(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 6)
+	mp.SetPlainContent("line\n")
+	mp.SetTitleWithHunks("file.go")
+	mp.SetDiffPrefix("abc1234 · 5m ago")
+	// No SetDiffHunks → len(diffHunks) == 0 → prefix must not appear.
+	titleRow := strings.Split(stripANSI(mp.View(false)), "\n")[1]
+	if strings.Contains(titleRow, "abc1234") {
+		t.Errorf("no hunks: prefix should not appear: %q", titleRow)
+	}
+}
+
 // === Files mode: sticky title tracks scroll ===
 
 // hunkTitleHarness builds a minimal mainPane with a known hunk list and a
@@ -493,7 +593,7 @@ func TestHunkTitleRight_NoHunks(t *testing.T) {
 }
 
 func TestHunkTitleRight_BeforeFirst(t *testing.T) {
-	hunks := []diffHunk{{StartLine: 10, EndLine: 12, Context: "func a"}}
+	hunks := []diffHunk{{StartLine: 10, EndLine: 12}}
 	mp := hunkTitleHarness(hunks, 50)
 	mp.viewport.SetYOffset(0) // top of file → source line 1 (before hunk)
 	if got := mp.hunkTitleRight(); got != "before hunk 1" {
@@ -501,31 +601,29 @@ func TestHunkTitleRight_BeforeFirst(t *testing.T) {
 	}
 }
 
-func TestHunkTitleRight_InsideHunk_WithContext(t *testing.T) {
+func TestHunkTitleRight_InsideHunk(t *testing.T) {
 	hunks := []diffHunk{
-		{StartLine: 5, EndLine: 9, Context: "func one()"},
-		{StartLine: 30, EndLine: 32, Context: "func two()"},
+		{StartLine: 5, EndLine: 9},
+		{StartLine: 30, EndLine: 32},
 	}
 	mp := hunkTitleHarness(hunks, 60)
 	// Scroll so source line ≈ 6 is at top; viewport offset == source - 1
 	// (source-to-format mapping is identity when no annotations).
 	mp.viewport.SetYOffset(5)
-	got := mp.hunkTitleRight()
-	if got != "hunk 1/2 · func one()" {
+	if got := mp.hunkTitleRight(); got != "hunk 1/2" {
 		t.Errorf("inside hunk 1: got %q", got)
 	}
 	mp.viewport.SetYOffset(30)
-	got = mp.hunkTitleRight()
-	if got != "hunk 2/2 · func two()" {
+	if got := mp.hunkTitleRight(); got != "hunk 2/2" {
 		t.Errorf("inside hunk 2: got %q", got)
 	}
 }
 
 func TestHunkTitleRight_BetweenHunks(t *testing.T) {
 	hunks := []diffHunk{
-		{StartLine: 5, EndLine: 9, Context: "func one()"},
-		{StartLine: 30, EndLine: 32, Context: "func two()"},
-		{StartLine: 50, EndLine: 51, Context: ""},
+		{StartLine: 5, EndLine: 9},
+		{StartLine: 30, EndLine: 32},
+		{StartLine: 50, EndLine: 51},
 	}
 	mp := hunkTitleHarness(hunks, 80)
 	// Scroll between hunk 1 and hunk 2 → should report (1–2).
@@ -544,9 +642,9 @@ func TestHunkTitleRight_BetweenHunks(t *testing.T) {
 
 func TestHunkTitleRight_MultipleVisible(t *testing.T) {
 	hunks := []diffHunk{
-		{StartLine: 5, EndLine: 6, Context: "func one()"},
-		{StartLine: 10, EndLine: 11, Context: "func two()"},
-		{StartLine: 14, EndLine: 15, Context: "func three()"},
+		{StartLine: 5, EndLine: 6},
+		{StartLine: 10, EndLine: 11},
+		{StartLine: 14, EndLine: 15},
 	}
 	mp := newMainPane()
 	// Viewport height = pane height − 1 = 19 → visible source range [1..19]
@@ -561,52 +659,20 @@ func TestHunkTitleRight_MultipleVisible(t *testing.T) {
 	mp.viewport.SetYOffset(0)
 
 	got := mp.hunkTitleRight()
-	if got != "viewing hunks 1 through 3 · func one()" {
+	if got != "viewing hunks 1 through 3" {
 		t.Errorf("multiple visible: got %q", got)
-	}
-}
-
-func TestHunkTitleRight_TwoVisibleNoTopContext(t *testing.T) {
-	// First visible hunk has empty context — funcCtx suffix should be omitted.
-	hunks := []diffHunk{
-		{StartLine: 5, EndLine: 6, Context: ""},
-		{StartLine: 10, EndLine: 11, Context: "func two()"},
-	}
-	mp := newMainPane()
-	mp.SetSize(80, 20)
-	var body strings.Builder
-	for i := 0; i < 30; i++ {
-		body.WriteString("line\n")
-	}
-	mp.SetPlainContent(body.String())
-	mp.SetDiffHunks(hunks)
-	mp.viewport.SetYOffset(0)
-
-	got := mp.hunkTitleRight()
-	if got != "viewing hunks 1 through 2" {
-		t.Errorf("multiple visible no top ctx: got %q", got)
 	}
 }
 
 func TestHunkTitleRight_AfterLast(t *testing.T) {
 	hunks := []diffHunk{
-		{StartLine: 5, EndLine: 6, Context: "func one()"},
+		{StartLine: 5, EndLine: 6},
 	}
 	mp := hunkTitleHarness(hunks, 50)
 	mp.viewport.SetYOffset(40) // far past hunk 1
 	got := mp.hunkTitleRight()
 	if got != "after hunk 1" {
 		t.Errorf("after last: got %q", got)
-	}
-}
-
-func TestHunkTitleRight_InsideHunkNoContext(t *testing.T) {
-	hunks := []diffHunk{{StartLine: 5, EndLine: 7, Context: ""}}
-	mp := hunkTitleHarness(hunks, 30)
-	mp.viewport.SetYOffset(5) // source line 6
-	got := mp.hunkTitleRight()
-	if got != "hunk 1/1" {
-		t.Errorf("inside no-context: got %q", got)
 	}
 }
 
@@ -666,7 +732,7 @@ func TestMainPane_DynamicTitle_IncludesProgressSuffix(t *testing.T) {
 	content := strings.Repeat("line\n", 79) + "line" // 80 source lines
 	mp.SetPlainContent(content)
 	mp.SetDiffHunks([]diffHunk{
-		{StartLine: 30, EndLine: 32, Context: "func a"},
+		{StartLine: 30, EndLine: 32},
 	})
 	mp.SetTitleWithHunks("file.go")
 
@@ -716,8 +782,8 @@ func TestMainPane_DynamicTitle_RendersFromScroll(t *testing.T) {
 	}
 	mp.SetPlainContent(body.String())
 	mp.SetDiffHunks([]diffHunk{
-		{StartLine: 30, EndLine: 32, Context: "func a"},
-		{StartLine: 60, EndLine: 62, Context: "func b"},
+		{StartLine: 30, EndLine: 32},
+		{StartLine: 60, EndLine: 62},
 	})
 	mp.SetTitleWithHunks("file.go")
 
@@ -733,7 +799,7 @@ func TestMainPane_DynamicTitle_RendersFromScroll(t *testing.T) {
 	mp.viewport.SetYOffset(29)
 	out = stripANSI(mp.View(false))
 	titleRow = strings.Split(out, "\n")[1]
-	if !strings.Contains(titleRow, "hunk 1/2 · func a") {
+	if !strings.Contains(titleRow, "hunk 1/2") {
 		t.Errorf("inside-hunk-1 frame: title row = %q", titleRow)
 	}
 }
