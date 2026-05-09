@@ -91,10 +91,10 @@ var keys = keyMap{
 		key.WithKeys("enter"),
 	),
 	GoTop: key.NewBinding(
-		key.WithKeys("g"),
+		key.WithKeys("g", "home"),
 	),
 	GoBottom: key.NewBinding(
-		key.WithKeys("G"),
+		key.WithKeys("G", "end"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),

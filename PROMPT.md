@@ -270,8 +270,8 @@ each command maps to one or more keys. keys listed on the same row are interchan
 | `down` | `j`, `down` | sidebar: select next item. main pane: scroll down one line. |
 | `page-up` | `pgup`, `shift+space` | page up the focused view |
 | `page-down` | `pgdn`, `space` | page down the focused view |
-| `go-top` | `g` | go to the top of the focused view |
-| `go-bottom` | `G` | go to the bottom of the focused view |
+| `go-top` | `g`, `home` | go to the top of the focused view |
+| `go-bottom` | `G`, `end` | go to the bottom of the focused view |
 
 horizontal scrolling via `focus-left` / `focus-right` only applies when the main pane is focused and word wrap is off. when word wrap is on, `focus-right` on the main pane is a no-op, and `focus-left` at the left edge still switches focus to the sidebar.
 
