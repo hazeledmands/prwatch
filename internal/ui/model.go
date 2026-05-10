@@ -1518,6 +1518,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.base = parent
 		return m, m.loadLocalGitData
 
+	case key.Matches(msg, keys.ScopeContractForward):
+		if m.git == nil || len(m.commits) == 0 {
+			// At workdir limit (or no git) — no-op.
+			return m, nil
+		}
+		// m.commits is base..HEAD ordered newest-first; the oldest entry has
+		// parent == m.base, so it's the next commit toward HEAD.
+		m.base = m.commits[len(m.commits)-1].SHA
+		return m, m.loadLocalGitData
+
 	case key.Matches(msg, keys.PRBrowse):
 		if m.prInfo.Number == 0 || m.prInfo.URL == "" {
 			return m, nil

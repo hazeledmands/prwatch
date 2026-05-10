@@ -584,6 +584,57 @@ func TestScope_ExtendBackAtRootIsNoOp(t *testing.T) {
 	}
 }
 
+// TestScope_ContractForwardMovesBaseTowardHead verifies that pressing
+// scope-contract-forward (]) walks m.base one commit closer to HEAD by
+// pointing it at the oldest currently-in-scope commit (whose parent is m.base).
+func TestScope_ContractForwardMovesBaseTowardHead(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:        "natural-sha",
+		parents:     map[string]string{"natural-sha": "parent-sha"},
+		commits:     []git.Commit{{SHA: "C"}, {SHA: "B"}, {SHA: "A"}}, // newest → oldest
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	// Press ]: m.base should walk to the oldest in-scope commit (A, the one
+	// whose parent is the current m.base).
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if m.base != "A" {
+		t.Errorf("after scope-contract-forward: m.base = %q, want %q", m.base, "A")
+	}
+}
+
+// TestScope_ContractForwardAtWorkdirIsNoOp verifies that pressing
+// scope-contract-forward when no commits are in scope is a no-op (the
+// inner endpoint is pinned at workdir).
+func TestScope_ContractForwardAtWorkdirIsNoOp(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:        "head-sha",
+		commits:     nil, // no commits in scope
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if m.base != "head-sha" {
+		t.Errorf("scope-contract-forward at workdir: m.base = %q, want it unchanged at %q", m.base, "head-sha")
+	}
+}
+
 // TestScope_ResetSnapsToNaturalBase verifies that pressing the scope-reset
 // key (\\) returns m.base to m.naturalBase from any scrubbed position.
 func TestScope_ResetSnapsToNaturalBase(t *testing.T) {
