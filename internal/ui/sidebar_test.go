@@ -195,6 +195,83 @@ func TestSidebar_SelectIndex_SkipsSeparator(t *testing.T) {
 	}
 }
 
+// Regression: when files are added or removed from the changeset (e.g. a new
+// uncommitted file appears, a file gets deleted), the user's view should not
+// suddenly jump to a different file. Selection by index would shift the user
+// onto whatever happens to share the old slot in the new list; selection
+// must follow the file by identity (filePath / label).
+func TestSidebar_SetItems_PreservesSelectionByIdentity(t *testing.T) {
+	s := newSidebar()
+	s.SetItems([]sidebarItem{
+		{label: "  bar.go", kind: itemNormal, filePath: "bar.go"},
+		{label: "  foo.go", kind: itemNormal, filePath: "foo.go"},
+	})
+	s.SelectNext() // foo.go, index 1
+	if s.SelectedItem() != "foo.go" {
+		t.Fatalf("setup: expected foo.go selected, got %q", s.SelectedItem())
+	}
+
+	// A new file appears alphabetically before foo.go. The user's selection
+	// must follow foo.go to its new index, not stay on index 1 (which is now
+	// baz.go).
+	s.SetItems([]sidebarItem{
+		{label: "  bar.go", kind: itemNormal, filePath: "bar.go"},
+		{label: "  baz.go", kind: itemNormal, filePath: "baz.go"},
+		{label: "  foo.go", kind: itemNormal, filePath: "foo.go"},
+	})
+	if got := s.SelectedItem(); got != "foo.go" {
+		t.Errorf("selection should follow foo.go, got %q at index %d", got, s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SetItems_PreservesSelectionByLabel(t *testing.T) {
+	// Some sidebar items don't have a filePath (e.g. directory headers,
+	// pseudo-entries like "new changes"). Selection must still follow them
+	// by their displayed label.
+	s := newSidebar()
+	s.SetItems([]sidebarItem{
+		{label: "Section A", kind: itemHeader},
+		{label: "  one", kind: itemNormal},
+		{label: "  two", kind: itemNormal},
+	})
+	s.SelectIndex(2) // "  two"
+	if s.SelectedItem() != "  two" {
+		t.Fatalf("setup: expected '  two' selected, got %q", s.SelectedItem())
+	}
+
+	// A new item is inserted before; selection should follow "  two".
+	s.SetItems([]sidebarItem{
+		{label: "Section A", kind: itemHeader},
+		{label: "  one", kind: itemNormal},
+		{label: "  one-and-a-half", kind: itemNormal},
+		{label: "  two", kind: itemNormal},
+	})
+	if got := s.SelectedItem(); got != "  two" {
+		t.Errorf("selection should follow '  two', got %q at index %d", got, s.SelectedIndex())
+	}
+}
+
+func TestSidebar_SetItems_FallsBackWhenSelectionGone(t *testing.T) {
+	// If the selected file disappears (e.g. it was deleted), the selection
+	// should clamp to a sensible nearby index rather than blowing up.
+	s := newSidebar()
+	s.SetItems([]sidebarItem{
+		{label: "  a.go", kind: itemNormal, filePath: "a.go"},
+		{label: "  b.go", kind: itemNormal, filePath: "b.go"},
+		{label: "  c.go", kind: itemNormal, filePath: "c.go"},
+	})
+	s.SelectIndex(1) // b.go
+
+	s.SetItems([]sidebarItem{
+		{label: "  a.go", kind: itemNormal, filePath: "a.go"},
+		{label: "  c.go", kind: itemNormal, filePath: "c.go"},
+	})
+	// b.go is gone; selection should fall back to a valid item.
+	if s.SelectedIndex() < 0 || s.SelectedIndex() >= len(s.items) {
+		t.Errorf("selection out of range: %d", s.SelectedIndex())
+	}
+}
+
 func TestSidebar_SetItems_SkipsSeparatorOnClamp(t *testing.T) {
 	s := newSidebar()
 	// If all items are separators, selected should still be 0
