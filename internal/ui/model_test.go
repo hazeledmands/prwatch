@@ -561,6 +561,54 @@ func TestScope_ExtendBackMovesBaseToParent(t *testing.T) {
 	}
 }
 
+// TestScope_DoubleExtendBackWalksTwoSteps verifies pressing [ twice in a
+// row, with a synchronous reload between them (matching the IPC flow),
+// walks m.base through two parent steps. Catches regressions where the
+// load handler resets m.base back to the freshly-detected natural base.
+func TestScope_DoubleExtendBackWalksTwoSteps(t *testing.T) {
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:     "C0",
+		parents: map[string]string{
+			"C0":  "C-1",
+			"C-1": "C-2",
+		},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	// Press [
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.base != "C-1" {
+		t.Fatalf("after first [: m.base = %q, want %q", m.base, "C-1")
+	}
+	// Run the follow-up load (simulating what the IPC harness does).
+	if cmd != nil {
+		m.execFollowUps(cmd)
+	}
+	if m.base != "C-1" {
+		t.Fatalf("after first [ + reload: m.base = %q, want %q", m.base, "C-1")
+	}
+
+	// Press [ again
+	_, cmd = m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.base != "C-2" {
+		t.Fatalf("after second [: m.base = %q, want %q", m.base, "C-2")
+	}
+	if cmd != nil {
+		m.execFollowUps(cmd)
+	}
+	if m.base != "C-2" {
+		t.Errorf("after second [ + reload: m.base = %q, want %q", m.base, "C-2")
+	}
+}
+
 // TestScope_ExtendBackAtRootIsNoOp verifies that pressing scope-extend-back
 // at the root commit (no parent) leaves state unchanged rather than erroring.
 func TestScope_ExtendBackAtRootIsNoOp(t *testing.T) {
