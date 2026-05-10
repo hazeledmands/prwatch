@@ -224,8 +224,9 @@ type sidebar struct {
 	selected   int
 	width      int
 	height     int
-	offset     int // scroll offset for long lists
-	hoverIndex int // item under mouse cursor (-1 = none)
+	offset     int    // scroll offset for long lists
+	hoverIndex int    // item under mouse cursor (-1 = none)
+	pinnedID   string // identity of the item currently shown in the main pane
 }
 
 func newSidebar() *sidebar {
@@ -235,6 +236,16 @@ func newSidebar() *sidebar {
 // SetHoverIndex sets which item is being hovered by the mouse.
 func (s *sidebar) SetHoverIndex(idx int) {
 	s.hoverIndex = idx
+}
+
+// SetPinnedID records which item is currently displayed in the main pane.
+// The cursor (selected) and the pinned item often coincide, but when the
+// cursor moves over a directory or pseudo-entry the main pane keeps showing
+// the previously-selected file. View() renders the pinned item with a
+// distinct style when it differs from the cursor so the user can see at a
+// glance which file is in the main pane.
+func (s *sidebar) SetPinnedID(id string) {
+	s.pinnedID = id
 }
 
 func (s *sidebar) SetItems(items []sidebarItem) {
@@ -535,7 +546,11 @@ func (s *sidebar) View(focused bool) string {
 			continue
 		}
 
-		// Pick styles based on selection/hover state and item kind.
+		// Pick styles based on selection/hover/pinned state and item kind.
+		// Selected wins over hover wins over pinned — the cursor/hover
+		// signals are stronger because they reflect immediate user input,
+		// while "pinned" just identifies whatever the main pane is showing.
+		isPinned := s.pinnedID != "" && itemID(item) == s.pinnedID
 		var labelStyle, dimStyle lipgloss.Style
 		if i == s.selected {
 			switch item.kind {
@@ -557,6 +572,16 @@ func (s *sidebar) View(focused bool) string {
 				labelStyle = sidebarHoverStyle
 			}
 			dimStyle = sidebarHoverDimStyle
+		} else if isPinned {
+			switch item.kind {
+			case itemDim:
+				labelStyle = sidebarPinnedUncommittedStyle
+			case itemDeleted:
+				labelStyle = sidebarPinnedDeletedStyle
+			default:
+				labelStyle = sidebarPinnedStyle
+			}
+			dimStyle = sidebarPinnedDimStyle
 		} else {
 			switch item.kind {
 			case itemDim:

@@ -2831,6 +2831,11 @@ func (m *Model) updateMainContent() {
 	// files mode with a diff).
 	setItem := func(key mainItemKey) {
 		m.lastMainItem = key
+		// Tell the sidebar which item the main pane is showing so it can
+		// render the "pinned" file with a distinct style when the cursor
+		// has moved off it (spec: "the sidebar should visually distinguish
+		// the cursor position from the pinned file when they differ").
+		m.sidebar.SetPinnedID(key.item)
 		if key == prevKey || key.item == "" {
 			return
 		}
