@@ -123,7 +123,8 @@ type Model struct {
 	ciChecks            []gitpkg.CICheck      // CI checks for PR-view mode
 	pendingRWXCheck     *gitpkg.CICheck       // CI check awaiting RWX log fetch
 	rwxLogCache         map[string]string     // cache of RWX logs by check URL
-	lastViewedFile      string                // track the last file shown in files mode for auto-jump
+	mainScrollLines     map[mainItemKey]int   // last source line at top of main pane, per (mode, item)
+	lastMainItem        mainItemKey           // (mode, item) currently displayed in main pane
 	sidebar             *sidebar
 	mainPane            *mainPane
 	sidebarPct          int // sidebar width as percentage of total width (10-50)
@@ -173,13 +174,23 @@ type Model struct {
 }
 
 // modeViewState records the view state for a single mode, so that switching
-// away and back restores what the user was looking at.
+// away and back restores what the user was looking at. Main-pane scroll
+// position is tracked separately, per (mode, item), via Model.mainScrollLines.
 type modeViewState struct {
 	sidebarSelected string // selected sidebar item label (by content, not index)
 	sidebarOffset   int    // sidebar vertical scroll offset
-	mainYOffset     int    // main pane vertical scroll offset
-	mainXOffset     int    // main pane horizontal scroll offset
 	focus           Focus
+}
+
+// mainItemKey identifies a single piece of content the main pane can show:
+// a (mode, sidebar item) pair. Used as the lookup key for per-item scroll
+// memory in Model.mainScrollLines. The item string is m.sidebar.SelectedItem()
+// for that mode (file path, "abc1234 subject", "Description", "comment #N @x",
+// "review #N @x", "CI · check-name", or one of the pseudo-entries like
+// "new changes" / "staged changes" / "load more").
+type mainItemKey struct {
+	mode Mode
+	item string
 }
 
 // Messages
@@ -2763,8 +2774,9 @@ func (m *Model) setMode(next Mode) {
 	m.updateMainContent()
 }
 
-// saveModeState captures the current sidebar/main-pane view positions so
-// setMode can restore them later.
+// saveModeState captures the current sidebar selection/scroll/focus so
+// setMode can restore them later. Main-pane scroll is tracked per-item via
+// Model.mainScrollLines and applied by updateMainContent.
 func (m *Model) saveModeState() {
 	if m.modeStates == nil {
 		m.modeStates = make(map[Mode]modeViewState)
@@ -2772,14 +2784,13 @@ func (m *Model) saveModeState() {
 	m.modeStates[m.mode] = modeViewState{
 		sidebarSelected: m.sidebar.SelectedItem(),
 		sidebarOffset:   m.sidebar.offset,
-		mainYOffset:     m.mainPane.viewport.YOffset(),
-		mainXOffset:     m.mainPane.xOffset,
 		focus:           m.focus,
 	}
 }
 
-// restoreModeState applies the previously-saved state for the current mode.
-// Safe to call when there is no saved state (no-op in that case).
+// restoreModeState applies the previously-saved sidebar/focus state for the
+// current mode. Safe to call when there is no saved state (no-op in that
+// case). updateMainContent restores the main-pane scroll position separately.
 func (m *Model) restoreModeState() {
 	if m.modeStates == nil {
 		return
@@ -2797,15 +2808,41 @@ func (m *Model) restoreModeState() {
 			}
 		}
 	}
-	// Restore scroll offsets (clamped by the respective pane's logic).
 	m.sidebar.offset = state.sidebarOffset
 	m.sidebar.clampOffset()
-	m.mainPane.viewport.SetYOffset(state.mainYOffset)
-	m.mainPane.xOffset = state.mainXOffset
 	m.focus = state.focus
 }
 
 func (m *Model) updateMainContent() {
+	// Save the source line at the top of the main pane under the item we
+	// were just showing, so the next time the user navigates to it we can
+	// drop them back at the same line.
+	if m.lastMainItem.item != "" {
+		if m.mainScrollLines == nil {
+			m.mainScrollLines = make(map[mainItemKey]int)
+		}
+		m.mainScrollLines[m.lastMainItem] = m.mainPane.ViewportToSourceLine()
+	}
+
+	prevKey := m.lastMainItem
+	// setItem records the (mode, item) currently displayed and, if it
+	// differs from prevKey, restores the saved scroll for it (or applies a
+	// per-mode default for first visits — currently jumpToFirstDiff for
+	// files mode with a diff).
+	setItem := func(key mainItemKey) {
+		m.lastMainItem = key
+		if key == prevKey || key.item == "" {
+			return
+		}
+		if line, ok := m.mainScrollLines[key]; ok {
+			m.mainPane.ScrollToSourceLine(line)
+			return
+		}
+		if key.mode == FilesMode && len(m.mainPane.DiffLineNumbers()) > 0 {
+			m.jumpToFirstDiff()
+		}
+	}
+
 	if m.git == nil {
 		// Non-git: files mode only, read from disk
 		if m.mode == FilesMode {
@@ -2813,29 +2850,33 @@ func (m *Model) updateMainContent() {
 			if file == "" {
 				m.mainPane.SetFilename("")
 				m.mainPane.SetPlainContent("")
+				setItem(mainItemKey{m.mode, ""})
 				return
 			}
 			if m.sidebar.SelectedIsDir() {
-				return // preserve current main panel content
+				return // preserve current main panel content (and lastMainItem)
 			}
 			content, err := os.ReadFile(filepath.Join(m.dir, file))
 			if err != nil {
 				m.mainPane.SetFilename("")
 				m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
+				setItem(mainItemKey{m.mode, file})
 				return
 			}
 			if isBinaryContent(string(content)) {
 				m.mainPane.SetFilename("")
 				m.mainPane.SetPlainContent("[binary content]")
+				setItem(mainItemKey{m.mode, file})
 				return
 			}
 			m.mainPane.SetFilename(file)
 			m.mainPane.SetPlainContent(string(content))
+			setItem(mainItemKey{m.mode, file})
 		}
 		return
 	}
 	if m.base == "" {
-		return
+		return // preserve current main panel content (and lastMainItem)
 	}
 
 	switch m.mode {
@@ -2847,10 +2888,11 @@ func (m *Model) updateMainContent() {
 			m.mainPane.ClearDiffAnnotations()
 			m.mainPane.ClearDiffHunks()
 			m.mainPane.SetTitle("", "")
+			setItem(mainItemKey{m.mode, ""})
 			return
 		}
 		if m.sidebar.SelectedIsDir() {
-			return // preserve current main panel content
+			return // preserve current main panel content (and lastMainItem)
 		}
 		content, err := m.git.FileContent(file)
 		if err != nil {
@@ -2859,6 +2901,7 @@ func (m *Model) updateMainContent() {
 			m.mainPane.ClearDiffAnnotations()
 			m.mainPane.ClearDiffHunks()
 			m.mainPane.SetTitle(file, "error")
+			setItem(mainItemKey{m.mode, file})
 			return
 		}
 		if isBinaryContent(content) {
@@ -2869,6 +2912,7 @@ func (m *Model) updateMainContent() {
 			m.mainPane.SetNoHunkRight(m.fileContextRight(file, true))
 			m.mainPane.SetDiffPrefix("")
 			m.mainPane.SetTitleWithHunks(file)
+			setItem(mainItemKey{m.mode, file})
 			return
 		}
 		// Compute diff annotations for the gutter
@@ -2900,24 +2944,22 @@ func (m *Model) updateMainContent() {
 		}
 		m.mainPane.SetFilename(file)
 		m.mainPane.SetPlainContent(content)
-		// Auto-jump to first diff only when the file changes
-		if file != m.lastViewedFile {
-			m.lastViewedFile = file
-			m.jumpToFirstDiff()
-		}
 		m.mainPane.SetTitleWithHunks(file)
+		setItem(mainItemKey{m.mode, file})
 
 	case CommitsMode:
 		selected := m.sidebar.SelectedItem()
 		if selected == "" {
 			m.mainPane.SetContent("")
 			m.mainPane.SetTitle("", "")
+			setItem(mainItemKey{m.mode, ""})
 			return
 		}
 		// Check if this is the "load more" entry
 		if strings.HasPrefix(selected, "load more") {
 			m.mainPane.SetPlainContent("Loading more commits...")
 			m.mainPane.SetTitle(selected, "")
+			setItem(mainItemKey{m.mode, selected})
 			return
 		}
 		// Check if this is the "new changes" or "staged changes" entry
@@ -2926,6 +2968,7 @@ func (m *Model) updateMainContent() {
 			diff, _ := m.git.FileDiffUncommitted("")
 			m.mainPane.SetContent(diff)
 			m.mainPane.SetTitle(selected, shortstatFromDiff(diff))
+			setItem(mainItemKey{m.mode, selected})
 			return
 		}
 		// Otherwise it's a commit — extract SHA from "abcdef0 subject"
@@ -2933,6 +2976,7 @@ func (m *Model) updateMainContent() {
 		if commitIdx < 0 || commitIdx >= len(m.commits) {
 			m.mainPane.SetContent("")
 			m.mainPane.SetTitle("", "")
+			setItem(mainItemKey{m.mode, ""})
 			return
 		}
 		commit := m.commits[commitIdx]
@@ -2942,15 +2986,18 @@ func (m *Model) updateMainContent() {
 		if err != nil {
 			m.mainPane.SetContent(fmt.Sprintf("Error: %v", err))
 			m.mainPane.SetTitle(titleLeft, titleRight)
+			setItem(mainItemKey{m.mode, selected})
 			return
 		}
 		if isBinaryContent(patch) {
 			m.mainPane.SetPlainContent("[binary content]")
 			m.mainPane.SetTitle(titleLeft, titleRight)
+			setItem(mainItemKey{m.mode, selected})
 			return
 		}
 		m.mainPane.SetContent(patch)
 		m.mainPane.SetTitle(titleLeft, titleRight)
+		setItem(mainItemKey{m.mode, selected})
 
 	case PRMode:
 		selected := m.sidebar.SelectedItem()
@@ -3049,6 +3096,7 @@ func (m *Model) updateMainContent() {
 				m.mainPane.SetTitle(selected, "")
 			}
 		}
+		setItem(mainItemKey{m.mode, selected})
 	}
 }
 

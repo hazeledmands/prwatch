@@ -531,6 +531,12 @@ func (m *mainPane) refreshViewport() {
 	gutterWidth := 0
 	if m.isDiff {
 		content = colorDiff(content)
+		// Diff content has no gutter/line-number formatting, so there is no
+		// source-line → formatted-line mapping to maintain. Clear any
+		// leftover from a prior plain-content render so callers (e.g.
+		// ViewportToSourceLine, ScrollToSourceLine) fall through to the
+		// 1:1 viewport-line mapping appropriate for diff content.
+		m.sourceToFormatLine = nil
 	} else {
 		content, gutterWidth = m.applyFileViewFormatting(content)
 	}

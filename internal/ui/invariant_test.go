@@ -2120,6 +2120,10 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 }
 
 func TestProperty_InteractionInvariants(t *testing.T) {
+	type itemKey struct {
+		mode Mode
+		item string
+	}
 	rapid.Check(t, func(t *rapid.T) {
 		mock, mode := genScenario(t)
 		width := rapid.IntRange(40, 200).Draw(t, "width")
@@ -2140,9 +2144,21 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 		checkIgnoredInvariants(t, m, ignoredSet, "after init")
 		checkIgnoredDirsLoadedIfExpanded(t, m, "after init")
 
+		// Per-item scroll-memory shadow: records the source line at the
+		// top of the main pane the last time we navigated AWAY from each
+		// (mode, item). Re-arriving at the same key should restore that
+		// source line, modulo content-reflowing actions (resize, wrap toggle,
+		// refresh, etc.) which can legitimately invalidate the position.
+		expectedScroll := map[itemKey]int{}
+
 		// Run random interactions
 		nSteps := rapid.IntRange(1, 30).Draw(t, "nSteps")
 		for step := range nSteps {
+			// Capture pre-action position so we can record it as the
+			// "where we left off" line if this action navigates elsewhere.
+			prevKey := itemKey{m.mode, m.sidebar.SelectedItem()}
+			prevSrc := m.mainPane.ViewportToSourceLine()
+
 			// 20% chance of a special key (enter, tab, arrows, pgup/dn)
 			var msg tea.Msg
 			if rapid.Float64Range(0, 1).Draw(t, fmt.Sprintf("special%d", step)) < 0.2 {
@@ -2167,6 +2183,30 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			checkIgnoredInvariants(t, m, ignoredSet, context+" after action")
 			checkIgnoredDirsLoadedIfExpanded(t, m, context+" after action")
 
+			// Round-trip scroll-memory invariant: navigating away from an
+			// item and back lands the user on the same source line.
+			// Reflow-causing actions (resize, wrap toggle, line-number
+			// toggle, refresh) can change the viewport height or content
+			// shape so that previously valid source lines clamp differently
+			// on restore. Drop the shadow when one of those happens — the
+			// feature still tries to restore, but the test can't easily
+			// predict the post-reflow clamped value.
+			if actionMayChangeScroll(msg) {
+				expectedScroll = map[itemKey]int{}
+			} else {
+				nowKey := itemKey{m.mode, m.sidebar.SelectedItem()}
+				if prevKey.item != "" && nowKey != prevKey {
+					expectedScroll[prevKey] = prevSrc
+					if want, ok := expectedScroll[nowKey]; ok {
+						got := m.mainPane.ViewportToSourceLine()
+						if got != want {
+							t.Fatalf("%s: returning to %+v: expected source line %d, got %d (recorded on prior leave from this item)",
+								context, nowKey, want, got)
+						}
+					}
+				}
+			}
+
 			// Capture sidebar scroll state before ticks
 			offsetBefore := m.sidebar.offset
 			selectedBefore := m.sidebar.selected
@@ -2188,6 +2228,24 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			}
 		}
 	})
+}
+
+// actionMayChangeScroll reports whether the given message can legitimately
+// move what's at the top of the main pane without the user navigating to a
+// different sidebar item — e.g. resizing the terminal, toggling word wrap or
+// line numbers, refreshing, or re-fetching content. The round-trip
+// scroll-memory invariant skips these.
+func actionMayChangeScroll(msg tea.Msg) bool {
+	switch m := msg.(type) {
+	case tea.WindowSizeMsg:
+		return true
+	case tea.KeyPressMsg:
+		switch m.Text {
+		case "w", "n", "D", "i", "f", "+", "-", "=", "r", "/":
+			return true
+		}
+	}
+	return false
 }
 
 // TestProperty_ToggleIgnoredSymmetry verifies that pressing `i` twice from
