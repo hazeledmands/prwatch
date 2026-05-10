@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -17,7 +18,7 @@ func renderMarkdown(md string, width int) (string, error) {
 		width = 80
 	}
 
-	source := []byte(md)
+	source := []byte(cleanHTML(md))
 	parser := goldmark.DefaultParser()
 	doc := parser.Parse(text.NewReader(source))
 
@@ -33,6 +34,53 @@ func renderMarkdown(md string, width int) (string, error) {
 	result := strings.TrimRight(buf.String(), "\n")
 	return result, nil
 }
+
+// cleanHTML preprocesses raw HTML in markdown source so the goldmark renderer
+// produces a TUI-friendly result. PR descriptions and comments often contain
+// constructs that don't render meaningfully as raw HTML in a terminal:
+//
+//   - <br> / <br/> / <br /> becomes a hard line break
+//   - <!-- comments --> are stripped
+//   - <details>/<summary> blocks are flattened: the summary becomes a bold
+//     line and the body content remains
+//   - any other tags are stripped, leaving inner text intact
+func cleanHTML(s string) string {
+	if s == "" {
+		return s
+	}
+
+	s = htmlCommentRE.ReplaceAllString(s, "")
+	// `\\\n` is a CommonMark hard line break. A bare "\n" would be treated as
+	// a soft line break and rendered as a space.
+	s = brRE.ReplaceAllString(s, "\\\n")
+	s = detailsOpenRE.ReplaceAllString(s, "")
+	s = detailsCloseRE.ReplaceAllString(s, "")
+	s = summaryRE.ReplaceAllStringFunc(s, func(match string) string {
+		inner := summaryInnerRE.FindStringSubmatch(match)
+		if len(inner) < 2 {
+			return ""
+		}
+		body := strings.TrimSpace(inner[1])
+		if body == "" {
+			return ""
+		}
+		return "\n\n**" + body + "**\n\n"
+	})
+	s = otherTagRE.ReplaceAllString(s, "")
+	return s
+}
+
+var (
+	htmlCommentRE  = regexp.MustCompile(`(?s)<!--.*?-->`)
+	brRE           = regexp.MustCompile(`(?i)<br\s*/?\s*>`)
+	detailsOpenRE  = regexp.MustCompile(`(?i)<details\b[^>]*>`)
+	detailsCloseRE = regexp.MustCompile(`(?i)</details\s*>`)
+	summaryRE      = regexp.MustCompile(`(?is)<summary\b[^>]*>.*?</summary\s*>`)
+	summaryInnerRE = regexp.MustCompile(`(?is)<summary\b[^>]*>(.*?)</summary\s*>`)
+	// Catch-all for remaining HTML tags. Match conservatively: must start with a
+	// letter so we don't gobble bare `<` characters in prose.
+	otherTagRE = regexp.MustCompile(`</?[A-Za-z][A-Za-z0-9-]*\b[^>]*>`)
+)
 
 // ansiRenderer walks a goldmark AST and emits ANSI-styled text.
 type ansiRenderer struct {
