@@ -482,6 +482,32 @@ func TestBaseDetection_UpgradesFromLocalToPRBaseOnPRLoad(t *testing.T) {
 	}
 }
 
+// TestScope_NaturalBaseTracksDefaultBase verifies that naturalBase is
+// populated alongside base on initial load. naturalBase is the "default
+// position" of the scope handle — it must equal whatever detectBase()
+// returned, so a later scope-reset has somewhere to snap back to.
+func TestScope_NaturalBaseTracksDefaultBase(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:        "abc1234sha",
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	if m.base != "abc1234sha" {
+		t.Errorf("base = %q, want %q", m.base, "abc1234sha")
+	}
+	if m.naturalBase != m.base {
+		t.Errorf("naturalBase = %q, want it to track base %q on initial load", m.naturalBase, m.base)
+	}
+}
+
 func TestStartupRenderOnceWorksWithData(t *testing.T) {
 	// RenderOnce (used by PRWATCH_RENDER_ONCE=1) loads data synchronously.
 	// With a fast mock, it should complete quickly and show actual content.

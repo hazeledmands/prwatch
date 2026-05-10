@@ -89,14 +89,19 @@ type GitDataSource interface {
 }
 
 type Model struct {
-	debugLog            *log.Logger
-	git                 GitDataSource
-	cmdFactory          command.Factory
-	mode                Mode
-	focus               Focus
-	width               int
-	height              int
-	base                string
+	debugLog   *log.Logger
+	git        GitDataSource
+	cmdFactory command.Factory
+	mode       Mode
+	focus      Focus
+	width      int
+	height     int
+	base       string
+	// naturalBase is the default outer endpoint for the commit-range scope:
+	// what detectBase() resolves to at load time. m.base equals naturalBase at
+	// the default scope position; scope-extend / scope-contract walk m.base
+	// away from naturalBase, and scope-reset snaps it back.
+	naturalBase         string
 	repoInfo            gitpkg.RepoInfoResult
 	prInfo              gitpkg.PRInfoResult
 	ciStatus            gitpkg.CIStatusResult
@@ -1027,6 +1032,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.base = msg.base
+		m.naturalBase = msg.base
 		m.committedFiles = msg.committedFiles
 		m.uncommittedFiles = msg.uncommittedFiles
 		m.stagedFiles = msg.stagedFiles
@@ -4068,6 +4074,11 @@ func (m *Model) helpContentLines() []string {
 			{bindings: []key.Binding{keys.Refresh}, desc: "Refresh git state"},
 			{bindings: []key.Binding{keys.PRBrowse}, desc: "Open the active PR in the browser"},
 			{bindings: []key.Binding{keys.Help}, desc: "Show this help (scroll with j/k/mouse)"},
+		},
+		{
+			{bindings: []key.Binding{keys.ScopeExtendBack}, desc: "Extend commit-range scope backward"},
+			{bindings: []key.Binding{keys.ScopeContractForward}, desc: "Contract commit-range scope toward working tree"},
+			{bindings: []key.Binding{keys.ScopeReset}, desc: "Reset commit-range scope to default"},
 		},
 		{
 			{bindings: []key.Binding{keys.QuitConfirm}, desc: "Quit (confirm)"},
