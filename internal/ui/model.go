@@ -158,13 +158,19 @@ type Model struct {
 	dragEndX            int
 	dragEndY            int
 	dragging            bool
-	notification        string       // transient notification text (bottom-left)
-	notificationExpiry  time.Time    // when the notification should disappear
-	loading             bool         // true until first local data load completes
-	prLoadedOnce        bool         // true after first successful PR data fetch
-	modeLabels          []modeLabel  // clickable mode label positions from last render
-	line2Labels         []line2Label // clickable positions on git status line
-	line3Labels         []line3Label // clickable positions on PR status line
+	// dragScrollDir is +1 to auto-scroll the main pane down (drag past the
+	// bottom edge), -1 to auto-scroll up (drag past the top edge), 0 when
+	// the drag end is inside the viewport. While non-zero, a recurring
+	// dragScrollTickMsg keeps shifting the viewport so the user can extend
+	// a selection beyond what fits on screen.
+	dragScrollDir      int
+	notification       string       // transient notification text (bottom-left)
+	notificationExpiry time.Time    // when the notification should disappear
+	loading            bool         // true until first local data load completes
+	prLoadedOnce       bool         // true after first successful PR data fetch
+	modeLabels         []modeLabel  // clickable mode label positions from last render
+	line2Labels        []line2Label // clickable positions on git status line
+	line3Labels        []line3Label // clickable positions on PR status line
 	// modeStates preserves per-mode view state (sidebar selection, scroll
 	// positions) so switching back to a mode restores the last view.
 	// Keys are Mode values that represent real modes (FilesMode, CommitsMode,
@@ -242,6 +248,14 @@ type prRefreshMsg struct {
 
 type prTickMsg struct{}
 type gitTickMsg struct{}
+
+// dragScrollTickMsg drives auto-scroll while a drag selection is held past
+// the top or bottom edge of the main pane viewport. Only delivered while
+// m.dragging is true and m.dragScrollDir != 0.
+type dragScrollTickMsg struct{}
+
+const dragScrollInterval = 60 * time.Millisecond
+
 type notificationExpiredMsg struct{}
 
 // maybeFetchRWXLog returns a tea.Cmd to fetch RWX logs if there's a pending check.
@@ -1221,9 +1235,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMotionMsg:
 		m.hoverX = msg.X
 		m.hoverY = msg.Y
+		var autoScrollCmd tea.Cmd
 		if m.dragging {
 			m.dragEndX = msg.X
 			m.dragEndY = msg.Y
+			autoScrollCmd = m.updateDragAutoScroll(msg.Y)
 		}
 		// Update sidebar hover index
 		sidebarW := m.sidebarPixelWidth()
@@ -1235,16 +1251,23 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.sidebar.SetHoverIndex(-1)
 		}
-		return m, nil
+		return m, autoScrollCmd
 
 	case tea.MouseReleaseMsg:
 		if m.dragging {
 			m.dragging = false
+			m.dragScrollDir = 0
 			m.dragEndX = msg.X
 			m.dragEndY = msg.Y
 			return m, m.copySelection()
 		}
 		return m, nil
+
+	case dragScrollTickMsg:
+		if !m.dragging || m.dragScrollDir == 0 {
+			return m, nil
+		}
+		return m, m.advanceDragAutoScroll()
 	}
 
 	return m, nil
@@ -3606,12 +3629,91 @@ func sliceByDisplayCol(s string, fromCol, toCol int) string {
 	return s[startByte:endByte]
 }
 
+// dragMainPaneBounds returns the inclusive screen-row range of the main
+// pane content area (between the title row and the bottom border).
+func (m *Model) dragMainPaneBounds() (top, bottom int) {
+	statusRows := m.statusBarLines()
+	const topBorder, titleRow = 1, 1
+	top = statusRows + topBorder + titleRow
+	bottom = m.height - 2 // last content row before the bottom border
+	if bottom < top {
+		bottom = top
+	}
+	return top, bottom
+}
+
+// updateDragAutoScroll inspects the current drag-end Y in screen coords and
+// sets m.dragScrollDir accordingly: -1 if the user has dragged above the
+// viewport top, +1 if below the bottom, 0 if back inside. Returns a tick
+// command when scrolling needs to (re)start, nil otherwise.
+//
+// Spec: "when dragging past the top line or past the bottom line, the view
+// should scroll, making it possible to copy content larger than the view on
+// the screen." The actual scrolling happens in advanceDragAutoScroll on
+// each tick — this only sets the direction.
+func (m *Model) updateDragAutoScroll(y int) tea.Cmd {
+	top, bottom := m.dragMainPaneBounds()
+	prev := m.dragScrollDir
+	switch {
+	case y < top:
+		m.dragScrollDir = -1
+	case y > bottom:
+		m.dragScrollDir = +1
+	default:
+		m.dragScrollDir = 0
+	}
+	if m.dragScrollDir != 0 && prev == 0 {
+		return scheduleDragScrollTick()
+	}
+	return nil
+}
+
+// advanceDragAutoScroll scrolls the main pane viewport one line in the
+// current drag direction and re-anchors the drag start so the original
+// click stays attached to the same content row (eventually moving off-
+// screen above when scrolling down). Returns the next tick command unless
+// the viewport has hit the corresponding edge — at which point we stop.
+func (m *Model) advanceDragAutoScroll() tea.Cmd {
+	if m.dragScrollDir == 0 {
+		return nil
+	}
+	beforeOffset := m.mainPane.viewport.YOffset()
+	if m.dragScrollDir > 0 {
+		m.mainPane.viewport.ScrollDown(1)
+	} else {
+		m.mainPane.viewport.ScrollUp(1)
+	}
+	delta := m.mainPane.viewport.YOffset() - beforeOffset
+	if delta == 0 {
+		// Hit top or bottom; nothing more to scroll. Don't schedule another
+		// tick — the loop is over. The user can still drag back inside.
+		m.dragScrollDir = 0
+		return nil
+	}
+	// Re-anchor: the original click should keep pointing at the same content
+	// row even as the viewport scrolls underneath it. Scrolling down by N
+	// shifts content up by N screen rows, so dragStartY moves up too.
+	m.dragStartY -= delta
+	return scheduleDragScrollTick()
+}
+
+func scheduleDragScrollTick() tea.Cmd {
+	return tea.Tick(dragScrollInterval, func(time.Time) tea.Msg {
+		return dragScrollTickMsg{}
+	})
+}
+
 // copySelection extracts text from the main pane's content (stripping ANSI,
 // gutter, and TUI glyphs) and copies to the system clipboard.
 // Coordinates are screen-relative; we convert to main-pane-content-relative.
 // selectedText extracts the plain text from the current drag selection,
 // stripping ANSI codes, gutter prefixes, and joining word-wrap continuations.
 // Returns empty string if the drag start and end are the same point.
+//
+// The selection works against the viewport's full GetContent() (not just
+// the visible View()). That matters when auto-scroll has moved the
+// viewport during the drag: the original click line may now be off-screen
+// above, but the user still expects it included in the copy.
 func (m *Model) selectedText() string {
 	if m.dragStartX == m.dragEndX && m.dragStartY == m.dragEndY {
 		return "" // No actual drag
@@ -3633,9 +3735,9 @@ func (m *Model) selectedText() string {
 	contentStartY := statusRows + topBorder + titleRow
 	contentStartX := sidebarW + mainLeftBorder
 
-	// Get the main pane's raw content (pre-rendered, with ANSI)
-	// Use the viewport's content which is what's displayed
-	viewportContent := m.mainPane.viewport.View()
+	// Read the full viewport content (all lines, not just visible) so we
+	// can extract selections that started before the viewport scrolled.
+	viewportContent := m.mainPane.viewport.GetContent()
 	contentLines := strings.Split(viewportContent, "\n")
 
 	// Normalize drag coordinates
@@ -3646,9 +3748,13 @@ func (m *Model) selectedText() string {
 		startX, endX = endX, startX
 	}
 
-	// Convert screen coordinates to content-relative
-	startY -= contentStartY
-	endY -= contentStartY
+	// Translate from screen-Y to absolute viewport-content-Y by accounting
+	// for the current scroll offset. dragStartY may sit above the visible
+	// area (after auto-scroll re-anchored it); the absolute line index it
+	// resolves to remains valid.
+	vpOffset := m.mainPane.viewport.YOffset()
+	startY = vpOffset + (startY - contentStartY)
+	endY = vpOffset + (endY - contentStartY)
 	startX -= contentStartX
 	endX -= contentStartX
 
@@ -3665,9 +3771,6 @@ func (m *Model) selectedText() string {
 
 	gw := m.mainPane.gutterWidth
 	contMap := m.mainPane.wrapContinuation
-	// The viewport may be scrolled, so viewport line 0 corresponds to
-	// the viewport's scroll offset in the full content.
-	vpOffset := m.mainPane.viewport.YOffset()
 	var selected strings.Builder
 	for y := startY; y <= endY && y < len(contentLines); y++ {
 		// Strip ANSI codes to get clean text
@@ -3675,9 +3778,9 @@ func (m *Model) selectedText() string {
 		line = strings.TrimRight(line, " ") // remove trailing padding
 
 		// For continuation lines (word-wrapped), strip the indent prefix
-		// For original lines, strip the gutter prefix
-		absY := y + vpOffset
-		isCont := contMap != nil && absY < len(contMap) && contMap[absY]
+		// For original lines, strip the gutter prefix. The continuation
+		// map is keyed on absolute viewport-content-Y (matches y here).
+		isCont := contMap != nil && y < len(contMap) && contMap[y]
 		if isCont {
 			// Continuation line: strip indent (gutter-width spaces)
 			if gw > 0 && len(line) > gw {
@@ -3708,7 +3811,7 @@ func (m *Model) selectedText() string {
 		}
 		if y < endY {
 			// If the NEXT viewport line is a word-wrap continuation, don't add newline
-			nextAbsY := (y + 1) + vpOffset
+			nextAbsY := y + 1
 			if contMap != nil && nextAbsY < len(contMap) && contMap[nextAbsY] {
 				continue // join continuation lines without newline
 			}
