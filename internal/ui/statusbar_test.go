@@ -7,6 +7,30 @@ import (
 	"github.com/hazeledmands/prwatch/internal/git"
 )
 
+// TestRenderStatusBar_ScopeHandleIndicator verifies that when scopeHandle
+// is set, line 2 prefixes the indicator (`@<sha7> HEAD~N`); when nil, no
+// such prefix appears.
+func TestRenderStatusBar_ScopeHandleIndicator(t *testing.T) {
+	base := statusBarData{
+		info: git.RepoInfoResult{Branch: "feature", RepoName: "p", DirName: "p", Upstream: "origin/main"},
+		mode: FilesMode,
+	}
+	bar, _, _, _ := renderStatusBar(120, base)
+	if strings.Contains(bar, "@a3f7d21") || strings.Contains(bar, "HEAD~") {
+		t.Error("at default scope, status bar should NOT contain handle indicator")
+	}
+
+	scrubbed := base
+	scrubbed.scopeHandle = &scopeHandleInfo{sha7: "a3f7d21", headOffset: 7}
+	bar, _, _, _ = renderStatusBar(120, scrubbed)
+	if !strings.Contains(bar, "@a3f7d21") {
+		t.Errorf("scrubbed: status bar should contain @<sha7>; got: %q", bar)
+	}
+	if !strings.Contains(bar, "HEAD~7") {
+		t.Errorf("scrubbed: status bar should contain HEAD~N; got: %q", bar)
+	}
+}
+
 func TestRenderStatusBar_Basic(t *testing.T) {
 	data := statusBarData{
 		info: git.RepoInfoResult{

@@ -3400,6 +3400,20 @@ func parseKeyName(name string) tea.KeyPressMsg {
 	}
 }
 
+// scopeHandleInfo returns a snapshot of the scope handle for the status bar,
+// or nil at the default scope position. m.commitCount already counts commits
+// in m.base..HEAD, which equals N for HEAD~N.
+func (m *Model) scopeHandleInfo() *scopeHandleInfo {
+	if m.base == "" || m.naturalBase == "" || m.base == m.naturalBase {
+		return nil
+	}
+	sha7 := m.base
+	if len(sha7) > 7 {
+		sha7 = sha7[:7]
+	}
+	return &scopeHandleInfo{sha7: sha7, headOffset: m.commitCount}
+}
+
 func (m *Model) View() tea.View {
 	if m.debugLog != nil {
 		m.debugLog.Printf("[render] mode=%d focus=%d items=%d selected=%d offset=%d",
@@ -3438,6 +3452,7 @@ func (m *Model) View() tea.View {
 		showHelp:         m.showHelp,
 		hoverX:           m.hoverX,
 		hoverY:           m.hoverY,
+		scopeHandle:      m.scopeHandleInfo(),
 	})
 	m.modeLabels = labels
 	m.line2Labels = l2Labels
