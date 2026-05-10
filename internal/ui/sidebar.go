@@ -32,7 +32,29 @@ type sidebarItem struct {
 	filePath string // actual file path (for file items)
 	isDir    bool   // true for directory entries in tree mode
 	indent   int    // indentation level in tree mode
+	// collapseKey is the key used to look up directory expand/collapse state
+	// in m.collapsedDirs. Empty for non-directory items. The key is
+	// section-qualified ("section|path") so the same directory path appearing
+	// in multiple sections (e.g. "pkg/" under both Committed and All Files)
+	// has independent collapse state.
+	collapseKey string
 }
+
+// dirCollapseKey returns the section-qualified collapse-state key for a
+// directory path within a sidebar section.
+func dirCollapseKey(section, path string) string {
+	return section + "|" + path
+}
+
+// Section names used as the prefix for collapse-state keys. Each section in
+// the files-mode sidebar gets its own namespace so the same directory path
+// appearing in multiple sections has independent expand/collapse state.
+const (
+	sectionUncommitted = "uncommitted"
+	sectionStaged      = "staged"
+	sectionCommitted   = "committed"
+	sectionAllFiles    = "all-files"
+)
 
 // buildTreeItems converts a flat list of file paths into a tree-structured list
 // of sidebar items with directories and indentation. Directories start expanded.
@@ -44,7 +66,11 @@ type sidebarItem struct {
 // in the dir bucket alongside other directories.
 type kindFunc func(filePath string) sidebarItemKind
 
-func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]bool, forceDirs map[string]bool, kf ...kindFunc) []sidebarItem {
+// buildTreeItems builds the directory-tree representation for one sidebar
+// section. The section name is mixed into the collapse-state key so the same
+// directory appearing in multiple sections has independent expand/collapse
+// state.
+func buildTreeItems(files []string, kind sidebarItemKind, section string, collapsed map[string]bool, forceDirs map[string]bool, kf ...kindFunc) []sidebarItem {
 	if len(files) == 0 {
 		return nil
 	}
@@ -182,8 +208,9 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 				continue
 			}
 
+			cKey := dirCollapseKey(section, compacted.path)
 			prefix := "▼"
-			if collapsed[compacted.path] {
+			if collapsed[cKey] {
 				prefix = "▶"
 			}
 			// Use compacted.kind so an ignored dir entry can render dim
@@ -193,13 +220,14 @@ func buildTreeItems(files []string, kind sidebarItemKind, collapsed map[string]b
 			dirKind := compacted.kind
 			label := strings.Repeat("  ", indent) + prefix + " " + displayName + "/"
 			items = append(items, sidebarItem{
-				label:    label,
-				kind:     dirKind,
-				filePath: compacted.path,
-				isDir:    true,
-				indent:   indent,
+				label:       label,
+				kind:        dirKind,
+				filePath:    compacted.path,
+				isDir:       true,
+				indent:      indent,
+				collapseKey: cKey,
 			})
-			if !collapsed[compacted.path] {
+			if !collapsed[cKey] {
 				flatten(compacted, indent+1)
 			}
 		}
@@ -331,6 +359,18 @@ func (s *sidebar) SelectedItem() string {
 		return item.filePath
 	}
 	return item.prefix + item.label
+}
+
+// SelectedCollapseKey returns the section-qualified collapse-state key of
+// the currently-selected directory (empty string for non-directory items).
+// Use this when toggling expand/collapse so the toggle is scoped to the
+// section the user clicked, not to every section that happens to contain
+// the same directory path.
+func (s *sidebar) SelectedCollapseKey() string {
+	if len(s.items) == 0 || s.selected >= len(s.items) {
+		return ""
+	}
+	return s.items[s.selected].collapseKey
 }
 
 // SelectedIsDir returns true if the selected item is a directory.

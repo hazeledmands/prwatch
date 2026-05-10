@@ -2136,11 +2136,12 @@ func TestMouseClick_DirectoryToggle(t *testing.T) {
 
 	// Find the directory item in the sidebar
 	dirIdx := -1
-	var dirPath string
+	var dirPath, collapseKey string
 	for i, item := range m.sidebar.items {
 		if item.isDir {
 			dirIdx = i
 			dirPath = item.filePath
+			collapseKey = item.collapseKey
 			break
 		}
 	}
@@ -2149,7 +2150,7 @@ func TestMouseClick_DirectoryToggle(t *testing.T) {
 	}
 
 	// Verify the directory starts expanded (committed files section)
-	if m.collapsedDirs[dirPath] {
+	if m.collapsedDirs[collapseKey] {
 		t.Fatalf("directory %q should start expanded", dirPath)
 	}
 
@@ -2160,7 +2161,7 @@ func TestMouseClick_DirectoryToggle(t *testing.T) {
 	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: clickY})
 	m = result.(*Model)
 
-	if !m.collapsedDirs[dirPath] {
+	if !m.collapsedDirs[collapseKey] {
 		t.Errorf("clicking directory %q should collapse it", dirPath)
 	}
 
@@ -2176,8 +2177,123 @@ func TestMouseClick_DirectoryToggle(t *testing.T) {
 	result, _ = m.Update(tea.MouseClickMsg{X: 5, Y: clickY})
 	m = result.(*Model)
 
-	if m.collapsedDirs[dirPath] {
+	if m.collapsedDirs[collapseKey] {
 		t.Errorf("clicking directory %q again should expand it", dirPath)
+	}
+}
+
+// Regression: collapsing a directory in one section (e.g. "Committed")
+// must not collapse the same-named directory in another section
+// (e.g. "All Files"). Previously collapsedDirs was keyed by raw path,
+// which conflated the two.
+func TestCollapseDirs_DecoupledAcrossSections(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		// "pkg/" exists in both committed and all-files sections —
+		// committed has foo/bar.go, all-files has unchanged.go and other.go
+		// (committed files are filtered out of all-files, so we need
+		// distinct, multi-file content in each section to keep the dir
+		// from being compacted to a single-file shorthand).
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"pkg/foo.go", "pkg/bar.go"},
+		},
+		allFiles:   []string{"pkg/foo.go", "pkg/bar.go", "pkg/unchanged.go", "pkg/other.go", "main.go"},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	m.mode = FilesMode
+	m.updateSidebarItems()
+
+	// Find the "pkg/" directory entries in BOTH sections.
+	type dirRef struct{ idx int }
+	var committedDir, allFilesDir dirRef
+	committedDir.idx = -1
+	allFilesDir.idx = -1
+	inAllFiles := false
+	for i, item := range m.sidebar.items {
+		if item.kind == itemHeader && strings.HasPrefix(item.label, "All Files") {
+			inAllFiles = true
+			continue
+		}
+		if !item.isDir || item.filePath != "pkg" {
+			continue
+		}
+		if inAllFiles {
+			allFilesDir.idx = i
+		} else {
+			committedDir.idx = i
+		}
+	}
+	if committedDir.idx < 0 {
+		t.Fatal("no 'pkg/' directory found in committed section")
+	}
+	if allFilesDir.idx < 0 {
+		t.Fatal("no 'pkg/' directory found in all-files section")
+	}
+
+	// All Files starts collapsed by default (per spec). Expand it first so
+	// we can later assert the click on committed pkg/ doesn't leak into
+	// the all-files pkg/ state.
+	clickY := m.statusBarLines() + 1 + allFilesDir.idx - m.sidebar.offset
+	result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: clickY})
+	m = result.(*Model)
+	// Re-find the directory indices since the sidebar rebuilt.
+	committedDir.idx = -1
+	allFilesDir.idx = -1
+	inAllFiles = false
+	for i, item := range m.sidebar.items {
+		if item.kind == itemHeader && strings.HasPrefix(item.label, "All Files") {
+			inAllFiles = true
+			continue
+		}
+		if !item.isDir || item.filePath != "pkg" {
+			continue
+		}
+		if inAllFiles {
+			allFilesDir.idx = i
+		} else {
+			committedDir.idx = i
+		}
+	}
+
+	// Now click the committed-section pkg/ to collapse it.
+	clickY = m.statusBarLines() + 1 + committedDir.idx - m.sidebar.offset
+	result, _ = m.Update(tea.MouseClickMsg{X: 5, Y: clickY})
+	m = result.(*Model)
+
+	// The committed-section dir must now be collapsed; the all-files
+	// pkg/ must still be expanded.
+	committedCollapsed := false
+	allFilesCollapsed := false
+	inAllFiles = false
+	for _, item := range m.sidebar.items {
+		if item.kind == itemHeader && strings.HasPrefix(item.label, "All Files") {
+			inAllFiles = true
+			continue
+		}
+		if !item.isDir || item.filePath != "pkg" {
+			continue
+		}
+		// A collapsed directory uses the "▶" glyph; expanded uses "▼".
+		isCollapsed := strings.Contains(item.label, "▶")
+		if inAllFiles {
+			allFilesCollapsed = isCollapsed
+		} else {
+			committedCollapsed = isCollapsed
+		}
+	}
+	if !committedCollapsed {
+		t.Error("committed-section pkg/ should be collapsed after click")
+	}
+	if allFilesCollapsed {
+		t.Error("all-files pkg/ should still be expanded; collapsing committed-section pkg/ leaked across sections")
 	}
 }
 
@@ -4586,7 +4702,7 @@ func TestBuildTreeItems(t *testing.T) {
 		"main.go",
 	}
 	collapsed := make(map[string]bool)
-	items := buildTreeItems(files, itemNormal, collapsed, nil)
+	items := buildTreeItems(files, itemNormal, "test", collapsed, nil)
 
 	// Should have: internal/ dir, git/ dir, git.go file, ui/ dir, keys.go, model.go, main.go
 	// Dirs first, sorted
@@ -4600,8 +4716,8 @@ func TestBuildTreeItems(t *testing.T) {
 	}
 
 	// Collapse internal/
-	collapsed["internal"] = true
-	items = buildTreeItems(files, itemNormal, collapsed, nil)
+	collapsed[dirCollapseKey("test", "internal")] = true
+	items = buildTreeItems(files, itemNormal, "test", collapsed, nil)
 
 	// After collapse, should only have internal/ (collapsed) and main.go
 	nonSepCount := 0
@@ -4791,17 +4907,21 @@ func TestHandleEnter_DirectoryToggle(t *testing.T) {
 		t.Fatal("first item should be a directory in tree mode")
 	}
 
+	// internal/ is under the Committed section, so its collapse key is
+	// section-qualified.
+	internalKey := dirCollapseKey(sectionCommitted, "internal")
+
 	// Press h (left) to collapse the directory
 	result, _ := m.Update(tea.KeyPressMsg{Text: "h", Code: 'h'})
 	m = result.(*Model)
-	if !m.collapsedDirs["internal"] {
+	if !m.collapsedDirs[internalKey] {
 		t.Error("h on expanded directory should collapse it")
 	}
 
 	// Press enter to expand it again
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
-	if m.collapsedDirs["internal"] {
+	if m.collapsedDirs[internalKey] {
 		t.Error("enter on collapsed directory should expand it")
 	}
 
@@ -4918,13 +5038,13 @@ func TestHandleSidebarLeft_CollapseDir(t *testing.T) {
 	if !m.sidebar.SelectedIsDir() {
 		t.Skip("first item is not a directory")
 	}
-	dir := m.sidebar.SelectedItem()
-	if m.collapsedDirs[dir] {
+	collapseKey := m.sidebar.SelectedCollapseKey()
+	if m.collapsedDirs[collapseKey] {
 		t.Error("directory should start expanded")
 	}
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
 	m = result.(*Model)
-	if !m.collapsedDirs[dir] {
+	if !m.collapsedDirs[collapseKey] {
 		t.Error("left on expanded directory should collapse it")
 	}
 }
@@ -4988,11 +5108,12 @@ func TestHandleSidebarRight_ExpandCollapsed(t *testing.T) {
 	m.updateSidebarItems()
 
 	// Find and select a directory, then collapse it
+	var collapseKey string
 	for i, item := range m.sidebar.items {
 		if item.isDir {
 			m.sidebar.SelectIndex(i)
-			dir := m.sidebar.SelectedItem()
-			m.collapsedDirs[dir] = true
+			collapseKey = item.collapseKey
+			m.collapsedDirs[collapseKey] = true
 			m.updateSidebarItems()
 			break
 		}
@@ -5002,8 +5123,7 @@ func TestHandleSidebarRight_ExpandCollapsed(t *testing.T) {
 		t.Skip("no directory found")
 	}
 
-	dir := m.sidebar.SelectedItem()
-	if !m.collapsedDirs[dir] {
+	if !m.collapsedDirs[collapseKey] {
 		t.Fatal("directory should be collapsed for this test")
 	}
 
@@ -5011,7 +5131,7 @@ func TestHandleSidebarRight_ExpandCollapsed(t *testing.T) {
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = result.(*Model)
 
-	if m.collapsedDirs[dir] {
+	if m.collapsedDirs[collapseKey] {
 		t.Error("right on collapsed directory should expand it")
 	}
 }
@@ -7565,18 +7685,18 @@ func TestTreeDefaultStates(t *testing.T) {
 	m.updateSidebarItems()
 
 	// Uncommitted and committed dirs should NOT be collapsed (start open)
-	if m.collapsedDirs["src"] {
+	if m.collapsedDirs[dirCollapseKey(sectionUncommitted, "src")] {
 		t.Error("uncommitted dir 'src' should start open, but is collapsed")
 	}
-	if m.collapsedDirs["lib"] {
+	if m.collapsedDirs[dirCollapseKey(sectionCommitted, "lib")] {
 		t.Error("committed dir 'lib' should start open, but is collapsed")
 	}
 
 	// All-files directory trees should start closed
-	if !m.collapsedDirs["vendor"] {
+	if !m.collapsedDirs[dirCollapseKey(sectionAllFiles, "vendor")] {
 		t.Error("all-files dir 'vendor' should start collapsed")
 	}
-	if !m.collapsedDirs["docs"] {
+	if !m.collapsedDirs[dirCollapseKey(sectionAllFiles, "docs")] {
 		t.Error("all-files dir 'docs' should start collapsed")
 	}
 }
