@@ -328,6 +328,7 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
   - copied text should be the same as the text from the file (or diff) that is being copied - it should not carry over extra newlines when the text in the UI wraps
   - copied text should not include TUI glyphs, gutter characters, or ANSI codes.
   - on release, a transient toast appears in the bottom-left in the form `copied selection (N lines, M bytes)` (same toast style as `yank-path`).
+  - when dragging past the top line or past the bottom line, the view should scroll, making it possible to copy content larger than the view on the screen.
 
 ---
 
