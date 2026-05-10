@@ -1042,6 +1042,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sortPRData()
 			}
 		}
+		// Stale-load guard. If a periodic tick's loadLocalGitData was already
+		// in flight when the user scrubbed the scope handle, the tick's msg
+		// carries the pre-scrub base. Applying it would overwrite m.base and
+		// the file/commit lists with data for the wrong scope. Discard the
+		// scope-dependent fields; the next load (re-dispatched by the scope
+		// command) is authoritative.
+		if m.base != "" && msg.base != "" && msg.base != m.base {
+			if msg.naturalBase != "" {
+				m.naturalBase = msg.naturalBase
+			}
+			m.updateLayout()
+			m.updateSidebarItems()
+			m.updateMainContent()
+			return m, nil
+		}
+
 		m.base = msg.base
 		if msg.naturalBase != "" {
 			m.naturalBase = msg.naturalBase
