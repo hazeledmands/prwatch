@@ -6837,6 +6837,81 @@ func TestCopySelection_HiddenSidebar(t *testing.T) {
 	m.copySelection() // exercises sidebarHidden=true path
 }
 
+// Regression: dragging into (or starting on) the sticky title row of the
+// main pane should not include title text in the selection. The title is
+// not part of the file/diff content the user is reading.
+func TestCopySelection_DragOnTitleRowExcludesTitle(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"distinctive_file.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "alpha beta gamma\ndelta epsilon zeta\neta theta iota",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Title row sits at statusBarLines + topBorder (one row inside the pane
+	// border). For a 3-line status bar that is row 4. Anything dragged
+	// from that row downward should still copy file content but never the
+	// title text itself.
+	titleRow := m.statusBarLines() + 1
+	m.dragStartX = m.sidebarPixelWidth() + 5
+	m.dragStartY = titleRow
+	m.dragEndX = m.sidebarPixelWidth() + 30
+	m.dragEndY = titleRow + 3
+
+	got := m.selectedText()
+	if strings.Contains(got, "distinctive_file.go") {
+		t.Errorf("selection should not include title text 'distinctive_file.go', got %q", got)
+	}
+}
+
+// The drag highlight overlay should also stop at the title row — when the
+// title row is highlighted, the user sees dim+bold title text reverse-
+// videoed, which is the visual symptom of the bug.
+func TestApplyDragHighlight_DoesNotHighlightTitleRow(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"distinctive_filename.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: "alpha\nbeta\ngamma",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	titleRow := m.statusBarLines() + 1
+	m.dragging = true
+	m.dragStartX = m.sidebarPixelWidth() + 1
+	m.dragStartY = titleRow
+	m.dragEndX = m.width - 2
+	m.dragEndY = titleRow
+
+	view := m.View()
+	lines := strings.Split(view.Content, "\n")
+	if titleRow >= len(lines) {
+		t.Fatalf("title row %d out of view (%d lines)", titleRow, len(lines))
+	}
+	if strings.Contains(lines[titleRow], "\x1b[7m") {
+		t.Errorf("title row should not contain reverse-video highlight, got %q", lines[titleRow])
+	}
+}
+
 func TestMouseDragRelease_ShowsCopiedNotification(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},

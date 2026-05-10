@@ -1,9 +1,10 @@
 ## New Bugs
 
 - renaming a file in git doesn't reflect properly in the sidebar.
-- highlight to copy allows me to drag the mouse into the main pane's title line.
 
 ## Fixed Bugs
+
+- Drag-to-copy highlighted (and would have copied) the main pane's sticky title row — `applyDragHighlight` and `selectedText` both used `contentStartY = statusRows + topBorder`, which is exactly the row containing the sticky title. Fixed by accounting for the title row (+1) when clamping drag coordinates so dragging onto/past the title falls back to the first content line. Added a property-test invariant that the title row never gets reverse-videoed by drag.
 
 - View switched to a different file when a file was added or removed from the diff — root cause was `sidebar.SetItems` preserving the selected *index* across refreshes, so any shift in the item list put a different file under the cursor. Fixed by tracking the selected item's identity (filePath, falling back to prefix+label) and re-finding it in the new list, picking the closest match by index when the same identifier appears in multiple sections.
 
