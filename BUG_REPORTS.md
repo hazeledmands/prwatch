@@ -2,9 +2,9 @@
 
 - renaming a file in git doesn't reflect properly in the sidebar.
 
-- Scope handle can briefly snap back to a stale base if a periodic git tick's `loadLocalGitData` is already in flight when the user presses `[`, `]`, or `\`. The in-flight load captured the older `m.base`, so when its `gitDataMsg` arrives after the keypress it overwrites the new scrub state with stale counts/file lists. Settles on the next tick or keypress. Reproduced via the IPC harness by pressing `[` twice ~5s apart and observing committed-file count regress in `PRWATCH_DEBUG_LOG`. Likely fix: handler discards a `gitDataMsg` whose `base` doesn't match the model's current `m.base`, or carries a dispatch-sequence number.
-
 ## Fixed Bugs
+
+- Scope handle could briefly snap back to a stale base if a periodic git tick's `loadLocalGitData` was already in flight when the user pressed `[`, `]`, or `\`. The in-flight load captured the older `m.base`, so when its `gitDataMsg` arrived after the keypress it overwrote the new scrub state with stale counts/file lists. Fixed by adding a stale-load guard to the `gitDataMsg` handler: when `msg.base != m.base` (and both are non-empty), discard the scope-dependent fields; `m.naturalBase` is still tracked. Regression test (`TestScope_StaleLoadDoesNotOverwriteScrubbedBase`) injects a stale msg after a scrub and asserts neither `m.base` nor `committedFiles` is overwritten.
 
 - Expanding/collapsing a directory in one sidebar section also flipped the same directory in other sections — root cause was `m.collapsedDirs` keyed by raw path, so e.g. "pkg/" under Committed and "pkg/" under All Files shared a single open/closed flag. Fixed by section-qualifying the key (`section|path`) and recording the key on each `sidebarItem`; click/h/l toggle handlers now use `SelectedCollapseKey` so the toggle is scoped to the row the user actually interacted with.
 

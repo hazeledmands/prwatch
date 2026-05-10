@@ -561,6 +561,55 @@ func TestScope_ExtendBackMovesBaseToParent(t *testing.T) {
 	}
 }
 
+// TestScope_StaleLoadDoesNotOverwriteScrubbedBase simulates a periodic git
+// tick whose loadLocalGitData was already in flight when the user pressed a
+// scope key. The tick's gitDataMsg arrives with the OLD base. The handler
+// must discard it, not overwrite m.base.
+func TestScope_StaleLoadDoesNotOverwriteScrubbedBase(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:        "natural-sha",
+		parents:     map[string]string{"natural-sha": "parent-sha"},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	// User scrubs: m.base moves to parent.
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if m.base != "parent-sha" {
+		t.Fatalf("setup: m.base = %q, want %q", m.base, "parent-sha")
+	}
+
+	// A periodic tick's loadLocalGitData, dispatched BEFORE the scope keypress,
+	// finally returns. It captured the old base, so its msg carries the
+	// pre-scrub value. Without the fix, the handler would overwrite m.base.
+	staleMsg := gitDataMsg{
+		repoInfo:       git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:           "natural-sha",
+		naturalBase:    "natural-sha",
+		committedFiles: []string{"old-file.go"},
+		localOnly:      true,
+	}
+	m.Update(staleMsg)
+
+	if m.base != "parent-sha" {
+		t.Errorf("stale gitDataMsg overwrote scrubbed m.base: got %q, want %q", m.base, "parent-sha")
+	}
+	// File lists from the stale load must also be discarded so the UI
+	// doesn't briefly show the wrong scope's content.
+	for _, f := range m.committedFiles {
+		if f == "old-file.go" {
+			t.Errorf("stale committedFiles applied; got %v", m.committedFiles)
+		}
+	}
+}
+
 // TestScope_DoubleExtendBackWalksTwoSteps verifies pressing ] twice in a
 // row, with a synchronous reload between them (matching the IPC flow),
 // walks m.base through two parent steps. Catches regressions where the
