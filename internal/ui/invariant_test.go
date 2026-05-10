@@ -1605,10 +1605,19 @@ func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, ignoredDirs map
 		if hiddenByIgnored {
 			continue
 		}
-		// Must be hidden under a collapsed dir that has a visible dir entry
+		// Must be hidden under a collapsed dir that has a visible dir entry.
+		// collapsedDirs is now keyed by "section|path"; strip the section
+		// prefix before comparing to file paths.
 		hidden := false
-		for dir, collapsed := range m.collapsedDirs {
-			if collapsed && visibleDirEntries[dir] && strings.HasPrefix(f, dir+"/") {
+		for key, collapsed := range m.collapsedDirs {
+			if !collapsed {
+				continue
+			}
+			dir := key
+			if i := strings.Index(key, "|"); i >= 0 {
+				dir = key[i+1:]
+			}
+			if visibleDirEntries[dir] && strings.HasPrefix(f, dir+"/") {
 				hidden = true
 				break
 			}
@@ -1726,7 +1735,8 @@ func collapsedIgnoredDirSet(ignored []string) map[string]bool {
 func checkIgnoredDirsLoadedIfExpanded(t *rapid.T, m *Model, context string) {
 	t.Helper()
 	for d := range m.ignoredDirs {
-		if !m.collapsedDirs[d] && !m.loadedIgnoredDirs[d] {
+		// Ignored dirs only appear in the All Files section.
+		if !m.collapsedDirs[dirCollapseKey(sectionAllFiles, d)] && !m.loadedIgnoredDirs[d] {
 			t.Fatalf("%s: ignored dir %q is expanded (collapsedDirs=false) but not loaded (loadedIgnoredDirs=false) — would render as empty forever",
 				context, d)
 		}
@@ -1911,12 +1921,13 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			// Capture state before action for navigation invariants
 			selBefore := m.sidebar.SelectedIndex()
 			var isDirBefore bool
-			var dirPathBefore string
+			var dirPathBefore, dirCollapseKeyBefore string
 			var collapsedBefore bool
 			if selBefore < len(m.sidebar.items) {
 				isDirBefore = m.sidebar.items[selBefore].isDir
 				dirPathBefore = m.sidebar.items[selBefore].filePath
-				collapsedBefore = m.collapsedDirs[dirPathBefore]
+				dirCollapseKeyBefore = m.sidebar.items[selBefore].collapseKey
+				collapsedBefore = m.collapsedDirs[dirCollapseKeyBefore]
 			}
 			mainContentBefore := m.mainPane.viewport.View()
 
@@ -1981,7 +1992,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 				if m.focus == SidebarFocus && isDirBefore {
 					// Invariant 7: left on expanded dir collapses it
 					if isLeft && !collapsedBefore {
-						if !m.collapsedDirs[dirPathBefore] {
+						if !m.collapsedDirs[dirCollapseKeyBefore] {
 							t.Fatalf("%s: left on expanded dir %q should collapse it",
 								context, dirPathBefore)
 						}
@@ -2014,7 +2025,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 
 					// Invariant 9: right on collapsed dir expands it
 					if isRight && collapsedBefore {
-						if m.collapsedDirs[dirPathBefore] {
+						if m.collapsedDirs[dirCollapseKeyBefore] {
 							t.Fatalf("%s: right on collapsed dir %q should expand it",
 								context, dirPathBefore)
 						}

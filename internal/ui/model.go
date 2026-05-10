@@ -1061,8 +1061,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// state invariant and would render as an empty ▼ if the user
 		// switched to FilesMode.
 		for d := range m.ignoredDirs {
-			if _, exists := m.collapsedDirs[d]; !exists {
-				m.collapsedDirs[d] = true
+			key := dirCollapseKey(sectionAllFiles, d)
+			if _, exists := m.collapsedDirs[key]; !exists {
+				m.collapsedDirs[key] = true
 			}
 		}
 		// Reattach deep paths whose top-level dir is still loaded.
@@ -1112,7 +1113,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Auto-expand the dir now that its contents are loaded — the user
 		// asked for them, so don't make them press right a second time.
-		m.collapsedDirs[msg.dir] = false
+		// Ignored dirs only ever appear in the All Files section.
+		m.collapsedDirs[dirCollapseKey(sectionAllFiles, msg.dir)] = false
 		m.updateSidebarItems()
 		// updateSidebarItems can change which item lives at the selected
 		// index — single-leaf compaction can swallow a dir entry whose
@@ -1897,10 +1899,13 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// dir would flip to expanded with no children visible (forever).
 		if m.sidebar.SelectedIsDir() {
 			dir := m.sidebar.SelectedItem()
+			key := m.sidebar.SelectedCollapseKey()
 			if m.ignoredDirs[dir] && !m.loadedIgnoredDirs[dir] {
 				return m, m.expandIgnoredDir(dir)
 			}
-			m.collapsedDirs[dir] = !m.collapsedDirs[dir]
+			if key != "" {
+				m.collapsedDirs[key] = !m.collapsedDirs[key]
+			}
 			selectedBefore := m.sidebar.SelectedItem()
 			m.updateSidebarItems()
 			// Collapsing may shift which item is at the selected index;
@@ -1982,9 +1987,9 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 func (m *Model) handleSidebarLeft() (tea.Model, tea.Cmd) {
 	if m.sidebar.SelectedIsDir() {
 		// Collapse the directory if it's open
-		dir := m.sidebar.SelectedItem()
-		if !m.collapsedDirs[dir] {
-			m.collapsedDirs[dir] = true
+		key := m.sidebar.SelectedCollapseKey()
+		if key != "" && !m.collapsedDirs[key] {
+			m.collapsedDirs[key] = true
 			m.updateSidebarItems()
 			return m, nil
 		}
@@ -2018,12 +2023,13 @@ func (m *Model) handleSidebarLeft() (tea.Model, tea.Cmd) {
 func (m *Model) handleSidebarRight() (tea.Model, tea.Cmd) {
 	if m.sidebar.SelectedIsDir() {
 		dir := m.sidebar.SelectedItem()
+		key := m.sidebar.SelectedCollapseKey()
 		if m.ignoredDirs[dir] && !m.loadedIgnoredDirs[dir] {
 			return m, m.expandIgnoredDir(dir)
 		}
-		if m.collapsedDirs[dir] {
+		if key != "" && m.collapsedDirs[key] {
 			// Expand the directory
-			m.collapsedDirs[dir] = false
+			m.collapsedDirs[key] = false
 			m.updateSidebarItems()
 		} else {
 			// Already expanded — move to first child
@@ -2538,15 +2544,18 @@ func (m *Model) updateSidebarItems() {
 			}
 		}
 
-		// Auto-collapse directories by default
-		dotDirs := extractDirs(m.uncommittedFiles)
-		dotDirs = append(dotDirs, extractDirs(m.stagedFiles)...)
-		dotDirs = append(dotDirs, extractDirs(m.committedFiles)...)
-		for _, d := range dotDirs {
-			if _, exists := m.collapsedDirs[d]; !exists {
+		// Auto-collapse directories by default. Each section maintains its
+		// own collapse state (so "pkg/" under Committed and "pkg/" under
+		// All Files don't share a single open/closed flag).
+		autoCollapseChanged := func(section string, dirs []string) {
+			for _, d := range dirs {
+				key := dirCollapseKey(section, d)
+				if _, exists := m.collapsedDirs[key]; exists {
+					continue
+				}
 				if m.git == nil {
 					// Non-git: collapse all dirs by default (no concept of "changed" files)
-					m.collapsedDirs[d] = true
+					m.collapsedDirs[key] = true
 				} else {
 					// Git: auto-collapse hidden (dot-prefixed) directories,
 					// explicitly expand others so the "All Files" section's
@@ -2555,39 +2564,42 @@ func (m *Model) updateSidebarItems() {
 					if i := strings.LastIndex(d, "/"); i >= 0 {
 						base = d[i+1:]
 					}
-					m.collapsedDirs[d] = strings.HasPrefix(base, ".")
+					m.collapsedDirs[key] = strings.HasPrefix(base, ".")
 				}
 			}
 		}
+		autoCollapseChanged(sectionUncommitted, extractDirs(m.uncommittedFiles))
+		autoCollapseChanged(sectionStaged, extractDirs(m.stagedFiles))
+		autoCollapseChanged(sectionCommitted, extractDirs(m.committedFiles))
 		if len(m.uncommittedFiles) > 0 {
 			items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(m.uncommittedFiles)), kind: itemHeader})
-			items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, m.collapsedDirs, nil)...)
+			items = append(items, buildTreeItems(m.uncommittedFiles, itemNormal, sectionUncommitted, m.collapsedDirs, nil)...)
 		}
 		if len(m.stagedFiles) > 0 {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 			items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(m.stagedFiles)), kind: itemHeader})
-			items = append(items, buildTreeItems(m.stagedFiles, itemNormal, m.collapsedDirs, nil)...)
+			items = append(items, buildTreeItems(m.stagedFiles, itemNormal, sectionStaged, m.collapsedDirs, nil)...)
 		}
 		if len(m.committedFiles) > 0 {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 			items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(m.committedFiles)), kind: itemHeader})
-			items = append(items, buildTreeItems(m.committedFiles, itemNormal, m.collapsedDirs, nil, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
+			items = append(items, buildTreeItems(m.committedFiles, itemNormal, sectionCommitted, m.collapsedDirs, nil, func(f string) sidebarItemKind { return m.fileItemKind(f, itemNormal) })...)
 		}
 		if len(otherFiles) > 0 {
 			if len(items) > 0 {
 				items = append(items, sidebarItem{kind: itemSeparator})
 			}
 			items = append(items, sidebarItem{label: fmt.Sprintf("All Files (%d)", len(otherFiles)), kind: itemHeader})
-			// All-files trees default to collapsed (spec: "trees should start out closed")
-			// Use collapsedDirs but auto-collapse dirs not already tracked
+			// All-files trees default to collapsed (spec: "trees should start out closed").
 			allFilesDirs := extractDirs(otherFiles)
 			for _, d := range allFilesDirs {
-				if _, exists := m.collapsedDirs[d]; !exists {
-					m.collapsedDirs[d] = true // default closed for all-files
+				key := dirCollapseKey(sectionAllFiles, d)
+				if _, exists := m.collapsedDirs[key]; !exists {
+					m.collapsedDirs[key] = true // default closed for all-files
 				}
 			}
 			// Ignored top-level dirs are single-segment paths in the file
@@ -2596,11 +2608,12 @@ func (m *Model) updateSidebarItems() {
 			// start — without this, an unloaded ignored dir sorts as a
 			// leaf and jumps when the user expands it.
 			for d := range m.ignoredDirs {
-				if _, exists := m.collapsedDirs[d]; !exists {
-					m.collapsedDirs[d] = true
+				key := dirCollapseKey(sectionAllFiles, d)
+				if _, exists := m.collapsedDirs[key]; !exists {
+					m.collapsedDirs[key] = true
 				}
 			}
-			items = append(items, buildTreeItems(otherFiles, itemNormal, m.collapsedDirs, m.ignoredDirs, func(f string) sidebarItemKind {
+			items = append(items, buildTreeItems(otherFiles, itemNormal, sectionAllFiles, m.collapsedDirs, m.ignoredDirs, func(f string) sidebarItemKind {
 				if m.ignoredFiles[f] {
 					return itemDim
 				}
