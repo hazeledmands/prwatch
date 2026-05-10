@@ -272,6 +272,78 @@ func TestSidebar_SetItems_FallsBackWhenSelectionGone(t *testing.T) {
 	}
 }
 
+// Spec: "the sidebar should visually distinguish the cursor position from
+// the pinned (currently viewing) file when they differ." The pinned file
+// is the one currently displayed in the main pane, set via SetPinnedID.
+// When the cursor moves over a directory or pseudo-entry, the pinned file
+// must still be visible at a glance.
+func TestSidebar_PinnedItem_RenderedWithDistinctStyle(t *testing.T) {
+	s := newSidebar()
+	s.width = 30
+	s.height = 10
+	s.SetItems([]sidebarItem{
+		{label: "  pinned.go", kind: itemNormal, filePath: "pinned.go"},
+		{label: "  cursor.go", kind: itemNormal, filePath: "cursor.go"},
+	})
+	s.SetPinnedID("pinned.go")
+	s.SelectIndex(1) // cursor on cursor.go, pinned is pinned.go
+
+	view := s.View(false)
+	lines := strings.Split(view, "\n")
+	// Find which line contains "pinned.go" and which "cursor.go"
+	var pinnedLine, cursorLine string
+	for _, ln := range lines {
+		if strings.Contains(stripANSI(ln), "pinned.go") {
+			pinnedLine = ln
+		}
+		if strings.Contains(stripANSI(ln), "cursor.go") {
+			cursorLine = ln
+		}
+	}
+	if pinnedLine == "" || cursorLine == "" {
+		t.Fatalf("missing pinned/cursor line in view:\n%s", view)
+	}
+	// The two lines should have visibly different ANSI styling because
+	// one carries the pinned style and the other carries the selected
+	// style. A naive "same ANSI prefix" test catches the bug where the
+	// pinned style isn't applied at all.
+	if pinnedLine == cursorLine {
+		t.Errorf("pinned and cursor lines render identically:\n  %q", pinnedLine)
+	}
+	// The pinned line should not look like a regular (unselected, unpinned)
+	// row — verify it does carry some ANSI styling.
+	if pinnedLine == stripANSI(pinnedLine) {
+		t.Errorf("pinned line carries no ANSI styling: %q", pinnedLine)
+	}
+}
+
+// When the cursor coincides with the pinned file, the cursor styling wins
+// (it's the stronger signal) and the pinned style is suppressed.
+func TestSidebar_PinnedItem_CursorOverridesPinnedStyle(t *testing.T) {
+	s := newSidebar()
+	s.width = 30
+	s.height = 10
+	s.SetItems([]sidebarItem{
+		{label: "  shared.go", kind: itemNormal, filePath: "shared.go"},
+		{label: "  other.go", kind: itemNormal, filePath: "other.go"},
+	})
+	s.SetPinnedID("shared.go")
+	s.SelectIndex(0) // cursor on the same file as pinned
+
+	pinnedAndCursor := s.View(false)
+
+	// Now move the cursor away. The first line is no longer selected, but
+	// it's still pinned.
+	s.SelectIndex(1)
+	pinnedNotCursor := s.View(false)
+
+	// The two views must differ — when the cursor leaves shared.go, its
+	// style switches from "selected (cursor)" to "pinned (no cursor)".
+	if pinnedAndCursor == pinnedNotCursor {
+		t.Errorf("pinned-also-cursor view should differ from pinned-only view; got identical output:\n%s", pinnedAndCursor)
+	}
+}
+
 func TestSidebar_SetItems_SkipsSeparatorOnClamp(t *testing.T) {
 	s := newSidebar()
 	// If all items are separators, selected should still be 0

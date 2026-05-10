@@ -119,6 +119,22 @@ var (
 					Background(lipgloss.Color("#2A2A2A")).
 					Foreground(lipgloss.Color("#AAA"))
 
+	// Pinned-but-not-cursor styles. When the sidebar cursor moves off the
+	// file currently being shown in the main pane (e.g. cursor is on a
+	// directory), the file the user is looking at is rendered with this
+	// style so they can locate it without scanning.
+	sidebarPinnedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#89DCEB")).
+				Bold(true)
+	sidebarPinnedDimStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#89DCEB"))
+	sidebarPinnedUncommittedStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#89DCEB")).
+					Bold(true)
+	sidebarPinnedDeletedStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("#F38BA8")).
+					Bold(true).Underline(true)
+
 	// Dim styles for prefix/suffix within sidebar items
 	sidebarDimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#888"))
