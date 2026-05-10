@@ -39,6 +39,10 @@ type keyMap struct {
 	PrevLeaf       key.Binding
 	YankPath       key.Binding
 	PRBrowse       key.Binding
+
+	ScopeExtendBack      key.Binding
+	ScopeContractForward key.Binding
+	ScopeReset           key.Binding
 }
 
 var keys = keyMap{
@@ -149,5 +153,14 @@ var keys = keyMap{
 	),
 	PRBrowse: key.NewBinding(
 		key.WithKeys("o"),
+	),
+	ScopeExtendBack: key.NewBinding(
+		key.WithKeys("]"),
+	),
+	ScopeContractForward: key.NewBinding(
+		key.WithKeys("["),
+	),
+	ScopeReset: key.NewBinding(
+		key.WithKeys("\\"),
 	),
 }

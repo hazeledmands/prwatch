@@ -553,6 +553,17 @@ func (g *Git) CommitCountRange(base string) (int, error) {
 	return count, nil
 }
 
+// Parent returns the first-parent SHA of the given commit, or an error when
+// at the root commit. Used by the scope handle to walk one commit further
+// back. Resolves through `git rev-parse <sha>^`.
+func (g *Git) Parent(sha string) (string, error) {
+	out, err := g.run("rev-parse", sha+"^")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // BaseCommits returns commits from the base branch that are already in the
 // history (before the feature branch diverged). Limited to a reasonable count.
 func (g *Git) BaseCommits(base string, limit int) ([]Commit, error) {

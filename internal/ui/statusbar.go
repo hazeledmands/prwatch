@@ -27,6 +27,17 @@ type statusBarData struct {
 	showHelp         bool
 	hoverX           int // mouse hover position for highlighting
 	hoverY           int
+	// scopeHandle is non-nil when the user has scrubbed the commit-range
+	// scope away from its default position. renderLine2 prefixes the line
+	// with the handle indicator so it's visible across all modes.
+	scopeHandle *scopeHandleInfo
+}
+
+// scopeHandleInfo describes the current scrubbed position of the commit-range
+// scope handle, surfaced as a prefix on status-bar line 2.
+type scopeHandleInfo struct {
+	sha7       string // first 7 chars of the scrubbed base SHA
+	headOffset int    // commits between scrubbed base and HEAD; renders as HEAD~N
 }
 
 // modeLabel tracks the position and mode of a clickable mode label.
@@ -267,6 +278,15 @@ func renderLine2(width int, data statusBarData) (string, []line2Label) {
 	}
 	var parts []part
 	var labels []line2Label
+
+	// When the scope handle is scrubbed, prefix the line so the user can
+	// always see where the outer endpoint sits, regardless of mode.
+	if data.scopeHandle != nil {
+		parts = append(parts, part{
+			text:   fmt.Sprintf(" @%s HEAD~%d", data.scopeHandle.sha7, data.scopeHandle.headOffset),
+			target: line2CommitsMode,
+		})
+	}
 
 	parts = append(parts, part{" " + branchDisplay, line2CommitsMode})
 

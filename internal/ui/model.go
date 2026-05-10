@@ -83,20 +83,26 @@ type GitDataSource interface {
 	IgnoredFilesInDir(dir string) ([]string, error)
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
 	BehindCount(baseRef string) int
+	Parent(sha string) (string, error)
 	RWXResults(runID string) (*gitpkg.RWXResult, error)
 	RWXTaskLog(taskID string) (string, error)
 	RWXTestResults(taskID string) ([]gitpkg.RWXFailedTest, error)
 }
 
 type Model struct {
-	debugLog            *log.Logger
-	git                 GitDataSource
-	cmdFactory          command.Factory
-	mode                Mode
-	focus               Focus
-	width               int
-	height              int
-	base                string
+	debugLog   *log.Logger
+	git        GitDataSource
+	cmdFactory command.Factory
+	mode       Mode
+	focus      Focus
+	width      int
+	height     int
+	base       string
+	// naturalBase is the default outer endpoint for the commit-range scope:
+	// what detectBase() resolves to at load time. m.base equals naturalBase at
+	// the default scope position; scope-extend / scope-contract walk m.base
+	// away from naturalBase, and scope-reset snaps it back.
+	naturalBase         string
 	repoInfo            gitpkg.RepoInfoResult
 	prInfo              gitpkg.PRInfoResult
 	ciStatus            gitpkg.CIStatusResult
@@ -206,7 +212,8 @@ type gitDataMsg struct {
 	ciStatus         gitpkg.CIStatusResult
 	prReviews        []gitpkg.PRReview
 	prCommentCount   int
-	base             string
+	base             string // base used for queries — equals naturalBase except when the user has scrubbed the scope handle
+	naturalBase      string // base detected fresh this load — what scope-reset would snap to
 	committedFiles   []string
 	uncommittedFiles []string
 	stagedFiles      []string
@@ -846,9 +853,17 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	// local detection (no gh shell-out). When PR data arrives later, the
 	// prRefreshMsg handler re-dispatches loadLocalGitData so the base
 	// upgrades to match the PR's baseRefName.
-	base, err := m.detectBase()
+	naturalBase, err := m.detectBase()
 	if err != nil {
 		return gitDataMsg{err: err}
+	}
+
+	// If the user has scrubbed the scope handle, queries use the scrubbed
+	// outer endpoint instead of the natural base. The handler preserves
+	// m.base when the load returns.
+	base := naturalBase
+	if m.base != "" && m.base != naturalBase {
+		base = m.base
 	}
 
 	files, err := m.git.ChangedFiles(base)
@@ -898,6 +913,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	return gitDataMsg{
 		repoInfo:         info,
 		base:             base,
+		naturalBase:      naturalBase,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
 		stagedFiles:      files.Staged,
@@ -1027,6 +1043,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.base = msg.base
+		if msg.naturalBase != "" {
+			m.naturalBase = msg.naturalBase
+		} else {
+			// Empty-repo / pre-natural-base loads carry no naturalBase.
+			m.naturalBase = msg.base
+		}
 		m.committedFiles = msg.committedFiles
 		m.uncommittedFiles = msg.uncommittedFiles
 		m.stagedFiles = msg.stagedFiles
@@ -1473,6 +1495,38 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadNonGitFiles
 		}
 		return m, tea.Batch(m.loadLocalGitData, m.loadPRStatus)
+
+	case key.Matches(msg, keys.ScopeReset):
+		if m.naturalBase == "" || m.base == m.naturalBase {
+			return m, nil
+		}
+		m.base = m.naturalBase
+		if m.git == nil {
+			return m, nil
+		}
+		return m, m.loadLocalGitData
+
+	case key.Matches(msg, keys.ScopeExtendBack):
+		if m.git == nil || m.base == "" {
+			return m, nil
+		}
+		parent, err := m.git.Parent(m.base)
+		if err != nil {
+			// At root commit (or other failure) — no-op.
+			return m, nil
+		}
+		m.base = parent
+		return m, m.loadLocalGitData
+
+	case key.Matches(msg, keys.ScopeContractForward):
+		if m.git == nil || len(m.commits) == 0 {
+			// At workdir limit (or no git) — no-op.
+			return m, nil
+		}
+		// m.commits is base..HEAD ordered newest-first; the oldest entry has
+		// parent == m.base, so it's the next commit toward HEAD.
+		m.base = m.commits[len(m.commits)-1].SHA
+		return m, m.loadLocalGitData
 
 	case key.Matches(msg, keys.PRBrowse):
 		if m.prInfo.Number == 0 || m.prInfo.URL == "" {
@@ -2341,7 +2395,7 @@ func (m *Model) jumpToNextLeaf(direction int) {
 	}
 	for i := 1; i < n; i++ {
 		idx := (start + i*direction + n) % n
-		if items[idx].kind != itemSeparator && !items[idx].isDir {
+		if items[idx].kind != itemSeparator && items[idx].kind != itemCutline && !items[idx].isDir {
 			m.sidebar.SelectIndex(idx)
 			m.updateMainContent()
 			return
@@ -2690,10 +2744,12 @@ func (m *Model) updateSidebarItems() {
 			})
 		}
 
-		// Category 5: Base branch commits (already in base, before the feature branch)
+		// Category 5: Base branch commits (already in base, before the feature branch).
+		// A scope cutline marks the boundary between in-scope (above) and
+		// out-of-scope (Base, below) commits.
 		if len(m.baseCommits) > 0 {
 			if len(items) > 0 {
-				items = append(items, sidebarItem{kind: itemSeparator})
+				items = append(items, sidebarItem{kind: itemCutline})
 			}
 			items = append(items, sidebarItem{label: fmt.Sprintf("Base (%d)", len(m.baseCommits)), kind: itemHeader})
 			for _, c := range m.baseCommits {
@@ -3346,6 +3402,20 @@ func parseKeyName(name string) tea.KeyPressMsg {
 	}
 }
 
+// scopeHandleInfo returns a snapshot of the scope handle for the status bar,
+// or nil at the default scope position. m.commitCount already counts commits
+// in m.base..HEAD, which equals N for HEAD~N.
+func (m *Model) scopeHandleInfo() *scopeHandleInfo {
+	if m.base == "" || m.naturalBase == "" || m.base == m.naturalBase {
+		return nil
+	}
+	sha7 := m.base
+	if len(sha7) > 7 {
+		sha7 = sha7[:7]
+	}
+	return &scopeHandleInfo{sha7: sha7, headOffset: m.commitCount}
+}
+
 func (m *Model) View() tea.View {
 	if m.debugLog != nil {
 		m.debugLog.Printf("[render] mode=%d focus=%d items=%d selected=%d offset=%d",
@@ -3384,6 +3454,7 @@ func (m *Model) View() tea.View {
 		showHelp:         m.showHelp,
 		hoverX:           m.hoverX,
 		hoverY:           m.hoverY,
+		scopeHandle:      m.scopeHandleInfo(),
 	})
 	m.modeLabels = labels
 	m.line2Labels = l2Labels
@@ -4068,6 +4139,11 @@ func (m *Model) helpContentLines() []string {
 			{bindings: []key.Binding{keys.Refresh}, desc: "Refresh git state"},
 			{bindings: []key.Binding{keys.PRBrowse}, desc: "Open the active PR in the browser"},
 			{bindings: []key.Binding{keys.Help}, desc: "Show this help (scroll with j/k/mouse)"},
+		},
+		{
+			{bindings: []key.Binding{keys.ScopeExtendBack}, desc: "Extend commit-range scope backward"},
+			{bindings: []key.Binding{keys.ScopeContractForward}, desc: "Contract commit-range scope toward working tree"},
+			{bindings: []key.Binding{keys.ScopeReset}, desc: "Reset commit-range scope to default"},
 		},
 		{
 			{bindings: []key.Binding{keys.QuitConfirm}, desc: "Quit (confirm)"},

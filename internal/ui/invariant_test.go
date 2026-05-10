@@ -294,6 +294,8 @@ func genKeyPress(t *rapid.T, tag string) tea.KeyPressMsg {
 		{"y", 'y'},
 		// Help
 		{"?", '?'},
+		// Scope handle
+		{"[", '['}, {"]", ']'}, {"\\", '\\'},
 	}
 
 	idx := rapid.IntRange(0, len(allKeys)-1).Draw(t, tag+"_key")
@@ -2263,6 +2265,10 @@ func actionMayChangeScroll(msg tea.Msg) bool {
 		switch m.Text {
 		case "w", "n", "D", "i", "f", "+", "-", "=", "r", "/":
 			return true
+		case "[", "]", "\\":
+			// Scope handle keys trigger a re-load that reshapes the sidebar
+			// and main pane content, which can legitimately move scroll.
+			return true
 		}
 	}
 	return false
@@ -2312,6 +2318,117 @@ func TestProperty_ToggleIgnoredSymmetry(t *testing.T) {
 				t.Fatalf("toggle-i twice changed kind for %q: before=%d after=%d",
 					before[i].filePath, before[i].kind, after[i].kind)
 			}
+		}
+	})
+}
+
+// TestProperty_ScopeCutlineMatchesBaseSection verifies that, in commits mode,
+// the sidebar contains an itemCutline iff a Base section is present, and
+// when present the cutline is the item immediately preceding the Base header.
+// This holds across arbitrary user interactions including scope-handle keys.
+func TestProperty_ScopeCutlineMatchesBaseSection(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		mock, _ := genScenario(t)
+		if mock == nil {
+			return // non-git scenarios have no commits mode
+		}
+		// Commits mode is where the cutline lives.
+		width := rapid.IntRange(60, 160).Draw(t, "width")
+		height := rapid.IntRange(15, 50).Draw(t, "height")
+
+		m := initModel(mock, CommitsMode, width, height)
+
+		nSteps := rapid.IntRange(0, 20).Draw(t, "nSteps")
+		for step := range nSteps {
+			msg := genAction(t, m, step)
+			m = applyAction(m, msg)
+			if m.confirming {
+				m.confirming = false
+			}
+			if m.showHelp {
+				m.showHelp = false
+			}
+		}
+
+		if m.mode != CommitsMode {
+			return // mode-switching keys may have moved us elsewhere
+		}
+
+		baseIdx := -1
+		cutlineCount := 0
+		cutlineIdx := -1
+		for i, it := range m.sidebar.items {
+			if it.kind == itemCutline {
+				cutlineCount++
+				cutlineIdx = i
+			}
+			if it.kind == itemHeader && strings.HasPrefix(it.label, "Base ") {
+				baseIdx = i
+			}
+		}
+
+		hasBaseSection := baseIdx >= 0
+
+		if cutlineCount > 1 {
+			t.Fatalf("expected at most one cutline; got %d", cutlineCount)
+		}
+		if hasBaseSection {
+			if cutlineCount != 1 {
+				t.Fatalf("Base section present but no cutline (cutlineCount=%d)", cutlineCount)
+			}
+			if cutlineIdx != baseIdx-1 {
+				t.Fatalf("cutline not immediately before Base header: cutlineIdx=%d baseIdx=%d", cutlineIdx, baseIdx)
+			}
+		} else {
+			if cutlineCount != 0 {
+				t.Fatalf("no Base section but cutlineCount=%d", cutlineCount)
+			}
+		}
+	})
+}
+
+// TestProperty_ScopeIndicatorMatchesScrub verifies the bidirectional invariant
+// that line 2 of the rendered status bar contains the handle indicator
+// (`@<sha7>`) iff m.base differs from m.naturalBase. This is the visible
+// signal that the user is scrubbed away from default scope.
+func TestProperty_ScopeIndicatorMatchesScrub(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		mock, mode := genScenario(t)
+		if mock == nil {
+			return // non-git scenarios have no scope concept
+		}
+		width := rapid.IntRange(60, 160).Draw(t, "width")
+		height := rapid.IntRange(15, 50).Draw(t, "height")
+
+		m := initModel(mock, mode, width, height)
+
+		nSteps := rapid.IntRange(0, 20).Draw(t, "nSteps")
+		for step := range nSteps {
+			msg := genAction(t, m, step)
+			m = applyAction(m, msg)
+			if m.confirming {
+				m.confirming = false
+			}
+			if m.showHelp {
+				m.showHelp = false
+			}
+		}
+
+		v := viewWithTimeout(t, m, "scope indicator check")
+		stripped := stripANSI(v.Content)
+		// Line 2 is the second line. statusBarLines() reports its presence;
+		// for non-git models there is no line 2, but we already returned above.
+		lines := strings.Split(stripped, "\n")
+		if len(lines) < 2 {
+			return
+		}
+		line2 := lines[1]
+		hasIndicator := strings.Contains(line2, "@") && strings.Contains(line2, "HEAD~")
+		isScrubbed := m.base != "" && m.naturalBase != "" && m.base != m.naturalBase
+
+		if hasIndicator != isScrubbed {
+			t.Fatalf("indicator/scrub mismatch: hasIndicator=%v isScrubbed=%v base=%q natural=%q line2=%q",
+				hasIndicator, isScrubbed, m.base, m.naturalBase, line2)
 		}
 	})
 }
