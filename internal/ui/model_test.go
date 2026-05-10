@@ -635,6 +635,42 @@ func TestScope_ContractForwardAtWorkdirIsNoOp(t *testing.T) {
 	}
 }
 
+// TestScope_CommitsModeCutlineBeforeBase verifies that an itemCutline is
+// inserted immediately before the Base section header in commits mode,
+// marking the boundary between in-scope and out-of-scope commits.
+func TestScope_CommitsModeCutlineBeforeBase(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:        "natural-sha",
+		commits:     []git.Commit{{SHA: "C", Subject: "c"}, {SHA: "B", Subject: "b"}},
+		baseCommits: []git.Commit{{SHA: "Z", Subject: "z"}, {SHA: "Y", Subject: "y"}},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+	m.mode = CommitsMode
+	m.updateSidebarItems()
+
+	baseIdx := -1
+	for i, item := range m.sidebar.items {
+		if item.kind == itemHeader && strings.HasPrefix(item.label, "Base ") {
+			baseIdx = i
+			break
+		}
+	}
+	if baseIdx <= 0 {
+		t.Fatalf("expected Base header in sidebar items; baseIdx=%d, items=%+v", baseIdx, m.sidebar.items)
+	}
+	if got := m.sidebar.items[baseIdx-1].kind; got != itemCutline {
+		t.Errorf("item before Base header has kind %d, want itemCutline (%d)", got, itemCutline)
+	}
+}
+
 // TestScope_ResetSnapsToNaturalBase verifies that pressing the scope-reset
 // key (\\) returns m.base to m.naturalBase from any scrubbed position.
 func TestScope_ResetSnapsToNaturalBase(t *testing.T) {

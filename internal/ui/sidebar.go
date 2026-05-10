@@ -18,10 +18,11 @@ const (
 	itemSeparator                 // horizontal line, not selectable
 	itemDeleted                   // deleted files — rendered in red
 	itemHeader                    // section title, not selectable
+	itemCutline                   // commit-range scope boundary, not selectable
 )
 
 func (k sidebarItemKind) selectable() bool {
-	return k != itemSeparator && k != itemHeader
+	return k != itemSeparator && k != itemHeader && k != itemCutline
 }
 
 type sidebarItem struct {
@@ -574,6 +575,22 @@ func (s *sidebar) View(focused bool) string {
 		if item.kind == itemSeparator {
 			sep := strings.Repeat("─", s.width)
 			b.WriteString(sidebarSeparatorStyle.Render(sep))
+			continue
+		}
+
+		if item.kind == itemCutline {
+			label := " scope "
+			labelW := runewidth.StringWidth(label)
+			leftFill := (s.width - labelW) / 2
+			rightFill := s.width - labelW - leftFill
+			if leftFill < 0 {
+				leftFill = 0
+			}
+			if rightFill < 0 {
+				rightFill = 0
+			}
+			cutline := strings.Repeat("─", leftFill) + label + strings.Repeat("─", rightFill)
+			b.WriteString(sidebarSeparatorStyle.Render(cutline))
 			continue
 		}
 

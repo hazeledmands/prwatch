@@ -2744,10 +2744,12 @@ func (m *Model) updateSidebarItems() {
 			})
 		}
 
-		// Category 5: Base branch commits (already in base, before the feature branch)
+		// Category 5: Base branch commits (already in base, before the feature branch).
+		// A scope cutline marks the boundary between in-scope (above) and
+		// out-of-scope (Base, below) commits.
 		if len(m.baseCommits) > 0 {
 			if len(items) > 0 {
-				items = append(items, sidebarItem{kind: itemSeparator})
+				items = append(items, sidebarItem{kind: itemCutline})
 			}
 			items = append(items, sidebarItem{label: fmt.Sprintf("Base (%d)", len(m.baseCommits)), kind: itemHeader})
 			for _, c := range m.baseCommits {
