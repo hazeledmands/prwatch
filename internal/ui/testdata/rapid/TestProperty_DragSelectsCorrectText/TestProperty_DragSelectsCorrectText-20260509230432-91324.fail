@@ -1,0 +1,140 @@
+# 2026/05/09 23:04:32.593977 [TestProperty_DragSelectsCorrectText] [rapid] draw width: 60
+# 2026/05/09 23:04:32.593990 [TestProperty_DragSelectsCorrectText] [rapid] draw height: 15
+# 2026/05/09 23:04:32.594000 [TestProperty_DragSelectsCorrectText] [rapid] draw lineNumbers: false
+# 2026/05/09 23:04:32.594007 [TestProperty_DragSelectsCorrectText] [rapid] draw wordWrap: false
+# 2026/05/09 23:04:32.594015 [TestProperty_DragSelectsCorrectText] [rapid] draw nLines: 3
+# 2026/05/09 23:04:32.594030 [TestProperty_DragSelectsCorrectText] [rapid] draw nCommitted: 0
+# 2026/05/09 23:04:32.594037 [TestProperty_DragSelectsCorrectText] [rapid] draw nUncommitted: 0
+# 2026/05/09 23:04:32.594045 [TestProperty_DragSelectsCorrectText] [rapid] draw nStaged: 3
+# 2026/05/09 23:04:32.594052 [TestProperty_DragSelectsCorrectText] [rapid] draw nCommits: 0
+# 2026/05/09 23:04:32.594068 [TestProperty_DragSelectsCorrectText] [rapid] draw addStaged_staged0.go: 1
+# 2026/05/09 23:04:32.594078 [TestProperty_DragSelectsCorrectText] [rapid] draw addStaged_staged1.go: 1
+# 2026/05/09 23:04:32.594086 [TestProperty_DragSelectsCorrectText] [rapid] draw addStaged_staged2.go: 1
+# 2026/05/09 23:04:32.594093 [TestProperty_DragSelectsCorrectText] [rapid] draw nOtherFiles: 0
+# 2026/05/09 23:04:32.594100 [TestProperty_DragSelectsCorrectText] [rapid] draw nIgnored: 2
+# 2026/05/09 23:04:32.594107 [TestProperty_DragSelectsCorrectText] [rapid] draw ignoredKind0: 0
+# 2026/05/09 23:04:32.594116 [TestProperty_DragSelectsCorrectText] [rapid] draw ignoredKind1: 0
+# 2026/05/09 23:04:32.594126 [TestProperty_DragSelectsCorrectText] [rapid] draw branch: "main"
+# 2026/05/09 23:04:32.594139 [TestProperty_DragSelectsCorrectText] [rapid] draw detached: false
+# 2026/05/09 23:04:32.594147 [TestProperty_DragSelectsCorrectText] [rapid] draw prNum: 42
+# 2026/05/09 23:04:32.594154 [TestProperty_DragSelectsCorrectText] [rapid] draw prTitle_emoji: 1
+# 2026/05/09 23:04:32.594160 [TestProperty_DragSelectsCorrectText] [rapid] draw isDraft: false
+# 2026/05/09 23:04:32.594167 [TestProperty_DragSelectsCorrectText] [rapid] draw aheadCount: 0
+# 2026/05/09 23:04:32.594175 [TestProperty_DragSelectsCorrectText] [rapid] draw fileDiff_emoji: 1
+# 2026/05/09 23:04:32.594184 [TestProperty_DragSelectsCorrectText] [rapid] draw fileContent_emoji: 1
+# 2026/05/09 23:04:32.594191 [TestProperty_DragSelectsCorrectText] [rapid] draw commitPatch_emoji: 1
+# 2026/05/09 23:04:32.612018 [TestProperty_DragSelectsCorrectText] [rapid] draw y1: 2
+# 2026/05/09 23:04:32.612037 [TestProperty_DragSelectsCorrectText] [rapid] draw y2: 5
+# 2026/05/09 23:04:32.612045 [TestProperty_DragSelectsCorrectText] [rapid] draw x1: 24
+# 2026/05/09 23:04:32.612053 [TestProperty_DragSelectsCorrectText] [rapid] draw x2: 24
+# 2026/05/09 23:04:32.623755 [TestProperty_DragSelectsCorrectText] highlight/selection mismatch:
+#   highlight: "source line 1 with some content for\ns"
+#   selectedText: "s"
+#   wrap=false lineNums=false drag=(24,2)->(24,5)
+# 
+v0.4.8#5041322311274306254
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
