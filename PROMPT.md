@@ -169,7 +169,7 @@ the list of commits should be separated into categories, each with a section hea
 4. Pushed — commits in the current branch / PR that have been pushed to the origin
 5. Base — commits after the stuff that's already in the base branch (even before the feature branch began)
 
-the sidebar also shows a horizontal "scope cutline" indicating the commit range boundary — commits above are in scope, commits below are out of scope. by default the cutline sits between Pushed and Base; scrubbing the scope handle moves it. see `## commit range scope`.
+the sidebar also shows a horizontal "scope cutline" indicating the commit range boundary — commits above are in scope, commits below are out of scope. the cutline is rendered as a labeled rule (e.g. `─── scope ───`) so it's visually distinct from the plain section separators. by default the cutline sits between Pushed and Base; scrubbing the scope handle moves it. see `## commit range scope`.
 
 if this list is very long, we should paginate it. load the first 100 commits initially, then load the next 100 when the user scrolls to the end of the list. show a "load more" entry at the bottom of the list while more commits are available.
 
