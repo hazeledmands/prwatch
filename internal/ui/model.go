@@ -3832,6 +3832,23 @@ func (m *Model) selectedText() string {
 		startX, endX = endX, startX
 	}
 
+	// Clamp the drag Y range to the visible main-pane content rows, matching
+	// applyDragHighlight. Without this, a drag onto the bottom border row
+	// would translate to an absolute viewport line that exists in GetContent
+	// but is not actually rendered, causing selectedText to disagree with
+	// the on-screen highlight. When endY is dragged past the last content
+	// row, the user's intent is "select to end of last visible line" — so
+	// also disable the x-clamp on the new last row by pushing endX past the
+	// right edge of the pane.
+	contentEndY := m.height - 2
+	if endY > contentEndY {
+		endY = contentEndY
+		endX = m.width
+	}
+	if startY > contentEndY {
+		return ""
+	}
+
 	// Translate from screen-Y to absolute viewport-content-Y by accounting
 	// for the current scroll offset. dragStartY may sit above the visible
 	// area (after auto-scroll re-anchored it); the absolute line index it
