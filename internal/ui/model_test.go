@@ -73,6 +73,7 @@ type mockGit struct {
 	allFilesErr    error
 	baseCommits    []git.Commit
 	baseCommitsErr error
+	parents        map[string]string // sha → parent sha; empty entry / missing key → "no parent" (root)
 	prComments     []git.PRComment
 	prDeployments  []git.PRDeployment
 	ciChecks       []git.CICheck
@@ -199,6 +200,13 @@ func (m *mockGit) BaseCommits(base string, limit int) ([]git.Commit, error) {
 	return m.baseCommits, m.baseCommitsErr
 }
 func (m *mockGit) BehindCount(baseRef string) int { return 0 }
+func (m *mockGit) Parent(sha string) (string, error) {
+	parent, ok := m.parents[sha]
+	if !ok || parent == "" {
+		return "", fmt.Errorf("mockGit: no parent for %q", sha)
+	}
+	return parent, nil
+}
 func (m *mockGit) RWXResults(runID string) (*git.RWXResult, error) {
 	return &git.RWXResult{RunID: runID, Status: "passed"}, nil
 }
@@ -505,6 +513,74 @@ func TestScope_NaturalBaseTracksDefaultBase(t *testing.T) {
 	}
 	if m.naturalBase != m.base {
 		t.Errorf("naturalBase = %q, want it to track base %q on initial load", m.naturalBase, m.base)
+	}
+}
+
+// TestScope_ExtendBackMovesBaseToParent verifies that pressing scope-extend-back ([)
+// walks m.base one commit further back, leaving naturalBase untouched. A
+// subsequent load (e.g. a refresh tick) must NOT reset the scrubbed m.base
+// to the natural base, or scrubbing would be lost on every refresh.
+func TestScope_ExtendBackMovesBaseToParent(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:        "natural-sha",
+		parents:     map[string]string{"natural-sha": "parent-sha", "parent-sha": "grandparent-sha"},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	if m.base != "natural-sha" {
+		t.Fatalf("setup: m.base = %q, want %q", m.base, "natural-sha")
+	}
+
+	// First press [: m.base should walk to parent.
+	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.base != "parent-sha" {
+		t.Errorf("after first scope-extend-back: m.base = %q, want %q", m.base, "parent-sha")
+	}
+	if m.naturalBase != "natural-sha" {
+		t.Errorf("after scope-extend-back: naturalBase = %q, want it unchanged at %q", m.naturalBase, "natural-sha")
+	}
+
+	// A refresh-style reload must preserve the scrubbed base.
+	m.Update(m.loadLocalGitData())
+	if m.base != "parent-sha" {
+		t.Errorf("after refresh while scrubbed: m.base = %q, want it preserved at %q", m.base, "parent-sha")
+	}
+
+	// Second press [: m.base walks one further back.
+	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.base != "grandparent-sha" {
+		t.Errorf("after second scope-extend-back: m.base = %q, want %q", m.base, "grandparent-sha")
+	}
+}
+
+// TestScope_ExtendBackAtRootIsNoOp verifies that pressing scope-extend-back
+// at the root commit (no parent) leaves state unchanged rather than erroring.
+func TestScope_ExtendBackAtRootIsNoOp(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:        "root-sha",
+		parents:     map[string]string{}, // root has no parent
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.base != "root-sha" {
+		t.Errorf("scope-extend-back at root: m.base = %q, want it unchanged at %q", m.base, "root-sha")
 	}
 }
 

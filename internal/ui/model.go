@@ -83,6 +83,7 @@ type GitDataSource interface {
 	IgnoredFilesInDir(dir string) ([]string, error)
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
 	BehindCount(baseRef string) int
+	Parent(sha string) (string, error)
 	RWXResults(runID string) (*gitpkg.RWXResult, error)
 	RWXTaskLog(taskID string) (string, error)
 	RWXTestResults(taskID string) ([]gitpkg.RWXFailedTest, error)
@@ -211,7 +212,8 @@ type gitDataMsg struct {
 	ciStatus         gitpkg.CIStatusResult
 	prReviews        []gitpkg.PRReview
 	prCommentCount   int
-	base             string
+	base             string // base used for queries — equals naturalBase except when the user has scrubbed the scope handle
+	naturalBase      string // base detected fresh this load — what scope-reset would snap to
 	committedFiles   []string
 	uncommittedFiles []string
 	stagedFiles      []string
@@ -851,9 +853,17 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	// local detection (no gh shell-out). When PR data arrives later, the
 	// prRefreshMsg handler re-dispatches loadLocalGitData so the base
 	// upgrades to match the PR's baseRefName.
-	base, err := m.detectBase()
+	naturalBase, err := m.detectBase()
 	if err != nil {
 		return gitDataMsg{err: err}
+	}
+
+	// If the user has scrubbed the scope handle, queries use the scrubbed
+	// outer endpoint instead of the natural base. The handler preserves
+	// m.base when the load returns.
+	base := naturalBase
+	if m.base != "" && m.base != naturalBase {
+		base = m.base
 	}
 
 	files, err := m.git.ChangedFiles(base)
@@ -903,6 +913,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	return gitDataMsg{
 		repoInfo:         info,
 		base:             base,
+		naturalBase:      naturalBase,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
 		stagedFiles:      files.Staged,
@@ -1032,7 +1043,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.base = msg.base
-		m.naturalBase = msg.base
+		if msg.naturalBase != "" {
+			m.naturalBase = msg.naturalBase
+		} else {
+			// Empty-repo / pre-natural-base loads carry no naturalBase.
+			m.naturalBase = msg.base
+		}
 		m.committedFiles = msg.committedFiles
 		m.uncommittedFiles = msg.uncommittedFiles
 		m.stagedFiles = msg.stagedFiles
@@ -1488,6 +1504,18 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.git == nil {
 			return m, nil
 		}
+		return m, m.loadLocalGitData
+
+	case key.Matches(msg, keys.ScopeExtendBack):
+		if m.git == nil || m.base == "" {
+			return m, nil
+		}
+		parent, err := m.git.Parent(m.base)
+		if err != nil {
+			// At root commit (or other failure) — no-op.
+			return m, nil
+		}
+		m.base = parent
 		return m, m.loadLocalGitData
 
 	case key.Matches(msg, keys.PRBrowse):
