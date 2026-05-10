@@ -164,3 +164,107 @@ func TestRenderMarkdown_EmptyInput(t *testing.T) {
 		t.Errorf("expected empty output for empty input, got: %q", out)
 	}
 }
+
+// HTML cleanup: PR descriptions and comments often contain raw HTML
+// (Linear-style <details>/<summary>, <br> for line breaks, HTML comments).
+// These get rendered as raw tags by goldmark's default renderer, which is
+// noisy in a TUI. The preprocessor below cleans up common cases.
+
+func TestRenderMarkdown_BrTagBecomesNewline(t *testing.T) {
+	for _, md := range []string{
+		"line one<br>line two",
+		"line one<br/>line two",
+		"line one<br />line two",
+		"line one<BR>line two",
+	} {
+		out, err := renderMarkdown(md, 80)
+		if err != nil {
+			t.Fatalf("%q: %v", md, err)
+		}
+		stripped := stripANSI(out)
+		if strings.Contains(stripped, "<br") || strings.Contains(stripped, "<BR") {
+			t.Errorf("%q: <br> tag should not appear in output, got %q", md, stripped)
+		}
+		// Both lines should be present.
+		if !strings.Contains(stripped, "line one") || !strings.Contains(stripped, "line two") {
+			t.Errorf("%q: both lines should be in output, got %q", md, stripped)
+		}
+		// They should be on separate lines.
+		idx1 := strings.Index(stripped, "line one")
+		idx2 := strings.Index(stripped, "line two")
+		between := stripped[idx1:idx2]
+		if !strings.Contains(between, "\n") {
+			t.Errorf("%q: lines should be separated by newline, got %q", md, stripped)
+		}
+	}
+}
+
+func TestRenderMarkdown_HTMLCommentsStripped(t *testing.T) {
+	md := "before<!-- this is a comment -->after"
+	out, err := renderMarkdown(md, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := stripANSI(out)
+	if strings.Contains(stripped, "<!--") || strings.Contains(stripped, "-->") {
+		t.Errorf("HTML comment markers should be stripped, got %q", stripped)
+	}
+	if strings.Contains(stripped, "this is a comment") {
+		t.Errorf("HTML comment content should be stripped, got %q", stripped)
+	}
+	if !strings.Contains(stripped, "before") || !strings.Contains(stripped, "after") {
+		t.Errorf("non-comment text should remain, got %q", stripped)
+	}
+}
+
+func TestRenderMarkdown_HTMLBlockCommentStripped(t *testing.T) {
+	// HTML comments often appear as block-level constructs.
+	md := "before\n\n<!-- a comment -->\n\nafter"
+	out, err := renderMarkdown(md, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := stripANSI(out)
+	if strings.Contains(stripped, "<!--") || strings.Contains(stripped, "-->") {
+		t.Errorf("HTML comment markers should be stripped, got %q", stripped)
+	}
+	if strings.Contains(stripped, "a comment") {
+		t.Errorf("HTML comment content should be stripped, got %q", stripped)
+	}
+}
+
+func TestRenderMarkdown_DetailsSummaryExpanded(t *testing.T) {
+	md := "<details>\n<summary>Click to expand</summary>\n\nHidden body content here.\n\n</details>"
+	out, err := renderMarkdown(md, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := stripANSI(out)
+	if strings.Contains(stripped, "<details") || strings.Contains(stripped, "</details") {
+		t.Errorf("details tags should be stripped, got %q", stripped)
+	}
+	if strings.Contains(stripped, "<summary") || strings.Contains(stripped, "</summary") {
+		t.Errorf("summary tags should be stripped, got %q", stripped)
+	}
+	if !strings.Contains(stripped, "Click to expand") {
+		t.Errorf("summary text should be rendered, got %q", stripped)
+	}
+	if !strings.Contains(stripped, "Hidden body content here.") {
+		t.Errorf("inner body content should be rendered, got %q", stripped)
+	}
+}
+
+func TestRenderMarkdown_StripsUnknownInlineTags(t *testing.T) {
+	md := "before <span>middle</span> after"
+	out, err := renderMarkdown(md, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := stripANSI(out)
+	if strings.Contains(stripped, "<span") || strings.Contains(stripped, "</span") {
+		t.Errorf("span tags should be stripped, got %q", stripped)
+	}
+	if !strings.Contains(stripped, "middle") {
+		t.Errorf("inner text should remain, got %q", stripped)
+	}
+}
