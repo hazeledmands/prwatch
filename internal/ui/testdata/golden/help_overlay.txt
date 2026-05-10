@@ -18,8 +18,8 @@ Keybindings:
   [k] [up]              Move up / scroll up                                                         
   [pgdown] [space]      Page down                                                                   
   [pgup] [shift+space]  Page up                                                                     
-  [g]                   Go to top (press twice)                                                     
-  [G]                   Go to bottom                                                                
+  [g] [home]            Go to top                                                                   
+  [G] [end]             Go to bottom                                                                
                                                                                                     
   [+] [=]               Grow sidebar                                                                
   [-]                   Shrink sidebar                                                              

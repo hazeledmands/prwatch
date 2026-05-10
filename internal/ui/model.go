@@ -3910,7 +3910,7 @@ func (m *Model) helpContentLines() []string {
 			{bindings: []key.Binding{keys.Up}, desc: "Move up / scroll up"},
 			{bindings: []key.Binding{keys.PageDown}, desc: "Page down"},
 			{bindings: []key.Binding{keys.PageUp}, desc: "Page up"},
-			{bindings: []key.Binding{keys.GoTop}, desc: "Go to top (press twice)"},
+			{bindings: []key.Binding{keys.GoTop}, desc: "Go to top"},
 			{bindings: []key.Binding{keys.GoBottom}, desc: "Go to bottom"},
 		},
 		{
