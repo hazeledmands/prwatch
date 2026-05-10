@@ -3418,10 +3418,14 @@ func (m *Model) applyDragHighlight(content string) string {
 	if !m.sidebarHidden {
 		sidebarW = m.sidebarPixelWidth()
 	}
-	// Content starts after sidebar + main pane border + gutter
+	// Content starts after sidebar + main pane border + sticky title row.
+	// The title row sits at statusRows + topBorder; the user's selection
+	// must skip it so dragging onto / past the title doesn't reverse-video
+	// the title text (it is not part of the file content being read).
 	statusRows := m.statusBarLines()
 	topBorder := 1
-	contentStartY := statusRows + topBorder
+	titleRow := 1
+	contentStartY := statusRows + topBorder + titleRow
 	gutterOffset := sidebarW + 1 + m.mainPane.gutterWidth // +1 for border
 	if startX < gutterOffset {
 		startX = gutterOffset
@@ -3609,17 +3613,19 @@ func (m *Model) selectedText() string {
 	}
 
 	// Main pane content area starts after:
-	// - 3 rows of status bar
+	// - status bar rows
 	// - 1 row of top border
-	// And the x offset is sidebarPixelWidth() + 1 (left border of main pane)
+	// - 1 row of sticky title bar
+	// And the x offset is sidebarPixelWidth() + 1 (left border of main pane).
 	statusRows := m.statusBarLines()
 	topBorder := 1
+	titleRow := 1
 	sidebarW := 0
 	if !m.sidebarHidden {
 		sidebarW = m.sidebarPixelWidth()
 	}
 	mainLeftBorder := 1
-	contentStartY := statusRows + topBorder
+	contentStartY := statusRows + topBorder + titleRow
 	contentStartX := sidebarW + mainLeftBorder
 
 	// Get the main pane's raw content (pre-rendered, with ANSI)

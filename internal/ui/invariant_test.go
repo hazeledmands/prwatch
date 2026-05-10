@@ -910,11 +910,12 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		m.mainPane.SetPlainContent(srcContent)
 
 		// Compute the screen region that contains actual content (after
-		// status bar, borders, sidebar, and gutter).
+		// status bar, borders, sidebar, sticky title row, and gutter).
 		statusRows := m.statusBarLines()
 		topBorder := 1
+		titleRow := 1
 		sidebarW := m.sidebarPixelWidth()
-		contentStartY := statusRows + topBorder
+		contentStartY := statusRows + topBorder + titleRow
 		contentStartX := sidebarW + 1 // +1 for main pane left border
 		gw := m.mainPane.gutterWidth
 
@@ -1270,17 +1271,19 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			}
 		}
 		// Invariant 7: the border rows (top and bottom of the main pane)
-		// must never be highlighted. The top border is at contentStartY-1
-		// and the bottom border is at contentStartY + mainPaneRows.
+		// and the sticky title row must never be highlighted. The top
+		// border sits at contentStartY-2, the title row at contentStartY-1,
+		// and the bottom border at contentStartY + mainPaneRows.
 		bottomBorderRow := contentStartY + mainPaneRows
-		topBorderRow := contentStartY - 1
-		for _, borderRow := range []int{topBorderRow, bottomBorderRow} {
-			if borderRow < 0 || borderRow >= len(dragRawLines) {
+		titleRowIdx := contentStartY - 1
+		topBorderRow := contentStartY - 2
+		for _, row := range []int{topBorderRow, titleRowIdx, bottomBorderRow} {
+			if row < 0 || row >= len(dragRawLines) {
 				continue
 			}
-			if strings.Contains(dragRawLines[borderRow], "\x1b[7m") {
-				t.Fatalf("drag highlight applied to border row %d\n  wrap=%v lineNums=%v drag=(%d,%d)->(%d,%d)",
-					borderRow, wordWrap, lineNumbers, x1, y1, x2, y2)
+			if strings.Contains(dragRawLines[row], "\x1b[7m") {
+				t.Fatalf("drag highlight applied to row %d (border or title)\n  wrap=%v lineNums=%v drag=(%d,%d)->(%d,%d)",
+					row, wordWrap, lineNumbers, x1, y1, x2, y2)
 			}
 		}
 	})
