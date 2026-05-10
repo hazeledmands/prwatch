@@ -333,8 +333,8 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 ### scope
 | command | default key(s) | action |
 |---------|----------------|--------|
-| `scope-extend-back` | `[` | extend the commit range one commit further back |
-| `scope-contract-forward` | `]` | contract the commit range one commit toward the working tree |
+| `scope-extend-back` | `]` | extend the commit range one commit further back |
+| `scope-contract-forward` | `[` | contract the commit range one commit toward the working tree |
 | `scope-reset` | `\` | reset the commit range to default |
 
 ### search

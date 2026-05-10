@@ -155,10 +155,10 @@ var keys = keyMap{
 		key.WithKeys("o"),
 	),
 	ScopeExtendBack: key.NewBinding(
-		key.WithKeys("["),
+		key.WithKeys("]"),
 	),
 	ScopeContractForward: key.NewBinding(
-		key.WithKeys("]"),
+		key.WithKeys("["),
 	),
 	ScopeReset: key.NewBinding(
 		key.WithKeys("\\"),

@@ -516,7 +516,7 @@ func TestScope_NaturalBaseTracksDefaultBase(t *testing.T) {
 	}
 }
 
-// TestScope_ExtendBackMovesBaseToParent verifies that pressing scope-extend-back ([)
+// TestScope_ExtendBackMovesBaseToParent verifies that pressing scope-extend-back (])
 // walks m.base one commit further back, leaving naturalBase untouched. A
 // subsequent load (e.g. a refresh tick) must NOT reset the scrubbed m.base
 // to the natural base, or scrubbing would be lost on every refresh.
@@ -539,8 +539,8 @@ func TestScope_ExtendBackMovesBaseToParent(t *testing.T) {
 		t.Fatalf("setup: m.base = %q, want %q", m.base, "natural-sha")
 	}
 
-	// First press [: m.base should walk to parent.
-	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	// First press ]: m.base should walk to parent.
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
 	if m.base != "parent-sha" {
 		t.Errorf("after first scope-extend-back: m.base = %q, want %q", m.base, "parent-sha")
 	}
@@ -554,14 +554,14 @@ func TestScope_ExtendBackMovesBaseToParent(t *testing.T) {
 		t.Errorf("after refresh while scrubbed: m.base = %q, want it preserved at %q", m.base, "parent-sha")
 	}
 
-	// Second press [: m.base walks one further back.
-	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	// Second press ]: m.base walks one further back.
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
 	if m.base != "grandparent-sha" {
 		t.Errorf("after second scope-extend-back: m.base = %q, want %q", m.base, "grandparent-sha")
 	}
 }
 
-// TestScope_DoubleExtendBackWalksTwoSteps verifies pressing [ twice in a
+// TestScope_DoubleExtendBackWalksTwoSteps verifies pressing ] twice in a
 // row, with a synchronous reload between them (matching the IPC flow),
 // walks m.base through two parent steps. Catches regressions where the
 // load handler resets m.base back to the freshly-detected natural base.
@@ -583,29 +583,29 @@ func TestScope_DoubleExtendBackWalksTwoSteps(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	// Press [
-	_, cmd := m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	// Press ]
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
 	if m.base != "C-1" {
-		t.Fatalf("after first [: m.base = %q, want %q", m.base, "C-1")
+		t.Fatalf("after first ]: m.base = %q, want %q", m.base, "C-1")
 	}
 	// Run the follow-up load (simulating what the IPC harness does).
 	if cmd != nil {
 		m.execFollowUps(cmd)
 	}
 	if m.base != "C-1" {
-		t.Fatalf("after first [ + reload: m.base = %q, want %q", m.base, "C-1")
+		t.Fatalf("after first ] + reload: m.base = %q, want %q", m.base, "C-1")
 	}
 
-	// Press [ again
-	_, cmd = m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	// Press ] again
+	_, cmd = m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
 	if m.base != "C-2" {
-		t.Fatalf("after second [: m.base = %q, want %q", m.base, "C-2")
+		t.Fatalf("after second ]: m.base = %q, want %q", m.base, "C-2")
 	}
 	if cmd != nil {
 		m.execFollowUps(cmd)
 	}
 	if m.base != "C-2" {
-		t.Errorf("after second [ + reload: m.base = %q, want %q", m.base, "C-2")
+		t.Errorf("after second ] + reload: m.base = %q, want %q", m.base, "C-2")
 	}
 }
 
@@ -626,14 +626,14 @@ func TestScope_ExtendBackAtRootIsNoOp(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
 	if m.base != "root-sha" {
 		t.Errorf("scope-extend-back at root: m.base = %q, want it unchanged at %q", m.base, "root-sha")
 	}
 }
 
 // TestScope_ContractForwardMovesBaseTowardHead verifies that pressing
-// scope-contract-forward (]) walks m.base one commit closer to HEAD by
+// scope-contract-forward ([) walks m.base one commit closer to HEAD by
 // pointing it at the oldest currently-in-scope commit (whose parent is m.base).
 func TestScope_ContractForwardMovesBaseTowardHead(t *testing.T) {
 	mock := &mockGit{
@@ -651,9 +651,9 @@ func TestScope_ContractForwardMovesBaseTowardHead(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	// Press ]: m.base should walk to the oldest in-scope commit (A, the one
+	// Press [: m.base should walk to the oldest in-scope commit (A, the one
 	// whose parent is the current m.base).
-	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
 	if m.base != "A" {
 		t.Errorf("after scope-contract-forward: m.base = %q, want %q", m.base, "A")
 	}
@@ -677,7 +677,7 @@ func TestScope_ContractForwardAtWorkdirIsNoOp(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
 	if m.base != "head-sha" {
 		t.Errorf("scope-contract-forward at workdir: m.base = %q, want it unchanged at %q", m.base, "head-sha")
 	}
