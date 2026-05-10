@@ -2395,7 +2395,7 @@ func (m *Model) jumpToNextLeaf(direction int) {
 	}
 	for i := 1; i < n; i++ {
 		idx := (start + i*direction + n) % n
-		if items[idx].kind != itemSeparator && !items[idx].isDir {
+		if items[idx].kind != itemSeparator && items[idx].kind != itemCutline && !items[idx].isDir {
 			m.sidebar.SelectIndex(idx)
 			m.updateMainContent()
 			return
