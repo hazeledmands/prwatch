@@ -1052,7 +1052,13 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			}
 		}
 
-		// Compare with trailing spaces stripped
+		// Compare with trailing spaces stripped. Also trim trailing
+		// newlines: if the drag rectangle extends past the last actual
+		// content row, the highlight loop synthesizes empty `\n` rows for
+		// the padded screen lines while selectedText (now reading from
+		// viewport.GetContent, which has no padding) just stops. Both
+		// representations describe the same selection — only padding
+		// differs.
 		var hlLines []string
 		for _, hl := range strings.Split(hlText.String(), "\n") {
 			hlLines = append(hlLines, strings.TrimRight(hl, " "))
@@ -1061,8 +1067,8 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		for _, gl := range strings.Split(got, "\n") {
 			gotStripped = append(gotStripped, strings.TrimRight(gl, " "))
 		}
-		hlJoined := strings.Join(hlLines, "\n")
-		gotJoined := strings.Join(gotStripped, "\n")
+		hlJoined := strings.TrimRight(strings.Join(hlLines, "\n"), "\n")
+		gotJoined := strings.TrimRight(strings.Join(gotStripped, "\n"), "\n")
 		if hlJoined != gotJoined {
 			t.Fatalf("highlight/selection mismatch:\n  highlight: %q\n  selectedText: %q\n  wrap=%v lineNums=%v drag=(%d,%d)->(%d,%d)",
 				hlJoined, gotJoined, wordWrap, lineNumbers, x1, y1, x2, y2)

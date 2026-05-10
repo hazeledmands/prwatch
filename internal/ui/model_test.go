@@ -6912,6 +6912,201 @@ func TestApplyDragHighlight_DoesNotHighlightTitleRow(t *testing.T) {
 	}
 }
 
+// Spec: when dragging past the top or bottom of the main pane viewport,
+// the view should auto-scroll so the user can select content larger than
+// the viewport. Verify (a) a motion event past the bottom edge sets
+// dragScrollDir = +1 and returns a tick command, and (b) the tick
+// scrolls the viewport down while keeping the original click anchored
+// (dragStartY decreases by the scroll amount).
+func TestDragAutoScroll_PastBottomEdgeStartsScrolling(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"big.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: strings.Repeat("line content here\n", 200),
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// Click somewhere in the middle of the main pane.
+	clickY := m.statusBarLines() + 5
+	m.dragging = true
+	m.dragStartX = m.sidebarPixelWidth() + 10
+	m.dragStartY = clickY
+	m.dragEndX = m.dragStartX
+	m.dragEndY = clickY
+
+	// Move the mouse past the bottom edge of the main pane.
+	belowBottomY := m.height // outside the viewport
+	result, cmd := m.Update(tea.MouseMotionMsg{X: m.dragStartX, Y: belowBottomY})
+	m = result.(*Model)
+
+	if m.dragScrollDir <= 0 {
+		t.Fatalf("dragging past bottom should set dragScrollDir > 0, got %d", m.dragScrollDir)
+	}
+	if cmd == nil {
+		t.Fatal("dragging past bottom should return a tick command to drive auto-scroll")
+	}
+
+	// Run the tick. Expect the viewport to scroll down and dragStartY to
+	// decrement so the original click stays anchored to the same content.
+	prevOffset := m.mainPane.viewport.YOffset()
+	prevDragStartY := m.dragStartY
+	result, _ = m.Update(dragScrollTickMsg{})
+	m = result.(*Model)
+	if m.mainPane.viewport.YOffset() <= prevOffset {
+		t.Errorf("expected viewport to scroll down, offset stayed at %d", prevOffset)
+	}
+	scrollDelta := m.mainPane.viewport.YOffset() - prevOffset
+	if m.dragStartY != prevDragStartY-scrollDelta {
+		t.Errorf("dragStartY should decrease by scroll delta %d (anchor); was %d, now %d",
+			scrollDelta, prevDragStartY, m.dragStartY)
+	}
+}
+
+// Releasing the mouse must stop the auto-scroll loop.
+func TestDragAutoScroll_ReleaseStopsScrolling(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"big.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: strings.Repeat("line\n", 100),
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	m.dragging = true
+	m.dragStartX = m.sidebarPixelWidth() + 5
+	m.dragStartY = m.statusBarLines() + 5
+	m.dragEndX = m.dragStartX
+	m.dragEndY = m.height // past bottom
+	m.dragScrollDir = +1
+
+	// Mouse release.
+	result, _ := m.Update(tea.MouseReleaseMsg{X: m.dragEndX, Y: m.dragEndY})
+	m = result.(*Model)
+
+	if m.dragScrollDir != 0 {
+		t.Errorf("release should clear dragScrollDir, got %d", m.dragScrollDir)
+	}
+}
+
+// A motion event back inside the viewport while a drag is active stops
+// auto-scrolling.
+func TestDragAutoScroll_MotionBackInsideStopsScrolling(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"big.go"},
+		},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: strings.Repeat("line\n", 100),
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	m.dragging = true
+	m.dragStartX = m.sidebarPixelWidth() + 5
+	m.dragStartY = m.statusBarLines() + 5
+	m.dragEndX = m.dragStartX
+	m.dragEndY = m.height
+	m.dragScrollDir = +1
+
+	// Mouse moves back into the viewport.
+	insideY := m.statusBarLines() + 10
+	result, _ := m.Update(tea.MouseMotionMsg{X: m.dragEndX, Y: insideY})
+	m = result.(*Model)
+
+	if m.dragScrollDir != 0 {
+		t.Errorf("motion back inside should clear dragScrollDir, got %d", m.dragScrollDir)
+	}
+}
+
+// After auto-scroll has moved the viewport down, the selection should still
+// span from the original click line to the current end position — even
+// though the start line is no longer on screen. Without this, the user's
+// effort to extend a selection past the visible area produces only what
+// remains visible after the scroll.
+func TestDragAutoScroll_SelectionSpansOffScreenStart(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"big.go"},
+		},
+		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
+		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+	}
+	// 50 distinguishable lines so we can detect off-screen lines in the
+	// extracted text.
+	var content strings.Builder
+	for i := 0; i < 50; i++ {
+		content.WriteString(fmt.Sprintf("line%02d uniquemarker%02d\n", i, i))
+	}
+	mg.fileContent = content.String()
+
+	m := NewModel("/tmp", mg)
+	m.width = 100
+	m.height = 12 // small viewport so 50 lines clearly overflows
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+	// Force files mode (loadGitData might switch us if a PR is around).
+	m.mode = FilesMode
+	m.wordWrap = false
+	m.mainPane.SetWordWrap(false)
+	m.updateMainContent()
+
+	contentStartY := m.statusBarLines() + 2 // +1 top border, +1 title row
+
+	// Click at the top of the visible content (line 0).
+	m.dragging = true
+	m.dragStartX = m.sidebarPixelWidth() + 5
+	m.dragStartY = contentStartY
+	m.dragEndX = m.dragStartX
+	m.dragEndY = contentStartY
+
+	// Simulate the user dragging past the bottom enough to scroll off the
+	// click line. Each tick scrolls by one line and decrements dragStartY.
+	// Drive the auto-scroll manually so we don't depend on real timers.
+	m.dragScrollDir = +1
+	for i := 0; i < 5; i++ {
+		m.advanceDragAutoScroll()
+	}
+
+	// Mouse is currently at the bottom of the viewport.
+	m.dragEndY = m.height - 2
+
+	got := m.selectedText()
+	// The selection should still include the very first line, because the
+	// drag started there before the scroll.
+	if !strings.Contains(got, "uniquemarker00") {
+		t.Errorf("selection lost the off-screen start line; got %q", got)
+	}
+}
+
 func TestMouseDragRelease_ShowsCopiedNotification(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
