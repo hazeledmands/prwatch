@@ -67,15 +67,16 @@ line 1: overall status
     each mode should be clickable
   - if not a git repo, "Not a git repo"
 line 2: local git status (not shown if this is not a git repo)
+  - when the commit range is scrubbed away from its default, the line is prefixed with the handle indicator — see `## commit range scope`
   - name of current branch and merge base, if any (eg: `foo -> main`, or just `main`)
   - number of uncommitted files — both new/unstaged and staged (12 uncommitted)
   - number of unpushed commits (2 unpushed)
-  - number of commits after base (3 commits) - or just the number of commits if we're in the main branch.
+  - number of commits in scope (3 commits) - or just the number of commits if we're in the main branch. when the scope is scrubbed away from default, this count reflects the scrubbed scope.
     this should always be the true total count (e.g. via `git rev-list --count`), not the number of commits currently loaded.
     clicking this should invoke `commits-mode`
   - number of commits that this branch is behind base, if any (4 behind)
     clicking this should invoke `commits-mode`
-  - number of changed files in this branch, if any (16 changed files)
+  - number of changed files in scope, if any (16 changed files)
     clicking this should invoke `files-mode`
   - if no PR, "No PR"
 line 3: github status (not shown if there is no PR)
@@ -168,6 +169,8 @@ the list of commits should be separated into categories, each with a section hea
 4. Pushed — commits in the current branch / PR that have been pushed to the origin
 5. Base — commits after the stuff that's already in the base branch (even before the feature branch began)
 
+the sidebar also shows a horizontal "scope cutline" indicating the commit range boundary — commits above are in scope, commits below are out of scope. by default the cutline sits between Pushed and Base; scrubbing the scope handle moves it. see `## commit range scope`.
+
 if this list is very long, we should paginate it. load the first 100 commits initially, then load the next 100 when the user scrolls to the end of the list. show a "load more" entry at the bottom of the list while more commits are available.
 
 title bar: for a real commit, left shows `<sha7> · <subject>` and right shows `@<author> · <relative-time>`. for the "new changes" or "staged changes" pseudo-entries, right shows the diff shortstat (e.g. `3 files changed, 42 insertions(+), 11 deletions(-)`).
@@ -210,6 +213,32 @@ sidebar should show:
 #### CI logs
 - support RWX as a CI provider. if the github CI status points to RWX and there are failures, use the rwx CLI tool to display details about the failures (including failing test results).
 
+
+## commit range scope
+
+the app maintains a global "commit range" — the slice of history currently in scope for files mode and the status-bar counts. its inner end is pinned to the working tree; its outer end is a movable handle.
+
+the default outer endpoint matches today's natural PR delta:
+- on a branch with a merge-base, the merge-base itself (so default scope = the PR delta).
+- on a branch without a merge-base, the working tree (so default scope = uncommitted/staged only, no commits).
+
+`scope-extend-back` extends the handle one commit further back. `scope-contract-forward` moves it one commit closer to the working tree. `scope-reset` snaps back to default. extension stops at the root commit; contraction stops at the working tree (zero commits in scope).
+
+the scope resets to default on branch switch and does not persist across restarts.
+
+### handle indicator
+
+when the handle is scrubbed away from default, the status bar (line 2) is prefixed with `@<sha7> HEAD~N`. when the handle has crossed a named landmark, append a suffix: `past origin/<base>`, `past PR base`, etc. at the default position no indicator is shown.
+
+### effects on each mode
+
+- **files mode.** the file list, per-file diffs, and the status-bar counts ("N commits", "N changed files") all aggregate over the current scope. files that drop out of scope when contracting disappear; files that come into scope when extending appear.
+- **commits mode.** a horizontal "scope cutline" is drawn in the sidebar between the last in-scope commit and the first out-of-scope commit. the New Changes / Staged / Unpushed / Pushed / Base section partitioning is unaffected — those reflect git state, not scope.
+- **pr mode.** unaffected. pr mode describes the GitHub PR itself, not a scope-derived view.
+
+### pagination
+
+commits mode loads commits in pages of 100. `scope-extend-back` past the currently loaded extent triggers a fetch; the handle moves when the data arrives, with a "loading" indication in the meantime.
 
 ## edge cases
 
@@ -300,6 +329,13 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 | `toggle-sidebar` | `f` | hide/show sidebar |
 | `toggle-wrap` | `w` | toggle word wrapping (default: on). word-wrap breaks at word boundaries, except words longer than 1/8 of the screen width are broken mid-word. |
 | `refresh` | `r` | manual refresh |
+
+### scope
+| command | default key(s) | action |
+|---------|----------------|--------|
+| `scope-extend-back` | `[` | extend the commit range one commit further back |
+| `scope-contract-forward` | `]` | contract the commit range one commit toward the working tree |
+| `scope-reset` | `\` | reset the commit range to default |
 
 ### search
 | command | default key(s) | action |
