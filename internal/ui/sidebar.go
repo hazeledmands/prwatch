@@ -238,7 +238,47 @@ func (s *sidebar) SetHoverIndex(idx int) {
 }
 
 func (s *sidebar) SetItems(items []sidebarItem) {
+	// Capture the previously-selected item by identity. After installing
+	// the new items, we look it up again so the user's selection follows
+	// the file/header they were on rather than landing on whatever happens
+	// to share the old slot. Without this, a refresh that adds or removes
+	// a file shuffles the index → main pane suddenly switches files.
+	//
+	// The same identifier (e.g. a directory path) can appear in multiple
+	// sections (the same dir lives under "Committed" and again under
+	// "All Files"). When that happens we prefer the match closest to the
+	// previous index so a no-op refresh keeps everything in place.
+	prevIdx := s.selected
+	var prevID string
+	if prevIdx >= 0 && prevIdx < len(s.items) {
+		prevID = itemID(s.items[prevIdx])
+	}
+
 	s.items = items
+
+	if prevID != "" {
+		bestIdx := -1
+		bestDist := 0
+		for i, it := range items {
+			if !it.kind.selectable() || itemID(it) != prevID {
+				continue
+			}
+			dist := i - prevIdx
+			if dist < 0 {
+				dist = -dist
+			}
+			if bestIdx == -1 || dist < bestDist {
+				bestIdx = i
+				bestDist = dist
+			}
+		}
+		if bestIdx >= 0 {
+			s.selected = bestIdx
+			s.clampOffsetBounds()
+			return
+		}
+	}
+
 	if s.selected >= len(items) {
 		s.selected = max(0, len(items)-1)
 	}
@@ -249,6 +289,16 @@ func (s *sidebar) SetItems(items []sidebarItem) {
 	// may have scrolled away from the selection and a periodic refresh
 	// shouldn't jump them back.
 	s.clampOffsetBounds()
+}
+
+// itemID returns the stable identifier for a sidebar item used to track
+// selection across refreshes. File items use their filePath; everything else
+// uses prefix+label (matching SelectedItem so callers compare apples-to-apples).
+func itemID(it sidebarItem) string {
+	if it.filePath != "" {
+		return it.filePath
+	}
+	return it.prefix + it.label
 }
 
 func (s *sidebar) SetSize(w, h int) {

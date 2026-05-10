@@ -1,6 +1,11 @@
 ## New Bugs
 
+- renaming a file in git doesn't reflect properly in the sidebar.
+- highlight to copy allows me to drag the mouse into the main pane's title line.
+
 ## Fixed Bugs
+
+- View switched to a different file when a file was added or removed from the diff — root cause was `sidebar.SetItems` preserving the selected *index* across refreshes, so any shift in the item list put a different file under the cursor. Fixed by tracking the selected item's identity (filePath, falling back to prefix+label) and re-finding it in the new list, picking the closest match by index when the same identifier appears in multiple sections.
 
 - Slow startup: loading screen persisted for multiple seconds — root cause was `loadGitData` being monolithic (GitHub API calls blocked local git data from rendering). Fixed by splitting Init() to load local git data and PR data as separate concurrent commands; local files/diffs/commits now appear within milliseconds while PR data fills in asynchronously.
 
