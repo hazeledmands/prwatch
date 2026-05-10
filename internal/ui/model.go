@@ -1480,6 +1480,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.loadLocalGitData, m.loadPRStatus)
 
+	case key.Matches(msg, keys.ScopeReset):
+		if m.naturalBase == "" || m.base == m.naturalBase {
+			return m, nil
+		}
+		m.base = m.naturalBase
+		if m.git == nil {
+			return m, nil
+		}
+		return m, m.loadLocalGitData
+
 	case key.Matches(msg, keys.PRBrowse):
 		if m.prInfo.Number == 0 || m.prInfo.URL == "" {
 			return m, nil

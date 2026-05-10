@@ -508,6 +508,32 @@ func TestScope_NaturalBaseTracksDefaultBase(t *testing.T) {
 	}
 }
 
+// TestScope_ResetSnapsToNaturalBase verifies that pressing the scope-reset
+// key (\\) returns m.base to m.naturalBase from any scrubbed position.
+func TestScope_ResetSnapsToNaturalBase(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:        "natural-sha",
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	// Simulate a scrubbed state by walking m.base off natural.
+	m.base = "scrubbed-sha"
+
+	m.Update(tea.KeyPressMsg{Text: "\\", Code: '\\'})
+
+	if m.base != m.naturalBase {
+		t.Errorf("after scope-reset: m.base = %q, want naturalBase %q", m.base, m.naturalBase)
+	}
+}
+
 func TestStartupRenderOnceWorksWithData(t *testing.T) {
 	// RenderOnce (used by PRWATCH_RENDER_ONCE=1) loads data synchronously.
 	// With a fast mock, it should complete quickly and show actual content.
