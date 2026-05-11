@@ -175,7 +175,7 @@ func TestSnapshot_OnlyUncommittedFiles(t *testing.T) {
 func TestSnapshot_HelpOverlay(t *testing.T) {
 	mock := standardMock()
 	m := NewModel("/tmp/test-repo", mock)
-	m.showHelp = true
+	m.help.Open()
 	out := stripANSI(m.RenderOnce(100, 30))
 	assertGolden(t, "help_overlay", out)
 }

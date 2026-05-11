@@ -77,7 +77,7 @@ state never escapes.
 - **Extraction shape**: a `dragSelection` type that holds the four coordinates and `scrollDir`, and takes a "pane geometry" interface for the narrow dependency. Could live in a peer `drag.go` or its own sub-package — favors **peer file**, since the geometry interface ties tightly to `Model`.
 - **Invariants worth testing**: applying highlight then stripping ANSI for width yields the unselected text; `selectedText` returns the same characters that `applyDragHighlight` renders in reverse video; auto-scroll always reduces drag distance to viewport edge; clipping to the gutter never produces a selection that crosses the gutter boundary.
 
-### 7. [ ] Help overlay subsystem
+### 7. [x] Help overlay subsystem
 - **Cluster**:
   - Fields: `showHelp`, `helpScrollOffset`, `helpSearching`, `helpSearchConfirmed`, `helpSearchQuery`, `helpSearchMatches`, `helpSearchIdx`.
   - Methods: `helpContentLines` (4140), `renderHelp` (4226), `handleHelpKey` (1669), `updateHelpSearchMatches` (1652). Plus the helpEntry/keyList helpers (4123-4138).

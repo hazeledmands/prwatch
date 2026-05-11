@@ -2315,14 +2315,14 @@ func TestHelp_ShowAndDismiss(t *testing.T) {
 
 	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
 	m = result.(*Model)
-	if !m.showHelp {
+	if !m.help.IsOpen() {
 		t.Error("? should show help")
 	}
 
 	// Any key should dismiss
 	result, _ = m.Update(tea.KeyPressMsg{Text: "x", Code: 'x'})
 	m = result.(*Model)
-	if m.showHelp {
+	if m.help.IsOpen() {
 		t.Error("any key should dismiss help")
 	}
 }
@@ -2331,8 +2331,8 @@ func TestHelp_ShowAndDismiss(t *testing.T) {
 // appears in the rendered help output. This is the drift-guard for the help
 // overlay: adding a new binding without adding a help entry fails here.
 func TestHelp_AllBindingsDocumented(t *testing.T) {
-	m := NewModel("/tmp", testGit())
-	rendered := strings.Join(m.helpContentLines(), "\n")
+	_ = NewModel("/tmp", testGit())
+	rendered := strings.Join(helpContentLines(), "\n")
 
 	v := reflect.ValueOf(keys)
 	tp := v.Type()
@@ -2365,7 +2365,7 @@ func TestHelp_DismissWithQ(t *testing.T) {
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	m = result.(*Model)
-	if m.showHelp {
+	if m.help.IsOpen() {
 		t.Error("q should dismiss help, not trigger quit confirm")
 	}
 	if m.confirming {
@@ -2378,14 +2378,14 @@ func TestHelp_DismissWithQuestionMark(t *testing.T) {
 
 	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
 	m = result.(*Model)
-	if !m.showHelp {
+	if !m.help.IsOpen() {
 		t.Fatal("? should show help")
 	}
 
 	// Pressing ? again should dismiss
 	result, _ = m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
 	m = result.(*Model)
-	if m.showHelp {
+	if m.help.IsOpen() {
 		t.Error("? should dismiss help overlay")
 	}
 }
@@ -2398,7 +2398,7 @@ func TestHelp_DismissWithEsc(t *testing.T) {
 
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = result.(*Model)
-	if m.showHelp {
+	if m.help.IsOpen() {
 		t.Error("esc should dismiss help overlay")
 	}
 }
@@ -2478,7 +2478,7 @@ func TestView_WithHelp(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.showHelp = true
+	m.help.Open()
 
 	v := m.View()
 	if !strings.Contains(v.Content, "Keybindings") {
@@ -4813,32 +4813,32 @@ func TestHelpScrolling(t *testing.T) {
 	// Open help
 	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
 	m = result.(*Model)
-	if !m.showHelp {
+	if !m.help.IsOpen() {
 		t.Fatal("help should be showing")
 	}
-	if m.helpScrollOffset != 0 {
+	if m.help.scrollOffset != 0 {
 		t.Error("help scroll offset should start at 0")
 	}
 
 	// Scroll down
 	result, _ = m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
 	m = result.(*Model)
-	if m.helpScrollOffset != 1 {
-		t.Errorf("expected scroll offset 1, got %d", m.helpScrollOffset)
+	if m.help.scrollOffset != 1 {
+		t.Errorf("expected scroll offset 1, got %d", m.help.scrollOffset)
 	}
 
 	// Scroll up
 	result, _ = m.Update(tea.KeyPressMsg{Text: "k", Code: 'k'})
 	m = result.(*Model)
-	if m.helpScrollOffset != 0 {
-		t.Errorf("expected scroll offset 0 after up, got %d", m.helpScrollOffset)
+	if m.help.scrollOffset != 0 {
+		t.Errorf("expected scroll offset 0 after up, got %d", m.help.scrollOffset)
 	}
 
 	// Mouse scroll
 	result, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	m = result.(*Model)
-	if m.helpScrollOffset != 1 {
-		t.Errorf("expected scroll offset 1 after mouse wheel, got %d", m.helpScrollOffset)
+	if m.help.scrollOffset != 1 {
+		t.Errorf("expected scroll offset 1 after mouse wheel, got %d", m.help.scrollOffset)
 	}
 }
 
@@ -4854,7 +4854,7 @@ func TestHelpSearch(t *testing.T) {
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
 	m = result.(*Model)
-	if !m.helpSearching {
+	if !m.help.searching {
 		t.Fatal("help search should be active")
 	}
 
@@ -4863,22 +4863,22 @@ func TestHelpSearch(t *testing.T) {
 		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
 		m = result.(*Model)
 	}
-	if m.helpSearchQuery != "quit" {
-		t.Errorf("expected search query 'quit', got %q", m.helpSearchQuery)
+	if m.help.searchQuery != "quit" {
+		t.Errorf("expected search query 'quit', got %q", m.help.searchQuery)
 	}
 
 	// Esc cancels search
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = result.(*Model)
-	if m.helpSearching {
+	if m.help.searching {
 		t.Error("esc should cancel help search")
 	}
-	if m.helpSearchQuery != "" {
+	if m.help.searchQuery != "" {
 		t.Error("esc should clear help search query")
 	}
 
 	// Help should still be showing
-	if !m.showHelp {
+	if !m.help.IsOpen() {
 		t.Error("help should still be showing after search cancel")
 	}
 }
@@ -4897,22 +4897,22 @@ func TestHelpSearch_BackspaceCancelsWhenEmpty(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	m = result.(*Model)
 
-	if !m.helpSearching {
+	if !m.help.searching {
 		t.Fatal("help search should be active")
 	}
 
 	// Backspace removes the 'q'
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
-	if m.helpSearchQuery != "" {
-		t.Errorf("expected empty query after backspace, got %q", m.helpSearchQuery)
+	if m.help.searchQuery != "" {
+		t.Errorf("expected empty query after backspace, got %q", m.help.searchQuery)
 	}
-	if m.helpSearching {
+	if m.help.searching {
 		t.Error("backspace on empty help search should cancel search")
 	}
 
 	// Help should still be showing
-	if !m.showHelp {
+	if !m.help.IsOpen() {
 		t.Error("help should still be showing after search cancel")
 	}
 }
@@ -5371,22 +5371,22 @@ func TestHelpSearch_WithNavigation(t *testing.T) {
 	}
 
 	// Should have matches
-	if len(m.helpSearchMatches) == 0 {
+	if len(m.help.searchMatches) == 0 {
 		t.Fatal("'mode' should match in help content")
 	}
 
 	// Press enter to confirm search
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
-	if !m.helpSearchConfirmed {
+	if !m.help.searchConfirmed {
 		t.Error("enter should confirm help search")
 	}
 
 	// Press n to go to next match
-	initialIdx := m.helpSearchIdx
+	initialIdx := m.help.searchIdx
 	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
 	m = result.(*Model)
-	if m.helpSearchIdx == initialIdx && len(m.helpSearchMatches) > 1 {
+	if m.help.searchIdx == initialIdx && len(m.help.searchMatches) > 1 {
 		t.Error("n should advance to next match")
 	}
 
@@ -5397,12 +5397,12 @@ func TestHelpSearch_WithNavigation(t *testing.T) {
 	// Press esc to exit search mode
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = result.(*Model)
-	if m.helpSearchConfirmed {
+	if m.help.searchConfirmed {
 		t.Error("esc should exit help search navigation")
 	}
 
 	// Help should still be showing
-	if !m.showHelp {
+	if !m.help.IsOpen() {
 		t.Error("help should still be showing")
 	}
 }
@@ -5412,11 +5412,11 @@ func TestRenderHelp_SearchBar(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 24
-	m.showHelp = true
-	m.helpSearchConfirmed = true
-	m.helpSearchQuery = "test"
-	m.helpSearchMatches = []int{1, 5, 10}
-	m.helpSearchIdx = 1
+	m.help.Open()
+	m.help.searchConfirmed = true
+	m.help.searchQuery = "test"
+	m.help.searchMatches = []int{1, 5, 10}
+	m.help.searchIdx = 1
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -6350,30 +6350,30 @@ func TestHelpPageUpDown(t *testing.T) {
 	// Page down
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
 	m = result.(*Model)
-	if m.helpScrollOffset == 0 {
+	if m.help.scrollOffset == 0 {
 		t.Error("pgdn should scroll help down")
 	}
-	savedOffset := m.helpScrollOffset
+	savedOffset := m.help.scrollOffset
 
 	// Page up
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
 	m = result.(*Model)
-	if m.helpScrollOffset >= savedOffset {
+	if m.help.scrollOffset >= savedOffset {
 		t.Error("pgup should scroll help up")
 	}
 
 	// Go to bottom
 	result, _ = m.Update(tea.KeyPressMsg{Text: "G", Code: 'G'})
 	m = result.(*Model)
-	if m.helpScrollOffset == 0 {
+	if m.help.scrollOffset == 0 {
 		t.Error("G should scroll help to bottom")
 	}
 
 	// Space should also work
-	m.helpScrollOffset = 0
+	m.help.scrollOffset = 0
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	m = result.(*Model)
-	if m.helpScrollOffset == 0 {
+	if m.help.scrollOffset == 0 {
 		t.Error("space should page down in help")
 	}
 }
@@ -6635,13 +6635,13 @@ func TestShiftSpace_InHelp(t *testing.T) {
 	m.width = 80
 	m.height = 15
 	m.updateLayout()
-	m.showHelp = true
-	m.helpScrollOffset = 10
+	m.help.Open()
+	m.help.scrollOffset = 10
 
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModShift})
 	m = result.(*Model)
 
-	if m.helpScrollOffset >= 10 {
+	if m.help.scrollOffset >= 10 {
 		t.Error("shift+space in help should page up")
 	}
 }
@@ -6865,49 +6865,49 @@ func TestHelpOverlay_SearchAndScroll(t *testing.T) {
 	// Open help
 	result, _ := m.Update(tea.KeyPressMsg{Text: "?", Code: '?'})
 	m = result.(*Model)
-	if !m.showHelp {
+	if !m.help.IsOpen() {
 		t.Fatal("help should be open")
 	}
 
 	// Scroll down in help
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = result.(*Model)
-	if m.helpScrollOffset != 1 {
-		t.Errorf("help should scroll down, offset=%d", m.helpScrollOffset)
+	if m.help.scrollOffset != 1 {
+		t.Errorf("help should scroll down, offset=%d", m.help.scrollOffset)
 	}
 
 	// Page down
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
 	m = result.(*Model)
-	if m.helpScrollOffset <= 1 {
+	if m.help.scrollOffset <= 1 {
 		t.Error("page down should advance past 1")
 	}
 
 	// Go to bottom
 	result, _ = m.Update(tea.KeyPressMsg{Text: "G", Code: 'G'})
 	m = result.(*Model)
-	if m.helpScrollOffset == 0 {
+	if m.help.scrollOffset == 0 {
 		t.Error("G should go to bottom of help")
 	}
 
 	// Search in help
 	result, _ = m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
 	m = result.(*Model)
-	if !m.helpSearching {
+	if !m.help.searching {
 		t.Error("should be searching in help")
 	}
 
 	// Type search query
 	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	m = result.(*Model)
-	if m.helpSearchQuery != "q" {
-		t.Errorf("search query should be 'q', got %q", m.helpSearchQuery)
+	if m.help.searchQuery != "q" {
+		t.Errorf("search query should be 'q', got %q", m.help.searchQuery)
 	}
 
 	// Confirm search
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
-	if !m.helpSearchConfirmed {
+	if !m.help.searchConfirmed {
 		t.Error("search should be confirmed")
 	}
 
@@ -6917,7 +6917,7 @@ func TestHelpOverlay_SearchAndScroll(t *testing.T) {
 	// Now close help with q
 	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	m = result.(*Model)
-	if m.showHelp {
+	if m.help.IsOpen() {
 		t.Error("help should be closed after q")
 	}
 }
@@ -6927,8 +6927,8 @@ func TestRenderHelp_ScrollOffset(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 10 // short so not all help lines visible
-	m.showHelp = true
-	m.helpScrollOffset = 5
+	m.help.Open()
+	m.help.scrollOffset = 5
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -6943,8 +6943,8 @@ func TestRenderHelp_SearchHighlighting(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 40
-	m.showHelp = true
-	m.helpSearchQuery = "scroll"
+	m.help.Open()
+	m.help.searchQuery = "scroll"
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -6965,10 +6965,10 @@ func TestRenderHelp_SearchingBarWithMatches(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 40
-	m.showHelp = true
-	m.helpSearching = true
-	m.helpSearchQuery = "wrap"
-	m.helpSearchMatches = []int{3}
+	m.help.Open()
+	m.help.searching = true
+	m.help.searchQuery = "wrap"
+	m.help.searchMatches = []int{3}
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -6985,9 +6985,9 @@ func TestRenderHelp_SearchingBarNoMatches(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 40
-	m.showHelp = true
-	m.helpSearching = true
-	m.helpSearchQuery = "zzzzz"
+	m.help.Open()
+	m.help.searching = true
+	m.help.searchQuery = "zzzzz"
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -7001,11 +7001,11 @@ func TestRenderHelp_ConfirmedSearchBar(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 40
-	m.showHelp = true
-	m.helpSearchConfirmed = true
-	m.helpSearchQuery = "mode"
-	m.helpSearchMatches = []int{2, 4, 6}
-	m.helpSearchIdx = 2
+	m.help.Open()
+	m.help.searchConfirmed = true
+	m.help.searchQuery = "mode"
+	m.help.searchMatches = []int{2, 4, 6}
+	m.help.searchIdx = 2
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -7022,8 +7022,8 @@ func TestRenderHelp_StartBeyondEnd(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 40
-	m.showHelp = true
-	m.helpScrollOffset = 9999 // way past end
+	m.help.Open()
+	m.help.scrollOffset = 9999 // way past end
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -7036,27 +7036,27 @@ func TestHandleHelpKey_SearchBackspace(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 24
-	m.showHelp = true
-	m.helpSearching = true
-	m.helpSearchQuery = "ab"
+	m.help.Open()
+	m.help.searching = true
+	m.help.searchQuery = "ab"
 	m.updateLayout()
 
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
-	if m.helpSearchQuery != "a" {
-		t.Errorf("backspace should remove last char, got %q", m.helpSearchQuery)
+	if m.help.searchQuery != "a" {
+		t.Errorf("backspace should remove last char, got %q", m.help.searchQuery)
 	}
 
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
-	if m.helpSearchQuery != "" {
-		t.Errorf("backspace should remove last char, got %q", m.helpSearchQuery)
+	if m.help.searchQuery != "" {
+		t.Errorf("backspace should remove last char, got %q", m.help.searchQuery)
 	}
 
 	// Backspace on empty should not panic
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
-	if m.helpSearchQuery != "" {
+	if m.help.searchQuery != "" {
 		t.Error("backspace on empty should stay empty")
 	}
 }
@@ -7066,17 +7066,17 @@ func TestHandleHelpKey_SearchEnterNoMatches(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 24
-	m.showHelp = true
-	m.helpSearching = true
-	m.helpSearchQuery = "zzzznotfound"
+	m.help.Open()
+	m.help.searching = true
+	m.help.searchQuery = "zzzznotfound"
 	m.updateLayout()
 
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
-	if m.helpSearching {
+	if m.help.searching {
 		t.Error("enter should end searching mode")
 	}
-	if m.helpSearchConfirmed {
+	if m.help.searchConfirmed {
 		t.Error("enter with no matches should not confirm")
 	}
 }
@@ -7086,17 +7086,17 @@ func TestHandleHelpKey_ConfirmedOtherKeyFallthrough(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 24
-	m.showHelp = true
-	m.helpSearchConfirmed = true
-	m.helpSearchQuery = "mode"
-	m.helpSearchMatches = []int{2, 4}
-	m.helpSearchIdx = 0
+	m.help.Open()
+	m.help.searchConfirmed = true
+	m.help.searchQuery = "mode"
+	m.help.searchMatches = []int{2, 4}
+	m.help.searchIdx = 0
 	m.updateLayout()
 
 	// 'j' should clear confirmed and fall through to scroll down
 	result, _ := m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
 	m = result.(*Model)
-	if m.helpSearchConfirmed {
+	if m.help.searchConfirmed {
 		t.Error("other key should clear confirmed mode")
 	}
 }
@@ -7106,21 +7106,21 @@ func TestHandleHelpKey_ConfirmedPrevNav(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 24
-	m.showHelp = true
-	m.helpSearchConfirmed = true
-	m.helpSearchQuery = "mode"
-	m.helpSearchMatches = []int{2, 4, 6}
-	m.helpSearchIdx = 0
+	m.help.Open()
+	m.help.searchConfirmed = true
+	m.help.searchQuery = "mode"
+	m.help.searchMatches = []int{2, 4, 6}
+	m.help.searchIdx = 0
 	m.updateLayout()
 
 	// p should go to previous (wrap around to last)
 	result, _ := m.Update(tea.KeyPressMsg{Text: "p", Code: 'p'})
 	m = result.(*Model)
-	if m.helpSearchIdx != 2 {
-		t.Errorf("p should wrap to last match, got idx=%d", m.helpSearchIdx)
+	if m.help.searchIdx != 2 {
+		t.Errorf("p should wrap to last match, got idx=%d", m.help.searchIdx)
 	}
-	if m.helpScrollOffset != 6 {
-		t.Errorf("scroll should follow match, got offset=%d", m.helpScrollOffset)
+	if m.help.scrollOffset != 6 {
+		t.Errorf("scroll should follow match, got offset=%d", m.help.scrollOffset)
 	}
 }
 
@@ -7129,7 +7129,7 @@ func TestHandleHelpKey_QuitImmediate(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 24
-	m.showHelp = true
+	m.help.Open()
 	m.updateLayout()
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
@@ -7143,13 +7143,13 @@ func TestHandleHelpKey_UpAtZero(t *testing.T) {
 	m.loading = false
 	m.width = 80
 	m.height = 10
-	m.showHelp = true
-	m.helpScrollOffset = 0
+	m.help.Open()
+	m.help.scrollOffset = 0
 	m.updateLayout()
 
 	result, _ := m.Update(tea.KeyPressMsg{Text: "k", Code: 'k'})
 	m = result.(*Model)
-	if m.helpScrollOffset != 0 {
+	if m.help.scrollOffset != 0 {
 		t.Error("up at top should stay at 0")
 	}
 }

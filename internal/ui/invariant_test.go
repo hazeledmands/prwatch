@@ -425,7 +425,7 @@ func checkSidebarInvariants(t *rapid.T, m *Model, context string) {
 // active notifications (which temporarily replace the bottom border).
 func checkBottomBorder(t *rapid.T, m *Model, context string) {
 	t.Helper()
-	if m.showHelp || m.confirming || m.loading || m.err != nil || m.sidebarHidden || m.notification != "" {
+	if m.help.IsOpen() || m.confirming || m.loading || m.err != nil || m.sidebarHidden || m.notification != "" {
 		return
 	}
 	v := viewWithTimeout(t, m, context)
@@ -1939,8 +1939,8 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			if m.confirming {
 				m.confirming = false
 			}
-			if m.showHelp {
-				m.showHelp = false
+			if m.help.IsOpen() {
+				m.help.Close()
 			}
 
 			selAfter := m.sidebar.SelectedIndex()
@@ -2196,8 +2196,8 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			if m.confirming {
 				m.confirming = false
 			}
-			if m.showHelp {
-				m.showHelp = false
+			if m.help.IsOpen() {
+				m.help.Close()
 			}
 
 			context := fmt.Sprintf("step %d (mode=%d, focus=%d)", step, m.mode, m.focus)
@@ -2345,8 +2345,8 @@ func TestProperty_ScopeCutlineMatchesBaseSection(t *testing.T) {
 			if m.confirming {
 				m.confirming = false
 			}
-			if m.showHelp {
-				m.showHelp = false
+			if m.help.IsOpen() {
+				m.help.Close()
 			}
 		}
 
@@ -2409,8 +2409,8 @@ func TestProperty_ScopeIndicatorMatchesScrub(t *testing.T) {
 			if m.confirming {
 				m.confirming = false
 			}
-			if m.showHelp {
-				m.showHelp = false
+			if m.help.IsOpen() {
+				m.help.Close()
 			}
 		}
 

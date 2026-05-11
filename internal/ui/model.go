@@ -94,63 +94,57 @@ type Model struct {
 	// what detectBase() resolves to at load time. m.base equals naturalBase at
 	// the default scope position; scope-extend / scope-contract walk m.base
 	// away from naturalBase, and scope-reset snaps it back.
-	naturalBase         string
-	repoInfo            gitpkg.RepoInfoResult
-	prInfo              gitpkg.PRInfoResult
-	ciStatus            gitpkg.CIStatusResult
-	prReviews           []gitpkg.PRReview
-	prReviewRequests    []gitpkg.PRReviewRequest
-	prError             string // error message for PR/GitHub API issues
-	prCommentCount      int
-	committedFiles      []string
-	uncommittedFiles    []string        // unstaged/untracked (new changes)
-	stagedFiles         []string        // staged but uncommitted
-	deletedFiles        []string        // files deleted in base..HEAD
-	addedFiles          []string        // files that are entirely new additions
-	allFiles            []string        // all files in the repo (for files mode)
-	ignoredFiles        map[string]bool // gitignored files (for dimming in all-files view)
-	ignoredDirs         map[string]bool // ignored entries that are directories — render as expandable
-	loadedIgnoredDirs   map[string]bool // ignored dirs whose contents have been lazy-loaded
-	commits             []gitpkg.Commit
-	commitCount         int                   // true total commit count (from rev-list --count)
-	commitsLoaded       int                   // how many commits have been loaded so far
-	behindCount         int                   // how many commits behind base
-	baseCommits         []gitpkg.Commit       // commits from the base branch (for commit mode category 4)
-	prComments          []gitpkg.PRComment    // PR comments for PR-view mode
-	prDeployments       []gitpkg.PRDeployment // PR deployments for PR-view mode
-	ciChecks            []gitpkg.CICheck      // CI checks for PR-view mode
-	rwxFetcher          *rwxFetcher           // RWX log fetch/cache state
-	mainScrollLines     map[mainItemKey]int   // last source line at top of main pane, per (mode, item)
-	lastMainItem        mainItemKey           // (mode, item) currently displayed in main pane
-	sidebar             *sidebar
-	mainPane            *mainPane
-	sidebarPct          int // sidebar width as percentage of total width (10-50)
-	dir                 string
-	confirming          bool
-	showHelp            bool
-	helpScrollOffset    int             // scroll offset within help overlay
-	helpSearching       bool            // search active within help
-	helpSearchConfirmed bool            // help search confirmed, n/p navigation
-	helpSearchQuery     string          // search query within help
-	helpSearchMatches   []int           // line indices of matches in help
-	helpSearchIdx       int             // current match index
-	showIgnored         bool            // whether to show gitignored files in all-files section
-	collapsedDirs       map[string]bool // tracks collapsed directory paths
-	sidebarHidden       bool            // [f] toggles sidebar visibility
-	wordWrap            bool            // [w] toggles word wrapping in main pane
-	lineNumbers         bool            // [n] toggles line numbers in files mode
-	searching           bool            // search input is active
-	searchConfirmed     bool            // enter pressed, n/p navigation active
-	searchQuery         string
-	searchMatches       []searchMatch    // matches across both panes
-	searchMatchIdx      int              // current match index
-	hoverX, hoverY      int              // last mouse position for hover highlighting
-	activity            *activityTracker // adaptive refresh-interval bookkeeping
-	dragStartX          int              // drag start position (-1 = not dragging)
-	dragStartY          int
-	dragEndX            int
-	dragEndY            int
-	dragging            bool
+	naturalBase       string
+	repoInfo          gitpkg.RepoInfoResult
+	prInfo            gitpkg.PRInfoResult
+	ciStatus          gitpkg.CIStatusResult
+	prReviews         []gitpkg.PRReview
+	prReviewRequests  []gitpkg.PRReviewRequest
+	prError           string // error message for PR/GitHub API issues
+	prCommentCount    int
+	committedFiles    []string
+	uncommittedFiles  []string        // unstaged/untracked (new changes)
+	stagedFiles       []string        // staged but uncommitted
+	deletedFiles      []string        // files deleted in base..HEAD
+	addedFiles        []string        // files that are entirely new additions
+	allFiles          []string        // all files in the repo (for files mode)
+	ignoredFiles      map[string]bool // gitignored files (for dimming in all-files view)
+	ignoredDirs       map[string]bool // ignored entries that are directories — render as expandable
+	loadedIgnoredDirs map[string]bool // ignored dirs whose contents have been lazy-loaded
+	commits           []gitpkg.Commit
+	commitCount       int                   // true total commit count (from rev-list --count)
+	commitsLoaded     int                   // how many commits have been loaded so far
+	behindCount       int                   // how many commits behind base
+	baseCommits       []gitpkg.Commit       // commits from the base branch (for commit mode category 4)
+	prComments        []gitpkg.PRComment    // PR comments for PR-view mode
+	prDeployments     []gitpkg.PRDeployment // PR deployments for PR-view mode
+	ciChecks          []gitpkg.CICheck      // CI checks for PR-view mode
+	rwxFetcher        *rwxFetcher           // RWX log fetch/cache state
+	mainScrollLines   map[mainItemKey]int   // last source line at top of main pane, per (mode, item)
+	lastMainItem      mainItemKey           // (mode, item) currently displayed in main pane
+	sidebar           *sidebar
+	mainPane          *mainPane
+	sidebarPct        int // sidebar width as percentage of total width (10-50)
+	dir               string
+	confirming        bool
+	help              *helpOverlay    // help overlay subsystem
+	showIgnored       bool            // whether to show gitignored files in all-files section
+	collapsedDirs     map[string]bool // tracks collapsed directory paths
+	sidebarHidden     bool            // [f] toggles sidebar visibility
+	wordWrap          bool            // [w] toggles word wrapping in main pane
+	lineNumbers       bool            // [n] toggles line numbers in files mode
+	searching         bool            // search input is active
+	searchConfirmed   bool            // enter pressed, n/p navigation active
+	searchQuery       string
+	searchMatches     []searchMatch    // matches across both panes
+	searchMatchIdx    int              // current match index
+	hoverX, hoverY    int              // last mouse position for hover highlighting
+	activity          *activityTracker // adaptive refresh-interval bookkeeping
+	dragStartX        int              // drag start position (-1 = not dragging)
+	dragStartY        int
+	dragEndX          int
+	dragEndY          int
+	dragging          bool
 	// dragScrollDir is +1 to auto-scroll the main pane down (drag past the
 	// bottom edge), -1 to auto-scroll up (drag past the top edge), 0 when
 	// the drag end is inside the viewport. While non-zero, a recurring
@@ -289,6 +283,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		wordWrap:      true,
 		lineNumbers:   true,
 		activity:      newActivityTracker(time.Now()),
+		help:          newHelpOverlay(),
 		loading:       g != nil,
 		dragStartX:    -1,
 		dragStartY:    -1,
@@ -1015,14 +1010,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouseClick(msg)
 
 	case tea.MouseWheelMsg:
-		if m.showHelp {
-			helpLines := m.helpContentLines()
+		if m.help.IsOpen() {
 			visibleHeight := max(1, m.height-m.statusBarLines()-2)
-			if msg.Button == tea.MouseWheelUp && m.helpScrollOffset > 0 {
-				m.helpScrollOffset--
-			} else if msg.Button == tea.MouseWheelDown && m.helpScrollOffset < len(helpLines)-visibleHeight {
-				m.helpScrollOffset++
+			dir := 0
+			if msg.Button == tea.MouseWheelUp {
+				dir = -1
+			} else if msg.Button == tea.MouseWheelDown {
+				dir = +1
 			}
+			m.help.HandleWheel(dir, visibleHeight)
 			return m, nil
 		}
 		return m.handleMouseWheel(msg)
@@ -1071,11 +1067,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Handle shift+space as page up (may not be caught by key.Matches)
 	if msg.Code == tea.KeySpace && msg.Mod&tea.ModShift != 0 {
-		if m.showHelp {
-			helpLines := m.helpContentLines()
+		if m.help.IsOpen() {
 			visibleHeight := max(1, m.height-m.statusBarLines()-2)
-			m.helpScrollOffset = max(0, m.helpScrollOffset-visibleHeight)
-			_ = helpLines
+			m.help.PageUp(visibleHeight)
 			return m, nil
 		}
 		if m.focus == SidebarFocus {
@@ -1100,7 +1094,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Help overlay — supports scrolling and search
-	if m.showHelp {
+	if m.help.IsOpen() {
 		return m.handleHelpKey(msg)
 	}
 
@@ -1126,7 +1120,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.Help):
-		m.showHelp = true
+		m.help.Open()
 		return m, nil
 
 	case key.Matches(msg, keys.Search):
@@ -1394,131 +1388,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) updateHelpSearchMatches() {
-	m.helpSearchMatches = nil
-	if m.helpSearchQuery == "" {
-		return
-	}
-	q := strings.ToLower(m.helpSearchQuery)
-	for i, line := range m.helpContentLines() {
-		if strings.Contains(strings.ToLower(line), q) {
-			m.helpSearchMatches = append(m.helpSearchMatches, i)
-		}
-	}
-	m.helpSearchIdx = 0
-	if len(m.helpSearchMatches) > 0 {
-		m.helpScrollOffset = m.helpSearchMatches[0]
-	}
-}
-
 func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.helpSearching {
-		switch {
-		case msg.Code == tea.KeyEscape:
-			m.helpSearching = false
-			m.helpSearchQuery = ""
-			m.helpSearchMatches = nil
-			return m, nil
-		case msg.Code == tea.KeyEnter:
-			m.helpSearching = false
-			if len(m.helpSearchMatches) > 0 {
-				m.helpSearchConfirmed = true
-			}
-			return m, nil
-		case msg.Code == tea.KeyBackspace:
-			if len(m.helpSearchQuery) > 0 {
-				m.helpSearchQuery = m.helpSearchQuery[:len(m.helpSearchQuery)-1]
-			}
-			if m.helpSearchQuery == "" {
-				m.helpSearching = false
-				m.helpSearchConfirmed = false
-				m.helpSearchMatches = nil
-				return m, nil
-			}
-			m.updateHelpSearchMatches()
-			return m, nil
-		default:
-			if msg.Text != "" {
-				m.helpSearchQuery += msg.Text
-			}
-			m.updateHelpSearchMatches()
-			return m, nil
-		}
-	}
-
-	// n/p navigation in help search confirmed mode
-	if m.helpSearchConfirmed {
-		switch {
-		case key.Matches(msg, keys.SearchNext):
-			if len(m.helpSearchMatches) > 0 {
-				m.helpSearchIdx = (m.helpSearchIdx + 1) % len(m.helpSearchMatches)
-				m.helpScrollOffset = m.helpSearchMatches[m.helpSearchIdx]
-			}
-			return m, nil
-		case key.Matches(msg, keys.SearchPrev):
-			if len(m.helpSearchMatches) > 0 {
-				m.helpSearchIdx = (m.helpSearchIdx - 1 + len(m.helpSearchMatches)) % len(m.helpSearchMatches)
-				m.helpScrollOffset = m.helpSearchMatches[m.helpSearchIdx]
-			}
-			return m, nil
-		case msg.Code == tea.KeyEscape, key.Matches(msg, keys.QuitConfirm):
-			m.helpSearchConfirmed = false
-			m.helpSearchQuery = ""
-			m.helpSearchMatches = nil
-			return m, nil
-		default:
-			m.helpSearchConfirmed = false
-			m.helpSearchQuery = ""
-			m.helpSearchMatches = nil
-			return m.handleHelpKey(msg)
-		}
-	}
-
-	helpLines := m.helpContentLines()
-	visibleHeight := max(1, m.height-m.statusBarLines()-2) // status bar + borders
-
-	switch {
-	case key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.Help):
-		m.showHelp = false
-		m.helpScrollOffset = 0
-		m.helpSearchQuery = ""
-		m.helpSearchMatches = nil
-		return m, nil
-	case key.Matches(msg, keys.Search):
-		m.helpSearching = true
-		m.helpSearchQuery = ""
-		m.helpSearchMatches = nil
-		return m, nil
-	case key.Matches(msg, keys.Down):
-		if m.helpScrollOffset < len(helpLines)-visibleHeight {
-			m.helpScrollOffset++
-		}
-		return m, nil
-	case key.Matches(msg, keys.Up):
-		if m.helpScrollOffset > 0 {
-			m.helpScrollOffset--
-		}
-		return m, nil
-	case key.Matches(msg, keys.PageDown):
-		maxOffset := max(0, len(helpLines)-visibleHeight)
-		m.helpScrollOffset = min(m.helpScrollOffset+visibleHeight, maxOffset)
-		return m, nil
-	case key.Matches(msg, keys.PageUp):
-		m.helpScrollOffset = max(0, m.helpScrollOffset-visibleHeight)
-		return m, nil
-	case key.Matches(msg, keys.GoBottom):
-		m.helpScrollOffset = max(0, len(helpLines)-visibleHeight)
-		return m, nil
-	case key.Matches(msg, keys.QuitImmediate):
-		return m, tea.Quit
-	default:
-		// Any other key dismisses help
-		m.showHelp = false
-		m.helpScrollOffset = 0
-		m.helpSearchQuery = ""
-		m.helpSearchMatches = nil
-		return m, nil
-	}
+	visibleHeight := max(1, m.height-m.statusBarLines()-2)
+	return m, m.help.HandleKey(msg, visibleHeight)
 }
 
 func (m *Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1639,9 +1511,13 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 		for _, label := range m.modeLabels {
 			if x >= label.start && x < label.end {
 				if label.mode == HelpMode {
-					m.showHelp = !m.showHelp
+					if m.help.IsOpen() {
+						m.help.Close()
+					} else {
+						m.help.Open()
+					}
 				} else {
-					m.showHelp = false
+					m.help.Close()
 					m.setMode(label.mode)
 				}
 				return m, nil
@@ -2947,7 +2823,7 @@ func (m *Model) View() tea.View {
 		behindCount:      m.behindCount,
 		changedFileCount: len(m.committedFiles) + len(m.uncommittedFiles) + len(m.stagedFiles),
 		prLoading:        m.loading && m.git != nil,
-		showHelp:         m.showHelp,
+		showHelp:         m.help.IsOpen(),
 		hoverX:           m.hoverX,
 		hoverY:           m.hoverY,
 		scopeHandle:      m.scopeHandleInfo(),
@@ -2957,7 +2833,7 @@ func (m *Model) View() tea.View {
 	m.line3Labels = l3Labels
 
 	var result string
-	if m.showHelp {
+	if m.help.IsOpen() {
 		result = bar + "\n" + m.renderHelp()
 	} else if m.sidebarHidden {
 		mainView := m.mainPane.View(m.focus == MainFocus)
@@ -3380,129 +3256,6 @@ func keyList(bs ...key.Binding) string {
 	return strings.Join(parts, " ")
 }
 
-func (m *Model) helpContentLines() []string {
-	sections := [][]helpEntry{
-		{
-			{bindings: []key.Binding{keys.ToggleMode}, desc: "Cycle mode (files → commits → pr)"},
-			{bindings: []key.Binding{keys.FilesMode}, desc: "Files mode"},
-			{bindings: []key.Binding{keys.CommitsMode}, desc: "Commits mode"},
-			{bindings: []key.Binding{keys.PRMode}, desc: "PR mode (when PR exists)"},
-		},
-		{
-			{bindings: []key.Binding{keys.FocusLeft}, desc: "Scroll left (when wrap off)"},
-			{bindings: []key.Binding{keys.FocusRight}, desc: "Scroll right (when wrap off)"},
-			{bindings: []key.Binding{keys.FocusSidebar}, desc: "Focus sidebar"},
-			{bindings: []key.Binding{keys.FocusMain}, desc: "Focus main pane"},
-			{bindings: []key.Binding{keys.FocusToggle}, desc: "Toggle focus (sidebar / main pane)"},
-		},
-		{
-			{bindings: []key.Binding{keys.Down}, desc: "Move down / scroll down"},
-			{bindings: []key.Binding{keys.Up}, desc: "Move up / scroll up"},
-			{bindings: []key.Binding{keys.PageDown}, desc: "Page down"},
-			{bindings: []key.Binding{keys.PageUp}, desc: "Page up"},
-			{bindings: []key.Binding{keys.GoTop}, desc: "Go to top"},
-			{bindings: []key.Binding{keys.GoBottom}, desc: "Go to bottom"},
-		},
-		{
-			{bindings: []key.Binding{keys.SidebarGrow}, desc: "Grow sidebar"},
-			{bindings: []key.Binding{keys.SidebarShrink}, desc: "Shrink sidebar"},
-			{bindings: []key.Binding{keys.ToggleSidebar}, desc: "Toggle sidebar visibility"},
-		},
-		{
-			{bindings: []key.Binding{keys.ToggleWrap}, desc: "Toggle word wrap"},
-			{bindings: []key.Binding{keys.ToggleLineNums}, desc: "Toggle line numbers (files mode)"},
-			{bindings: []key.Binding{keys.ToggleIgnored}, desc: "Toggle gitignored files (files mode)"},
-			{bindings: []key.Binding{keys.ToggleRemoved}, desc: "Toggle removed lines in diff gutter (files mode)"},
-		},
-		{
-			{bindings: []key.Binding{keys.NextDiff}, desc: "Jump to next diff hunk (files mode)"},
-			{bindings: []key.Binding{keys.PrevDiff}, desc: "Jump to previous diff hunk (files mode)"},
-			{bindings: []key.Binding{keys.NextLeaf}, desc: "Jump to next leaf"},
-			{bindings: []key.Binding{keys.PrevLeaf}, desc: "Jump to previous leaf"},
-		},
-		{
-			{bindings: []key.Binding{keys.Enter}, desc: "Open file in $EDITOR / switch to main pane"},
-			{bindings: []key.Binding{keys.YankPath}, desc: "Copy file path (sidebar) or path:lines (main pane)"},
-			{bindings: []key.Binding{keys.Search}, desc: "Search (type to match, enter to confirm)"},
-			{bindings: []key.Binding{keys.SearchNext}, desc: "Next search result (after search confirmed)"},
-			{bindings: []key.Binding{keys.SearchPrev}, desc: "Previous search result (after search confirmed)"},
-		},
-		{
-			{bindings: []key.Binding{keys.Refresh}, desc: "Refresh git state"},
-			{bindings: []key.Binding{keys.PRBrowse}, desc: "Open the active PR in the browser"},
-			{bindings: []key.Binding{keys.Help}, desc: "Show this help (scroll with j/k/mouse)"},
-		},
-		{
-			{bindings: []key.Binding{keys.ScopeExtendBack}, desc: "Extend commit-range scope backward"},
-			{bindings: []key.Binding{keys.ScopeContractForward}, desc: "Contract commit-range scope toward working tree"},
-			{bindings: []key.Binding{keys.ScopeReset}, desc: "Reset commit-range scope to default"},
-		},
-		{
-			{bindings: []key.Binding{keys.QuitConfirm}, desc: "Quit (confirm)"},
-			{bindings: []key.Binding{keys.QuitImmediate}, desc: "Quit immediately"},
-		},
-	}
-
-	// Column-align descriptions: pad the key list to the widest one.
-	width := 0
-	for _, section := range sections {
-		for _, e := range section {
-			if w := len(keyList(e.bindings...)); w > width {
-				width = w
-			}
-		}
-	}
-
-	lines := []string{"Keybindings:", ""}
-	for i, section := range sections {
-		if i > 0 {
-			lines = append(lines, "")
-		}
-		for _, e := range section {
-			lines = append(lines, fmt.Sprintf("  %-*s  %s", width, keyList(e.bindings...), e.desc))
-		}
-	}
-	lines = append(lines, "", "Press q/esc to dismiss. Use j/k or mouse to scroll. / to search.")
-	return lines
-}
-
 func (m *Model) renderHelp() string {
-	lines := m.helpContentLines()
-	visibleHeight := max(1, m.height-m.statusBarLines()-2) // status bar + borders
-
-	// Apply search highlighting
-	if m.helpSearchQuery != "" {
-		for i, line := range lines {
-			lines[i] = highlightMatchInLine(line, m.helpSearchQuery)
-		}
-	}
-
-	// Apply scroll offset
-	end := m.helpScrollOffset + visibleHeight
-	if end > len(lines) {
-		end = len(lines)
-	}
-	start := m.helpScrollOffset
-	if start > len(lines) {
-		start = len(lines)
-	}
-	visible := lines[start:end]
-
-	result := strings.Join(visible, "\n")
-
-	// Add search bar at bottom if searching or in nav mode
-	if m.helpSearching {
-		searchBar := "/" + m.helpSearchQuery + "_"
-		if len(m.helpSearchMatches) > 0 {
-			searchBar += fmt.Sprintf("  %d/%d", m.helpSearchIdx+1, len(m.helpSearchMatches))
-		} else if m.helpSearchQuery != "" {
-			searchBar += "  0/0"
-		}
-		result += "\n" + searchBar
-	} else if m.helpSearchConfirmed {
-		searchBar := fmt.Sprintf("/%s  %d/%d", m.helpSearchQuery, m.helpSearchIdx+1, len(m.helpSearchMatches))
-		result += "\n" + searchBar
-	}
-
-	return result
+	return m.help.Render(max(1, m.height-m.statusBarLines()-2))
 }
