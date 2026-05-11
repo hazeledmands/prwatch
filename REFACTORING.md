@@ -121,7 +121,7 @@ These two giant switch-on-`Mode` methods are where the god object actually
 manifests. Each arm could be a pure(-ish) builder that takes a small data
 record and returns a result.
 
-### 11. [ ] Sidebar item builder — `updateSidebarItems`
+### 11. [x] Sidebar item builder — `updateSidebarItems`
 - **Location**: `model.go:2552-2877` (~325 lines).
 - **Shape today**: one method with three big arms (`FilesMode`, `CommitsMode`, `PRMode`) plus a debug-logging defer at the top.
 - **Per-arm extractability**:
