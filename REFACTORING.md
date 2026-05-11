@@ -67,7 +67,7 @@ These are the highest-value extractions in terms of removing fields and
 making the remaining `Model` legible. Each is a coherent sub-feature whose
 state never escapes.
 
-### 6. [ ] Drag selection / clipboard subsystem
+### 6. [x] Drag selection / clipboard subsystem
 - **Cluster**:
   - Fields: `dragStartX`, `dragStartY`, `dragEndX`, `dragEndY`, `dragging`, `dragScrollDir`.
   - Methods: `applyDragHighlight` (3552), `dragMainPaneBounds` (3750), `updateDragAutoScroll` (3770), `advanceDragAutoScroll` (3792), `scheduleDragScrollTick`, `selectedText` (3833), `copySelection` (3985), `copyToClipboard` (4008).
