@@ -4644,7 +4644,7 @@ func TestRateLimitBackoff(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 
-	initial := m.prInterval
+	initial := m.activity.prInterval
 	if initial != prRefreshActive {
 		t.Fatalf("expected default interval %v, got %v", prRefreshActive, initial)
 	}
@@ -4652,22 +4652,22 @@ func TestRateLimitBackoff(t *testing.T) {
 	// Simulate rate limit
 	result, _ := m.Update(prRefreshMsg{rateLimited: true})
 	m = result.(*Model)
-	if m.prInterval != prRefreshActive*2 {
-		t.Errorf("expected interval to double to %v, got %v", prRefreshActive*2, m.prInterval)
+	if m.activity.prInterval != prRefreshActive*2 {
+		t.Errorf("expected interval to double to %v, got %v", prRefreshActive*2, m.activity.prInterval)
 	}
 
 	// Second rate limit
 	result, _ = m.Update(prRefreshMsg{rateLimited: true})
 	m = result.(*Model)
-	if m.prInterval != prRefreshActive*4 {
-		t.Errorf("expected interval to quadruple to %v, got %v", prRefreshActive*4, m.prInterval)
+	if m.activity.prInterval != prRefreshActive*4 {
+		t.Errorf("expected interval to quadruple to %v, got %v", prRefreshActive*4, m.activity.prInterval)
 	}
 
 	// Successful response resets
 	result, _ = m.Update(prRefreshMsg{})
 	m = result.(*Model)
-	if m.prInterval != prRefreshActive {
-		t.Errorf("expected interval reset to %v, got %v", prRefreshActive, m.prInterval)
+	if m.activity.prInterval != prRefreshActive {
+		t.Errorf("expected interval reset to %v, got %v", prRefreshActive, m.activity.prInterval)
 	}
 }
 
@@ -4685,29 +4685,29 @@ func TestAdaptiveRefresh_IdleAndStale(t *testing.T) {
 	m.updateLayout()
 
 	// Active user should get active interval
-	m.lastUIEvent = time.Now()
-	m.lastServerChange = time.Now()
+	m.activity.lastUIEvent = time.Now()
+	m.activity.lastServerChange = time.Now()
 	if got := m.computePRInterval(); got != prRefreshActive {
 		t.Errorf("active user: got %v, want %v", got, prRefreshActive)
 	}
 
 	// Idle user (no UI events for >10m) should get idle interval
-	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
-	m.lastServerChange = time.Now()
+	m.activity.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.activity.lastServerChange = time.Now()
 	if got := m.computePRInterval(); got != prRefreshIdle {
 		t.Errorf("idle user: got %v, want %v", got, prRefreshIdle)
 	}
 
 	// Stale server data (no changes in >24h) should get idle interval
-	m.lastUIEvent = time.Now()
-	m.lastServerChange = time.Now().Add(-25 * time.Hour)
+	m.activity.lastUIEvent = time.Now()
+	m.activity.lastServerChange = time.Now().Add(-25 * time.Hour)
 	if got := m.computePRInterval(); got != prRefreshIdle {
 		t.Errorf("stale data: got %v, want %v", got, prRefreshIdle)
 	}
 
 	// Both idle and stale
-	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
-	m.lastServerChange = time.Now().Add(-25 * time.Hour)
+	m.activity.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.activity.lastServerChange = time.Now().Add(-25 * time.Hour)
 	if got := m.computePRInterval(); got != prRefreshIdle {
 		t.Errorf("idle+stale: got %v, want %v", got, prRefreshIdle)
 	}
@@ -4727,31 +4727,31 @@ func TestComputeGitInterval(t *testing.T) {
 	m.updateLayout()
 
 	// Active user with recent git activity → active interval
-	m.lastUIEvent = time.Now()
-	m.lastGitChange = time.Now()
+	m.activity.lastUIEvent = time.Now()
+	m.activity.lastGitChange = time.Now()
 	if got := m.computeGitInterval(); got != gitRefreshActive {
 		t.Errorf("active user+fs: got %v, want %v", got, gitRefreshActive)
 	}
 
 	// UI idle but filesystem changed recently → active interval
 	// (fs activity alone keeps the poll fast)
-	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
-	m.lastGitChange = time.Now()
+	m.activity.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.activity.lastGitChange = time.Now()
 	if got := m.computeGitInterval(); got != gitRefreshActive {
 		t.Errorf("ui-idle but fs-active: got %v, want %v", got, gitRefreshActive)
 	}
 
 	// UI active but filesystem quiet for longer than the active window → active interval
 	// (UI activity alone keeps the poll fast)
-	m.lastUIEvent = time.Now()
-	m.lastGitChange = time.Now().Add(-3 * time.Minute)
+	m.activity.lastUIEvent = time.Now()
+	m.activity.lastGitChange = time.Now().Add(-3 * time.Minute)
 	if got := m.computeGitInterval(); got != gitRefreshActive {
 		t.Errorf("ui-active but fs-quiet: got %v, want %v", got, gitRefreshActive)
 	}
 
 	// Both UI idle and filesystem quiet → idle interval
-	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
-	m.lastGitChange = time.Now().Add(-3 * time.Minute)
+	m.activity.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.activity.lastGitChange = time.Now().Add(-3 * time.Minute)
 	if got := m.computeGitInterval(); got != gitRefreshIdle {
 		t.Errorf("both idle: got %v, want %v", got, gitRefreshIdle)
 	}
@@ -4764,8 +4764,8 @@ func TestRefreshMsg_UpdatesLastGitChange(t *testing.T) {
 	m.updateLayout()
 
 	// Simulate both UI and fs going quiet, so interval is idle.
-	m.lastUIEvent = time.Now().Add(-11 * time.Minute)
-	m.lastGitChange = time.Now().Add(-3 * time.Minute)
+	m.activity.lastUIEvent = time.Now().Add(-11 * time.Minute)
+	m.activity.lastGitChange = time.Now().Add(-3 * time.Minute)
 	if got := m.computeGitInterval(); got != gitRefreshIdle {
 		t.Fatalf("precondition: got %v, want %v", got, gitRefreshIdle)
 	}
@@ -4775,8 +4775,8 @@ func TestRefreshMsg_UpdatesLastGitChange(t *testing.T) {
 	before := time.Now()
 	result, _ := m.Update(RefreshMsg{})
 	m = result.(*Model)
-	if !m.lastGitChange.After(before.Add(-time.Second)) {
-		t.Errorf("expected lastGitChange to be stamped to ~now, got %v", m.lastGitChange)
+	if !m.activity.lastGitChange.After(before.Add(-time.Second)) {
+		t.Errorf("expected lastGitChange to be stamped to ~now, got %v", m.activity.lastGitChange)
 	}
 	if got := m.computeGitInterval(); got != gitRefreshActive {
 		t.Errorf("after RefreshMsg: got %v, want %v", got, gitRefreshActive)

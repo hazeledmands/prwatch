@@ -152,15 +152,11 @@ type Model struct {
 	searching           bool            // search input is active
 	searchConfirmed     bool            // enter pressed, n/p navigation active
 	searchQuery         string
-	searchMatches       []searchMatch // matches across both panes
-	searchMatchIdx      int           // current match index
-	hoverX, hoverY      int           // last mouse position for hover highlighting
-	prInterval          time.Duration // adaptive PR refresh interval
-	gitInterval         time.Duration // adaptive local git poll interval
-	lastUIEvent         time.Time     // last user interaction (keys, mouse, resize)
-	lastServerChange    time.Time     // last time server data actually changed
-	lastGitChange       time.Time     // last fs-watcher event (proxy for local git activity)
-	dragStartX          int           // drag start position (-1 = not dragging)
+	searchMatches       []searchMatch    // matches across both panes
+	searchMatchIdx      int              // current match index
+	hoverX, hoverY      int              // last mouse position for hover highlighting
+	activity            *activityTracker // adaptive refresh-interval bookkeeping
+	dragStartX          int              // drag start position (-1 = not dragging)
 	dragStartY          int
 	dragEndX            int
 	dragEndY            int
@@ -345,29 +341,25 @@ func NewModel(dir string, g GitDataSource) *Model {
 	}
 
 	return &Model{
-		debugLog:         debugLog,
-		git:              g,
-		cmdFactory:       defaultCmdFactory,
-		dir:              dir,
-		mode:             FilesMode,
-		focus:            SidebarFocus,
-		sidebar:          newSidebar(),
-		mainPane:         newMainPane(),
-		sidebarPct:       30, // default 30% of width
-		showIgnored:      true,
-		collapsedDirs:    make(map[string]bool),
-		rwxLogCache:      make(map[string]string),
-		modeStates:       make(map[Mode]modeViewState),
-		wordWrap:         true,
-		lineNumbers:      true,
-		prInterval:       prRefreshActive,
-		gitInterval:      gitRefreshActive,
-		lastUIEvent:      time.Now(),
-		lastServerChange: time.Now(),
-		lastGitChange:    time.Now(),
-		loading:          g != nil,
-		dragStartX:       -1,
-		dragStartY:       -1,
+		debugLog:      debugLog,
+		git:           g,
+		cmdFactory:    defaultCmdFactory,
+		dir:           dir,
+		mode:          FilesMode,
+		focus:         SidebarFocus,
+		sidebar:       newSidebar(),
+		mainPane:      newMainPane(),
+		sidebarPct:    30, // default 30% of width
+		showIgnored:   true,
+		collapsedDirs: make(map[string]bool),
+		rwxLogCache:   make(map[string]string),
+		modeStates:    make(map[Mode]modeViewState),
+		wordWrap:      true,
+		lineNumbers:   true,
+		activity:      newActivityTracker(time.Now()),
+		loading:       g != nil,
+		dragStartX:    -1,
+		dragStartY:    -1,
 	}
 }
 
@@ -375,7 +367,7 @@ func (m *Model) Init() tea.Cmd {
 	if m.git == nil {
 		return m.loadNonGitFiles
 	}
-	return tea.Batch(m.loadLocalGitData, m.loadPRStatus, schedulePRTick(m.prInterval), scheduleGitTick(m.gitInterval))
+	return tea.Batch(m.loadLocalGitData, m.loadPRStatus, schedulePRTick(m.activity.PRInterval()), scheduleGitTick(m.activity.GitInterval()))
 }
 
 func schedulePRTick(interval time.Duration) tea.Cmd {
@@ -972,7 +964,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Track user activity for adaptive refresh
 	switch msg.(type) {
 	case tea.KeyMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.WindowSizeMsg:
-		m.lastUIEvent = time.Now()
+		m.activity.MarkUIEvent(time.Now())
 	}
 
 	if m.debugLog != nil {
@@ -1174,8 +1166,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prRefreshMsg:
 		if msg.rateLimited {
-			// Double the interval on rate limit, up to max
-			m.prInterval = min(m.prInterval*2, prRefreshMax)
+			m.activity.BumpRateLimited()
 			m.prError = "GitHub API rate limited"
 			m.updateLayout()
 			return m, nil
@@ -1188,7 +1179,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.ciStatus.State != m.ciStatus.State ||
 			msg.commentCount != m.prCommentCount ||
 			len(msg.reviews) != len(m.prReviews) {
-			m.lastServerChange = time.Now()
+			m.activity.MarkServerChange(time.Now())
 		}
 		// Detect base-branch change (either newly-learned from PR data, or the
 		// PR's base ref was edited server-side). If so, re-dispatch the local
@@ -1196,7 +1187,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// base.
 		baseRefChanged := msg.prInfo.BaseRef != m.prInfo.BaseRef && msg.prInfo.BaseRef != ""
 		// Successful fetch — reset interval based on activity and clear error
-		m.prInterval = m.computePRInterval()
+		m.activity.ResetPRInterval(time.Now())
 		m.prError = ""
 		m.prInfo = msg.prInfo
 		m.ciStatus = msg.ciStatus
@@ -1231,27 +1222,27 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prTickMsg:
 		// Recompute interval on each tick based on current activity state
-		m.prInterval = m.computePRInterval()
+		m.activity.ResetPRInterval(time.Now())
 		if m.git == nil {
-			return m, schedulePRTick(m.prInterval)
+			return m, schedulePRTick(m.activity.PRInterval())
 		}
-		return m, tea.Batch(m.loadPRStatus, schedulePRTick(m.prInterval))
+		return m, tea.Batch(m.loadPRStatus, schedulePRTick(m.activity.PRInterval()))
 
 	case notificationExpiredMsg:
 		m.notification = ""
 		return m, nil
 
 	case gitTickMsg:
-		m.gitInterval = m.computeGitInterval()
+		m.activity.ResetGitInterval(time.Now())
 		if m.git == nil {
-			return m, scheduleGitTick(m.gitInterval)
+			return m, scheduleGitTick(m.activity.GitInterval())
 		}
-		return m, tea.Batch(m.loadLocalGitData, scheduleGitTick(m.gitInterval))
+		return m, tea.Batch(m.loadLocalGitData, scheduleGitTick(m.activity.GitInterval()))
 
 	case RefreshMsg:
 		// Any fs-watcher event means the working directory is active;
 		// stamp lastGitChange so computeGitInterval keeps us on the fast poll.
-		m.lastGitChange = time.Now()
+		m.activity.MarkFSEvent(time.Now())
 		if m.git == nil {
 			return m, m.loadNonGitFiles
 		}
@@ -3249,26 +3240,11 @@ func reviewStateLabel(state string) string {
 // computePRInterval returns the appropriate PR refresh interval based on
 // user activity and server data freshness.
 func (m *Model) computePRInterval() time.Duration {
-	now := time.Now()
-	idle := now.Sub(m.lastUIEvent) >= prIdleThreshold
-	stale := now.Sub(m.lastServerChange) >= prStaleThreshold
-	if idle || stale {
-		return prRefreshIdle
-	}
-	return prRefreshActive
+	return m.activity.ComputePRInterval(time.Now())
 }
 
-// computeGitInterval returns the appropriate local git poll interval.
-// Either UI activity OR a recent filesystem event keeps the poll fast;
-// only when both are quiet do we fall back to the idle interval.
 func (m *Model) computeGitInterval() time.Duration {
-	now := time.Now()
-	uiIdle := now.Sub(m.lastUIEvent) >= prIdleThreshold
-	fsQuiet := now.Sub(m.lastGitChange) >= gitActiveWindow
-	if uiIdle && fsQuiet {
-		return gitRefreshIdle
-	}
-	return gitRefreshActive
+	return m.activity.ComputeGitInterval(time.Now())
 }
 
 func (m *Model) updateLayout() {

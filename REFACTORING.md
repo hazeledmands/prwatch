@@ -43,7 +43,7 @@ have narrow inputs and obvious property tests.
 - **Extraction**: free function `scopeHandleFromBase(base, naturalBase string, commitCount int) *scopeHandleInfo`. The `scopeHandleInfo` type already lives in `statusbar.go`.
 - **Invariants worth testing**: returns nil iff `base == naturalBase`; sha7 is always 7 chars when base is longer; `headOffset` equals `commitCount`.
 
-### 3. [ ] Refresh cadence — `computePRInterval` / `computeGitInterval`
+### 3. [x] Refresh cadence — `computePRInterval` / `computeGitInterval`
 - **Location**: `model.go:3251-3272` (~22 lines).
 - **Surface area**: 2 methods + 5 fields (`prInterval`, `gitInterval`, `lastUIEvent`, `lastServerChange`, `lastGitChange`) + 3 mutation sites that set timestamps.
 - **Extraction**: a small `activityTracker` type with `MarkUIEvent`, `MarkServerChange`, `MarkFSEvent`, `PRInterval(now)`, `GitInterval(now)`.
