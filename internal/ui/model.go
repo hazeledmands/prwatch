@@ -2826,18 +2826,9 @@ func (m *Model) updateLayout() {
 		prError:   m.prError,
 		prLoading: (m.loading || !m.prLoadedOnce) && m.git != nil,
 	})
-	contentHeight := max(0, m.height-statusBarHeight-2) // borders
-
-	if m.sidebarHidden {
-		mainWidth := max(0, m.width-2) // just main pane borders
-		m.sidebar.SetSize(0, contentHeight)
-		m.mainPane.SetSize(mainWidth, contentHeight)
-	} else {
-		sidebarWidth := max(0, m.width*m.sidebarPct/100)
-		mainWidth := max(0, m.width-sidebarWidth-4) // borders
-		m.sidebar.SetSize(sidebarWidth, contentHeight)
-		m.mainPane.SetSize(mainWidth, contentHeight)
-	}
+	sidebarW, mainW, contentH := layoutDimensions(m.width, m.height, statusBarHeight, m.sidebarPct, m.sidebarHidden)
+	m.sidebar.SetSize(sidebarW, contentH)
+	m.mainPane.SetSize(mainW, contentH)
 }
 
 // RenderOnce synchronously loads data, applies the given terminal size,
@@ -3170,17 +3161,8 @@ func (m *Model) applyDragHighlight(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-// dragMainPaneBounds returns the inclusive screen-row range of the main
-// pane content area (between the title row and the bottom border).
 func (m *Model) dragMainPaneBounds() (top, bottom int) {
-	statusRows := m.statusBarLines()
-	const topBorder, titleRow = 1, 1
-	top = statusRows + topBorder + titleRow
-	bottom = m.height - 2 // last content row before the bottom border
-	if bottom < top {
-		bottom = top
-	}
-	return top, bottom
+	return mainPaneContentRows(m.statusBarLines(), m.height)
 }
 
 // updateDragAutoScroll inspects the current drag-end Y in screen coords and

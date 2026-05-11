@@ -161,7 +161,7 @@ record and returns a result.
 - **Extraction shape**: free functions taking the small interface they need, or a single `Navigator` type bundling mainPane and sidebar pointers.
 - **Invariants**: wraps; never moves past last or before first; `jumpToNextLeaf` skips separators and cutlines.
 
-### 16. [ ] Pane geometry helpers
+### 16. [x] Pane geometry helpers
 - **Cluster**: `statusBarLines` (1878), `sidebarPixelWidth` (1882), `updateLayout` (3274), `dragMainPaneBounds` (3750).
 - **Extraction shape**: a `paneLayout` snapshot/struct that takes the relevant model fields and produces the bounds queried by drag, drag-highlight, search-bar overlay, etc. Currently each function recomputes them inline.
 
