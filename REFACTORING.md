@@ -49,7 +49,7 @@ have narrow inputs and obvious property tests.
 - **Extraction**: a small `activityTracker` type with `MarkUIEvent`, `MarkServerChange`, `MarkFSEvent`, `PRInterval(now)`, `GitInterval(now)`.
 - **Invariants worth testing**: any recent UI event keeps both intervals at "active"; `GitInterval` returns active when EITHER UI or FS is recent; intervals are monotonic w.r.t. quiescence.
 
-### 4. [ ] Pure parsing helpers (already free, just scattered)
+### 4. [x] Pure parsing helpers (already free, just scattered)
 - `parseHunkNewStart` (model.go:2240), `parseHunkHeader` (model.go:2259), `isBinaryContent` (model.go:2293), `shortstatFromDiff` (model.go:465), `relativeTime` (model.go:597), `pluralize`, `formatAuthorAndTime`, `commitTitleLeft`, `matchNumberedItem`, `reviewStateLabel`, `ciBucketOrder`, `extractDirs`.
 - **Extraction**: move to a `format.go` / `diffparse.go` / `gitformat.go` peer file. Already pure — just lives in the wrong file.
 - **Why it matters**: it's not the lines that hurt, it's that `model.go` is currently the keyword search target for everything. Moving these reduces noise in the file that actually mutates state.

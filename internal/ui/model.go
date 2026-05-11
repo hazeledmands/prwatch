@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -439,64 +438,6 @@ func isRateLimited(err error) bool {
 	return strings.Contains(msg, "rate limit") || strings.Contains(msg, "403") || strings.Contains(msg, "secondary rate")
 }
 
-// relativeTime returns a short human-readable relative timestamp like "2h ago" or "3d ago".
-// formatAuthorAndTime joins "@author" and a relative timestamp with " · ", omitting either if missing.
-func formatAuthorAndTime(author string, t time.Time) string {
-	var parts []string
-	if author != "" {
-		parts = append(parts, "@"+author)
-	}
-	if rel := relativeTime(t); rel != "" {
-		parts = append(parts, rel)
-	}
-	return strings.Join(parts, " · ")
-}
-
-// shortstatFromDiff produces a one-line summary like
-// "3 files changed, 42 insertions(+), 11 deletions(-)" from a unified diff.
-func shortstatFromDiff(diff string) string {
-	if diff == "" {
-		return ""
-	}
-	files, ins, del := 0, 0, 0
-	inHunk := false
-	for _, line := range strings.Split(diff, "\n") {
-		switch {
-		case strings.HasPrefix(line, "diff --git "):
-			files++
-			inHunk = false
-		case strings.HasPrefix(line, "@@"):
-			inHunk = true
-		case !inHunk:
-			// Skip headers between files.
-		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
-			// File header markers, not insertions/deletions.
-		case strings.HasPrefix(line, "+"):
-			ins++
-		case strings.HasPrefix(line, "-"):
-			del++
-		}
-	}
-	if files == 0 {
-		return ""
-	}
-	parts := []string{pluralize(files, "file") + " changed"}
-	if ins > 0 {
-		parts = append(parts, pluralize(ins, "insertion")+"(+)")
-	}
-	if del > 0 {
-		parts = append(parts, pluralize(del, "deletion")+"(-)")
-	}
-	return strings.Join(parts, ", ")
-}
-
-func pluralize(n int, word string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, word)
-	}
-	return fmt.Sprintf("%d %ss", n, word)
-}
-
 // fileDiffPrefix produces the string prepended to the hunk-position right
 // side for a file with a diff:
 //   - Uncommitted: "uncommitted · <relative-time>" (working-tree mtime), or
@@ -571,51 +512,6 @@ func (m *Model) fileContextRight(file string, binary bool) string {
 		parts = append(parts, rel)
 	}
 	return strings.Join(parts, " · ")
-}
-
-// commitTitleLeft formats the left-side of the title bar for a commit:
-// "<short-sha> · <subject>".
-func commitTitleLeft(c gitpkg.Commit) string {
-	short := c.SHA
-	if len(short) > 7 {
-		short = short[:7]
-	}
-	if c.Subject == "" {
-		return short
-	}
-	return short + " · " + c.Subject
-}
-
-func relativeTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		return "now"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	case d < 30*24*time.Hour:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
-	case d < 365*24*time.Hour:
-		return fmt.Sprintf("%dmo ago", int(d.Hours()/(24*30)))
-	default:
-		return fmt.Sprintf("%dy ago", int(d.Hours()/(24*365)))
-	}
-}
-
-// matchNumberedItem checks if selected matches any item's expected label (built by labelFn).
-// Returns (true, index) on match, (false, 0) otherwise.
-func matchNumberedItem[T any](selected string, items []T, labelFn func(int, T) string) (bool, int) {
-	for i, item := range items {
-		if selected == labelFn(i, item) {
-			return true, i
-		}
-	}
-	return false, 0
 }
 
 // sortPRData sorts comments, reviews, and CI checks for display.
@@ -2228,81 +2124,6 @@ func (m *Model) currentLineNumber() int {
 	return m.mainPane.ScrollTop() + 1
 }
 
-func parseHunkNewStart(hunkLine string) int {
-	plusIdx := strings.Index(hunkLine, "+")
-	if plusIdx < 0 {
-		return 0
-	}
-	rest := hunkLine[plusIdx+1:]
-	commaIdx := strings.IndexAny(rest, ", ")
-	if commaIdx < 0 {
-		return 0
-	}
-	n, err := strconv.Atoi(rest[:commaIdx])
-	if err != nil {
-		return 0
-	}
-	return n
-}
-
-// parseHunkHeader parses an @@ -X,Y +A,B @@ line. Returns the new-file start
-// line and new-file line count. Returns zeros if the line is malformed.
-func parseHunkHeader(line string) (start, count int) {
-	if !strings.HasPrefix(line, "@@") {
-		return 0, 0
-	}
-	closeIdx := strings.Index(line[2:], "@@")
-	if closeIdx < 0 {
-		return 0, 0
-	}
-	inner := line[2 : 2+closeIdx]
-	plusIdx := strings.Index(inner, "+")
-	if plusIdx < 0 {
-		return 0, 0
-	}
-	numPart := strings.TrimSpace(inner[plusIdx+1:])
-	if commaIdx := strings.Index(numPart, ","); commaIdx >= 0 {
-		s, err := strconv.Atoi(numPart[:commaIdx])
-		if err != nil {
-			return 0, 0
-		}
-		c, err := strconv.Atoi(numPart[commaIdx+1:])
-		if err != nil {
-			return 0, 0
-		}
-		return s, c
-	}
-	s, err := strconv.Atoi(numPart)
-	if err != nil {
-		return 0, 0
-	}
-	return s, 1
-}
-
-// isBinaryContent checks if content appears to be binary by looking for null bytes
-// or a high ratio of non-printable characters.
-func isBinaryContent(content string) bool {
-	if len(content) == 0 {
-		return false
-	}
-	// Check first 8KB for null bytes or high ratio of non-text characters
-	sample := content
-	if len(sample) > 8192 {
-		sample = sample[:8192]
-	}
-	nonPrintable := 0
-	for _, b := range []byte(sample) {
-		if b == 0 {
-			return true
-		}
-		if b < 0x20 && b != '\n' && b != '\r' && b != '\t' {
-			nonPrintable++
-		}
-	}
-	// If more than 10% non-printable, consider it binary
-	return len(sample) > 0 && nonPrintable*10 > len(sample)
-}
-
 func (m *Model) isUncommittedFile(file string) bool {
 	for _, f := range m.uncommittedFiles {
 		if f == file {
@@ -2444,22 +2265,6 @@ func (m *Model) commitIndexFromSidebarItem(label string) int {
 		}
 	}
 	return -1
-}
-
-// extractDirs returns the unique directory paths from a list of file paths.
-func extractDirs(files []string) []string {
-	dirs := make(map[string]bool)
-	for _, f := range files {
-		parts := strings.Split(f, "/")
-		for i := 1; i < len(parts); i++ {
-			dirs[strings.Join(parts[:i], "/")] = true
-		}
-	}
-	var result []string
-	for d := range dirs {
-		result = append(result, d)
-	}
-	return result
 }
 
 func (m *Model) isDeletedFile(file string) bool {
@@ -3217,23 +3022,6 @@ func (m *Model) updateMainContent() {
 			}
 		}
 		setItem(mainItemKey{m.mode, selected})
-	}
-}
-
-// reviewStateLabel returns a short human-readable label for a PR review state.
-func reviewStateLabel(state string) string {
-	switch state {
-	case "APPROVED":
-		return "approved"
-	case "CHANGES_REQUESTED":
-		return "changes requested"
-	case "COMMENTED":
-		return "commented"
-	default:
-		if state == "" {
-			return "pending"
-		}
-		return strings.ToLower(state)
 	}
 }
 
