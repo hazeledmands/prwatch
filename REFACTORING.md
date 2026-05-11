@@ -36,7 +36,7 @@ have narrow inputs and obvious property tests.
 - **Extraction**: free function `renderPRDescription(prInfo, reviews, deployments, width int) string` in a new `prdescription.go`.
 - **Invariants worth testing**: idempotent for same input; output always contains the PR number and title; reviewer line absent iff `prReviews` empty; markdown rendering errors fall back to raw body.
 
-### 2. [ ] Scope handle info — `scopeHandleInfo`
+### 2. [x] Scope handle info — `scopeHandleInfo`
 - **Location**: `model.go:3440-3449` (~10 lines).
 - **Surface area**: 1 method.
 - **Dependencies on Model**: `base`, `naturalBase`, `commitCount`.

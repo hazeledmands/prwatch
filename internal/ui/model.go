@@ -3438,14 +3438,7 @@ func parseKeyName(name string) tea.KeyPressMsg {
 // or nil at the default scope position. m.commitCount already counts commits
 // in m.base..HEAD, which equals N for HEAD~N.
 func (m *Model) scopeHandleInfo() *scopeHandleInfo {
-	if m.base == "" || m.naturalBase == "" || m.base == m.naturalBase {
-		return nil
-	}
-	sha7 := m.base
-	if len(sha7) > 7 {
-		sha7 = sha7[:7]
-	}
-	return &scopeHandleInfo{sha7: sha7, headOffset: m.commitCount}
+	return scopeHandleFromBase(m.base, m.naturalBase, m.commitCount)
 }
 
 func (m *Model) View() tea.View {

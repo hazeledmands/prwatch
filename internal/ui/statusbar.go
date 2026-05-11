@@ -40,6 +40,20 @@ type scopeHandleInfo struct {
 	headOffset int    // commits between scrubbed base and HEAD; renders as HEAD~N
 }
 
+// scopeHandleFromBase returns a scopeHandleInfo when the user has scrubbed
+// the commit-range scope away from default (base != naturalBase), or nil
+// when at the default position. sha7 is the first 7 chars of base.
+func scopeHandleFromBase(base, naturalBase string, commitCount int) *scopeHandleInfo {
+	if base == "" || naturalBase == "" || base == naturalBase {
+		return nil
+	}
+	sha7 := base
+	if len(sha7) > 7 {
+		sha7 = sha7[:7]
+	}
+	return &scopeHandleInfo{sha7: sha7, headOffset: commitCount}
+}
+
 // modeLabel tracks the position and mode of a clickable mode label.
 type modeLabel struct {
 	mode  Mode
