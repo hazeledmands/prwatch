@@ -149,7 +149,7 @@ record and returns a result.
 - **Extraction shape**: a `fileSets` value holding the slices (or hashed sets) with `IsCommitted/IsUncommitted/IsStaged/IsDeleted/IsAdded` predicates plus `ChangeBadge` and `ApplyBadges`. Today the linear scans through `committedFiles` for membership are O(n) per call inside loops in `updateSidebarItems` — a set-backed version would be measurably faster on large repos.
 - **Invariants worth testing**: `IsDeleted` and `IsCommitted` are not mutually exclusive (deleted files are tracked in both lists); `ChangeBadge` is empty iff none of the sets contains the file.
 
-### 14. [ ] File title-right strings (no-diff and with-diff)
+### 14. [x] File title-right strings (no-diff and with-diff)
 - **Cluster**: `fileDiffPrefix` (516), `fileContextRight` (549).
 - **Dependencies**: `dir`, `git`, `os.Stat`, and the classification predicates from §13.
 - **Extraction shape**: free functions that take an explicit `filesystemStat` callback + git source + the file classification. Peer file `filetitle.go`.

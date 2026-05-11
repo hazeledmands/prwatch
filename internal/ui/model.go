@@ -430,80 +430,35 @@ func isRateLimited(err error) bool {
 	return strings.Contains(msg, "rate limit") || strings.Contains(msg, "403") || strings.Contains(msg, "secondary rate")
 }
 
-// fileDiffPrefix produces the string prepended to the hunk-position right
-// side for a file with a diff:
-//   - Uncommitted: "uncommitted · <relative-time>" (working-tree mtime), or
-//     just "uncommitted" when the mtime is unavailable.
-//   - Committed: "<sha7> · <relative-time>" (most recent commit touching the
-//     file).
-//
-// Returns "" when neither path applies or no information is available.
 func (m *Model) fileDiffPrefix(file string) string {
-	if m.isUncommittedFile(file) {
-		if m.dir != "" {
-			if info, err := os.Stat(filepath.Join(m.dir, file)); err == nil {
-				return "uncommitted · " + relativeTime(info.ModTime())
-			}
-		}
-		return "uncommitted"
-	}
-	if m.isCommittedFile(file) {
-		if m.git == nil {
-			return ""
-		}
-		if c, err := m.git.LastCommitForFile(file); err == nil && c.SHA != "" {
-			short := c.SHA
-			if len(short) > 7 {
-				short = short[:7]
-			}
-			return short + " · " + relativeTime(c.AuthorDate)
-		}
-	}
-	return ""
+	return fileDiffPrefix(file, m.isUncommittedFile(file), m.isCommittedFile(file), m.statMtime, m.lastCommitForFile)
 }
 
-// fileContextRight produces the right-hand title text for a file with no
-// active diff. The components are joined with " · " in this order:
-//
-//	[binary] [<sha7>|untracked] [<relative-time>]
-//
-// Tracked files show the most recent commit's short SHA + author time;
-// untracked files show "untracked" + the file's mtime. Binary files prefix
-// the result with "binary". Returns "" when nothing is available (mainPane
-// then falls back to its default "no changes").
 func (m *Model) fileContextRight(file string, binary bool) string {
-	var parts []string
-	if binary {
-		parts = append(parts, "binary")
-	}
+	return fileContextRight(file, binary, m.statMtime, m.lastCommitForFile)
+}
 
-	var trackedInfo, rel string
-	if m.git != nil {
-		if c, err := m.git.LastCommitForFile(file); err == nil && c.SHA != "" {
-			short := c.SHA
-			if len(short) > 7 {
-				short = short[:7]
-			}
-			trackedInfo = short
-			rel = relativeTime(c.AuthorDate)
-		}
+// statMtime returns the working-tree mtime of file (relative to m.dir).
+// Adapts os.Stat into the statMtimeFn shape.
+func (m *Model) statMtime(file string) (time.Time, bool) {
+	if m.dir == "" {
+		return time.Time{}, false
 	}
-	if trackedInfo == "" {
-		trackedInfo = "untracked"
-		if m.dir != "" {
-			if info, err := os.Stat(filepath.Join(m.dir, file)); err == nil {
-				rel = relativeTime(info.ModTime())
-			}
-		}
+	info, err := os.Stat(filepath.Join(m.dir, file))
+	if err != nil {
+		return time.Time{}, false
 	}
+	return info.ModTime(), true
+}
 
-	if trackedInfo != "" {
-		parts = append(parts, trackedInfo)
+// lastCommitForFile delegates to the git source if present. Returns the zero
+// Commit with no error when git is unavailable; fileDiffPrefix and
+// fileContextRight both already treat empty SHA as "no data".
+func (m *Model) lastCommitForFile(file string) (gitpkg.Commit, error) {
+	if m.git == nil {
+		return gitpkg.Commit{}, nil
 	}
-	if rel != "" {
-		parts = append(parts, rel)
-	}
-	return strings.Join(parts, " · ")
+	return m.git.LastCommitForFile(file)
 }
 
 func (m *Model) sortPRData() {
