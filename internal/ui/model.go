@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"cmp"
 	"fmt"
 	"github.com/hazeledmands/prwatch/internal/command"
 	"io/fs"
@@ -9,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 
@@ -508,34 +506,8 @@ func (m *Model) fileContextRight(file string, binary bool) string {
 	return strings.Join(parts, " · ")
 }
 
-// sortPRData sorts comments, reviews, and CI checks for display.
-// Comments and reviews: most recent first. CI checks: failures first, then pending, then passing.
 func (m *Model) sortPRData() {
-	slices.SortFunc(m.prComments, func(a, b gitpkg.PRComment) int {
-		return b.CreatedAt.Compare(a.CreatedAt) // descending
-	})
-	slices.SortFunc(m.prReviews, func(a, b gitpkg.PRReview) int {
-		return b.SubmittedAt.Compare(a.SubmittedAt) // descending
-	})
-	slices.SortStableFunc(m.ciChecks, func(a, b gitpkg.CICheck) int {
-		return cmp.Compare(ciBucketOrder(a.Bucket), ciBucketOrder(b.Bucket))
-	})
-}
-
-// ciBucketOrder returns a sort key for CI check buckets: failures first, then pending, then passing.
-func ciBucketOrder(bucket string) int {
-	switch bucket {
-	case "fail", "cancel":
-		return 0
-	case "pending":
-		return 1
-	case "pass":
-		return 2
-	case "skipping":
-		return 3
-	default:
-		return 4
-	}
+	sortPRData(m.prComments, m.prReviews, m.ciChecks)
 }
 
 type allFilesMsg struct {

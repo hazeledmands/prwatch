@@ -169,7 +169,7 @@ record and returns a result.
 - **Cluster**: `selectFirstComment` (2331), `selectFirstReview` (2341), `selectFirstCIFailure` (2355).
 - **Extraction shape**: small free functions taking the sidebar items + the data slice they're "first-of"-ing into. Could merge into a single `selectFirst(items, predicate)`.
 
-### 18. [ ] PR data sort & ordering
+### 18. [x] PR data sort & ordering
 - **Cluster**: `sortPRData` (631), `ciBucketOrder` (644).
 - **Extraction shape**: already pure — move alongside the rest of the format/sort helpers in a `prdata.go` peer file.
 
