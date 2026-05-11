@@ -2408,7 +2408,7 @@ func TestSearch_EnterAndExit(t *testing.T) {
 
 	result, _ := m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
 	m = result.(*Model)
-	if !m.searching {
+	if !m.search.searching {
 		t.Error("/ should enter search mode")
 	}
 
@@ -2417,21 +2417,21 @@ func TestSearch_EnterAndExit(t *testing.T) {
 	m = result.(*Model)
 	result, _ = m.Update(tea.KeyPressMsg{Text: "i", Code: 'i'})
 	m = result.(*Model)
-	if m.searchQuery != "hi" {
-		t.Errorf("search query = %q, want 'hi'", m.searchQuery)
+	if m.search.query != "hi" {
+		t.Errorf("search query = %q, want 'hi'", m.search.query)
 	}
 
 	// Backspace
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
-	if m.searchQuery != "h" {
-		t.Errorf("after backspace, query = %q, want 'h'", m.searchQuery)
+	if m.search.query != "h" {
+		t.Errorf("after backspace, query = %q, want 'h'", m.search.query)
 	}
 
 	// Enter to execute
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
-	if m.searching {
+	if m.search.searching {
 		t.Error("enter should exit search mode")
 	}
 }
@@ -2447,10 +2447,10 @@ func TestSearch_EscapeCancels(t *testing.T) {
 
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = result.(*Model)
-	if m.searching {
+	if m.search.searching {
 		t.Error("escape should cancel search")
 	}
-	if m.searchQuery != "" {
+	if m.search.query != "" {
 		t.Error("escape should clear query")
 	}
 }
@@ -2464,7 +2464,7 @@ func TestSearch_CtrlCCancels(t *testing.T) {
 	// ctrl+c maps to QuitImmediate, should cancel search not quit
 	result, cmd := m.Update(tea.KeyPressMsg{Text: "Q", Code: 'Q'})
 	m = result.(*Model)
-	if m.searching {
+	if m.search.searching {
 		t.Error("Q should cancel search")
 	}
 	if cmd != nil {
@@ -2492,8 +2492,8 @@ func TestView_WithSearch(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.searching = true
-	m.searchQuery = "test"
+	m.search.searching = true
+	m.search.query = "test"
 
 	v := m.View()
 	if !strings.Contains(v.Content, "/test_") {
@@ -2947,9 +2947,9 @@ func TestHandleEnter_MainFocus_CommitMode(t *testing.T) {
 
 func TestUpdateSearchMatches_EmptyQuery(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.searchQuery = ""
-	m.updateSearchMatches() // should not panic
-	if len(m.searchMatches) != 0 {
+	m.search.query = ""
+	m.search.updateMatches(m.mainPane) // should not panic
+	if len(m.search.matches) != 0 {
 		t.Error("empty query should produce no matches")
 	}
 }
@@ -3840,7 +3840,7 @@ func TestSearch_IncrementalMatchAsYouType(t *testing.T) {
 	}
 
 	// Should have found matches and scrolled
-	if len(m.searchMatches) == 0 {
+	if len(m.search.matches) == 0 {
 		t.Error("incremental search should find matches while typing")
 	}
 	if m.mainPane.ScrollTop() != 2 {
@@ -3894,36 +3894,36 @@ func TestSearch_NextPrevNavigation(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
 
-	if m.searching {
+	if m.search.searching {
 		t.Error("enter should exit search input mode")
 	}
 
 	// Press n to go to next match
 	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
 	m = result.(*Model)
-	if m.searchMatchIdx != 1 {
-		t.Errorf("n should advance to match index 1, got %d", m.searchMatchIdx)
+	if m.search.matchIdx != 1 {
+		t.Errorf("n should advance to match index 1, got %d", m.search.matchIdx)
 	}
 
 	// Press n again
 	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
 	m = result.(*Model)
-	if m.searchMatchIdx != 2 {
-		t.Errorf("n should advance to match index 2, got %d", m.searchMatchIdx)
+	if m.search.matchIdx != 2 {
+		t.Errorf("n should advance to match index 2, got %d", m.search.matchIdx)
 	}
 
 	// Press n again — should wrap to 0
 	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
 	m = result.(*Model)
-	if m.searchMatchIdx != 0 {
-		t.Errorf("n should wrap to match index 0, got %d", m.searchMatchIdx)
+	if m.search.matchIdx != 0 {
+		t.Errorf("n should wrap to match index 0, got %d", m.search.matchIdx)
 	}
 
 	// Press p to go to previous — should wrap to last
 	result, _ = m.Update(tea.KeyPressMsg{Text: "p", Code: 'p'})
 	m = result.(*Model)
-	if m.searchMatchIdx != 2 {
-		t.Errorf("p should wrap to match index 2, got %d", m.searchMatchIdx)
+	if m.search.matchIdx != 2 {
+		t.Errorf("p should wrap to match index 2, got %d", m.search.matchIdx)
 	}
 }
 
@@ -3954,8 +3954,8 @@ func TestSearch_DoesNotMatchSidebar(t *testing.T) {
 		m = result.(*Model)
 	}
 
-	if len(m.searchMatches) != 0 {
-		t.Errorf("search should not match sidebar content, got %d matches", len(m.searchMatches))
+	if len(m.search.matches) != 0 {
+		t.Errorf("search should not match sidebar content, got %d matches", len(m.search.matches))
 	}
 }
 
@@ -3974,10 +3974,10 @@ func TestSearch_BackspaceCancelsOnEmpty(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
 
-	if m.searching {
+	if m.search.searching {
 		t.Error("backspace on empty query should cancel search")
 	}
-	if m.searchQuery != "" {
+	if m.search.query != "" {
 		t.Error("search query should be cleared after cancel")
 	}
 }
@@ -3995,10 +3995,10 @@ func TestSearch_EnterCancelsOnEmpty(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
 
-	if m.searching {
+	if m.search.searching {
 		t.Error("enter on empty query should cancel search")
 	}
-	if m.searchConfirmed {
+	if m.search.confirmed {
 		t.Error("should not confirm search with empty query")
 	}
 }
@@ -4029,8 +4029,8 @@ func TestSearch_ShiftNPrevResult(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Text: "N", Code: 'N'})
 	m = result.(*Model)
 
-	if m.searchMatchIdx != 0 {
-		t.Errorf("shift+N should go to previous match, got index %d, want 0", m.searchMatchIdx)
+	if m.search.matchIdx != 0 {
+		t.Errorf("shift+N should go to previous match, got index %d, want 0", m.search.matchIdx)
 	}
 }
 
@@ -4054,10 +4054,10 @@ func TestSearch_EscClearsSearchState(t *testing.T) {
 	// Now in n/p mode — esc should clear search
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = result.(*Model)
-	if len(m.searchMatches) != 0 {
+	if len(m.search.matches) != 0 {
 		t.Error("esc should clear search matches")
 	}
-	if m.searchQuery != "" {
+	if m.search.query != "" {
 		t.Error("esc should clear search query")
 	}
 }
@@ -5779,11 +5779,9 @@ func TestNavigateToCurrentMatch_MainPane(t *testing.T) {
 	}
 	m.mainPane.SetContent(strings.Join(lines, "\n"))
 
-	m.searchMatches = []searchMatch{
-		{pane: "main", line: 30},
-	}
-	m.searchMatchIdx = 0
-	m.navigateToCurrentMatch()
+	m.search.matches = []int{30}
+	m.search.matchIdx = 0
+	m.search.navigateToCurrent(m.mainPane)
 
 	if m.mainPane.ScrollTop() < 20 {
 		t.Errorf("expected scroll near line 30, got %d", m.mainPane.ScrollTop())
@@ -5835,7 +5833,7 @@ func TestSearchNavKey_ExitsOnOtherKey(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
 
-	if !m.searchConfirmed {
+	if !m.search.confirmed {
 		t.Fatal("search should be confirmed")
 	}
 
@@ -5843,7 +5841,7 @@ func TestSearchNavKey_ExitsOnOtherKey(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
-	if m.searchConfirmed {
+	if m.search.confirmed {
 		t.Error("non-search key should exit search nav mode")
 	}
 }
@@ -5874,8 +5872,8 @@ func TestNavigateToCurrentMatch_Empty(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.searchMatches = nil
-	m.navigateToCurrentMatch() // should not panic
+	m.search.matches = nil
+	m.search.navigateToCurrent(m.mainPane) // should not panic
 }
 
 func TestWrapLinesWithIndent_ZeroIndent(t *testing.T) {

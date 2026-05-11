@@ -86,7 +86,7 @@ state never escapes.
 - **Extraction shape**: a `helpOverlay` type that owns its state, takes width/height/statusBarLines per render, and returns either `(model, cmd, handled)` from key dispatch. Peer file `help.go`. Could become a sub-package since the surface is so narrow, but the package boundary doesn't earn its keep for ~200 lines.
 - **Invariants worth testing**: search query empty ⇔ matches empty; search idx always in `[0, len(matches))`; toggling help is idempotent; n/p navigation wraps; scrolling never goes past `len(lines) - visibleHeight`.
 
-### 8. [ ] Cross-pane search subsystem
+### 8. [x] Cross-pane search subsystem
 - **Cluster**:
   - Fields: `searching`, `searchConfirmed`, `searchQuery`, `searchMatches`, `searchMatchIdx`.
   - Methods: `handleSearchKey` (1779), `handleSearchNavKey` (1816), `updateSearchMatches` (1841), `navigateToCurrentMatch` (1855), `clearSearch` (1869).

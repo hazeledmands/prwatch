@@ -28,11 +28,6 @@ const (
 	gitActiveWindow  = 2 * time.Minute  // fs event within this window keeps poll fast
 )
 
-type searchMatch struct {
-	pane string // "sidebar" or "main"
-	line int    // line index in the respective pane
-}
-
 type Mode int
 
 const (
@@ -127,17 +122,13 @@ type Model struct {
 	sidebarPct        int // sidebar width as percentage of total width (10-50)
 	dir               string
 	confirming        bool
-	help              *helpOverlay    // help overlay subsystem
-	showIgnored       bool            // whether to show gitignored files in all-files section
-	collapsedDirs     map[string]bool // tracks collapsed directory paths
-	sidebarHidden     bool            // [f] toggles sidebar visibility
-	wordWrap          bool            // [w] toggles word wrapping in main pane
-	lineNumbers       bool            // [n] toggles line numbers in files mode
-	searching         bool            // search input is active
-	searchConfirmed   bool            // enter pressed, n/p navigation active
-	searchQuery       string
-	searchMatches     []searchMatch    // matches across both panes
-	searchMatchIdx    int              // current match index
+	help              *helpOverlay     // help overlay subsystem
+	showIgnored       bool             // whether to show gitignored files in all-files section
+	collapsedDirs     map[string]bool  // tracks collapsed directory paths
+	sidebarHidden     bool             // [f] toggles sidebar visibility
+	wordWrap          bool             // [w] toggles word wrapping in main pane
+	lineNumbers       bool             // [n] toggles line numbers in files mode
+	search            *searchOverlay   // cross-pane search overlay
 	hoverX, hoverY    int              // last mouse position for hover highlighting
 	activity          *activityTracker // adaptive refresh-interval bookkeeping
 	dragStartX        int              // drag start position (-1 = not dragging)
@@ -284,6 +275,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		lineNumbers:   true,
 		activity:      newActivityTracker(time.Now()),
 		help:          newHelpOverlay(),
+		search:        newSearchOverlay(),
 		loading:       g != nil,
 		dragStartX:    -1,
 		dragStartY:    -1,
@@ -1084,13 +1076,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Search input mode
-	if m.searching {
-		return m.handleSearchKey(msg)
+	if m.search.IsSearching() {
+		m.search.HandleInputKey(msg, m.mainPane)
+		return m, nil
 	}
 
 	// Search confirmed mode (n/p navigation)
-	if m.searchConfirmed {
-		return m.handleSearchNavKey(msg)
+	if m.search.IsConfirmed() {
+		if m.search.HandleNavKey(msg, m.mainPane) {
+			return m, nil
+		}
+		return m.handleKey(msg)
 	}
 
 	// Help overlay — supports scrolling and search
@@ -1124,8 +1120,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.Search):
-		m.searching = true
-		m.searchQuery = ""
+		m.search.Open()
 		return m, nil
 
 	case key.Matches(msg, keys.ToggleMode):
@@ -1393,103 +1388,11 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, m.help.HandleKey(msg, visibleHeight)
 }
 
-func (m *Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, keys.QuitImmediate):
-		m.clearSearch()
-		return m, nil
-	case msg.Code == tea.KeyEscape:
-		m.clearSearch()
-		return m, nil
-	case msg.Code == tea.KeyEnter:
-		if m.searchQuery == "" {
-			m.clearSearch()
-			return m, nil
-		}
-		m.searching = false
-		if len(m.searchMatches) > 0 {
-			m.searchConfirmed = true
-		}
-		return m, nil
-	case msg.Code == tea.KeyBackspace:
-		if len(m.searchQuery) > 0 {
-			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
-		}
-		if m.searchQuery == "" {
-			m.clearSearch()
-			return m, nil
-		}
-		m.updateSearchMatches()
-		return m, nil
-	default:
-		if msg.Text != "" {
-			m.searchQuery += msg.Text
-		}
-		m.updateSearchMatches()
-		return m, nil
-	}
-}
-
-func (m *Model) handleSearchNavKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, keys.SearchNext):
-		if len(m.searchMatches) > 0 {
-			m.searchMatchIdx = (m.searchMatchIdx + 1) % len(m.searchMatches)
-			m.navigateToCurrentMatch()
-		}
-		return m, nil
-	case key.Matches(msg, keys.SearchPrev):
-		if len(m.searchMatches) > 0 {
-			m.searchMatchIdx = (m.searchMatchIdx - 1 + len(m.searchMatches)) % len(m.searchMatches)
-			m.navigateToCurrentMatch()
-		}
-		return m, nil
-	case msg.Code == tea.KeyEscape, key.Matches(msg, keys.QuitConfirm):
-		// Esc/q just exits search mode, doesn't trigger quit
-		m.clearSearch()
-		return m, nil
-	default:
-		// Any other key exits search navigation mode and re-processes
-		m.clearSearch()
-		return m.handleKey(msg)
-	}
-}
-
-func (m *Model) updateSearchMatches() {
-	var matches []searchMatch
-
-	// Spec: "searching should match against the content in the main pane only (not the sidebar)"
-	for _, line := range m.mainPane.FindMatches(m.searchQuery) {
-		matches = append(matches, searchMatch{pane: "main", line: line})
-	}
-
-	m.searchMatches = matches
-	m.searchMatchIdx = 0
-	m.mainPane.SetSearchQuery(m.searchQuery)
-	m.navigateToCurrentMatch()
-}
-
-func (m *Model) navigateToCurrentMatch() {
-	if len(m.searchMatches) == 0 {
-		return
-	}
-	match := m.searchMatches[m.searchMatchIdx]
-	switch match.pane {
-	case "sidebar":
-		m.sidebar.SelectIndex(match.line)
-		m.updateMainContent()
-	case "main":
-		m.mainPane.ScrollToLine(match.line)
-	}
-}
-
+// clearSearch is a thin wrapper preserved for the few non-handleKey call sites
+// that already exist (mode switches, etc.). New code should call
+// m.search.Clear directly.
 func (m *Model) clearSearch() {
-	m.searching = false
-	m.searchConfirmed = false
-	m.searchQuery = ""
-	m.searchMatches = nil
-	m.searchMatchIdx = 0
-	m.mainPane.SetSearchQuery("")
+	m.search.Clear(m.mainPane)
 }
 
 func (m *Model) statusBarLines() int {
@@ -2848,18 +2751,8 @@ func (m *Model) View() tea.View {
 	padded := padToHeight(result, m.width, m.height)
 
 	// Replace the last line with the search bar when searching or in nav mode
-	if m.searching || m.searchConfirmed {
-		var searchBar string
-		if m.searching {
-			searchBar = fmt.Sprintf("/%s_", m.searchQuery)
-		} else {
-			searchBar = fmt.Sprintf("/%s", m.searchQuery)
-		}
-		if len(m.searchMatches) > 0 {
-			searchBar += fmt.Sprintf("  %d/%d", m.searchMatchIdx+1, len(m.searchMatches))
-		} else if m.searchQuery != "" {
-			searchBar += "  0/0"
-		}
+	if m.search.IsActive() {
+		searchBar := m.search.RenderBar()
 		lines := strings.Split(padded, "\n")
 		if len(lines) > 0 {
 			lines[len(lines)-1] = searchBar
@@ -2869,7 +2762,7 @@ func (m *Model) View() tea.View {
 	}
 
 	// Show notification on the last line (unless search bar is active)
-	if m.notification != "" && !m.searching && !m.searchConfirmed {
+	if m.notification != "" && !m.search.IsActive() {
 		lines := strings.Split(padded, "\n")
 		if len(lines) > 0 {
 			lines[len(lines)-1] = sidebarDimStyle.Render(m.notification)
