@@ -131,7 +131,7 @@ record and returns a result.
 - **Why this is high-value**: the three arms only share the `sidebarItem` slice type; their data dependencies don't overlap. Splitting them frees three independent pure functions and one tiny method that just dispatches and calls `m.sidebar.SetItems(...)`.
 - **Invariants worth testing**: header counts always match item counts in the section; ordering matches the spec (alphabetical for files; descending date for comments/reviews; failures-first for CI); cutline appears iff base commits and other commits both present.
 
-### 12. [ ] Main content builder — `updateMainContent`
+### 12. [x] Main content builder — `updateMainContent`
 - **Location**: `model.go:2940-3230` (~290 lines).
 - **Shape today**: one method, three arms again. Inside the arms there's also the `setItem` closure (scroll memory, see candidate §9) which can be lifted out.
 - **Per-arm extractability**: harder than §11 because each arm calls multiple `mainPane.Set*` mutators and reads many more `Model` fields. But pure "compute what to show" functions are still feasible:
