@@ -54,7 +54,7 @@ have narrow inputs and obvious property tests.
 - **Extraction**: move to a `format.go` / `diffparse.go` / `gitformat.go` peer file. Already pure — just lives in the wrong file.
 - **Why it matters**: it's not the lines that hurt, it's that `model.go` is currently the keyword search target for everything. Moving these reduces noise in the file that actually mutates state.
 
-### 5. [ ] ANSI / display-width helpers
+### 5. [x] ANSI / display-width helpers
 - `padToHeight` (3635), `splitAtDisplayCols` (3666), `stripANSIForWidth` (3709), `displayWidthOf` (3715), `sliceByDisplayCol` (3722).
 - **Extraction**: peer file `ansiwidth.go` (or fold into existing `mainpane.go` neighbors if they're already used there).
 - **Invariants**: `splitAtDisplayCols`'s three parts reconcat to the original; `sliceByDisplayCol` never splits a rune mid-byte; `stripANSIForWidth ∘ ansi-wrap = identity` on the unstyled content.
