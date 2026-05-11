@@ -2091,17 +2091,7 @@ func (m *Model) currentLineNumber() int {
 }
 
 func (m *Model) isUncommittedFile(file string) bool {
-	for _, f := range m.uncommittedFiles {
-		if f == file {
-			return true
-		}
-	}
-	for _, f := range m.stagedFiles {
-		if f == file {
-			return true
-		}
-	}
-	return false
+	return containsString(m.uncommittedFiles, file) || containsString(m.stagedFiles, file)
 }
 
 func (m *Model) selectFirstComment() {
@@ -2162,12 +2152,7 @@ func (m *Model) commitIndexFromSidebarItem(label string) int {
 }
 
 func (m *Model) isDeletedFile(file string) bool {
-	for _, f := range m.deletedFiles {
-		if f == file {
-			return true
-		}
-	}
-	return false
+	return containsString(m.deletedFiles, file)
 }
 
 func (m *Model) fileItemKind(file string, defaultKind sidebarItemKind) sidebarItemKind {
@@ -2177,66 +2162,16 @@ func (m *Model) fileItemKind(file string, defaultKind sidebarItemKind) sidebarIt
 	return defaultKind
 }
 
-// changeBadge returns the right-aligned change-type badge ([-], [+], [±]) for
-// a file appearing in a changed section of the sidebar. Returns empty string
-// if the file is not in any changed section (e.g. All Files entries).
 func (m *Model) changeBadge(file string) string {
-	for _, f := range m.deletedFiles {
-		if f == file {
-			return "[-]"
-		}
-	}
-	for _, f := range m.addedFiles {
-		if f == file {
-			return "[+]"
-		}
-	}
-	for _, f := range m.committedFiles {
-		if f == file {
-			return "[±]"
-		}
-	}
-	for _, f := range m.uncommittedFiles {
-		if f == file {
-			return "[±]"
-		}
-	}
-	for _, f := range m.stagedFiles {
-		if f == file {
-			return "[±]"
-		}
-	}
-	return ""
+	return changeBadgeFor(file, m.deletedFiles, m.addedFiles, m.committedFiles, m.uncommittedFiles, m.stagedFiles)
 }
 
-// applyChangeBadges sets the change-type suffix on leaf file items in the
-// New Changes, Staged, and Committed sections. Directory entries, headers,
-// separators, and items in the All Files section are left untouched.
 func (m *Model) applyChangeBadges(items []sidebarItem) []sidebarItem {
-	inChangedSection := false
-	for i := range items {
-		if items[i].kind == itemHeader {
-			label := items[i].label
-			inChangedSection = strings.HasPrefix(label, "New Changes") ||
-				strings.HasPrefix(label, "Staged") ||
-				strings.HasPrefix(label, "Committed")
-			continue
-		}
-		if !inChangedSection || !items[i].kind.selectable() || items[i].isDir || items[i].filePath == "" {
-			continue
-		}
-		items[i].suffix = m.changeBadge(items[i].filePath)
-	}
-	return items
+	return applyChangeBadges(items, m.deletedFiles, m.addedFiles, m.committedFiles, m.uncommittedFiles, m.stagedFiles)
 }
 
 func (m *Model) isCommittedFile(file string) bool {
-	for _, f := range m.committedFiles {
-		if f == file {
-			return true
-		}
-	}
-	return false
+	return containsString(m.committedFiles, file)
 }
 
 func (m *Model) updateSidebarItems() {

@@ -144,7 +144,7 @@ record and returns a result.
 
 ## Tier 4 — smaller cohesive groupings
 
-### 13. [ ] File classification
+### 13. [x] File classification
 - **Cluster**: `isDeletedFile` (2474), `isCommittedFile` (2543), `isUncommittedFile` (2315), `fileItemKind` (2483), `changeBadge` (2493), `applyChangeBadges` (2525), plus the seven `*Files` slices on `Model`.
 - **Extraction shape**: a `fileSets` value holding the slices (or hashed sets) with `IsCommitted/IsUncommitted/IsStaged/IsDeleted/IsAdded` predicates plus `ChangeBadge` and `ApplyBadges`. Today the linear scans through `committedFiles` for membership are O(n) per call inside loops in `updateSidebarItems` — a set-backed version would be measurably faster on large repos.
 - **Invariants worth testing**: `IsDeleted` and `IsCommitted` are not mutually exclusive (deleted files are tracked in both lists); `ChangeBadge` is empty iff none of the sets contains the file.
