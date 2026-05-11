@@ -115,7 +115,7 @@ type Model struct {
 	prDeployments     []gitpkg.PRDeployment // PR deployments for PR-view mode
 	ciChecks          []gitpkg.CICheck      // CI checks for PR-view mode
 	rwxFetcher        *rwxFetcher           // RWX log fetch/cache state
-	mainScrollLines   map[mainItemKey]int   // last source line at top of main pane, per (mode, item)
+	viewMemory        *viewMemory           // per-mode sidebar + per-item main-pane scroll
 	lastMainItem      mainItemKey           // (mode, item) currently displayed in main pane
 	sidebar           *sidebar
 	mainPane          *mainPane
@@ -149,12 +149,7 @@ type Model struct {
 	modeLabels         []modeLabel  // clickable mode label positions from last render
 	line2Labels        []line2Label // clickable positions on git status line
 	line3Labels        []line3Label // clickable positions on PR status line
-	// modeStates preserves per-mode view state (sidebar selection, scroll
-	// positions) so switching back to a mode restores the last view.
-	// Keys are Mode values that represent real modes (FilesMode, CommitsMode,
-	// PRMode); HelpMode is not stored here.
-	modeStates map[Mode]modeViewState
-	err        error
+	err                error
 }
 
 // modeViewState records the view state for a single mode, so that switching
@@ -270,7 +265,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		showIgnored:   true,
 		collapsedDirs: make(map[string]bool),
 		rwxFetcher:    newRWXFetcher(),
-		modeStates:    make(map[Mode]modeViewState),
+		viewMemory:    newViewMemory(),
 		wordWrap:      true,
 		lineNumbers:   true,
 		activity:      newActivityTracker(time.Now()),
@@ -2194,55 +2189,19 @@ func (m *Model) setMode(next Mode) {
 	m.updateMainContent()
 }
 
-// saveModeState captures the current sidebar selection/scroll/focus so
-// setMode can restore them later. Main-pane scroll is tracked per-item via
-// Model.mainScrollLines and applied by updateMainContent.
 func (m *Model) saveModeState() {
-	if m.modeStates == nil {
-		m.modeStates = make(map[Mode]modeViewState)
-	}
-	m.modeStates[m.mode] = modeViewState{
-		sidebarSelected: m.sidebar.SelectedItem(),
-		sidebarOffset:   m.sidebar.offset,
-		focus:           m.focus,
-	}
+	m.viewMemory.SaveSidebar(m.mode, m.sidebar, m.focus)
 }
 
-// restoreModeState applies the previously-saved sidebar/focus state for the
-// current mode. Safe to call when there is no saved state (no-op in that
-// case). updateMainContent restores the main-pane scroll position separately.
 func (m *Model) restoreModeState() {
-	if m.modeStates == nil {
-		return
-	}
-	state, ok := m.modeStates[m.mode]
-	if !ok {
-		return
-	}
-	// Restore sidebar selection by matching the item label.
-	if state.sidebarSelected != "" {
-		for i, item := range m.sidebar.items {
-			if item.kind.selectable() && item.label == state.sidebarSelected {
-				m.sidebar.SelectIndex(i)
-				break
-			}
-		}
-	}
-	m.sidebar.offset = state.sidebarOffset
-	m.sidebar.clampOffset()
-	m.focus = state.focus
+	m.focus = m.viewMemory.RestoreSidebar(m.mode, m.sidebar, m.focus)
 }
 
 func (m *Model) updateMainContent() {
 	// Save the source line at the top of the main pane under the item we
 	// were just showing, so the next time the user navigates to it we can
 	// drop them back at the same line.
-	if m.lastMainItem.item != "" {
-		if m.mainScrollLines == nil {
-			m.mainScrollLines = make(map[mainItemKey]int)
-		}
-		m.mainScrollLines[m.lastMainItem] = m.mainPane.ViewportToSourceLine()
-	}
+	m.viewMemory.RememberMainScroll(m.lastMainItem, m.mainPane.ViewportToSourceLine())
 
 	prevKey := m.lastMainItem
 	// setItem records the (mode, item) currently displayed and, if it
@@ -2251,15 +2210,11 @@ func (m *Model) updateMainContent() {
 	// files mode with a diff).
 	setItem := func(key mainItemKey) {
 		m.lastMainItem = key
-		// Tell the sidebar which item the main pane is showing so it can
-		// render the "pinned" file with a distinct style when the cursor
-		// has moved off it (spec: "the sidebar should visually distinguish
-		// the cursor position from the pinned file when they differ").
 		m.sidebar.SetPinnedID(key.item)
 		if key == prevKey || key.item == "" {
 			return
 		}
-		if line, ok := m.mainScrollLines[key]; ok {
+		if line, ok := m.viewMemory.RecallMainScroll(key); ok {
 			m.mainPane.ScrollToSourceLine(line)
 			return
 		}

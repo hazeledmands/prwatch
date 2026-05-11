@@ -95,7 +95,7 @@ state never escapes.
 - **Extraction shape**: a `searchOverlay` type that owns its state and accepts a small "searchable view" interface. Peer file `search.go`. Note: the `searchMatch.pane == "sidebar"` branch is dead — extracting forces deciding whether to drop it.
 - **Invariants worth testing**: after `clearSearch`, all five fields are zero-valued; `searchMatchIdx` always wraps in `[0, len(matches))`; setting an empty query never confirms; backspace to empty exits search.
 
-### 9. [ ] Mode view state persistence
+### 9. [x] Mode view state persistence
 - **Cluster**:
   - Fields: `mode`, `focus`, `modeStates`, `lastMainItem`, `mainScrollLines`.
   - Methods: `setMode` (2883), `saveModeState` (2904), `restoreModeState` (2918), partial of `updateMainContent` (the `setItem` closure at 2956-2973 that remembers the per-item scroll line).
