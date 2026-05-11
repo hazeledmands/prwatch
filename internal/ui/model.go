@@ -2104,54 +2104,21 @@ func (m *Model) isUncommittedFile(file string) bool {
 	return false
 }
 
-// jumpToFirstDiff scrolls to the first diff line in the current file.
-// selectFirstComment selects the first comment in the PR mode sidebar.
 func (m *Model) selectFirstComment() {
-	for i, item := range m.sidebar.items {
-		if strings.HasPrefix(item.label, "@") {
-			m.sidebar.SelectIndex(i)
-			return
-		}
+	if i := firstCommentIndex(m.sidebar.items); i >= 0 {
+		m.sidebar.SelectIndex(i)
 	}
 }
 
-// selectFirstReview selects the first review in the PR mode sidebar.
 func (m *Model) selectFirstReview() {
-	for i, item := range m.sidebar.items {
-		if strings.HasPrefix(item.label, "@") && (strings.Contains(item.prefix, "✓") ||
-			strings.Contains(item.prefix, "✗") ||
-			strings.Contains(item.prefix, "c ") ||
-			strings.Contains(item.prefix, "…")) {
-			m.sidebar.SelectIndex(i)
-			return
-		}
+	if i := firstReviewIndex(m.sidebar.items); i >= 0 {
+		m.sidebar.SelectIndex(i)
 	}
 }
 
-// selectFirstCIFailure selects the first failing CI check in the PR mode sidebar.
-// If no failures, selects the first CI check item.
 func (m *Model) selectFirstCIFailure() {
-	// Find the first failure in ciChecks
-	targetName := ""
-	for _, check := range m.ciChecks {
-		if check.Bucket == "fail" || check.Bucket == "cancel" {
-			targetName = check.Name
-			break
-		}
-	}
-	// If no failure, use the first CI check
-	if targetName == "" && len(m.ciChecks) > 0 {
-		targetName = m.ciChecks[0].Name
-	}
-	if targetName == "" {
-		return
-	}
-	// Find the sidebar item matching this CI check
-	for i, item := range m.sidebar.items {
-		if strings.Contains(item.label, targetName) {
-			m.sidebar.SelectIndex(i)
-			return
-		}
+	if i := firstCIFailureIndex(m.sidebar.items, m.ciChecks); i >= 0 {
+		m.sidebar.SelectIndex(i)
 	}
 }
 

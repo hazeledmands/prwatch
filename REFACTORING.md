@@ -165,7 +165,7 @@ record and returns a result.
 - **Cluster**: `statusBarLines` (1878), `sidebarPixelWidth` (1882), `updateLayout` (3274), `dragMainPaneBounds` (3750).
 - **Extraction shape**: a `paneLayout` snapshot/struct that takes the relevant model fields and produces the bounds queried by drag, drag-highlight, search-bar overlay, etc. Currently each function recomputes them inline.
 
-### 17. [ ] Selection helpers for click-targeted lists
+### 17. [x] Selection helpers for click-targeted lists
 - **Cluster**: `selectFirstComment` (2331), `selectFirstReview` (2341), `selectFirstCIFailure` (2355).
 - **Extraction shape**: small free functions taking the sidebar items + the data slice they're "first-of"-ing into. Could merge into a single `selectFirst(items, predicate)`.
 
