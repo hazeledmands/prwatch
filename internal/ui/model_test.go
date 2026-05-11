@@ -7933,7 +7933,7 @@ func TestRWXLogMsg_CachesResult(t *testing.T) {
 	m = result.(*Model)
 
 	// Check cache
-	cached, ok := m.rwxLogCache["https://cloud.rwx.com/mint/org/runs/abc123"]
+	cached, ok := m.rwxFetcher.cache["https://cloud.rwx.com/mint/org/runs/abc123"]
 	if !ok {
 		t.Fatal("rwxLogMsg should cache the result")
 	}
@@ -7946,7 +7946,7 @@ func TestRWXLogMsg_Error(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 120
 	m.height = 40
-	m.rwxLogCache = make(map[string]string)
+	m.rwxFetcher = newRWXFetcher()
 
 	logMsg := rwxLogMsg{
 		checkURL: "https://cloud.rwx.com/mint/org/runs/abc123",
@@ -7955,7 +7955,7 @@ func TestRWXLogMsg_Error(t *testing.T) {
 	result, _ := m.Update(logMsg)
 	m = result.(*Model)
 
-	cached := m.rwxLogCache["https://cloud.rwx.com/mint/org/runs/abc123"]
+	cached := m.rwxFetcher.cache["https://cloud.rwx.com/mint/org/runs/abc123"]
 	if !strings.Contains(cached, "Error fetching RWX logs") {
 		t.Errorf("should cache error message, got %q", cached)
 	}

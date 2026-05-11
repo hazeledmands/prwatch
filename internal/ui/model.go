@@ -119,8 +119,7 @@ type Model struct {
 	prComments          []gitpkg.PRComment    // PR comments for PR-view mode
 	prDeployments       []gitpkg.PRDeployment // PR deployments for PR-view mode
 	ciChecks            []gitpkg.CICheck      // CI checks for PR-view mode
-	pendingRWXCheck     *gitpkg.CICheck       // CI check awaiting RWX log fetch
-	rwxLogCache         map[string]string     // cache of RWX logs by check URL
+	rwxFetcher          *rwxFetcher           // RWX log fetch/cache state
 	mainScrollLines     map[mainItemKey]int   // last source line at top of main pane, per (mode, item)
 	lastMainItem        mainItemKey           // (mode, item) currently displayed in main pane
 	sidebar             *sidebar
@@ -253,68 +252,10 @@ const dragScrollInterval = 60 * time.Millisecond
 
 type notificationExpiredMsg struct{}
 
-// maybeFetchRWXLog returns a tea.Cmd to fetch RWX logs if there's a pending check.
+// maybeFetchRWXLog returns a tea.Cmd to fetch RWX logs if there's a pending
+// check staged by the previous render. Forwards to rwxFetcher.
 func (m *Model) maybeFetchRWXLog() tea.Cmd {
-	if m.pendingRWXCheck == nil || m.git == nil {
-		return nil
-	}
-	check := *m.pendingRWXCheck
-	m.pendingRWXCheck = nil
-	return func() tea.Msg {
-		runID := gitpkg.ExtractRWXRunID(check.URL)
-		if runID == "" {
-			return rwxLogMsg{checkURL: check.URL, err: fmt.Errorf("could not extract run ID from URL")}
-		}
-
-		// First get the results to find failed tasks
-		results, err := m.git.RWXResults(runID)
-		if err != nil {
-			return rwxLogMsg{checkURL: check.URL, err: err}
-		}
-
-		var content strings.Builder
-		content.WriteString(fmt.Sprintf("RWX Run: %s\nStatus: %s\n", runID, results.Status))
-
-		if len(results.FailedTasks) > 0 {
-			content.WriteString(fmt.Sprintf("\nFailed tasks: %d\n", len(results.FailedTasks)))
-			for _, task := range results.FailedTasks {
-				content.WriteString(fmt.Sprintf("\n--- %s ---\n\n", task.Key))
-
-				// Try test-results artifacts first for structured failure output
-				if task.HasArtifacts {
-					failedTests, err := m.git.RWXTestResults(task.TaskID)
-					if err == nil && len(failedTests) > 0 {
-						for _, ft := range failedTests {
-							content.WriteString(fmt.Sprintf("FAIL: %s (%s)\n\n", ft.Name, ft.Scope))
-							if ft.Stdout != "" {
-								content.WriteString(ft.Stdout)
-								content.WriteString("\n")
-							}
-						}
-						continue
-					}
-				}
-
-				// Fall back to raw logs
-				log, err := m.git.RWXTaskLog(task.TaskID)
-				if err != nil {
-					content.WriteString(fmt.Sprintf("Error fetching log: %v\n", err))
-				} else {
-					content.WriteString(log)
-				}
-			}
-		} else {
-			content.WriteString("\nNo failed tasks.")
-		}
-
-		return rwxLogMsg{checkURL: check.URL, log: content.String()}
-	}
-}
-
-type rwxLogMsg struct {
-	checkURL string
-	log      string
-	err      error
+	return m.rwxFetcher.Cmd(m.git)
 }
 
 // defaultCmdFactory is the command factory used by NewModel. Tests in the
@@ -343,7 +284,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		sidebarPct:    30, // default 30% of width
 		showIgnored:   true,
 		collapsedDirs: make(map[string]bool),
-		rwxLogCache:   make(map[string]string),
+		rwxFetcher:    newRWXFetcher(),
 		modeStates:    make(map[Mode]modeViewState),
 		wordWrap:      true,
 		lineNumbers:   true,
@@ -1029,11 +970,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case rwxLogMsg:
-		m.rwxLogCache[msg.checkURL] = msg.log
-		if msg.err != nil {
-			m.rwxLogCache[msg.checkURL] = fmt.Sprintf("Error fetching RWX logs: %v", msg.err)
-		}
-		m.pendingRWXCheck = nil
+		m.rwxFetcher.Apply(msg)
 		m.updateMainContent()
 		return m, nil
 
@@ -2787,13 +2724,8 @@ func (m *Model) updateMainContent() {
 						content += fmt.Sprintf("\nURL: %s", check.URL)
 					}
 					// If RWX, check cache or trigger async fetch
-					if gitpkg.IsRWXURL(check.URL) {
-						if cached, ok := m.rwxLogCache[check.URL]; ok {
-							content += "\n\n" + cached
-						} else {
-							content += "\n\nLoading RWX logs..."
-							m.pendingRWXCheck = &check
-						}
+					if extra, _ := m.rwxFetcher.Lookup(check); extra != "" {
+						content += "\n\n" + extra
 					}
 					m.mainPane.SetPlainContent(content)
 					m.mainPane.SetTitle("CI · "+check.Name, status)

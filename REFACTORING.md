@@ -104,7 +104,7 @@ state never escapes.
 - **Extraction shape**: a `viewMemory` type holding `modeStates` and `mainScrollLines`, with `Save(mode, sidebar) ` / `Restore(mode, sidebar, mainPane)` methods plus per-`mainItemKey` scroll memo.
 - **Invariants worth testing**: save-then-restore is identity for sidebar selection (when selectable item still present); switching mode and back preserves selection iff the item still exists; per-item scroll memo is preserved across mode round-trips.
 
-### 10. [ ] RWX log fetcher
+### 10. [x] RWX log fetcher
 - **Cluster**:
   - Fields: `pendingRWXCheck`, `rwxLogCache`.
   - Methods: `maybeFetchRWXLog` (270), and the inline `Loading RWX logs...` / cache check inside `updateMainContent`'s PR branch (model.go:3209-3217).
