@@ -155,7 +155,7 @@ record and returns a result.
 - **Extraction shape**: free functions that take an explicit `filesystemStat` callback + git source + the file classification. Peer file `filetitle.go`.
 - **Invariants worth testing**: binary prefix only present when `binary=true`; `untracked` appears iff no commit found; the result has at most 3 ` · `-separated segments.
 
-### 15. [ ] Diff navigation helpers
+### 15. [x] Diff navigation helpers
 - **Cluster**: `jumpToFirstDiff` (2380), `jumpToNextDiff` (2389), `jumpToNextLeaf` (2421).
 - **Dependencies on Model**: just `mainPane.DiffLineNumbers()`, `mainPane.ViewportToSourceLine()`, `mainPane.ScrollToSourceLine()`, `sidebar.items`, `sidebar.SelectedIndex()`.
 - **Extraction shape**: free functions taking the small interface they need, or a single `Navigator` type bundling mainPane and sidebar pointers.

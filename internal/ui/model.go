@@ -2123,60 +2123,21 @@ func (m *Model) selectFirstCIFailure() {
 }
 
 func (m *Model) jumpToFirstDiff() {
-	diffLines := m.mainPane.DiffLineNumbers()
-	if len(diffLines) > 0 {
-		m.mainPane.ScrollToSourceLine(diffLines[0])
+	if line, ok := nextDiffLine(m.mainPane.DiffLineNumbers(), -1, +1); ok {
+		m.mainPane.ScrollToSourceLine(line)
 	}
 }
 
-// jumpToNextDiff scrolls the main pane to the next (direction=1) or previous
-// (direction=-1) diff hunk. Wraps around.
 func (m *Model) jumpToNextDiff(direction int) {
-	diffLines := m.mainPane.DiffLineNumbers()
-	if len(diffLines) == 0 {
-		return
-	}
-
-	currentLine := m.mainPane.ViewportToSourceLine()
-	if direction > 0 {
-		// Find next diff line after current
-		for _, l := range diffLines {
-			if l > currentLine {
-				m.mainPane.ScrollToSourceLine(l)
-				return
-			}
-		}
-		// Wrap around to first
-		m.mainPane.ScrollToSourceLine(diffLines[0])
-	} else {
-		// Find previous diff line before current
-		for i := len(diffLines) - 1; i >= 0; i-- {
-			if diffLines[i] < currentLine {
-				m.mainPane.ScrollToSourceLine(diffLines[i])
-				return
-			}
-		}
-		// Wrap around to last
-		m.mainPane.ScrollToSourceLine(diffLines[len(diffLines)-1])
+	if line, ok := nextDiffLine(m.mainPane.DiffLineNumbers(), m.mainPane.ViewportToSourceLine(), direction); ok {
+		m.mainPane.ScrollToSourceLine(line)
 	}
 }
 
-// jumpToNextLeaf moves sidebar selection to the next (direction=1) or previous
-// (direction=-1) non-directory, non-separator item. Works from any focus.
 func (m *Model) jumpToNextLeaf(direction int) {
-	start := m.sidebar.SelectedIndex()
-	items := m.sidebar.items
-	n := len(items)
-	if n == 0 {
-		return
-	}
-	for i := 1; i < n; i++ {
-		idx := (start + i*direction + n) % n
-		if items[idx].kind != itemSeparator && items[idx].kind != itemCutline && !items[idx].isDir {
-			m.sidebar.SelectIndex(idx)
-			m.updateMainContent()
-			return
-		}
+	if idx := nextLeafIndex(m.sidebar.items, m.sidebar.SelectedIndex(), direction); idx >= 0 {
+		m.sidebar.SelectIndex(idx)
+		m.updateMainContent()
 	}
 }
 
