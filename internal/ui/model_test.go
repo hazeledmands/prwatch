@@ -74,6 +74,7 @@ type mockGit struct {
 	baseCommits    []git.Commit
 	baseCommitsErr error
 	parents        map[string]string // sha → parent sha; empty entry / missing key → "no parent" (root)
+	firstChildren  map[string]string // sha → first-parent child sha toward HEAD; missing key → no child
 	prComments     []git.PRComment
 	prDeployments  []git.PRDeployment
 	ciChecks       []git.CICheck
@@ -206,6 +207,13 @@ func (m *mockGit) Parent(sha string) (string, error) {
 		return "", fmt.Errorf("mockGit: no parent for %q", sha)
 	}
 	return parent, nil
+}
+func (m *mockGit) FirstChildToward(base, head string) (string, error) {
+	child, ok := m.firstChildren[base]
+	if !ok || child == "" {
+		return "", fmt.Errorf("mockGit: no first-parent child for %q toward %q", base, head)
+	}
+	return child, nil
 }
 func (m *mockGit) RWXResults(runID string) (*git.RWXResult, error) {
 	return &git.RWXResult{RunID: runID, Status: "passed"}, nil
@@ -561,6 +569,101 @@ func TestScope_ExtendBackMovesBaseToParent(t *testing.T) {
 	}
 }
 
+// TestScope_OnMainExtendBackShowsScopedCount: pressing ] on main once should
+// move the handle to HEAD~1 (commitCount=1), not show the full-repo count.
+// Regression: on main, loadLocalGitData used AllCommits/CommitCount even when
+// scrubbed, so HEAD~N displayed total commits in the repo.
+func TestScope_OnMainExtendBackShowsScopedCount(t *testing.T) {
+	allCmts := make([]git.Commit, 50)
+	for i := range allCmts {
+		allCmts[i] = git.Commit{SHA: fmt.Sprintf("c%d", i), Subject: "c"}
+	}
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "main", Upstream: "origin/main"},
+		base:        "head-sha",
+		parents:     map[string]string{"head-sha": "head1-sha"},
+		allCommits:  allCmts,
+		commits:     []git.Commit{{SHA: "head-sha", Subject: "tip"}}, // 1 commit in scope after one scrub
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	if m.commitCount != len(allCmts) {
+		t.Fatalf("setup on main default: commitCount=%d, want %d (full history)", m.commitCount, len(allCmts))
+	}
+
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if cmd != nil {
+		m.execFollowUps(cmd)
+	}
+	if m.base != "head1-sha" {
+		t.Fatalf("after ] on main: m.base=%q, want head1-sha", m.base)
+	}
+	if m.commitCount != 1 {
+		t.Errorf("after ] on main: commitCount=%d, want 1 (scoped); HEAD~N indicator depends on this", m.commitCount)
+	}
+}
+
+// TestScope_OnMainContractForwardAtDefaultIsNoOp: pressing [ on main at the
+// default scope (m.base = naturalBase = HEAD) should be a no-op. Regression:
+// scope-contract-forward used m.commits[len-1], which on main was the root.
+func TestScope_OnMainContractForwardAtDefaultIsNoOp(t *testing.T) {
+	allCmts := []git.Commit{{SHA: "head-sha"}, {SHA: "older"}, {SHA: "root"}}
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "main", Upstream: "origin/main"},
+		base:        "head-sha",
+		allCommits:  allCmts,
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.base != "head-sha" {
+		t.Errorf("scope-contract-forward on main at default: m.base=%q, want head-sha (no-op expected)", m.base)
+	}
+}
+
+// TestScope_ContractForwardWalksFirstParentChild: after scrubbing back, pressing
+// [ walks m.base forward via the first-parent child, not via the oldest-by-date
+// commit in m.commits. Especially relevant with merge commits in scope.
+func TestScope_ContractForwardWalksFirstParentChild(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:      git.RepoInfoResult{Branch: "main", Upstream: "origin/main"},
+		base:          "head-sha",
+		parents:       map[string]string{"head-sha": "h1", "h1": "h2"},
+		firstChildren: map[string]string{"h2": "h1", "h1": "head-sha"},
+		allCommits:    []git.Commit{{SHA: "head-sha"}, {SHA: "h1"}, {SHA: "h2"}},
+		commits:       []git.Commit{{SHA: "head-sha"}, {SHA: "h1"}},
+		fileContent:   "package main\n",
+		allFiles:      []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	// Scrub back to h2.
+	m.base = "h2"
+	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
+	if m.base != "h1" {
+		t.Errorf("first scope-contract-forward: m.base=%q, want h1 (first-parent child of h2)", m.base)
+	}
+}
+
 // TestScope_StaleLoadDoesNotOverwriteScrubbedBase simulates a periodic git
 // tick whose loadLocalGitData was already in flight when the user pressed a
 // scope key. The tick's gitDataMsg arrives with the OLD base. The handler
@@ -686,12 +789,13 @@ func TestScope_ExtendBackAtRootIsNoOp(t *testing.T) {
 // pointing it at the oldest currently-in-scope commit (whose parent is m.base).
 func TestScope_ContractForwardMovesBaseTowardHead(t *testing.T) {
 	mock := &mockGit{
-		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
-		base:        "natural-sha",
-		parents:     map[string]string{"natural-sha": "parent-sha"},
-		commits:     []git.Commit{{SHA: "C"}, {SHA: "B"}, {SHA: "A"}}, // newest → oldest
-		fileContent: "package main\n",
-		allFiles:    []string{"file.go"},
+		repoInfo:      git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:          "natural-sha",
+		parents:       map[string]string{"natural-sha": "parent-sha"},
+		firstChildren: map[string]string{"natural-sha": "A"},
+		commits:       []git.Commit{{SHA: "C"}, {SHA: "B"}, {SHA: "A"}},
+		fileContent:   "package main\n",
+		allFiles:      []string{"file.go"},
 	}
 
 	m := NewModel("/tmp/test-repo", mock)
@@ -700,8 +804,7 @@ func TestScope_ContractForwardMovesBaseTowardHead(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	// Press [: m.base should walk to the oldest in-scope commit (A, the one
-	// whose parent is the current m.base).
+	// Press [: m.base should walk to the first-parent child toward HEAD.
 	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
 	if m.base != "A" {
 		t.Errorf("after scope-contract-forward: m.base = %q, want %q", m.base, "A")

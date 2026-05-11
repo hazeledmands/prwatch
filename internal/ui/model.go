@@ -84,6 +84,7 @@ type GitDataSource interface {
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
 	BehindCount(baseRef string) int
 	Parent(sha string) (string, error)
+	FirstChildToward(base, head string) (string, error)
 	RWXResults(runID string) (*gitpkg.RWXResult, error)
 	RWXTaskLog(taskID string) (string, error)
 	RWXTestResults(taskID string) ([]gitpkg.RWXFailedTest, error)
@@ -874,9 +875,16 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	// Preserve pagination: reload at least as many commits as the user has already seen
 	pageSize := max(commitPageSize, m.commitsLoaded)
 
+	// Main / master / detached HEAD have no PR delta; the historical default
+	// is to list the whole repo history. When the user scrubs the scope
+	// handle on those branches we want HEAD~N and the displayed commits to
+	// reflect the scrubbed range — otherwise scope-extend-back would show
+	// total-commits-in-repo no matter how far back the handle moved.
+	onMainLike := info.IsDetachedHead || info.Branch == "main" || info.Branch == "master"
+	scopedOnMainLike := onMainLike && base != naturalBase
 	var commits []gitpkg.Commit
 	var commitCount int
-	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
+	if onMainLike && !scopedOnMainLike {
 		commits, err = m.git.AllCommits(0, pageSize)
 		if err != nil {
 			return gitDataMsg{err: err}
@@ -903,7 +911,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	}
 
 	var baseCommits []gitpkg.Commit
-	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
+	if !info.IsDetachedHead && (!onMainLike || scopedOnMainLike) {
 		baseCommits, _ = m.git.BaseCommits(base, 50)
 	}
 
@@ -933,9 +941,11 @@ func (m *Model) loadLocalGitData() tea.Msg {
 func (m *Model) loadMoreCommits() tea.Msg {
 	skip := m.commitsLoaded
 	info := m.repoInfo
+	onMainLike := info.IsDetachedHead || info.Branch == "main" || info.Branch == "master"
+	scopedOnMainLike := onMainLike && m.base != m.naturalBase && m.naturalBase != ""
 	var commits []gitpkg.Commit
 	var err error
-	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
+	if onMainLike && !scopedOnMainLike {
 		commits, err = m.git.AllCommits(skip, commitPageSize)
 	} else {
 		commits, err = m.git.Commits(m.base, skip, commitPageSize)
@@ -1535,13 +1545,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadLocalGitData
 
 	case key.Matches(msg, keys.ScopeContractForward):
-		if m.git == nil || len(m.commits) == 0 {
-			// At workdir limit (or no git) — no-op.
+		if m.git == nil || m.base == "" {
 			return m, nil
 		}
-		// m.commits is base..HEAD ordered newest-first; the oldest entry has
-		// parent == m.base, so it's the next commit toward HEAD.
-		m.base = m.commits[len(m.commits)-1].SHA
+		// Walk one commit toward HEAD via first-parent. Done via git
+		// rather than reading m.commits[len-1] because on main / master /
+		// detached HEAD, m.commits lists the full repo history (oldest
+		// entry would be the root commit, not the child of m.base).
+		child, err := m.git.FirstChildToward(m.base, "HEAD")
+		if err != nil {
+			// No child — we're at the workdir limit (m.base == HEAD).
+			return m, nil
+		}
+		m.base = child
 		return m, m.loadLocalGitData
 
 	case key.Matches(msg, keys.PRBrowse):

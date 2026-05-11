@@ -564,6 +564,24 @@ func (g *Git) Parent(sha string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// FirstChildToward returns the first-parent child of base on the path toward
+// head — i.e., the oldest commit in base..head when walking by --first-parent.
+// Used by the scope handle to walk one commit forward (toward HEAD) without
+// blindly trusting m.commits, which on main lists all repo commits and would
+// jump to the root commit. Returns an error when base..head is empty.
+func (g *Git) FirstChildToward(base, head string) (string, error) {
+	out, err := g.run("rev-list", "--first-parent", "--reverse", base+".."+head)
+	if err != nil {
+		return "", err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return "", fmt.Errorf("no commits between %s and %s", base, head)
+	}
+	lines := strings.SplitN(out, "\n", 2)
+	return lines[0], nil
+}
+
 // BaseCommits returns commits from the base branch that are already in the
 // history (before the feature branch diverged). Limited to a reasonable count.
 func (g *Git) BaseCommits(base string, limit int) ([]Commit, error) {
