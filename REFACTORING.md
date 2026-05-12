@@ -1,206 +1,308 @@
 # Catalog: factoring candidates in `internal/ui/model.go`
 
-## Context
+## Status
 
-`internal/ui/model.go` is 4265 lines and defines a `Model` struct with ~55 fields
-and ~73 methods, plus ~25 free functions. The struct mixes at least a dozen
-distinct concerns (git data, modes, sidebar/main-pane state, search, help,
-drag selection, refresh cadence, RWX log cache, layout, notifications, etc.).
-Most logic in the file is dispatched through `Model` even when its actual
-dependencies are narrow.
+18/18 catalog items have landed (see commits `4920d80…2221658`). `model.go`
+shrank 4265 → 2267 lines. Build and tests pass.
 
-The goal of this catalog is to enumerate self-contained, idempotent chunks
-that could be extracted — each entry names the cohesive cluster of fields +
-methods that moves together, the dependencies that stay narrow, and what a
-property-based invariant test for the extracted piece would look like.
+However, four catalog items shipped shallower than the catalog called for, and
+several state machines that *were* properly encapsulated still lack the
+dedicated property tests the catalog spelled out. The "TODO" section below
+lists the specific follow-up work; the original catalog (all marked `[x]`)
+remains below as a reference for the cluster/dependency analysis.
+
+---
+
+## TODO
+
+### A. Encapsulate drag selection state (was §6)
+
+**Problem.** The `drag.go` commit moved methods to a peer file but did not
+encapsulate the state. The six drag fields (`dragStartX`, `dragStartY`,
+`dragEndX`, `dragEndY`, `dragging`, `dragScrollDir`) still live on `Model`,
+and `drag.go` reads them via `m.…` 16 times. This was the highest-value §6
+extraction and got the shallowest treatment.
+
+**What needs doing.**
+1. Define a `dragSelection` type in `drag.go` that owns the six fields plus
+   the geometry it needs:
+   ```go
+   type dragSelection struct {
+       startX, startY int
+       endX, endY     int
+       active         bool
+       scrollDir      int
+   }
+   ```
+2. Replace `Model.dragStartX/Y`, `dragEndX/Y`, `dragging`, `dragScrollDir`
+   with a single `drag *dragSelection`.
+3. Move the methods currently on `*Model` (`applyDragHighlight`,
+   `updateDragAutoScroll`, `advanceDragAutoScroll`, `selectedText`) onto
+   `*dragSelection`, taking a small geometry interface (status bar height,
+   sidebar pixel width, main pane viewport) as a parameter. The interface
+   should be narrow enough that `*Model` satisfies it implicitly.
+4. The two `tea.Cmd`-producing methods (`copySelection`, `yankPath`) and
+   `copyToClipboard` can stay on `Model` since they touch `cmdFactory` and
+   `notification` — they aren't drag state.
+5. Move `dragScrollTickMsg` and `dragScrollInterval` into `drag.go` (already
+   done) and confirm the message dispatch in `Update` calls into the new
+   type rather than `m.advanceDragAutoScroll`.
+
+**Files to touch.** `internal/ui/drag.go`, `internal/ui/model.go` (struct
+def + Update dispatch + the few sites that read drag fields).
+
+### B. Add property tests for the encapsulated state machines
+
+**Problem.** The catalog spelled out concrete invariants for §6 (drag), §7
+(help), §8 (search), and §9 (viewMemory). Of those, only `search.go` has
+internal tests (via `prdescription_test.go`-style rapid tests landing in
+other files). The state machines are now encapsulated and trivially
+unit-testable, but the dedicated tests haven't been written. They're
+covered transitively by `invariant_test.go` end-to-end renders, not
+directly.
+
+**What needs doing.** Create the four missing test files:
+
+`internal/ui/help_test.go` — invariants from §7:
+- `Open` then `Close` is a no-op (idempotent).
+- After `Open`, `searchQuery == ""` and `searchMatches == nil`.
+- `searchIdx` always in `[0, len(searchMatches))` while non-empty.
+- `n`/`p` navigation wraps in both directions.
+- Scrolling never goes past `len(lines) - visibleHeight` nor below 0.
+
+`internal/ui/search_test.go` — invariants from §8:
+- After `Clear`, all five fields are zero-valued.
+- `matchIdx` always wraps in `[0, len(matches))`.
+- `Open` followed by `Enter` on empty query closes the overlay.
+- Backspace to empty exits search (same as Enter on empty).
+- `Confirmed` is true iff `searching` is false AND `len(matches) > 0`.
+
+`internal/ui/viewmemory_test.go` — invariants from §9:
+- `SaveSidebar` then `RestoreSidebar` is identity for sidebar selection
+  when the saved item is still present in `sb.items`.
+- `RestoreSidebar` is a no-op for a mode with no saved state.
+- `RememberMainScroll` with empty `key.item` is a no-op.
+- `RecallMainScroll` returns the most recently remembered value for that key.
+
+`internal/ui/drag_test.go` — invariants from §6 (write *after* doing the
+encapsulation in §A):
+- `applyDragHighlight` then strip ANSI for width yields the unselected text.
+- `selectedText` returns the same characters that `applyDragHighlight`
+  renders in reverse-video, for the same drag coordinates.
+- Auto-scroll always reduces drag distance to the viewport edge.
+- Clipping to the gutter never produces a selection crossing the gutter.
+
+**Pattern.** Use `pgregory.net/rapid` with property tests, matching the
+existing `activity_test.go` / `scope_test.go` / `prdescription_test.go`
+style.
+
+### C. Deepen the main-content extraction (was §12)
+
+**Problem.** `internal/ui/maincontent.go` split `updateMainContent` into
+per-mode methods (`updateFilesModeContent`, etc.), but those methods still
+read freely from `Model` and mutate `m.mainPane` directly. The catalog
+called for "return a struct, apply separately" — pure compute functions
+that produce a result record, then a small applier that writes it to
+`mainPane`. Only the leaf helpers `buildCommentContent`,
+`buildReviewContent`, `buildCIContent` got that treatment.
+
+**What needs doing (optional — lower value than §A or §B).** Decide whether
+the catalog's framing is worth the churn. Two paths:
+
+1. **Drop the framing.** Update §12 in the catalog to "split into smaller
+   methods", and stop. The current state is already much more readable
+   than the 290-line switch.
+
+2. **Finish the extraction.** Convert each per-mode arm into a pure
+   function returning a `mainPaneState` record:
+   ```go
+   type mainPaneState struct {
+       filename, content, titleLeft, titleRight, diffPrefix string
+       diffAnnotations map[int]diffAnnotation
+       diffHunks       []diffHunk
+       plain           bool
+   }
+   ```
+   Then a single applier method writes that to `m.mainPane`. This makes
+   per-mode content trivially testable (no `mainPane` mock needed), at
+   the cost of one more layer.
+
+Recommend (1) unless you find yourself needing to mock `mainPane` for
+content tests.
+
+### D. Minor cleanups noted in the catalog but skipped
+
+1. **`extractDirs` is still called three times in
+   `internal/ui/sidebarbuild.go:70-72`** — the catalog called this out as
+   "called four times… do it once" but it survived the §11 extraction.
+   Compute once at the top of `buildFilesSidebar` and pass the slice in.
+
+2. **`internal/ui/fileclass.go` kept the linear-scan `containsString`**
+   rather than building map-backed sets. Catalog §13 mentioned this as a
+   perf win on large repos. Optional — purely a performance optimization,
+   not a structural correctness issue.
+
+---
+
+## Original catalog (reference)
+
+All 18 items are marked `[x]` per the commits. See the TODO section above
+for follow-up work on the items that landed shallower than recommended.
+
+### Context
+
+`internal/ui/model.go` was 4265 lines and defined a `Model` struct with ~55
+fields and ~73 methods, plus ~25 free functions. The struct mixed at least
+a dozen distinct concerns (git data, modes, sidebar/main-pane state,
+search, help, drag selection, refresh cadence, RWX log cache, layout,
+notifications, etc.). Most logic in the file was dispatched through
+`Model` even when its actual dependencies were narrow.
 
 Ranking heuristic per candidate: **value** = how much surface area this
 removes from `Model` × how testable-in-isolation the extracted piece is.
 **ease** = how narrow the dependencies on the rest of `Model` are and how
 mechanical the extraction is.
 
-The catalog does not propose an order or attempt to bundle these — pick
-whichever cluster to peel off next.
-
 ---
 
-## Tier 1 — high value, low risk (pure free functions hiding as methods)
+### Tier 1 — high value, low risk (pure free functions hiding as methods)
 
-These are the cheapest extractions — small, already pure or nearly pure,
-have narrow inputs and obvious property tests.
-
-### 1. [x] PR description rendering — `renderPRDescription`
+#### 1. [x] PR description rendering — `renderPRDescription`
 - **Location**: `model.go:4024-4120` (~100 lines).
 - **Surface area**: 1 method.
 - **Dependencies on Model**: `prInfo`, `prReviews`, `prDeployments`, `mainPane.width`.
 - **Extraction**: free function `renderPRDescription(prInfo, reviews, deployments, width int) string` in a new `prdescription.go`.
 - **Invariants worth testing**: idempotent for same input; output always contains the PR number and title; reviewer line absent iff `prReviews` empty; markdown rendering errors fall back to raw body.
+- **Result**: clean extraction; 5 rapid property tests in `prdescription_test.go`.
 
-### 2. [x] Scope handle info — `scopeHandleInfo`
+#### 2. [x] Scope handle info — `scopeHandleInfo`
 - **Location**: `model.go:3440-3449` (~10 lines).
 - **Surface area**: 1 method.
 - **Dependencies on Model**: `base`, `naturalBase`, `commitCount`.
 - **Extraction**: free function `scopeHandleFromBase(base, naturalBase string, commitCount int) *scopeHandleInfo`. The `scopeHandleInfo` type already lives in `statusbar.go`.
 - **Invariants worth testing**: returns nil iff `base == naturalBase`; sha7 is always 7 chars when base is longer; `headOffset` equals `commitCount`.
+- **Result**: clean extraction; 3 rapid property tests in `scope_test.go`.
 
-### 3. [x] Refresh cadence — `computePRInterval` / `computeGitInterval`
+#### 3. [x] Refresh cadence — `computePRInterval` / `computeGitInterval`
 - **Location**: `model.go:3251-3272` (~22 lines).
 - **Surface area**: 2 methods + 5 fields (`prInterval`, `gitInterval`, `lastUIEvent`, `lastServerChange`, `lastGitChange`) + 3 mutation sites that set timestamps.
 - **Extraction**: a small `activityTracker` type with `MarkUIEvent`, `MarkServerChange`, `MarkFSEvent`, `PRInterval(now)`, `GitInterval(now)`.
 - **Invariants worth testing**: any recent UI event keeps both intervals at "active"; `GitInterval` returns active when EITHER UI or FS is recent; intervals are monotonic w.r.t. quiescence.
+- **Result**: clean encapsulation; 5 rapid property tests in `activity_test.go`.
 
-### 4. [x] Pure parsing helpers (already free, just scattered)
-- `parseHunkNewStart` (model.go:2240), `parseHunkHeader` (model.go:2259), `isBinaryContent` (model.go:2293), `shortstatFromDiff` (model.go:465), `relativeTime` (model.go:597), `pluralize`, `formatAuthorAndTime`, `commitTitleLeft`, `matchNumberedItem`, `reviewStateLabel`, `ciBucketOrder`, `extractDirs`.
-- **Extraction**: move to a `format.go` / `diffparse.go` / `gitformat.go` peer file. Already pure — just lives in the wrong file.
-- **Why it matters**: it's not the lines that hurt, it's that `model.go` is currently the keyword search target for everything. Moving these reduces noise in the file that actually mutates state.
+#### 4. [x] Pure parsing helpers (already free, just scattered)
+- `parseHunkNewStart`, `parseHunkHeader`, `isBinaryContent`, `shortstatFromDiff`, `relativeTime`, `pluralize`, `formatAuthorAndTime`, `commitTitleLeft`, `matchNumberedItem`, `reviewStateLabel`, `ciBucketOrder`, `extractDirs`.
+- **Extraction**: moved to `format.go` / `diffparse.go` peer files.
 
-### 5. [x] ANSI / display-width helpers
-- `padToHeight` (3635), `splitAtDisplayCols` (3666), `stripANSIForWidth` (3709), `displayWidthOf` (3715), `sliceByDisplayCol` (3722).
-- **Extraction**: peer file `ansiwidth.go` (or fold into existing `mainpane.go` neighbors if they're already used there).
-- **Invariants**: `splitAtDisplayCols`'s three parts reconcat to the original; `sliceByDisplayCol` never splits a rune mid-byte; `stripANSIForWidth ∘ ansi-wrap = identity` on the unstyled content.
+#### 5. [x] ANSI / display-width helpers
+- `padToHeight`, `splitAtDisplayCols`, `stripANSIForWidth`, `displayWidthOf`, `sliceByDisplayCol`.
+- **Extraction**: moved to `ansiwidth.go`.
 
 ---
 
-## Tier 2 — encapsulable state machines (more value, more work)
+### Tier 2 — encapsulable state machines (more value, more work)
 
-These are the highest-value extractions in terms of removing fields and
-making the remaining `Model` legible. Each is a coherent sub-feature whose
-state never escapes.
-
-### 6. [x] Drag selection / clipboard subsystem
+#### 6. [x] Drag selection / clipboard subsystem
 - **Cluster**:
   - Fields: `dragStartX`, `dragStartY`, `dragEndX`, `dragEndY`, `dragging`, `dragScrollDir`.
-  - Methods: `applyDragHighlight` (3552), `dragMainPaneBounds` (3750), `updateDragAutoScroll` (3770), `advanceDragAutoScroll` (3792), `scheduleDragScrollTick`, `selectedText` (3833), `copySelection` (3985), `copyToClipboard` (4008).
-  - Adjacent: `yankPath` (3961) — clipboard-touching, not drag.
-  - Pure helpers it relies on: the ANSI/width helpers from Tier 1 §5.
-- **Dependencies on Model that stay narrow**: status bar height (a layout function), sidebar pixel width, the main pane's viewport `GetContent()` / `YOffset()` / `gutterWidth` / `wrapContinuation`, and `cmdFactory`.
-- **Extraction shape**: a `dragSelection` type that holds the four coordinates and `scrollDir`, and takes a "pane geometry" interface for the narrow dependency. Could live in a peer `drag.go` or its own sub-package — favors **peer file**, since the geometry interface ties tightly to `Model`.
+  - Methods: `applyDragHighlight`, `dragMainPaneBounds`, `updateDragAutoScroll`, `advanceDragAutoScroll`, `scheduleDragScrollTick`, `selectedText`, `copySelection`, `copyToClipboard`.
+  - Adjacent: `yankPath` — clipboard-touching, not drag.
+- **Extraction shape**: a `dragSelection` type that holds the four coordinates and `scrollDir`, and takes a "pane geometry" interface for the narrow dependency.
 - **Invariants worth testing**: applying highlight then stripping ANSI for width yields the unselected text; `selectedText` returns the same characters that `applyDragHighlight` renders in reverse video; auto-scroll always reduces drag distance to viewport edge; clipping to the gutter never produces a selection that crosses the gutter boundary.
+- **Result**: ⚠️ Shallower than the catalog called for — methods moved to `drag.go` but fields remain on `Model`. No tests written. See **TODO §A** above.
 
-### 7. [x] Help overlay subsystem
+#### 7. [x] Help overlay subsystem
 - **Cluster**:
   - Fields: `showHelp`, `helpScrollOffset`, `helpSearching`, `helpSearchConfirmed`, `helpSearchQuery`, `helpSearchMatches`, `helpSearchIdx`.
-  - Methods: `helpContentLines` (4140), `renderHelp` (4226), `handleHelpKey` (1669), `updateHelpSearchMatches` (1652). Plus the helpEntry/keyList helpers (4123-4138).
-  - The dispatch hook in `handleKey` at model.go:1357-1360.
-- **Dependencies on Model that stay narrow**: `width`, `height`, `statusBarLines()`. That's all.
-- **Extraction shape**: a `helpOverlay` type that owns its state, takes width/height/statusBarLines per render, and returns either `(model, cmd, handled)` from key dispatch. Peer file `help.go`. Could become a sub-package since the surface is so narrow, but the package boundary doesn't earn its keep for ~200 lines.
-- **Invariants worth testing**: search query empty ⇔ matches empty; search idx always in `[0, len(matches))`; toggling help is idempotent; n/p navigation wraps; scrolling never goes past `len(lines) - visibleHeight`.
+  - Methods: `helpContentLines`, `renderHelp`, `handleHelpKey`, `updateHelpSearchMatches`.
+- **Extraction shape**: a `helpOverlay` type that owns its state.
+- **Result**: clean encapsulation in `help.go`. ⚠️ No dedicated tests — see **TODO §B**.
 
-### 8. [x] Cross-pane search subsystem
+#### 8. [x] Cross-pane search subsystem
 - **Cluster**:
   - Fields: `searching`, `searchConfirmed`, `searchQuery`, `searchMatches`, `searchMatchIdx`.
-  - Methods: `handleSearchKey` (1779), `handleSearchNavKey` (1816), `updateSearchMatches` (1841), `navigateToCurrentMatch` (1855), `clearSearch` (1869).
-  - Render hook in `View()` at model.go:3511-3529 (the bottom search bar).
-- **Dependencies on Model that stay narrow**: `mainPane.FindMatches()`, `mainPane.SetSearchQuery()`, `mainPane.ScrollToLine()`, and `sidebar.SelectIndex()` + `updateMainContent()` for the "sidebar" match pane (which currently is never produced — spec says search is main-pane only, so the sidebar branch in `navigateToCurrentMatch` is dead).
-- **Extraction shape**: a `searchOverlay` type that owns its state and accepts a small "searchable view" interface. Peer file `search.go`. Note: the `searchMatch.pane == "sidebar"` branch is dead — extracting forces deciding whether to drop it.
-- **Invariants worth testing**: after `clearSearch`, all five fields are zero-valued; `searchMatchIdx` always wraps in `[0, len(matches))`; setting an empty query never confirms; backspace to empty exits search.
+  - Methods: `handleSearchKey`, `handleSearchNavKey`, `updateSearchMatches`, `navigateToCurrentMatch`, `clearSearch`.
+- **Extraction shape**: a `searchOverlay` type owning its state.
+- **Dead branch flagged in survey**: `match.pane == "sidebar"` in `navigateToCurrentMatch`. Confirmed removed in `search.go` extraction; matches are now `[]int`.
+- **Result**: clean encapsulation in `search.go`, dead branch dropped. ⚠️ No dedicated tests — see **TODO §B**.
 
-### 9. [x] Mode view state persistence
+#### 9. [x] Mode view state persistence
 - **Cluster**:
   - Fields: `mode`, `focus`, `modeStates`, `lastMainItem`, `mainScrollLines`.
-  - Methods: `setMode` (2883), `saveModeState` (2904), `restoreModeState` (2918), partial of `updateMainContent` (the `setItem` closure at 2956-2973 that remembers the per-item scroll line).
-  - Types `modeViewState` (192) and `mainItemKey` (204) — already named.
-- **Dependencies on Model that stay narrow**: `sidebar.SelectedItem()`, `sidebar.SelectIndex()`, `sidebar.offset`, `mainPane.ViewportToSourceLine()`, `mainPane.ScrollToSourceLine()`.
-- **Extraction shape**: a `viewMemory` type holding `modeStates` and `mainScrollLines`, with `Save(mode, sidebar) ` / `Restore(mode, sidebar, mainPane)` methods plus per-`mainItemKey` scroll memo.
-- **Invariants worth testing**: save-then-restore is identity for sidebar selection (when selectable item still present); switching mode and back preserves selection iff the item still exists; per-item scroll memo is preserved across mode round-trips.
+  - Methods: `setMode`, `saveModeState`, `restoreModeState`.
+- **Extraction shape**: a `viewMemory` type with `SaveSidebar` / `RestoreSidebar` / `RememberMainScroll` / `RecallMainScroll`.
+- **Result**: clean encapsulation in `viewmemory.go`. ⚠️ No dedicated tests — see **TODO §B**.
 
-### 10. [x] RWX log fetcher
-- **Cluster**:
-  - Fields: `pendingRWXCheck`, `rwxLogCache`.
-  - Methods: `maybeFetchRWXLog` (270), and the inline `Loading RWX logs...` / cache check inside `updateMainContent`'s PR branch (model.go:3209-3217).
-  - Type: `rwxLogMsg` (327).
-- **Dependencies on Model**: `git` (only the three `RWX*` methods on it).
-- **Extraction shape**: an `rwxFetcher` type owning the cache and pending state, with `Get(check) (string, tea.Cmd)` that returns cached content or returns a `tea.Cmd` plus a "loading" sentinel.
-- **Invariants worth testing**: cache hits never produce a cmd; consecutive `Get` calls for the same URL produce at most one cmd; `Apply(msg)` is idempotent for the same `rwxLogMsg`.
+#### 10. [x] RWX log fetcher
+- **Cluster**: `pendingRWXCheck`, `rwxLogCache`, `maybeFetchRWXLog`, `rwxLogMsg`.
+- **Extraction shape**: an `rwxFetcher` type owning the cache and pending state, with `Lookup`, `Cmd`, `Apply`.
+- **Result**: clean encapsulation in `rwx.go`; property tests in `rwx_test.go`.
 
 ---
 
-## Tier 3 — pull-apart per-mode dispatchers (high value, medium-large work)
+### Tier 3 — pull-apart per-mode dispatchers
 
-These two giant switch-on-`Mode` methods are where the god object actually
-manifests. Each arm could be a pure(-ish) builder that takes a small data
-record and returns a result.
-
-### 11. [x] Sidebar item builder — `updateSidebarItems`
+#### 11. [x] Sidebar item builder — `updateSidebarItems`
 - **Location**: `model.go:2552-2877` (~325 lines).
-- **Shape today**: one method with three big arms (`FilesMode`, `CommitsMode`, `PRMode`) plus a debug-logging defer at the top.
 - **Per-arm extractability**:
-  - `buildFilesSidebar(committed, uncommitted, staged, deleted, all []string, ignored, ignoredDirs, collapsed map[string]bool, showIgnored bool, isGit bool) []sidebarItem`
-  - `buildCommitsSidebar(commits, baseCommits []Commit, uncommittedFiles, stagedFiles []string, ahead, loaded, total int) []sidebarItem`
-  - `buildPRSidebar(comments []PRComment, reviews []PRReview, checks []CICheck) []sidebarItem`
-- **Why this is high-value**: the three arms only share the `sidebarItem` slice type; their data dependencies don't overlap. Splitting them frees three independent pure functions and one tiny method that just dispatches and calls `m.sidebar.SetItems(...)`.
-- **Invariants worth testing**: header counts always match item counts in the section; ordering matches the spec (alphabetical for files; descending date for comments/reviews; failures-first for CI); cutline appears iff base commits and other commits both present.
+  - `buildFilesSidebar(...) []sidebarItem`
+  - `buildCommitsSidebar(...) []sidebarItem`
+  - `buildPRSidebar(...) []sidebarItem`
+- **Result**: clean pure-builder extraction in `sidebarbuild.go`. Minor: `extractDirs` still called 3× — see **TODO §D.1**.
 
-### 12. [x] Main content builder — `updateMainContent`
+#### 12. [x] Main content builder — `updateMainContent`
 - **Location**: `model.go:2940-3230` (~290 lines).
-- **Shape today**: one method, three arms again. Inside the arms there's also the `setItem` closure (scroll memory, see candidate §9) which can be lifted out.
-- **Per-arm extractability**: harder than §11 because each arm calls multiple `mainPane.Set*` mutators and reads many more `Model` fields. But pure "compute what to show" functions are still feasible:
-  - `filesModeContent(...)` → returns `(filename, content, diff, hunks, title, dirty bool)`-shaped struct, then a small method applies that to `mainPane`.
-  - `commitsModeContent(...)` → returns the title + content for the selected commit / pseudo-entry.
-  - `prModeContent(...)` → returns title + content for the selected PR sidebar item.
-- **Why it's worth it anyway**: each arm has its own complicated logic (deleted-file annotations, RWX cache fallthrough, markdown rendering) and currently they all read whatever they want off `Model`. Decomposing forces the dependencies to be named.
+- **Per-arm extractability**: catalog called for pure "compute what to show" functions returning a result struct, then a small applier.
+- **Result**: ⚠️ Per-mode methods split out in `maincontent.go`, but they still mutate `m.mainPane` directly. The leaf helpers (`buildCommentContent`, `buildReviewContent`, `buildCIContent`) are pure. See **TODO §C** for whether to finish or accept.
 
 ---
 
-## Tier 4 — smaller cohesive groupings
+### Tier 4 — smaller cohesive groupings
 
-### 13. [x] File classification
-- **Cluster**: `isDeletedFile` (2474), `isCommittedFile` (2543), `isUncommittedFile` (2315), `fileItemKind` (2483), `changeBadge` (2493), `applyChangeBadges` (2525), plus the seven `*Files` slices on `Model`.
-- **Extraction shape**: a `fileSets` value holding the slices (or hashed sets) with `IsCommitted/IsUncommitted/IsStaged/IsDeleted/IsAdded` predicates plus `ChangeBadge` and `ApplyBadges`. Today the linear scans through `committedFiles` for membership are O(n) per call inside loops in `updateSidebarItems` — a set-backed version would be measurably faster on large repos.
-- **Invariants worth testing**: `IsDeleted` and `IsCommitted` are not mutually exclusive (deleted files are tracked in both lists); `ChangeBadge` is empty iff none of the sets contains the file.
+#### 13. [x] File classification
+- **Cluster**: `isDeletedFile`, `isCommittedFile`, `isUncommittedFile`, `fileItemKind`, `changeBadge`, `applyChangeBadges`.
+- **Extraction**: free functions in `fileclass.go` taking explicit slice params. Kept linear-scan `containsString` (catalog suggested map-backed sets for perf — see **TODO §D.2**).
 
-### 14. [x] File title-right strings (no-diff and with-diff)
-- **Cluster**: `fileDiffPrefix` (516), `fileContextRight` (549).
-- **Dependencies**: `dir`, `git`, `os.Stat`, and the classification predicates from §13.
-- **Extraction shape**: free functions that take an explicit `filesystemStat` callback + git source + the file classification. Peer file `filetitle.go`.
-- **Invariants worth testing**: binary prefix only present when `binary=true`; `untracked` appears iff no commit found; the result has at most 3 ` · `-separated segments.
+#### 14. [x] File title-right strings
+- **Cluster**: `fileDiffPrefix`, `fileContextRight`.
+- **Extraction**: free functions in `filetitle.go`.
 
-### 15. [x] Diff navigation helpers
-- **Cluster**: `jumpToFirstDiff` (2380), `jumpToNextDiff` (2389), `jumpToNextLeaf` (2421).
-- **Dependencies on Model**: just `mainPane.DiffLineNumbers()`, `mainPane.ViewportToSourceLine()`, `mainPane.ScrollToSourceLine()`, `sidebar.items`, `sidebar.SelectedIndex()`.
-- **Extraction shape**: free functions taking the small interface they need, or a single `Navigator` type bundling mainPane and sidebar pointers.
-- **Invariants**: wraps; never moves past last or before first; `jumpToNextLeaf` skips separators and cutlines.
+#### 15. [x] Diff navigation helpers
+- **Cluster**: `jumpToFirstDiff`, `jumpToNextDiff`, `jumpToNextLeaf`.
+- **Extraction**: free functions in `navigate.go`; property tests in `navigate_test.go`.
 
-### 16. [x] Pane geometry helpers
-- **Cluster**: `statusBarLines` (1878), `sidebarPixelWidth` (1882), `updateLayout` (3274), `dragMainPaneBounds` (3750).
-- **Extraction shape**: a `paneLayout` snapshot/struct that takes the relevant model fields and produces the bounds queried by drag, drag-highlight, search-bar overlay, etc. Currently each function recomputes them inline.
+#### 16. [x] Pane geometry helpers
+- **Cluster**: `statusBarLines`, `sidebarPixelWidth`, `updateLayout`, `dragMainPaneBounds`.
+- **Extraction**: `panelayout.go`.
 
-### 17. [x] Selection helpers for click-targeted lists
-- **Cluster**: `selectFirstComment` (2331), `selectFirstReview` (2341), `selectFirstCIFailure` (2355).
-- **Extraction shape**: small free functions taking the sidebar items + the data slice they're "first-of"-ing into. Could merge into a single `selectFirst(items, predicate)`.
+#### 17. [x] Selection helpers for click-targeted lists
+- **Cluster**: `selectFirstComment`, `selectFirstReview`, `selectFirstCIFailure`.
+- **Extraction**: free functions in `selectfirst.go`.
 
-### 18. [x] PR data sort & ordering
-- **Cluster**: `sortPRData` (631), `ciBucketOrder` (644).
-- **Extraction shape**: already pure — move alongside the rest of the format/sort helpers in a `prdata.go` peer file.
+#### 18. [x] PR data sort & ordering
+- **Cluster**: `sortPRData`, `ciBucketOrder`.
+- **Extraction**: moved to `prdata.go`.
 
 ---
 
-## Notes & callouts
+## Notes & callouts (from original survey)
 
-- **Already factored, don't disturb**: `sidebar.go` (sidebar type), `mainpane.go` (mainPane type), `statusbar.go` (statusbar rendering), `keys.go`, `markdown.go`, `ipc.go`, `styles.go`. The pattern of "type + peer file" is already idiomatic here; new extractions should match.
+- **Already factored, don't disturb**: `sidebar.go`, `mainpane.go`, `statusbar.go`, `keys.go`, `markdown.go`, `ipc.go`, `styles.go`.
 
-- **Testing pattern observed**: `invariant_test.go` (2502 lines) already uses `pgregory.net/rapid` for property-based testing with a `genMockGit` generator. New extractions can plug into this same generator (or a narrower one for the specific subsystem) and assert their invariants there. Use `./scripts/rapid` for heavy property runs.
+- **Testing pattern**: `invariant_test.go` uses `pgregory.net/rapid` with a `genMockGit` generator. New extraction tests should match this style. Use `./scripts/rapid` for heavy property runs.
 
-- **`Model.lastMainItem` and `Model.modeStates` together encode "what the user was looking at"** — they're tightly coupled and should move together (candidate §9), not separately.
-
-- **`dragScrollTickMsg` and `notificationExpiredMsg`** are messages that belong to their respective subsystems (drag §6, notifications). If you extract those subsystems, the message types should travel with them — currently they sit alongside `prTickMsg`/`gitTickMsg` in a flat list at the top of `model.go`.
-
-- **Dead branch found** during this survey: `navigateToCurrentMatch` has a `match.pane == "sidebar"` case, but `updateSearchMatches` only ever produces `pane: "main"` matches. The sidebar branch is unreachable. Worth dropping when extracting §8.
-
-- The `searchMatch` struct (model.go:40) has a `pane` field that exists only to support that dead branch. If §8 is extracted and the dead branch is removed, `searchMatch` becomes just an int.
-
-- **`extractDirs` (model.go:2459)** is called four times in `updateSidebarItems` to recompute the same directory list. If §11 is extracted, the builders can do it once.
+- **`dragScrollTickMsg` and `notificationExpiredMsg`** belong to their respective subsystems (drag §6, notifications). `dragScrollTickMsg` moved to `drag.go` already; `notificationExpiredMsg` still sits in `model.go`.
 
 ---
 
 ## Verification
 
-This is a catalog, not an implementation. There's nothing to test directly.
-
-When any individual extraction from this catalog is actually executed:
-1. Run `go test -race -v ./internal/ui` and `./scripts/rapid` to confirm
+For the TODO follow-ups:
+1. After each change, run `go test -race -v ./internal/ui` to confirm
    existing invariants still hold.
-2. Run `PRWATCH_RENDER_ONCE=1 go run .` from a repo with a PR to confirm the
-   overall UI still renders identically.
-3. Add property-based invariant tests for the extracted piece (see each
-   candidate's "Invariants worth testing" subsection for starting points).
+2. For heavier verification, run `./scripts/rapid` (per CLAUDE.md — do not
+   invoke `PRWATCH_RAPID_CHECKS=N go test` directly).
+3. Run `PRWATCH_RENDER_ONCE=1 go run .` from a repo with a PR to confirm
+   the overall UI still renders identically.
+4. New property tests should commit any `.fail` files they produce (per
+   CLAUDE.md).
