@@ -974,16 +974,16 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		}
 
 		// Render without drag to capture the baseline view.
-		m.dragging = false
+		m.drag.active = false
 		baseView := viewWithTimeout(t, m, "baseline")
 
-		m.dragStartX = x1
-		m.dragStartY = y1
-		m.dragEndX = x2
-		m.dragEndY = y2
-		m.dragging = true
+		m.drag.startX = x1
+		m.drag.startY = y1
+		m.drag.endX = x2
+		m.drag.endY = y2
+		m.drag.active = true
 
-		got := m.selectedText()
+		got := m.drag.SelectedText(m.dragGeom())
 		if got == "" {
 			return // drag over empty/padding area
 		}
@@ -1314,14 +1314,14 @@ func TestProperty_DragAcrossModesNoPanic(t *testing.T) {
 		x1 := rapid.IntRange(0, width-1).Draw(t, "x1")
 		x2 := rapid.IntRange(0, width-1).Draw(t, "x2")
 
-		m.dragStartX = x1
-		m.dragStartY = y1
-		m.dragEndX = x2
-		m.dragEndY = y2
-		m.dragging = true
+		m.drag.startX = x1
+		m.drag.startY = y1
+		m.drag.endX = x2
+		m.drag.endY = y2
+		m.drag.active = true
 
 		// Should not panic
-		text := m.selectedText()
+		text := m.drag.SelectedText(m.dragGeom())
 
 		// If we got text, every line should be a substring of some viewport line
 		if text != "" {

@@ -12,37 +12,106 @@ import (
 
 // dragScrollTickMsg drives auto-scroll while a drag selection is held past
 // the top or bottom edge of the main pane viewport. Only delivered while
-// m.dragging is true and m.dragScrollDir != 0.
+// the drag is active and scrollDir != 0.
 type dragScrollTickMsg struct{}
 
 const dragScrollInterval = 60 * time.Millisecond
 
-// applyDragHighlight applies reverse-video highlighting to the drag-selected
-// region. Constrains highlighting to the main pane content area only.
-func (m *Model) applyDragHighlight(content string) string {
-	startY, endY := m.dragStartY, m.dragEndY
-	startX, endX := m.dragStartX, m.dragEndX
+// dragSelection owns the click-drag-release state used to highlight and copy
+// a region of the main pane. The fields are pixel coordinates in the same
+// frame as the mouse events. scrollDir is +1 to auto-scroll the viewport
+// down (drag past the bottom edge), -1 to scroll up, 0 when the drag end is
+// inside the viewport.
+type dragSelection struct {
+	startX, startY int
+	endX, endY     int
+	active         bool
+	scrollDir      int
+}
+
+// dragGeometry is the screen-layout snapshot dragSelection needs to map
+// pixel coords onto rendered content. Built fresh by Model at each call
+// site via Model.dragGeom().
+type dragGeometry struct {
+	statusRows int
+	sidebarW   int // 0 when sidebar hidden
+	screenW    int
+	screenH    int
+	pane       *mainPane
+}
+
+func newDragSelection() *dragSelection {
+	return &dragSelection{startX: -1, startY: -1}
+}
+
+// Begin starts a drag at the given pixel position. The end is initialized
+// to the same point so HasRange reports false until the mouse moves.
+func (d *dragSelection) Begin(x, y int) {
+	d.active = true
+	d.scrollDir = 0
+	d.startX, d.startY = x, y
+	d.endX, d.endY = x, y
+}
+
+// MoveEnd updates the drag end position. Caller should additionally call
+// UpdateAutoScroll to manage scroll-direction state.
+func (d *dragSelection) MoveEnd(x, y int) {
+	d.endX, d.endY = x, y
+}
+
+// Release finalizes an active drag at the given pixel position. Returns
+// true if the drag was active; the caller should then trigger a copy.
+func (d *dragSelection) Release(x, y int) bool {
+	if !d.active {
+		return false
+	}
+	d.active = false
+	d.scrollDir = 0
+	d.endX, d.endY = x, y
+	return true
+}
+
+// Cancel ends a drag without setting an end point — used when a click
+// lands in the status bar or sidebar.
+func (d *dragSelection) Cancel() {
+	d.active = false
+	d.scrollDir = 0
+}
+
+// IsActive reports whether a drag is in progress.
+func (d *dragSelection) IsActive() bool { return d.active }
+
+// HasRange reports whether the start and end positions differ, i.e.
+// whether there is any text to highlight or copy.
+func (d *dragSelection) HasRange() bool {
+	return d.startX != d.endX || d.startY != d.endY
+}
+
+// ScrollDir reports the current auto-scroll direction. Exposed for tests.
+func (d *dragSelection) ScrollDir() int { return d.scrollDir }
+
+// ApplyHighlight returns content with reverse-video applied to the
+// drag-selected region. Constrains highlighting to the main pane content
+// area only.
+func (d *dragSelection) ApplyHighlight(content string, g dragGeometry) string {
+	startY, endY := d.startY, d.endY
+	startX, endX := d.startX, d.endX
 	if startY > endY || (startY == endY && startX > endX) {
 		startY, endY = endY, startY
 		startX, endX = endX, startX
 	}
 
-	sidebarW := 0
-	if !m.sidebarHidden {
-		sidebarW = m.sidebarPixelWidth()
-	}
-	statusRows := m.statusBarLines()
 	topBorder := 1
 	titleRow := 1
-	contentStartY := statusRows + topBorder + titleRow
-	gutterOffset := sidebarW + 1 + m.mainPane.gutterWidth
+	contentStartY := g.statusRows + topBorder + titleRow
+	gutterOffset := g.sidebarW + 1 + g.pane.gutterWidth
 	if startX < gutterOffset {
 		startX = gutterOffset
 	}
-	if endX >= m.width {
-		endX = m.width - 1
+	if endX >= g.screenW {
+		endX = g.screenW - 1
 	}
-	contentEndY := m.height - 2
+	contentEndY := g.screenH - 2
 	if startY < contentStartY {
 		startY = contentStartY
 		startX = gutterOffset
@@ -52,7 +121,7 @@ func (m *Model) applyDragHighlight(content string) string {
 	}
 
 	lines := strings.Split(content, "\n")
-	rightBorderCol := m.width - 1
+	rightBorderCol := g.screenW - 1
 
 	for y := startY; y <= endY && y < len(lines); y++ {
 		fromCol := gutterOffset
@@ -81,51 +150,47 @@ func (m *Model) applyDragHighlight(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m *Model) dragMainPaneBounds() (top, bottom int) {
-	return mainPaneContentRows(m.statusBarLines(), m.height)
-}
-
-// updateDragAutoScroll inspects the current drag-end Y in screen coords and
-// sets m.dragScrollDir accordingly: -1 if the user has dragged above the
-// viewport top, +1 if below the bottom, 0 if back inside. Returns a tick
-// command when scrolling needs to (re)start, nil otherwise.
-func (m *Model) updateDragAutoScroll(y int) tea.Cmd {
-	top, bottom := m.dragMainPaneBounds()
-	prev := m.dragScrollDir
+// UpdateAutoScroll inspects the drag-end Y in screen coords and updates
+// scrollDir: -1 if the user has dragged above the viewport top, +1 if
+// below the bottom, 0 if back inside. Returns a tick command when
+// scrolling needs to (re)start, nil otherwise.
+func (d *dragSelection) UpdateAutoScroll(y int, g dragGeometry) tea.Cmd {
+	top, bottom := mainPaneContentRows(g.statusRows, g.screenH)
+	prev := d.scrollDir
 	switch {
 	case y < top:
-		m.dragScrollDir = -1
+		d.scrollDir = -1
 	case y > bottom:
-		m.dragScrollDir = +1
+		d.scrollDir = +1
 	default:
-		m.dragScrollDir = 0
+		d.scrollDir = 0
 	}
-	if m.dragScrollDir != 0 && prev == 0 {
+	if d.scrollDir != 0 && prev == 0 {
 		return scheduleDragScrollTick()
 	}
 	return nil
 }
 
-// advanceDragAutoScroll scrolls the main pane viewport one line in the
-// current drag direction and re-anchors the drag start so the original
-// click stays attached to the same content row. Returns the next tick
-// command unless the viewport has hit the corresponding edge.
-func (m *Model) advanceDragAutoScroll() tea.Cmd {
-	if m.dragScrollDir == 0 {
+// AdvanceAutoScroll scrolls the main pane viewport one line in scrollDir
+// and re-anchors startY so the original click stays attached to the same
+// content row. Returns the next tick command unless the viewport has hit
+// the corresponding edge.
+func (d *dragSelection) AdvanceAutoScroll(g dragGeometry) tea.Cmd {
+	if d.scrollDir == 0 {
 		return nil
 	}
-	beforeOffset := m.mainPane.viewport.YOffset()
-	if m.dragScrollDir > 0 {
-		m.mainPane.viewport.ScrollDown(1)
+	beforeOffset := g.pane.viewport.YOffset()
+	if d.scrollDir > 0 {
+		g.pane.viewport.ScrollDown(1)
 	} else {
-		m.mainPane.viewport.ScrollUp(1)
+		g.pane.viewport.ScrollUp(1)
 	}
-	delta := m.mainPane.viewport.YOffset() - beforeOffset
+	delta := g.pane.viewport.YOffset() - beforeOffset
 	if delta == 0 {
-		m.dragScrollDir = 0
+		d.scrollDir = 0
 		return nil
 	}
-	m.dragStartY -= delta
+	d.startY -= delta
 	return scheduleDragScrollTick()
 }
 
@@ -135,50 +200,46 @@ func scheduleDragScrollTick() tea.Cmd {
 	})
 }
 
-// selectedText extracts the plain text from the current drag selection,
-// stripping ANSI codes, gutter prefixes, and joining word-wrap continuations.
-// Returns empty string if the drag start and end are the same point.
+// SelectedText extracts the plain text from the current drag selection,
+// stripping ANSI codes, gutter prefixes, and joining word-wrap
+// continuations. Returns empty string if the drag start and end are the
+// same point.
 //
 // The selection works against the viewport's full GetContent() (not just
 // the visible View()). That matters when auto-scroll has moved the
 // viewport during the drag: the original click line may now be off-screen
 // above, but the user still expects it included in the copy.
-func (m *Model) selectedText() string {
-	if m.dragStartX == m.dragEndX && m.dragStartY == m.dragEndY {
+func (d *dragSelection) SelectedText(g dragGeometry) string {
+	if d.startX == d.endX && d.startY == d.endY {
 		return ""
 	}
 
-	statusRows := m.statusBarLines()
 	topBorder := 1
 	titleRow := 1
-	sidebarW := 0
-	if !m.sidebarHidden {
-		sidebarW = m.sidebarPixelWidth()
-	}
 	mainLeftBorder := 1
-	contentStartY := statusRows + topBorder + titleRow
-	contentStartX := sidebarW + mainLeftBorder
+	contentStartY := g.statusRows + topBorder + titleRow
+	contentStartX := g.sidebarW + mainLeftBorder
 
-	viewportContent := m.mainPane.viewport.GetContent()
+	viewportContent := g.pane.viewport.GetContent()
 	contentLines := strings.Split(viewportContent, "\n")
 
-	startY, endY := m.dragStartY, m.dragEndY
-	startX, endX := m.dragStartX, m.dragEndX
+	startY, endY := d.startY, d.endY
+	startX, endX := d.startX, d.endX
 	if startY > endY || (startY == endY && startX > endX) {
 		startY, endY = endY, startY
 		startX, endX = endX, startX
 	}
 
-	contentEndY := m.height - 2
+	contentEndY := g.screenH - 2
 	if endY > contentEndY {
 		endY = contentEndY
-		endX = m.width
+		endX = g.screenW
 	}
 	if startY > contentEndY {
 		return ""
 	}
 
-	vpOffset := m.mainPane.viewport.YOffset()
+	vpOffset := g.pane.viewport.YOffset()
 	startY = vpOffset + (startY - contentStartY)
 	endY = vpOffset + (endY - contentStartY)
 	startX -= contentStartX
@@ -195,8 +256,8 @@ func (m *Model) selectedText() string {
 		endX = 0
 	}
 
-	gw := m.mainPane.gutterWidth
-	contMap := m.mainPane.wrapContinuation
+	gw := g.pane.gutterWidth
+	contMap := g.pane.wrapContinuation
 	var selected strings.Builder
 	for y := startY; y <= endY && y < len(contentLines); y++ {
 		line := stripANSIForWidth(contentLines[y])
@@ -269,7 +330,7 @@ func (m *Model) yankPath() tea.Cmd {
 }
 
 func (m *Model) copySelection() tea.Cmd {
-	text := m.selectedText()
+	text := m.drag.SelectedText(m.dragGeom())
 	if text == "" {
 		return nil
 	}

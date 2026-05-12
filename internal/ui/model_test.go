@@ -4549,31 +4549,31 @@ func TestMouseDrag_SetsCoordinates(t *testing.T) {
 	// Click in main pane area (x=50 is past sidebar) to start drag
 	result, _ := m.Update(tea.MouseClickMsg{X: 50, Y: 5, Button: tea.MouseLeft})
 	m = result.(*Model)
-	if !m.dragging {
+	if !m.drag.active {
 		t.Error("should be dragging after click in main pane")
 	}
-	if m.dragStartX != 50 || m.dragStartY != 5 {
-		t.Errorf("drag start should be (50,5), got (%d,%d)", m.dragStartX, m.dragStartY)
+	if m.drag.startX != 50 || m.drag.startY != 5 {
+		t.Errorf("drag start should be (50,5), got (%d,%d)", m.drag.startX, m.drag.startY)
 	}
 
 	// Motion while dragging
 	result, _ = m.Update(tea.MouseMotionMsg{X: 70, Y: 5})
 	m = result.(*Model)
-	if m.dragEndX != 70 || m.dragEndY != 5 {
-		t.Errorf("drag end should be (70,5), got (%d,%d)", m.dragEndX, m.dragEndY)
+	if m.drag.endX != 70 || m.drag.endY != 5 {
+		t.Errorf("drag end should be (70,5), got (%d,%d)", m.drag.endX, m.drag.endY)
 	}
 
 	// Release
 	result, _ = m.Update(tea.MouseReleaseMsg{X: 70, Y: 5})
 	m = result.(*Model)
-	if m.dragging {
+	if m.drag.active {
 		t.Error("should not be dragging after release")
 	}
 
 	// Clicking in sidebar should NOT start dragging
 	result, _ = m.Update(tea.MouseClickMsg{X: 5, Y: 5, Button: tea.MouseLeft})
 	m = result.(*Model)
-	if m.dragging {
+	if m.drag.active {
 		t.Error("clicking in sidebar should not start drag")
 	}
 }
@@ -5673,11 +5673,11 @@ func TestDragHighlight(t *testing.T) {
 	m.mainPane.SetPlainContent("some content\nmore content")
 
 	// Start a drag
-	m.dragging = true
-	m.dragStartX = 40
-	m.dragStartY = 5
-	m.dragEndX = 60
-	m.dragEndY = 5
+	m.drag.active = true
+	m.drag.startX = 40
+	m.drag.startY = 5
+	m.drag.endX = 60
+	m.drag.endY = 5
 
 	v := m.View()
 	// Just verify it doesn't crash and produces output
@@ -7247,10 +7247,10 @@ func TestCopySelection_NoDrag(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 
-	m.dragStartX = 5
-	m.dragStartY = 5
-	m.dragEndX = 5
-	m.dragEndY = 5
+	m.drag.startX = 5
+	m.drag.startY = 5
+	m.drag.endX = 5
+	m.drag.endY = 5
 	cmd := m.copySelection() // same point = no drag, should return early
 	if cmd != nil {
 		t.Error("no-drag copySelection should return nil cmd")
@@ -7279,10 +7279,10 @@ func TestCopySelection_WithContent(t *testing.T) {
 	m.Update(msg)
 
 	// Drag across main pane area
-	m.dragStartX = 30
-	m.dragStartY = 5
-	m.dragEndX = 50
-	m.dragEndY = 7
+	m.drag.startX = 30
+	m.drag.startY = 5
+	m.drag.endX = 50
+	m.drag.endY = 7
 	cmd := m.copySelection() // exercises coordinate conversion, line extraction
 	if cmd == nil {
 		t.Fatal("copySelection with content should return a notification timer cmd")
@@ -7311,10 +7311,10 @@ func TestCopySelection_ReversedCoordinates(t *testing.T) {
 	m.Update(msg)
 
 	// End before start (reversed)
-	m.dragStartX = 50
-	m.dragStartY = 8
-	m.dragEndX = 30
-	m.dragEndY = 5
+	m.drag.startX = 50
+	m.drag.startY = 8
+	m.drag.endX = 30
+	m.drag.endY = 5
 	m.copySelection() // exercises coordinate normalization
 }
 
@@ -7337,10 +7337,10 @@ func TestCopySelection_NegativeCoords(t *testing.T) {
 	m.Update(msg)
 
 	// Drag from before content area
-	m.dragStartX = 0
-	m.dragStartY = 0
-	m.dragEndX = 50
-	m.dragEndY = 8
+	m.drag.startX = 0
+	m.drag.startY = 0
+	m.drag.endX = 50
+	m.drag.endY = 8
 	m.copySelection() // exercises negative coordinate clamping
 }
 
@@ -7363,10 +7363,10 @@ func TestCopySelection_HiddenSidebar(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	m.dragStartX = 5
-	m.dragStartY = 5
-	m.dragEndX = 40
-	m.dragEndY = 7
+	m.drag.startX = 5
+	m.drag.startY = 5
+	m.drag.endX = 40
+	m.drag.endY = 7
 	m.copySelection() // exercises sidebarHidden=true path
 }
 
@@ -7396,12 +7396,12 @@ func TestCopySelection_DragOnTitleRowExcludesTitle(t *testing.T) {
 	// from that row downward should still copy file content but never the
 	// title text itself.
 	titleRow := m.statusBarLines() + 1
-	m.dragStartX = m.sidebarPixelWidth() + 5
-	m.dragStartY = titleRow
-	m.dragEndX = m.sidebarPixelWidth() + 30
-	m.dragEndY = titleRow + 3
+	m.drag.startX = m.sidebarPixelWidth() + 5
+	m.drag.startY = titleRow
+	m.drag.endX = m.sidebarPixelWidth() + 30
+	m.drag.endY = titleRow + 3
 
-	got := m.selectedText()
+	got := m.drag.SelectedText(m.dragGeom())
 	if strings.Contains(got, "distinctive_file.go") {
 		t.Errorf("selection should not include title text 'distinctive_file.go', got %q", got)
 	}
@@ -7429,11 +7429,11 @@ func TestApplyDragHighlight_DoesNotHighlightTitleRow(t *testing.T) {
 	m.Update(msg)
 
 	titleRow := m.statusBarLines() + 1
-	m.dragging = true
-	m.dragStartX = m.sidebarPixelWidth() + 1
-	m.dragStartY = titleRow
-	m.dragEndX = m.width - 2
-	m.dragEndY = titleRow
+	m.drag.active = true
+	m.drag.startX = m.sidebarPixelWidth() + 1
+	m.drag.startY = titleRow
+	m.drag.endX = m.width - 2
+	m.drag.endY = titleRow
 
 	view := m.View()
 	lines := strings.Split(view.Content, "\n")
@@ -7471,19 +7471,19 @@ func TestDragAutoScroll_PastBottomEdgeStartsScrolling(t *testing.T) {
 
 	// Click somewhere in the middle of the main pane.
 	clickY := m.statusBarLines() + 5
-	m.dragging = true
-	m.dragStartX = m.sidebarPixelWidth() + 10
-	m.dragStartY = clickY
-	m.dragEndX = m.dragStartX
-	m.dragEndY = clickY
+	m.drag.active = true
+	m.drag.startX = m.sidebarPixelWidth() + 10
+	m.drag.startY = clickY
+	m.drag.endX = m.drag.startX
+	m.drag.endY = clickY
 
 	// Move the mouse past the bottom edge of the main pane.
 	belowBottomY := m.height // outside the viewport
-	result, cmd := m.Update(tea.MouseMotionMsg{X: m.dragStartX, Y: belowBottomY})
+	result, cmd := m.Update(tea.MouseMotionMsg{X: m.drag.startX, Y: belowBottomY})
 	m = result.(*Model)
 
-	if m.dragScrollDir <= 0 {
-		t.Fatalf("dragging past bottom should set dragScrollDir > 0, got %d", m.dragScrollDir)
+	if m.drag.scrollDir <= 0 {
+		t.Fatalf("dragging past bottom should set dragScrollDir > 0, got %d", m.drag.scrollDir)
 	}
 	if cmd == nil {
 		t.Fatal("dragging past bottom should return a tick command to drive auto-scroll")
@@ -7492,16 +7492,16 @@ func TestDragAutoScroll_PastBottomEdgeStartsScrolling(t *testing.T) {
 	// Run the tick. Expect the viewport to scroll down and dragStartY to
 	// decrement so the original click stays anchored to the same content.
 	prevOffset := m.mainPane.viewport.YOffset()
-	prevDragStartY := m.dragStartY
+	prevDragStartY := m.drag.startY
 	result, _ = m.Update(dragScrollTickMsg{})
 	m = result.(*Model)
 	if m.mainPane.viewport.YOffset() <= prevOffset {
 		t.Errorf("expected viewport to scroll down, offset stayed at %d", prevOffset)
 	}
 	scrollDelta := m.mainPane.viewport.YOffset() - prevOffset
-	if m.dragStartY != prevDragStartY-scrollDelta {
+	if m.drag.startY != prevDragStartY-scrollDelta {
 		t.Errorf("dragStartY should decrease by scroll delta %d (anchor); was %d, now %d",
-			scrollDelta, prevDragStartY, m.dragStartY)
+			scrollDelta, prevDragStartY, m.drag.startY)
 	}
 }
 
@@ -7524,19 +7524,19 @@ func TestDragAutoScroll_ReleaseStopsScrolling(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	m.dragging = true
-	m.dragStartX = m.sidebarPixelWidth() + 5
-	m.dragStartY = m.statusBarLines() + 5
-	m.dragEndX = m.dragStartX
-	m.dragEndY = m.height // past bottom
-	m.dragScrollDir = +1
+	m.drag.active = true
+	m.drag.startX = m.sidebarPixelWidth() + 5
+	m.drag.startY = m.statusBarLines() + 5
+	m.drag.endX = m.drag.startX
+	m.drag.endY = m.height // past bottom
+	m.drag.scrollDir = +1
 
 	// Mouse release.
-	result, _ := m.Update(tea.MouseReleaseMsg{X: m.dragEndX, Y: m.dragEndY})
+	result, _ := m.Update(tea.MouseReleaseMsg{X: m.drag.endX, Y: m.drag.endY})
 	m = result.(*Model)
 
-	if m.dragScrollDir != 0 {
-		t.Errorf("release should clear dragScrollDir, got %d", m.dragScrollDir)
+	if m.drag.scrollDir != 0 {
+		t.Errorf("release should clear dragScrollDir, got %d", m.drag.scrollDir)
 	}
 }
 
@@ -7560,20 +7560,20 @@ func TestDragAutoScroll_MotionBackInsideStopsScrolling(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	m.dragging = true
-	m.dragStartX = m.sidebarPixelWidth() + 5
-	m.dragStartY = m.statusBarLines() + 5
-	m.dragEndX = m.dragStartX
-	m.dragEndY = m.height
-	m.dragScrollDir = +1
+	m.drag.active = true
+	m.drag.startX = m.sidebarPixelWidth() + 5
+	m.drag.startY = m.statusBarLines() + 5
+	m.drag.endX = m.drag.startX
+	m.drag.endY = m.height
+	m.drag.scrollDir = +1
 
 	// Mouse moves back into the viewport.
 	insideY := m.statusBarLines() + 10
-	result, _ := m.Update(tea.MouseMotionMsg{X: m.dragEndX, Y: insideY})
+	result, _ := m.Update(tea.MouseMotionMsg{X: m.drag.endX, Y: insideY})
 	m = result.(*Model)
 
-	if m.dragScrollDir != 0 {
-		t.Errorf("motion back inside should clear dragScrollDir, got %d", m.dragScrollDir)
+	if m.drag.scrollDir != 0 {
+		t.Errorf("motion back inside should clear dragScrollDir, got %d", m.drag.scrollDir)
 	}
 }
 
@@ -7615,24 +7615,24 @@ func TestDragAutoScroll_SelectionSpansOffScreenStart(t *testing.T) {
 	contentStartY := m.statusBarLines() + 2 // +1 top border, +1 title row
 
 	// Click at the top of the visible content (line 0).
-	m.dragging = true
-	m.dragStartX = m.sidebarPixelWidth() + 5
-	m.dragStartY = contentStartY
-	m.dragEndX = m.dragStartX
-	m.dragEndY = contentStartY
+	m.drag.active = true
+	m.drag.startX = m.sidebarPixelWidth() + 5
+	m.drag.startY = contentStartY
+	m.drag.endX = m.drag.startX
+	m.drag.endY = contentStartY
 
 	// Simulate the user dragging past the bottom enough to scroll off the
 	// click line. Each tick scrolls by one line and decrements dragStartY.
 	// Drive the auto-scroll manually so we don't depend on real timers.
-	m.dragScrollDir = +1
+	m.drag.scrollDir = +1
 	for i := 0; i < 5; i++ {
-		m.advanceDragAutoScroll()
+		m.drag.AdvanceAutoScroll(m.dragGeom())
 	}
 
 	// Mouse is currently at the bottom of the viewport.
-	m.dragEndY = m.height - 2
+	m.drag.endY = m.height - 2
 
-	got := m.selectedText()
+	got := m.drag.SelectedText(m.dragGeom())
 	// The selection should still include the very first line, because the
 	// drag started there before the scroll.
 	if !strings.Contains(got, "uniquemarker00") {

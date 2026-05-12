@@ -89,66 +89,56 @@ type Model struct {
 	// what detectBase() resolves to at load time. m.base equals naturalBase at
 	// the default scope position; scope-extend / scope-contract walk m.base
 	// away from naturalBase, and scope-reset snaps it back.
-	naturalBase       string
-	repoInfo          gitpkg.RepoInfoResult
-	prInfo            gitpkg.PRInfoResult
-	ciStatus          gitpkg.CIStatusResult
-	prReviews         []gitpkg.PRReview
-	prReviewRequests  []gitpkg.PRReviewRequest
-	prError           string // error message for PR/GitHub API issues
-	prCommentCount    int
-	committedFiles    []string
-	uncommittedFiles  []string        // unstaged/untracked (new changes)
-	stagedFiles       []string        // staged but uncommitted
-	deletedFiles      []string        // files deleted in base..HEAD
-	addedFiles        []string        // files that are entirely new additions
-	allFiles          []string        // all files in the repo (for files mode)
-	ignoredFiles      map[string]bool // gitignored files (for dimming in all-files view)
-	ignoredDirs       map[string]bool // ignored entries that are directories — render as expandable
-	loadedIgnoredDirs map[string]bool // ignored dirs whose contents have been lazy-loaded
-	commits           []gitpkg.Commit
-	commitCount       int                   // true total commit count (from rev-list --count)
-	commitsLoaded     int                   // how many commits have been loaded so far
-	behindCount       int                   // how many commits behind base
-	baseCommits       []gitpkg.Commit       // commits from the base branch (for commit mode category 4)
-	prComments        []gitpkg.PRComment    // PR comments for PR-view mode
-	prDeployments     []gitpkg.PRDeployment // PR deployments for PR-view mode
-	ciChecks          []gitpkg.CICheck      // CI checks for PR-view mode
-	rwxFetcher        *rwxFetcher           // RWX log fetch/cache state
-	viewMemory        *viewMemory           // per-mode sidebar + per-item main-pane scroll
-	lastMainItem      mainItemKey           // (mode, item) currently displayed in main pane
-	sidebar           *sidebar
-	mainPane          *mainPane
-	sidebarPct        int // sidebar width as percentage of total width (10-50)
-	dir               string
-	confirming        bool
-	help              *helpOverlay     // help overlay subsystem
-	showIgnored       bool             // whether to show gitignored files in all-files section
-	collapsedDirs     map[string]bool  // tracks collapsed directory paths
-	sidebarHidden     bool             // [f] toggles sidebar visibility
-	wordWrap          bool             // [w] toggles word wrapping in main pane
-	lineNumbers       bool             // [n] toggles line numbers in files mode
-	search            *searchOverlay   // cross-pane search overlay
-	hoverX, hoverY    int              // last mouse position for hover highlighting
-	activity          *activityTracker // adaptive refresh-interval bookkeeping
-	dragStartX        int              // drag start position (-1 = not dragging)
-	dragStartY        int
-	dragEndX          int
-	dragEndY          int
-	dragging          bool
-	// dragScrollDir is +1 to auto-scroll the main pane down (drag past the
-	// bottom edge), -1 to auto-scroll up (drag past the top edge), 0 when
-	// the drag end is inside the viewport. While non-zero, a recurring
-	// dragScrollTickMsg keeps shifting the viewport so the user can extend
-	// a selection beyond what fits on screen.
-	dragScrollDir      int
-	notification       string       // transient notification text (bottom-left)
-	notificationExpiry time.Time    // when the notification should disappear
-	loading            bool         // true until first local data load completes
-	prLoadedOnce       bool         // true after first successful PR data fetch
-	modeLabels         []modeLabel  // clickable mode label positions from last render
-	line2Labels        []line2Label // clickable positions on git status line
-	line3Labels        []line3Label // clickable positions on PR status line
+	naturalBase        string
+	repoInfo           gitpkg.RepoInfoResult
+	prInfo             gitpkg.PRInfoResult
+	ciStatus           gitpkg.CIStatusResult
+	prReviews          []gitpkg.PRReview
+	prReviewRequests   []gitpkg.PRReviewRequest
+	prError            string // error message for PR/GitHub API issues
+	prCommentCount     int
+	committedFiles     []string
+	uncommittedFiles   []string        // unstaged/untracked (new changes)
+	stagedFiles        []string        // staged but uncommitted
+	deletedFiles       []string        // files deleted in base..HEAD
+	addedFiles         []string        // files that are entirely new additions
+	allFiles           []string        // all files in the repo (for files mode)
+	ignoredFiles       map[string]bool // gitignored files (for dimming in all-files view)
+	ignoredDirs        map[string]bool // ignored entries that are directories — render as expandable
+	loadedIgnoredDirs  map[string]bool // ignored dirs whose contents have been lazy-loaded
+	commits            []gitpkg.Commit
+	commitCount        int                   // true total commit count (from rev-list --count)
+	commitsLoaded      int                   // how many commits have been loaded so far
+	behindCount        int                   // how many commits behind base
+	baseCommits        []gitpkg.Commit       // commits from the base branch (for commit mode category 4)
+	prComments         []gitpkg.PRComment    // PR comments for PR-view mode
+	prDeployments      []gitpkg.PRDeployment // PR deployments for PR-view mode
+	ciChecks           []gitpkg.CICheck      // CI checks for PR-view mode
+	rwxFetcher         *rwxFetcher           // RWX log fetch/cache state
+	viewMemory         *viewMemory           // per-mode sidebar + per-item main-pane scroll
+	lastMainItem       mainItemKey           // (mode, item) currently displayed in main pane
+	sidebar            *sidebar
+	mainPane           *mainPane
+	sidebarPct         int // sidebar width as percentage of total width (10-50)
+	dir                string
+	confirming         bool
+	help               *helpOverlay     // help overlay subsystem
+	showIgnored        bool             // whether to show gitignored files in all-files section
+	collapsedDirs      map[string]bool  // tracks collapsed directory paths
+	sidebarHidden      bool             // [f] toggles sidebar visibility
+	wordWrap           bool             // [w] toggles word wrapping in main pane
+	lineNumbers        bool             // [n] toggles line numbers in files mode
+	search             *searchOverlay   // cross-pane search overlay
+	hoverX, hoverY     int              // last mouse position for hover highlighting
+	activity           *activityTracker // adaptive refresh-interval bookkeeping
+	drag               *dragSelection   // click-drag-release selection state
+	notification       string           // transient notification text (bottom-left)
+	notificationExpiry time.Time        // when the notification should disappear
+	loading            bool             // true until first local data load completes
+	prLoadedOnce       bool             // true after first successful PR data fetch
+	modeLabels         []modeLabel      // clickable mode label positions from last render
+	line2Labels        []line2Label     // clickable positions on git status line
+	line3Labels        []line3Label     // clickable positions on PR status line
 	err                error
 }
 
@@ -264,9 +254,8 @@ func NewModel(dir string, g GitDataSource) *Model {
 		activity:      newActivityTracker(time.Now()),
 		help:          newHelpOverlay(),
 		search:        newSearchOverlay(),
+		drag:          newDragSelection(),
 		loading:       g != nil,
-		dragStartX:    -1,
-		dragStartY:    -1,
 	}
 }
 
@@ -1007,10 +996,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hoverX = msg.X
 		m.hoverY = msg.Y
 		var autoScrollCmd tea.Cmd
-		if m.dragging {
-			m.dragEndX = msg.X
-			m.dragEndY = msg.Y
-			autoScrollCmd = m.updateDragAutoScroll(msg.Y)
+		if m.drag.IsActive() {
+			m.drag.MoveEnd(msg.X, msg.Y)
+			autoScrollCmd = m.drag.UpdateAutoScroll(msg.Y, m.dragGeom())
 		}
 		// Update sidebar hover index
 		sidebarW := m.sidebarPixelWidth()
@@ -1025,20 +1013,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, autoScrollCmd
 
 	case tea.MouseReleaseMsg:
-		if m.dragging {
-			m.dragging = false
-			m.dragScrollDir = 0
-			m.dragEndX = msg.X
-			m.dragEndY = msg.Y
+		if m.drag.Release(msg.X, msg.Y) {
 			return m, m.copySelection()
 		}
 		return m, nil
 
 	case dragScrollTickMsg:
-		if !m.dragging || m.dragScrollDir == 0 {
+		if !m.drag.IsActive() || m.drag.ScrollDir() == 0 {
 			return m, nil
 		}
-		return m, m.advanceDragAutoScroll()
+		return m, m.drag.AdvanceAutoScroll(m.dragGeom())
 	}
 
 	return m, nil
@@ -1392,6 +1376,23 @@ func (m *Model) sidebarPixelWidth() int {
 	return m.sidebar.width + 2
 }
 
+// dragGeom snapshots the screen-layout values dragSelection needs to map
+// pixel coords onto rendered content. Built fresh at each call site so
+// drag methods see the current layout.
+func (m *Model) dragGeom() dragGeometry {
+	sidebarW := 0
+	if !m.sidebarHidden {
+		sidebarW = m.sidebarPixelWidth()
+	}
+	return dragGeometry{
+		statusRows: m.statusBarLines(),
+		sidebarW:   sidebarW,
+		screenW:    m.width,
+		screenH:    m.height,
+		pane:       m.mainPane,
+	}
+}
+
 func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 	if m.git == nil {
 		return m, nil
@@ -1464,7 +1465,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	// Status bar is rows 0-2
 	if y < m.statusBarLines() {
-		m.dragging = false
+		m.drag.Cancel()
 		return m.handleStatusBarClick(x, y)
 	}
 
@@ -1473,7 +1474,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	sidebarW := m.sidebarPixelWidth()
 	if !m.sidebarHidden && x < sidebarW {
 		// Clicked in sidebar — no drag tracking
-		m.dragging = false
+		m.drag.Cancel()
 		m.focus = SidebarFocus
 		// Content starts after status bar (2 lines) + top border (1 line) = row 3
 		itemIdx := contentY - 1 + m.sidebar.offset
@@ -1517,11 +1518,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	} else {
 		// Clicked in main pane — start drag tracking for copy
 		m.focus = MainFocus
-		m.dragging = true
-		m.dragStartX = x
-		m.dragStartY = y
-		m.dragEndX = x
-		m.dragEndY = y
+		m.drag.Begin(x, y)
 	}
 	return m, nil
 }
@@ -2232,8 +2229,8 @@ func (m *Model) View() tea.View {
 	}
 
 	// Apply drag selection highlighting
-	if m.dragging && (m.dragStartX != m.dragEndX || m.dragStartY != m.dragEndY) {
-		padded = m.applyDragHighlight(padded)
+	if m.drag.IsActive() && m.drag.HasRange() {
+		padded = m.drag.ApplyHighlight(padded, m.dragGeom())
 	}
 
 	v.SetContent(padded)

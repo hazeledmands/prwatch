@@ -3,53 +3,31 @@
 ## Status
 
 18/18 catalog items have landed (see commits `4920d80…2221658`). `model.go`
-shrank 4265 → 2267 lines. Build and tests pass.
+shrank 4265 → 2264 lines. Build and tests pass.
 
-However, four catalog items shipped shallower than the catalog called for, and
-several state machines that *were* properly encapsulated still lack the
-dedicated property tests the catalog spelled out. The "TODO" section below
-lists the specific follow-up work; the original catalog (all marked `[x]`)
-remains below as a reference for the cluster/dependency analysis.
+§6 drag was originally shallower than the catalog called for; the follow-up
+in **TODO §A** below has now landed (`dragSelection` owns the six fields
+plus the four geometry-using methods). Three smaller follow-ups remain:
+§B (property tests for the encapsulated state machines), §C (deeper
+main-content extraction — optional), and §D (minor cleanups). The original
+catalog (all marked `[x]`) remains below as a reference for the
+cluster/dependency analysis.
 
 ---
 
 ## TODO
 
-### A. Encapsulate drag selection state (was §6)
+### A. Encapsulate drag selection state (was §6) — DONE
 
-**Problem.** The `drag.go` commit moved methods to a peer file but did not
-encapsulate the state. The six drag fields (`dragStartX`, `dragStartY`,
-`dragEndX`, `dragEndY`, `dragging`, `dragScrollDir`) still live on `Model`,
-and `drag.go` reads them via `m.…` 16 times. This was the highest-value §6
-extraction and got the shallowest treatment.
+Landed: `dragSelection` type in `drag.go` owns startX/Y, endX/Y, active,
+scrollDir. `Model` holds a `drag *dragSelection`. Methods that need screen
+geometry take a `dragGeometry` struct built by `Model.dragGeom()` at the
+call site (matches `panelayout.go`'s pure-function style — chosen over an
+interface to avoid four trivial wrapper methods on `Model`). Clipboard
+methods (`copySelection`, `yankPath`, `copyToClipboard`) stay on `Model`
+since they touch `cmdFactory` and `notification`.
 
-**What needs doing.**
-1. Define a `dragSelection` type in `drag.go` that owns the six fields plus
-   the geometry it needs:
-   ```go
-   type dragSelection struct {
-       startX, startY int
-       endX, endY     int
-       active         bool
-       scrollDir      int
-   }
-   ```
-2. Replace `Model.dragStartX/Y`, `dragEndX/Y`, `dragging`, `dragScrollDir`
-   with a single `drag *dragSelection`.
-3. Move the methods currently on `*Model` (`applyDragHighlight`,
-   `updateDragAutoScroll`, `advanceDragAutoScroll`, `selectedText`) onto
-   `*dragSelection`, taking a small geometry interface (status bar height,
-   sidebar pixel width, main pane viewport) as a parameter. The interface
-   should be narrow enough that `*Model` satisfies it implicitly.
-4. The two `tea.Cmd`-producing methods (`copySelection`, `yankPath`) and
-   `copyToClipboard` can stay on `Model` since they touch `cmdFactory` and
-   `notification` — they aren't drag state.
-5. Move `dragScrollTickMsg` and `dragScrollInterval` into `drag.go` (already
-   done) and confirm the message dispatch in `Update` calls into the new
-   type rather than `m.advanceDragAutoScroll`.
-
-**Files to touch.** `internal/ui/drag.go`, `internal/ui/model.go` (struct
-def + Update dispatch + the few sites that read drag fields).
+Dedicated drag tests still pending in §B below.
 
 ### B. Add property tests for the encapsulated state machines
 
@@ -61,7 +39,8 @@ unit-testable, but the dedicated tests haven't been written. They're
 covered transitively by `invariant_test.go` end-to-end renders, not
 directly.
 
-**What needs doing.** Create the four missing test files:
+**What needs doing.** Create the four missing test files (`drag_test.go`
+is done — see below):
 
 `internal/ui/help_test.go` — invariants from §7:
 - `Open` then `Close` is a no-op (idempotent).
@@ -84,13 +63,22 @@ directly.
 - `RememberMainScroll` with empty `key.item` is a no-op.
 - `RecallMainScroll` returns the most recently remembered value for that key.
 
-`internal/ui/drag_test.go` — invariants from §6 (write *after* doing the
-encapsulation in §A):
-- `applyDragHighlight` then strip ANSI for width yields the unselected text.
-- `selectedText` returns the same characters that `applyDragHighlight`
-  renders in reverse-video, for the same drag coordinates.
-- Auto-scroll always reduces drag distance to the viewport edge.
-- Clipping to the gutter never produces a selection crossing the gutter.
+`internal/ui/drag_test.go` — DONE. Seven property tests landed:
+- State machine: `Begin` initializes (active, scrollDir=0, no range);
+  `MoveEnd` updates only the end; `Release` returns true iff active and
+  always deactivates + zeroes scrollDir; `Cancel` is idempotent.
+- `ApplyHighlight` round-trip: `stripANSIForWidth(highlight(v)) ==
+  stripANSIForWidth(v)` — the highlight only adds ANSI codes.
+- Gutter clipping: when drag starts left of the gutter, no `\x1b[7m`
+  ever appears at a display column inside the gutter region.
+- `AdvanceAutoScroll` termination: each call either advances the
+  viewport by some delta (and re-anchors `startY` by the same delta) or
+  sets `scrollDir = 0`; repeated calls always terminate.
+
+The catalog's "selectedText/highlight coincide" invariant is already
+covered by `TestProperty_DragSelectsCorrectText` in
+`invariant_test.go` (its Invariant 0, plus seven sibling invariants),
+so the dedicated `drag_test.go` skips it.
 
 **Pattern.** Use `pgregory.net/rapid` with property tests, matching the
 existing `activity_test.go` / `scope_test.go` / `prdescription_test.go`
@@ -207,9 +195,9 @@ mechanical the extraction is.
   - Fields: `dragStartX`, `dragStartY`, `dragEndX`, `dragEndY`, `dragging`, `dragScrollDir`.
   - Methods: `applyDragHighlight`, `dragMainPaneBounds`, `updateDragAutoScroll`, `advanceDragAutoScroll`, `scheduleDragScrollTick`, `selectedText`, `copySelection`, `copyToClipboard`.
   - Adjacent: `yankPath` — clipboard-touching, not drag.
-- **Extraction shape**: a `dragSelection` type that holds the four coordinates and `scrollDir`, and takes a "pane geometry" interface for the narrow dependency.
+- **Extraction shape**: a `dragSelection` type that holds the four coordinates and `scrollDir`, with a `dragGeometry` struct param for the narrow layout dependency.
 - **Invariants worth testing**: applying highlight then stripping ANSI for width yields the unselected text; `selectedText` returns the same characters that `applyDragHighlight` renders in reverse video; auto-scroll always reduces drag distance to viewport edge; clipping to the gutter never produces a selection that crosses the gutter boundary.
-- **Result**: ⚠️ Shallower than the catalog called for — methods moved to `drag.go` but fields remain on `Model`. No tests written. See **TODO §A** above.
+- **Result**: encapsulation and tests both done — `dragSelection` owns all six fields and the four geometry-using methods; seven rapid property tests in `drag_test.go` cover state-machine transitions, highlight round-trip, gutter clipping, and auto-scroll termination.
 
 #### 7. [x] Help overlay subsystem
 - **Cluster**:
