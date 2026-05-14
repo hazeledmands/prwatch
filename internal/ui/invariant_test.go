@@ -162,7 +162,6 @@ func genMockGit(t *rapid.T) *mockGit {
 			Added:       added,
 		},
 		commits:      commits,
-		allCommits:   commits,
 		allFiles:     allFiles,
 		ignoredFiles: ignoredFiles,
 		fileDiff:     maybeEmoji(t, "fileDiff", "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new"),
@@ -1886,7 +1885,6 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 			allFiles:     mockAllFiles,
 			ignoredFiles: ignoredFiles,
 			commits:      []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
-			allCommits:   []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
 			fileDiff:     "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new",
 			fileContent:  "line1\nline2\nline3",
 			commitPatch:  "commit abc1234\n\n    test\n\ndiff\n+added",
@@ -2389,8 +2387,8 @@ func TestProperty_ScopeCutlineMatchesBaseSection(t *testing.T) {
 
 // TestProperty_ScopeIndicatorMatchesScrub verifies the bidirectional invariant
 // that line 2 of the rendered status bar contains the handle indicator
-// (`@<sha7>`) iff m.base differs from m.naturalBase. This is the visible
-// signal that the user is scrubbed away from default scope.
+// (`@<sha7>`) iff scope.IsScrubbed(). This is the visible signal that the
+// user is scrubbed away from default scope.
 func TestProperty_ScopeIndicatorMatchesScrub(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		mock, mode := genScenario(t)
@@ -2424,11 +2422,11 @@ func TestProperty_ScopeIndicatorMatchesScrub(t *testing.T) {
 		}
 		line2 := lines[1]
 		hasIndicator := strings.Contains(line2, "@") && strings.Contains(line2, "HEAD~")
-		isScrubbed := m.base != "" && m.naturalBase != "" && m.base != m.naturalBase
+		isScrubbed := m.scope.IsScrubbed() && m.scope.OldBase() != ""
 
 		if hasIndicator != isScrubbed {
-			t.Fatalf("indicator/scrub mismatch: hasIndicator=%v isScrubbed=%v base=%q natural=%q line2=%q",
-				hasIndicator, isScrubbed, m.base, m.naturalBase, line2)
+			t.Fatalf("indicator/scrub mismatch: hasIndicator=%v isScrubbed=%v scope=%+v line2=%q",
+				hasIndicator, isScrubbed, *m.scope, line2)
 		}
 	})
 }

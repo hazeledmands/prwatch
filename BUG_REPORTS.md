@@ -2,6 +2,19 @@
 
 - renaming a file in git doesn't reflect properly in the sidebar.
 
+- `TestProperty_DragAcrossModesNoPanic` fails on a specific rapid seed
+  (`testdata/rapid/TestProperty_DragAcrossModesNoPanic/...-20260513172000-22131.fail`):
+  `selectedText() contains character "+" not in viewport (mode=1)` —
+  drag-selection returns content not visible on screen. Seed: width=40
+  height=11 y1=0 y2=10 x1=0 x2=0 (column drag covering most of a narrow
+  viewport) in CommitsMode with `hasAPIError=true`, `hasBaseCommits=false`.
+  Surfaced by `./scripts/rapid 100` during the Reading B / scope-encapsulation
+  refactor; underlying mismatch is pre-existing — `SelectedText` reads
+  `viewport.GetContent()` (full content, including scrolled-off lines) while
+  the test's viewport-membership check looks only at rendered output, so any
+  vpOffset > 0 lets a stray "+" through. Seed file is committed; bug needs
+  investigation separately from scope work.
+
 ## Fixed Bugs
 
 - Scope handle on main/master/detached HEAD jumped to HEAD~362 on the first press of either `[` or `]`, then refused to advance: `loadLocalGitData` (and `loadMoreCommits`) used `AllCommits`/`CommitCount` whenever on a main-like branch, ignoring the scrubbed base, so `commitCount` always reported total-commits-in-repo. Compounding bug: `scope-contract-forward` used `m.commits[len-1]` to find the "next commit toward HEAD," but on main `m.commits` is the full history, so its oldest entry is the root commit — pressing `[` from any scope state jumped the handle straight to the root. Fixed by (a) switching on-main-like loads to base..HEAD when scrubbed (so `commitCount` reflects the scrub), and (b) replacing the `m.commits[len-1]` lookup with a new `git.FirstChildToward(base, head)` helper that walks one first-parent step toward HEAD. Regression tests cover all three observed symptoms.

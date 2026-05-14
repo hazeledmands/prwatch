@@ -403,13 +403,15 @@ func TestCommits_OnMainBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// On main, range is empty so should fallback to last 10 commits
+	// On main, base..HEAD is empty — Reading B says natural scope is empty,
+	// so Commits returns no in-scope rows. The repo history is shown below
+	// the cutline via BaseCommits, not pretended to be in scope.
 	commits, err := g.Commits(base, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commits) == 0 {
-		t.Error("should have fallback commits when on main branch")
+	if len(commits) != 0 {
+		t.Errorf("on main, expected empty in-scope range, got %d commits", len(commits))
 	}
 }
 
@@ -651,20 +653,22 @@ func TestFileContent_FallbackToHEAD(t *testing.T) {
 	}
 }
 
-func TestCommits_FallbackToRecentHistory(t *testing.T) {
-	// When on the same branch as base (base..HEAD is empty), should show recent commits
+func TestCommits_EmptyRangeReturnsEmpty(t *testing.T) {
+	// When on the same branch as base (base..HEAD is empty), Commits returns
+	// an empty slice — no fallback to repo history. Per Reading B, the natural
+	// scope on such a branch is empty; the UI surfaces the repo history below
+	// the commits-mode cutline via BaseCommits, not by inflating in-scope.
 	dir := setupTestRepo(t)
 	runGit(t, dir, "checkout", "main")
 	g := noGH(dir)
 
-	// Use HEAD as base — range HEAD..HEAD is empty
 	sha, _ := g.DetectBaseLocal()
 	commits, err := g.Commits(sha, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commits) == 0 {
-		t.Error("should show recent commits as fallback")
+	if len(commits) != 0 {
+		t.Errorf("empty range should return no commits, got %d", len(commits))
 	}
 }
 
@@ -1299,74 +1303,6 @@ func TestBehindCount(t *testing.T) {
 	}
 }
 
-func TestAllCommits(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := noGH(dir)
-
-	commits, err := g.AllCommits(0, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Feature branch has 2 commits: "add feature" and "initial commit"
-	if len(commits) != 2 {
-		t.Fatalf("expected 2 commits, got %d", len(commits))
-	}
-	if commits[0].Subject != "add feature" {
-		t.Errorf("first commit subject = %q, want %q", commits[0].Subject, "add feature")
-	}
-}
-
-func TestAllCommits_Pagination(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := noGH(dir)
-
-	// First page: limit 1
-	page1, err := g.AllCommits(0, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(page1) != 1 {
-		t.Fatalf("expected 1 commit, got %d", len(page1))
-	}
-	if page1[0].Subject != "add feature" {
-		t.Errorf("page1[0] = %q, want %q", page1[0].Subject, "add feature")
-	}
-
-	// Second page: skip 1, limit 1
-	page2, err := g.AllCommits(1, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(page2) != 1 {
-		t.Fatalf("expected 1 commit, got %d", len(page2))
-	}
-	if page2[0].Subject != "initial commit" {
-		t.Errorf("page2[0] = %q, want %q", page2[0].Subject, "initial commit")
-	}
-
-	// Past the end: skip 2, limit 1
-	page3, err := g.AllCommits(2, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(page3) != 0 {
-		t.Fatalf("expected 0 commits, got %d", len(page3))
-	}
-}
-
-func TestCommitCount(t *testing.T) {
-	dir := setupTestRepo(t)
-	g := noGH(dir)
-
-	count, err := g.CommitCount()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 2 {
-		t.Errorf("expected 2 commits, got %d", count)
-	}
-}
-
 func TestCommitCountRange(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
@@ -1390,9 +1326,10 @@ func TestCommitCountRange_OnMain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// On main itself, range is empty so falls back to total count (1 commit on main)
-	if count != 1 {
-		t.Errorf("expected 1 commit (fallback to total), got %d", count)
+	// On main, base..HEAD is empty — Reading B in PROMPT.md says default scope
+	// is empty on a branch without a merge-base, so this must be 0.
+	if count != 0 {
+		t.Errorf("expected 0 commits in empty range, got %d", count)
 	}
 }
 

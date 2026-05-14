@@ -66,8 +66,6 @@ type mockGit struct {
 	contentErr     error
 	commitPatch    string
 	patchErr       error
-	allCommits     []git.Commit
-	allCommitsErr  error
 	allFiles       []string // tracked + untracked (excluding ignored)
 	ignoredFiles   []string // gitignored files; included in AllFiles(true) only
 	allFilesErr    error
@@ -125,17 +123,6 @@ func (m *mockGit) Commits(base string, skip, limit int) ([]git.Commit, error) {
 	}
 	return m.commits[skip:end], m.commitsErr
 }
-func (m *mockGit) AllCommits(skip, limit int) ([]git.Commit, error) {
-	if skip >= len(m.allCommits) {
-		return nil, m.allCommitsErr
-	}
-	end := skip + limit
-	if end > len(m.allCommits) {
-		end = len(m.allCommits)
-	}
-	return m.allCommits[skip:end], m.allCommitsErr
-}
-func (m *mockGit) CommitCount() (int, error)                 { return len(m.allCommits), m.allCommitsErr }
 func (m *mockGit) CommitCountRange(base string) (int, error) { return len(m.commits), m.commitsErr }
 func (m *mockGit) FileDiffCommitted(base, file string) (string, error) {
 	return m.fileDiff, m.fileDiffErr
@@ -471,8 +458,8 @@ func TestBaseDetection_UpgradesFromLocalToPRBaseOnPRLoad(t *testing.T) {
 
 	// Phase 1: local load — no PR data yet, m.prInfo.BaseRef is "".
 	m.Update(m.loadLocalGitData())
-	if m.base != "local-fallback-sha" {
-		t.Errorf("after local load, expected base=%q, got %q", "local-fallback-sha", m.base)
+	if got := m.scope.OldBase(); got != "local-fallback-sha" {
+		t.Errorf("after local load, expected base=%q, got %q", "local-fallback-sha", got)
 	}
 	if m.prInfo.BaseRef != "" {
 		t.Errorf("prInfo.BaseRef should be empty before PR data, got %q", m.prInfo.BaseRef)
@@ -516,11 +503,11 @@ func TestScope_NaturalBaseTracksDefaultBase(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	if m.base != "abc1234sha" {
-		t.Errorf("base = %q, want %q", m.base, "abc1234sha")
+	if got := m.scope.OldBase(); got != "abc1234sha" {
+		t.Errorf("scope.OldBase() = %q, want %q", got, "abc1234sha")
 	}
-	if m.naturalBase != m.base {
-		t.Errorf("naturalBase = %q, want it to track base %q on initial load", m.naturalBase, m.base)
+	if m.scope.IsScrubbed() {
+		t.Errorf("scope.IsScrubbed() = true on initial load, want false (base should equal natural)")
 	}
 }
 
@@ -543,47 +530,43 @@ func TestScope_ExtendBackMovesBaseToParent(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	if m.base != "natural-sha" {
-		t.Fatalf("setup: m.base = %q, want %q", m.base, "natural-sha")
+	if got := m.scope.OldBase(); got != "natural-sha" {
+		t.Fatalf("setup: scope.OldBase() = %q, want %q", got, "natural-sha")
 	}
 
-	// First press ]: m.base should walk to parent.
+	// First press ]: outer endpoint should walk to parent.
 	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
-	if m.base != "parent-sha" {
-		t.Errorf("after first scope-extend-back: m.base = %q, want %q", m.base, "parent-sha")
+	if got := m.scope.OldBase(); got != "parent-sha" {
+		t.Errorf("after first scope-extend-back: scope.OldBase() = %q, want %q", got, "parent-sha")
 	}
-	if m.naturalBase != "natural-sha" {
-		t.Errorf("after scope-extend-back: naturalBase = %q, want it unchanged at %q", m.naturalBase, "natural-sha")
+	if !m.scope.IsScrubbed() {
+		t.Errorf("after scope-extend-back: scope should be scrubbed")
 	}
 
 	// A refresh-style reload must preserve the scrubbed base.
 	m.Update(m.loadLocalGitData())
-	if m.base != "parent-sha" {
-		t.Errorf("after refresh while scrubbed: m.base = %q, want it preserved at %q", m.base, "parent-sha")
+	if got := m.scope.OldBase(); got != "parent-sha" {
+		t.Errorf("after refresh while scrubbed: scope.OldBase() = %q, want it preserved at %q", got, "parent-sha")
 	}
 
-	// Second press ]: m.base walks one further back.
+	// Second press ]: outer endpoint walks one further back.
 	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
-	if m.base != "grandparent-sha" {
-		t.Errorf("after second scope-extend-back: m.base = %q, want %q", m.base, "grandparent-sha")
+	if got := m.scope.OldBase(); got != "grandparent-sha" {
+		t.Errorf("after second scope-extend-back: scope.OldBase() = %q, want %q", got, "grandparent-sha")
 	}
 }
 
 // TestScope_OnMainExtendBackShowsScopedCount: pressing ] on main once should
-// move the handle to HEAD~1 (commitCount=1), not show the full-repo count.
-// Regression: on main, loadLocalGitData used AllCommits/CommitCount even when
-// scrubbed, so HEAD~N displayed total commits in the repo.
+// move the outer endpoint to HEAD~1 with scope.Len()==1. The natural scope
+// on main is empty (oldBase == HEAD); scrubbing back grows the range.
 func TestScope_OnMainExtendBackShowsScopedCount(t *testing.T) {
-	allCmts := make([]git.Commit, 50)
-	for i := range allCmts {
-		allCmts[i] = git.Commit{SHA: fmt.Sprintf("c%d", i), Subject: "c"}
-	}
 	mock := &mockGit{
-		repoInfo:    git.RepoInfoResult{Branch: "main", Upstream: "origin/main"},
-		base:        "head-sha",
-		parents:     map[string]string{"head-sha": "head1-sha"},
-		allCommits:  allCmts,
-		commits:     []git.Commit{{SHA: "head-sha", Subject: "tip"}}, // 1 commit in scope after one scrub
+		repoInfo: git.RepoInfoResult{Branch: "main", Upstream: "origin/main"},
+		base:     "head-sha",
+		parents:  map[string]string{"head-sha": "head1-sha"},
+		// Natural scope on main is empty: no commits in (head-sha, HEAD].
+		// After ExtendBack, scope.Len() ticks up synchronously to 1.
+		commits:     nil,
 		fileContent: "package main\n",
 		allFiles:    []string{"file.go"},
 	}
@@ -594,31 +577,29 @@ func TestScope_OnMainExtendBackShowsScopedCount(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	if m.commitCount != len(allCmts) {
-		t.Fatalf("setup on main default: commitCount=%d, want %d (full history)", m.commitCount, len(allCmts))
+	if got := m.scope.Len(); got != 0 {
+		t.Fatalf("setup on main default: scope.Len()=%d, want 0 (empty range)", got)
 	}
 
 	_, cmd := m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
 	if cmd != nil {
 		m.execFollowUps(cmd)
 	}
-	if m.base != "head1-sha" {
-		t.Fatalf("after ] on main: m.base=%q, want head1-sha", m.base)
+	if got := m.scope.OldBase(); got != "head1-sha" {
+		t.Fatalf("after ] on main: scope.OldBase()=%q, want head1-sha", got)
 	}
-	if m.commitCount != 1 {
-		t.Errorf("after ] on main: commitCount=%d, want 1 (scoped); HEAD~N indicator depends on this", m.commitCount)
+	if got := m.scope.Len(); got != 1 {
+		t.Errorf("after ] on main: scope.Len()=%d, want 1 (scoped to HEAD~1); HEAD~N indicator depends on this", got)
 	}
 }
 
 // TestScope_OnMainContractForwardAtDefaultIsNoOp: pressing [ on main at the
-// default scope (m.base = naturalBase = HEAD) should be a no-op. Regression:
-// scope-contract-forward used m.commits[len-1], which on main was the root.
+// default scope (range is empty) should be a no-op. ContractForward bottoms
+// out at the working tree.
 func TestScope_OnMainContractForwardAtDefaultIsNoOp(t *testing.T) {
-	allCmts := []git.Commit{{SHA: "head-sha"}, {SHA: "older"}, {SHA: "root"}}
 	mock := &mockGit{
 		repoInfo:    git.RepoInfoResult{Branch: "main", Upstream: "origin/main"},
 		base:        "head-sha",
-		allCommits:  allCmts,
 		fileContent: "package main\n",
 		allFiles:    []string{"file.go"},
 	}
@@ -630,8 +611,11 @@ func TestScope_OnMainContractForwardAtDefaultIsNoOp(t *testing.T) {
 	m.Update(m.loadLocalGitData())
 
 	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
-	if m.base != "head-sha" {
-		t.Errorf("scope-contract-forward on main at default: m.base=%q, want head-sha (no-op expected)", m.base)
+	if got := m.scope.OldBase(); got != "head-sha" {
+		t.Errorf("scope-contract-forward on main at default: scope.OldBase()=%q, want head-sha (no-op expected)", got)
+	}
+	if m.scope.IsScrubbed() {
+		t.Errorf("scope-contract-forward on main at default should not scrub")
 	}
 }
 
@@ -644,7 +628,6 @@ func TestScope_ContractForwardWalksFirstParentChild(t *testing.T) {
 		base:          "head-sha",
 		parents:       map[string]string{"head-sha": "h1", "h1": "h2"},
 		firstChildren: map[string]string{"h2": "h1", "h1": "head-sha"},
-		allCommits:    []git.Commit{{SHA: "head-sha"}, {SHA: "h1"}, {SHA: "h2"}},
 		commits:       []git.Commit{{SHA: "head-sha"}, {SHA: "h1"}},
 		fileContent:   "package main\n",
 		allFiles:      []string{"file.go"},
@@ -656,11 +639,15 @@ func TestScope_ContractForwardWalksFirstParentChild(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	// Scrub back to h2.
-	m.base = "h2"
+	// Scrub back to h2 (two extensions back from head-sha).
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if got := m.scope.OldBase(); got != "h2" {
+		t.Fatalf("setup: scope.OldBase()=%q, want h2", got)
+	}
 	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
-	if m.base != "h1" {
-		t.Errorf("first scope-contract-forward: m.base=%q, want h1 (first-parent child of h2)", m.base)
+	if got := m.scope.OldBase(); got != "h1" {
+		t.Errorf("first scope-contract-forward: scope.OldBase()=%q, want h1 (first-parent child of h2)", got)
 	}
 }
 
@@ -683,26 +670,26 @@ func TestScope_StaleLoadDoesNotOverwriteScrubbedBase(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	// User scrubs: m.base moves to parent.
+	// User scrubs: outer endpoint moves to parent.
 	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
-	if m.base != "parent-sha" {
-		t.Fatalf("setup: m.base = %q, want %q", m.base, "parent-sha")
+	if got := m.scope.OldBase(); got != "parent-sha" {
+		t.Fatalf("setup: scope.OldBase() = %q, want %q", got, "parent-sha")
 	}
 
 	// A periodic tick's loadLocalGitData, dispatched BEFORE the scope keypress,
-	// finally returns. It captured the old base, so its msg carries the
-	// pre-scrub value. Without the fix, the handler would overwrite m.base.
+	// finally returns. queryOldBase reflects the pre-scrub state. Without the
+	// stale-load guard, the handler would overwrite the scrubbed scope state.
 	staleMsg := gitDataMsg{
 		repoInfo:       git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
-		base:           "natural-sha",
-		naturalBase:    "natural-sha",
+		queryOldBase:   "natural-sha",
+		naturalOldBase: "natural-sha",
 		committedFiles: []string{"old-file.go"},
 		localOnly:      true,
 	}
 	m.Update(staleMsg)
 
-	if m.base != "parent-sha" {
-		t.Errorf("stale gitDataMsg overwrote scrubbed m.base: got %q, want %q", m.base, "parent-sha")
+	if got := m.scope.OldBase(); got != "parent-sha" {
+		t.Errorf("stale gitDataMsg overwrote scrubbed scope.OldBase(): got %q, want %q", got, "parent-sha")
 	}
 	// File lists from the stale load must also be discarded so the UI
 	// doesn't briefly show the wrong scope's content.
@@ -737,27 +724,27 @@ func TestScope_DoubleExtendBackWalksTwoSteps(t *testing.T) {
 
 	// Press ]
 	_, cmd := m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
-	if m.base != "C-1" {
-		t.Fatalf("after first ]: m.base = %q, want %q", m.base, "C-1")
+	if got := m.scope.OldBase(); got != "C-1" {
+		t.Fatalf("after first ]: scope.OldBase() = %q, want %q", got, "C-1")
 	}
 	// Run the follow-up load (simulating what the IPC harness does).
 	if cmd != nil {
 		m.execFollowUps(cmd)
 	}
-	if m.base != "C-1" {
-		t.Fatalf("after first ] + reload: m.base = %q, want %q", m.base, "C-1")
+	if got := m.scope.OldBase(); got != "C-1" {
+		t.Fatalf("after first ] + reload: scope.OldBase() = %q, want %q", got, "C-1")
 	}
 
 	// Press ] again
 	_, cmd = m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
-	if m.base != "C-2" {
-		t.Fatalf("after second ]: m.base = %q, want %q", m.base, "C-2")
+	if got := m.scope.OldBase(); got != "C-2" {
+		t.Fatalf("after second ]: scope.OldBase() = %q, want %q", got, "C-2")
 	}
 	if cmd != nil {
 		m.execFollowUps(cmd)
 	}
-	if m.base != "C-2" {
-		t.Errorf("after second ] + reload: m.base = %q, want %q", m.base, "C-2")
+	if got := m.scope.OldBase(); got != "C-2" {
+		t.Errorf("after second ] + reload: scope.OldBase() = %q, want %q", got, "C-2")
 	}
 }
 
@@ -779,8 +766,8 @@ func TestScope_ExtendBackAtRootIsNoOp(t *testing.T) {
 	m.Update(m.loadLocalGitData())
 
 	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
-	if m.base != "root-sha" {
-		t.Errorf("scope-extend-back at root: m.base = %q, want it unchanged at %q", m.base, "root-sha")
+	if got := m.scope.OldBase(); got != "root-sha" {
+		t.Errorf("scope-extend-back at root: scope.OldBase() = %q, want it unchanged at %q", got, "root-sha")
 	}
 }
 
@@ -792,7 +779,7 @@ func TestScope_ContractForwardMovesBaseTowardHead(t *testing.T) {
 		repoInfo:      git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
 		base:          "natural-sha",
 		parents:       map[string]string{"natural-sha": "parent-sha"},
-		firstChildren: map[string]string{"natural-sha": "A"},
+		firstChildren: map[string]string{"parent-sha": "natural-sha"},
 		commits:       []git.Commit{{SHA: "C"}, {SHA: "B"}, {SHA: "A"}},
 		fileContent:   "package main\n",
 		allFiles:      []string{"file.go"},
@@ -804,10 +791,16 @@ func TestScope_ContractForwardMovesBaseTowardHead(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	// Press [: m.base should walk to the first-parent child toward HEAD.
+	// Scrub back so we have a non-empty range to contract from. Then [
+	// walks the outer endpoint toward HEAD via FirstChildToward — this is
+	// what determines the new outer endpoint, not a heuristic over m.commits.
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if got := m.scope.OldBase(); got != "parent-sha" {
+		t.Fatalf("setup: scope.OldBase() = %q, want parent-sha", got)
+	}
 	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
-	if m.base != "A" {
-		t.Errorf("after scope-contract-forward: m.base = %q, want %q", m.base, "A")
+	if got := m.scope.OldBase(); got != "natural-sha" {
+		t.Errorf("after scope-contract-forward: scope.OldBase() = %q, want %q (first-parent child of parent-sha toward HEAD)", got, "natural-sha")
 	}
 }
 
@@ -830,8 +823,8 @@ func TestScope_ContractForwardAtWorkdirIsNoOp(t *testing.T) {
 	m.Update(m.loadLocalGitData())
 
 	m.Update(tea.KeyPressMsg{Text: "[", Code: '['})
-	if m.base != "head-sha" {
-		t.Errorf("scope-contract-forward at workdir: m.base = %q, want it unchanged at %q", m.base, "head-sha")
+	if got := m.scope.OldBase(); got != "head-sha" {
+		t.Errorf("scope-contract-forward at workdir: scope.OldBase() = %q, want it unchanged at %q", got, "head-sha")
 	}
 }
 
@@ -872,11 +865,12 @@ func TestScope_CommitsModeCutlineBeforeBase(t *testing.T) {
 }
 
 // TestScope_ResetSnapsToNaturalBase verifies that pressing the scope-reset
-// key (\\) returns m.base to m.naturalBase from any scrubbed position.
+// key (\\) returns the scope to its natural position from any scrubbed state.
 func TestScope_ResetSnapsToNaturalBase(t *testing.T) {
 	mock := &mockGit{
 		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
 		base:        "natural-sha",
+		parents:     map[string]string{"natural-sha": "parent-sha"},
 		fileContent: "package main\n",
 		allFiles:    []string{"file.go"},
 	}
@@ -887,13 +881,19 @@ func TestScope_ResetSnapsToNaturalBase(t *testing.T) {
 	m.updateLayout()
 	m.Update(m.loadLocalGitData())
 
-	// Simulate a scrubbed state by walking m.base off natural.
-	m.base = "scrubbed-sha"
+	// Scrub away from natural.
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if !m.scope.IsScrubbed() {
+		t.Fatalf("setup: expected scope to be scrubbed after ]")
+	}
 
 	m.Update(tea.KeyPressMsg{Text: "\\", Code: '\\'})
 
-	if m.base != m.naturalBase {
-		t.Errorf("after scope-reset: m.base = %q, want naturalBase %q", m.base, m.naturalBase)
+	if m.scope.IsScrubbed() {
+		t.Errorf("after scope-reset: scope should not be scrubbed; got %+v", *m.scope)
+	}
+	if got := m.scope.OldBase(); got != "natural-sha" {
+		t.Errorf("after scope-reset: scope.OldBase() = %q, want %q", got, "natural-sha")
 	}
 }
 
@@ -946,7 +946,6 @@ func TestRenderWithKeys(t *testing.T) {
 			Committed: []string{"alpha.go", "beta.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
-		allCommits:  []git.Commit{{SHA: "abc1234", Subject: "test commit"}},
 		fileDiff:    "diff\n+new line",
 		fileContent: "package main\n",
 		commitPatch: "commit abc1234\n\ndiff\n+added",
@@ -1202,11 +1201,6 @@ func TestModeSwitching_RetainsPerModeViewState(t *testing.T) {
 			{SHA: "def", Subject: "second"},
 			{SHA: "ghi", Subject: "third"},
 		},
-		allCommits: []git.Commit{
-			{SHA: "abc", Subject: "first"},
-			{SHA: "def", Subject: "second"},
-			{SHA: "ghi", Subject: "third"},
-		},
 		fileDiff:    "+new",
 		fileContent: "content",
 	}
@@ -1299,9 +1293,8 @@ func TestArrowKeysScrollHorizontally(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"file.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:   "+new",
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff: "+new",
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -1568,7 +1561,8 @@ func TestGitDataMsg(t *testing.T) {
 
 	msg := gitDataMsg{
 		repoInfo:         git.RepoInfoResult{Branch: "test", RepoName: "repo"},
-		base:             "abc123",
+		queryOldBase:     "abc123",
+		naturalOldBase:   "abc123",
 		committedFiles:   []string{"file1.go", "file2.go"},
 		uncommittedFiles: []string{"file3.go"},
 	}
@@ -1702,7 +1696,7 @@ func TestUpdateMainContent_FilesMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
 	m.height = 24
-	m.base = "HEAD"
+	m.scope.SyncFromLoad("HEAD", "", 0, 0)
 	m.updateLayout()
 
 	// With no files, should set empty content
@@ -1715,7 +1709,7 @@ func TestUpdateMainContent_CommitMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
 	m.height = 24
-	m.base = "HEAD"
+	m.scope.SyncFromLoad("HEAD", "", 0, 0)
 	m.updateLayout()
 
 	m.mode = CommitsMode
@@ -2123,8 +2117,8 @@ func TestLoadGitData_RealRepo(t *testing.T) {
 	if dataMsg.err != nil {
 		t.Fatal(dataMsg.err)
 	}
-	if dataMsg.base == "" {
-		t.Error("base should not be empty")
+	if dataMsg.queryOldBase == "" {
+		t.Error("queryOldBase should not be empty")
 	}
 	if len(dataMsg.committedFiles) == 0 {
 		t.Error("should have committed files")
@@ -2613,9 +2607,8 @@ func TestCollapseDirs_DecoupledAcrossSections(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"pkg/foo.go", "pkg/bar.go"},
 		},
-		allFiles:   []string{"pkg/foo.go", "pkg/bar.go", "pkg/unchanged.go", "pkg/other.go", "main.go"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		allFiles: []string{"pkg/foo.go", "pkg/bar.go", "pkg/unchanged.go", "pkg/other.go", "main.go"},
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -2959,7 +2952,8 @@ func TestUpdateMainContent_EmptyBase(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.base = "" // no base set
+	// no base set — scope.OldBase() is "" by default
+	_ = m // silence unused
 	m.mode = FilesMode
 	m.updateMainContent() // should return early without panic
 }
@@ -2969,7 +2963,7 @@ func TestUpdateMainContent_EmptySidebarSelection(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.base = "HEAD"
+	m.scope.SyncFromLoad("HEAD", "", 0, 0)
 
 	// FilesMode empty sidebar
 	m.mode = FilesMode
@@ -2991,7 +2985,7 @@ func TestUpdateMainContent_CommitMode_OutOfBounds(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.base = "HEAD"
+	m.scope.SyncFromLoad("HEAD", "", 0, 0)
 	m.mode = CommitsMode
 	m.commits = nil // empty commits
 	m.updateSidebarItems()
@@ -3110,7 +3104,6 @@ func TestModeSwitching_FilesCommitsRoundTrip(t *testing.T) {
 			Committed: []string{"alpha.go", "beta.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "one"}, {SHA: "def", Subject: "two"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "one"}, {SHA: "def", Subject: "two"}},
 		fileContent: "content",
 		allFiles:    []string{"alpha.go", "beta.go", "other1.go"},
 	}
@@ -3233,7 +3226,7 @@ func TestUpdateMainContent_FileView_WithGitAndError(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.base = "HEAD"
+	m.scope.SyncFromLoad("HEAD", "", 0, 0)
 	m.mode = FilesMode
 	m.committedFiles = []string{"nonexistent_file.go"}
 	m.updateSidebarItems()
@@ -3332,7 +3325,7 @@ func TestUpdateMainContent_WithMockGit_CommitPatchError(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width = 80
 	m.height = 24
-	m.base = "abc"
+	m.scope.SyncFromLoad("abc", "", 0, 0)
 	m.updateLayout()
 	m.mode = CommitsMode
 	m.commits = []git.Commit{{SHA: "def", Subject: "test"}}
@@ -3352,7 +3345,7 @@ func TestUpdateMainContent_WithMockGit_FileContentError(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width = 80
 	m.height = 24
-	m.base = "abc"
+	m.scope.SyncFromLoad("abc", "", 0, 0)
 	m.updateLayout()
 	m.mode = FilesMode
 	m.committedFiles = []string{"file.go"}
@@ -3372,7 +3365,7 @@ func TestUpdateMainContent_WithMockGit_FileViewSuccess(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width = 80
 	m.height = 24
-	m.base = "abc"
+	m.scope.SyncFromLoad("abc", "", 0, 0)
 	m.updateLayout()
 	m.mode = FilesMode
 	m.committedFiles = []string{"main.go"}
@@ -3392,7 +3385,7 @@ func TestUpdateMainContent_WithMockGit_CommitPatchSuccess(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width = 80
 	m.height = 24
-	m.base = "abc"
+	m.scope.SyncFromLoad("abc", "", 0, 0)
 	m.updateLayout()
 	m.mode = CommitsMode
 	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
@@ -3530,10 +3523,10 @@ func TestNonGitMode_BlocksModeSwitching(t *testing.T) {
 
 // === Regression tests for bug reports ===
 
-func TestBug_CommitsTruncatedOnBaseBranch(t *testing.T) {
-	// Bug: when on main with 1 unpushed commit, commit mode shows only 1 commit
-	// instead of full history. Spec: "running in a branch without a base branch
-	// (i.e. directly in main): commit mode should list the full commit history."
+func TestBug_BaseBranchShowsHistoryBelowCutline(t *testing.T) {
+	// On a no-merge-base branch (main / detached HEAD), the natural scope is
+	// empty per PROMPT.md §commit range scope. The repo history shows up
+	// below the commits-mode cutline (m.baseCommits), not as in-scope commits.
 	allCommits := []git.Commit{
 		{SHA: "aaa0001", Subject: "latest"},
 		{SHA: "aaa0002", Subject: "second"},
@@ -3541,49 +3534,28 @@ func TestBug_CommitsTruncatedOnBaseBranch(t *testing.T) {
 	}
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{
-			Branch:     "main",
-			Upstream:   "origin/main",
-			RepoName:   "repo",
-			AheadCount: 1,
+			Branch:   "main",
+			Upstream: "origin/main",
+			RepoName: "repo",
 		},
-		base:         "abc123",
-		commits:      allCommits[:1], // Commits(base) returns only unpushed
+		base:         "head-sha", // natural base on main resolves to HEAD itself
+		commits:      nil,        // (HEAD, HEAD] is empty
+		baseCommits:  allCommits, // history below the cutline
 		changedFiles: git.ChangedFilesResult{},
-		allCommits:   allCommits, // AllCommits() returns full history
 	}
 
 	m := NewModel("/tmp", mg)
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	if len(m.commits) != 3 {
-		t.Errorf("on main branch, expected full history (3 commits), got %d", len(m.commits))
+	if len(m.commits) != 0 {
+		t.Errorf("on main, expected empty in-scope range, got %d commits", len(m.commits))
 	}
-}
-
-func TestBug_CommitsTruncatedOnDetachedHead(t *testing.T) {
-	allCommits := []git.Commit{
-		{SHA: "bbb0001", Subject: "latest"},
-		{SHA: "bbb0002", Subject: "second"},
+	if m.scope.Len() != 0 {
+		t.Errorf("on main, expected scope.Len()=0, got %d", m.scope.Len())
 	}
-	mg := &mockGit{
-		repoInfo: git.RepoInfoResult{
-			IsDetachedHead: true,
-			HeadSHA:        "bbb0001",
-			RepoName:       "repo",
-		},
-		base:         "def456",
-		commits:      allCommits[:1],
-		changedFiles: git.ChangedFilesResult{},
-		allCommits:   allCommits,
-	}
-
-	m := NewModel("/tmp", mg)
-	msg := m.loadGitData()
-	m.Update(msg)
-
-	if len(m.commits) != 2 {
-		t.Errorf("on detached HEAD, expected full history (2 commits), got %d", len(m.commits))
+	if len(m.baseCommits) != 3 {
+		t.Errorf("on main, expected full history below cutline (3 commits), got %d", len(m.baseCommits))
 	}
 }
 
@@ -3720,12 +3692,6 @@ func TestCommitMode_UnpushedCommitsDimmedWithSeparator(t *testing.T) {
 			{SHA: "ccc0003", Subject: "pushed 1"},
 			{SHA: "ccc0004", Subject: "pushed 2"},
 		},
-		allCommits: []git.Commit{
-			{SHA: "ccc0001", Subject: "unpushed 1"},
-			{SHA: "ccc0002", Subject: "unpushed 2"},
-			{SHA: "ccc0003", Subject: "pushed 1"},
-			{SHA: "ccc0004", Subject: "pushed 2"},
-		},
 	}
 
 	m := NewModel("/tmp", mg)
@@ -3773,9 +3739,8 @@ func TestClickModeIndicator_ClicksSpecificMode(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"file.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:   "+new",
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff: "+new",
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 100
@@ -3936,7 +3901,6 @@ func TestSearch_DoesNotMatchSidebar(t *testing.T) {
 			Committed: []string{"alpha.go", "beta.go", "gamma.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "no match here",
 	}
 	m := NewModel("/tmp", mg)
@@ -4072,7 +4036,6 @@ func TestFilesMode_ThreeCategories(t *testing.T) {
 		},
 		allFiles:    []string{"alpha.go", "beta.go", "main.go", "readme.md", "wip.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -4140,7 +4103,6 @@ func TestIgnoredDirRendersAsDirEntry(t *testing.T) {
 		// node_modules has files inside → mock collapses to a dir entry.
 		ignoredFiles: []string{"node_modules/pkg-a/index.js", "node_modules/pkg-b/index.js"},
 		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent:  "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -4190,7 +4152,6 @@ func TestExpandIgnoredDir_LazyLoadsContents(t *testing.T) {
 			"node_modules/pkg-b/index.js",
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -4277,7 +4238,6 @@ func TestClickIgnoredDir_LazyLoadsContents(t *testing.T) {
 			"node_modules/pkg-b/index.js",
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -4354,7 +4314,6 @@ func TestIgnoredDir_OrderingStableAcrossExpansion(t *testing.T) {
 		allFiles:     []string{".aaa.txt"},
 		ignoredFiles: []string{".config/settings.json"},
 		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent:  "x",
 	}
 	m := NewModel("/tmp", mg)
@@ -4473,7 +4432,6 @@ func TestToggleIgnored(t *testing.T) {
 		},
 		allFiles:    []string{"alpha.go", "main.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -4512,9 +4470,8 @@ func TestMouseHover_SidebarHighlight(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"alpha.go", "beta.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:   "+new",
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff: "+new",
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -4609,7 +4566,6 @@ func TestBinaryContentDisplay(t *testing.T) {
 			Committed: []string{"image.png"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "hello\x00binary\x00content",
 	}
 	m := NewModel("/tmp", mg)
@@ -4636,8 +4592,7 @@ func TestRateLimitBackoff(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"alpha.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -4676,8 +4631,7 @@ func TestAdaptiveRefresh_IdleAndStale(t *testing.T) {
 		repoInfo: git.RepoInfoResult{
 			Branch: "feat", RepoName: "test", DirName: "test",
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -4718,8 +4672,7 @@ func TestComputeGitInterval(t *testing.T) {
 		repoInfo: git.RepoInfoResult{
 			Branch: "feat", RepoName: "test", DirName: "test",
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -4934,7 +4887,6 @@ func TestFileView_ScrollToLastLine(t *testing.T) {
 		},
 		allFiles:    []string{"go.mod"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: fileContent,
 	}
 	m := NewModel("/tmp", mg)
@@ -5027,7 +4979,6 @@ func TestDiffGutterInFileView(t *testing.T) {
 		},
 		allFiles:    []string{"file.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "line1\nline2\nadded\nline3\nline4",
 		fileDiff: `@@ -1,4 +1,5 @@
  line1
@@ -5075,7 +5026,6 @@ func TestShiftD_ToggleRemoved(t *testing.T) {
 		},
 		allFiles:    []string{"file.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "line1\nline2",
 		fileDiff: `@@ -1,3 +1,2 @@
  line1
@@ -5176,9 +5126,8 @@ func TestDeletedFilesShownInRed(t *testing.T) {
 			Committed: []string{"deleted.go", "normal.go"},
 			Deleted:   []string{"deleted.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:   "+new",
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff: "+new",
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -5213,7 +5162,6 @@ func TestDeletedFile_GutterShowsRemoved(t *testing.T) {
 		},
 		allFiles:    []string{},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "old line 1\nold line 2",
 		fileDiff: `@@ -1,2 +0,0 @@
 -old line 1
@@ -5253,7 +5201,6 @@ func TestJumpToNextDiff(t *testing.T) {
 		},
 		allFiles:    []string{"file.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10",
 		fileDiff: `@@ -1,10 +1,10 @@
  line1
@@ -5306,9 +5253,8 @@ func TestHandleEnter_DirectoryToggle(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"internal/model.go", "internal/keys.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
-		fileDiff:   "+new",
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileDiff: "+new",
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -5437,7 +5383,6 @@ func TestHandleSidebarLeft_CollapseDir(t *testing.T) {
 		},
 		allFiles:    []string{"dir/file.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -5473,7 +5418,6 @@ func TestHandleSidebarLeft_GoToParent(t *testing.T) {
 		},
 		allFiles:    []string{"dir/file1.go", "dir/file2.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -5510,7 +5454,6 @@ func TestHandleSidebarRight_ExpandCollapsed(t *testing.T) {
 		},
 		allFiles:    []string{"dir/file1.go", "dir/file2.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -5561,7 +5504,6 @@ func TestHandleSidebarRight_GoToFirstChild(t *testing.T) {
 		},
 		allFiles:    []string{"dir/file1.go", "dir/file2.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -5693,9 +5635,8 @@ func TestReloadAllFiles(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"file.go"},
 		},
-		allFiles:   []string{"file.go", "new.go"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		allFiles: []string{"file.go", "new.go"},
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -5937,7 +5878,6 @@ func TestJumpToNextDiff_Wrap(t *testing.T) {
 		},
 		allFiles:    []string{"file.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "line1\nline2\nchanged\nline4\nline5",
 		fileDiff: `@@ -1,5 +1,5 @@
  line1
@@ -5979,9 +5919,8 @@ func TestJumpToDiff_WithWrapping(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"file.go"},
 		},
-		allFiles:   []string{"file.go"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		allFiles: []string{"file.go"},
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		// Create content with long lines that will wrap
 		fileContent: "short\n" + strings.Repeat("a very long line that will definitely wrap at normal terminal widths because it is so long ", 3) + "\nchanged line\nshort\nshort",
 		fileDiff: `@@ -1,5 +1,5 @@
@@ -6025,9 +5964,6 @@ func TestCommitMode_BaseCommitsCategory4(t *testing.T) {
 			Committed: []string{"file.go"},
 		},
 		commits: []git.Commit{
-			{SHA: "1111111", Subject: "feature commit"},
-		},
-		allCommits: []git.Commit{
 			{SHA: "1111111", Subject: "feature commit"},
 		},
 		baseCommits: []git.Commit{
@@ -6200,7 +6136,9 @@ func TestCommitMode_RefreshPreservesPagination(t *testing.T) {
 }
 
 func TestCommitMode_LoadMoreAppearsWhenMoreCommits(t *testing.T) {
-	// Create more commits than the page size
+	// Create more commits than the page size, on a feature branch where the
+	// in-scope range is non-empty (post-Reading B, main-like branches have
+	// empty scope by default and pagination doesn't kick in).
 	var allCommits []git.Commit
 	for i := range 150 {
 		allCommits = append(allCommits, git.Commit{
@@ -6210,13 +6148,13 @@ func TestCommitMode_LoadMoreAppearsWhenMoreCommits(t *testing.T) {
 	}
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{
-			Branch:   "main",
+			Branch:   "feature",
+			Upstream: "origin/main",
 			RepoName: "repo",
 		},
 		base:         "abc123",
-		commits:      allCommits[:1],
+		commits:      allCommits,
 		changedFiles: git.ChangedFilesResult{},
-		allCommits:   allCommits,
 	}
 
 	m := NewModel("/tmp", mg)
@@ -6230,9 +6168,9 @@ func TestCommitMode_LoadMoreAppearsWhenMoreCommits(t *testing.T) {
 	if len(m.commits) != 100 {
 		t.Fatalf("expected 100 commits loaded, got %d", len(m.commits))
 	}
-	// commitCount should reflect the true total
-	if m.commitCount != 150 {
-		t.Errorf("expected commitCount=150, got %d", m.commitCount)
+	// scope.Len() should reflect the true total
+	if got := m.scope.Len(); got != 150 {
+		t.Errorf("expected scope.Len()=150, got %d", got)
 	}
 
 	// Switch to commit mode and check for "load more" in sidebar
@@ -6277,13 +6215,13 @@ func TestCommitMode_NoLoadMoreWhenAllFit(t *testing.T) {
 	}
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{
-			Branch:   "main",
+			Branch:   "feature",
+			Upstream: "origin/main",
 			RepoName: "repo",
 		},
 		base:         "abc123",
-		commits:      commits[:1],
+		commits:      commits,
 		changedFiles: git.ChangedFilesResult{},
-		allCommits:   commits,
 	}
 
 	m := NewModel("/tmp", mg)
@@ -6300,8 +6238,9 @@ func TestCommitMode_NoLoadMoreWhenAllFit(t *testing.T) {
 }
 
 func TestStatusBar_ShowsTrueCommitCount(t *testing.T) {
-	// When there are 150 total commits but only 100 loaded,
-	// status bar should show "150 commits" not "100 commits"
+	// When there are 150 total commits but only 100 loaded, status bar should
+	// show "150 commits" (the in-scope total) not "100 commits" (the loaded
+	// page). Uses a feature branch so the in-scope range is non-empty.
 	var allCommits []git.Commit
 	for i := range 150 {
 		allCommits = append(allCommits, git.Commit{
@@ -6311,13 +6250,13 @@ func TestStatusBar_ShowsTrueCommitCount(t *testing.T) {
 	}
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{
-			Branch:   "main",
+			Branch:   "feature",
+			Upstream: "origin/main",
 			RepoName: "repo",
 		},
 		base:         "abc123",
-		commits:      allCommits[:1],
+		commits:      allCommits,
 		changedFiles: git.ChangedFilesResult{},
-		allCommits:   allCommits,
 	}
 
 	m := NewModel("/tmp", mg)
@@ -6330,7 +6269,7 @@ func TestStatusBar_ShowsTrueCommitCount(t *testing.T) {
 	// Render and check status bar
 	view := m.View()
 	if !strings.Contains(view.Content, "150 commits") {
-		t.Errorf("status bar should show '150 commits' (true count), got view containing commitCount=%d", m.commitCount)
+		t.Errorf("status bar should show '150 commits' (in-scope total), got view containing scope.Len()=%d", m.scope.Len())
 	}
 }
 
@@ -6397,7 +6336,6 @@ func TestJumpToNextLeaf(t *testing.T) {
 		},
 		allFiles:    []string{"dir/a.go", "dir/b.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -6443,8 +6381,7 @@ func TestPRMode_DefaultsOnFirstLoad(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"file.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -6472,7 +6409,6 @@ func TestPRMode_Sidebar(t *testing.T) {
 			Committed: []string{"file.go"},
 		},
 		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
 		prComments: []git.PRComment{{Author: "alice", Body: "looks good"}},
 		ciChecks:   []git.CICheck{{Name: "tests", State: "COMPLETED", Bucket: "success"}},
 	}
@@ -6522,8 +6458,7 @@ func TestPRMode_ModeSwitch(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"file.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -6560,8 +6495,7 @@ func TestPRMode_ShowsCICheck(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"file.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{{SHA: "abc", Subject: "test"}},
 		ciChecks: []git.CICheck{
 			{Name: "build", State: "COMPLETED", Bucket: "success", URL: "https://ci.example.com"},
 		},
@@ -6600,8 +6534,7 @@ func TestPRMode_ShowsComment(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"file.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{{SHA: "abc", Subject: "test"}},
 		prComments: []git.PRComment{
 			{Author: "alice", Body: "great changes!"},
 		},
@@ -6652,7 +6585,6 @@ func TestShiftSpace_InSidebar(t *testing.T) {
 			Committed: []string{"a.go", "b.go", "c.go", "d.go", "e.go", "f.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "content",
 	}
 	m := NewModel("/tmp", mg)
@@ -6760,7 +6692,6 @@ func TestPRMode_MainContent(t *testing.T) {
 			Committed: []string{"file.go"},
 		},
 		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
 		prComments: []git.PRComment{{Author: "bob", Body: "nice work"}},
 	}
 	m := NewModel("/tmp", mg)
@@ -6792,7 +6723,6 @@ func TestRenderPRDescription_FullMetadata(t *testing.T) {
 		},
 		changedFiles: git.ChangedFilesResult{Committed: []string{"f.go"}},
 		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 100
@@ -6838,7 +6768,6 @@ func TestRenderPRDescription_DraftNoBugs(t *testing.T) {
 		},
 		changedFiles: git.ChangedFilesResult{},
 		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -7268,7 +7197,6 @@ func TestCopySelection_WithContent(t *testing.T) {
 			Committed: []string{"file.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "short\nthis is a longer line of content\nthird line here",
 	}
 	m := NewModel("/tmp", mg)
@@ -7300,7 +7228,6 @@ func TestCopySelection_ReversedCoordinates(t *testing.T) {
 			Committed: []string{"file.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "line1\nline2\nline3",
 	}
 	m := NewModel("/tmp", mg)
@@ -7326,7 +7253,6 @@ func TestCopySelection_NegativeCoords(t *testing.T) {
 			Committed: []string{"file.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "line1\nline2",
 	}
 	m := NewModel("/tmp", mg)
@@ -7352,7 +7278,6 @@ func TestCopySelection_HiddenSidebar(t *testing.T) {
 			Committed: []string{"file.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "line1\nline2\nline3",
 	}
 	m := NewModel("/tmp", mg)
@@ -7381,7 +7306,6 @@ func TestCopySelection_DragOnTitleRowExcludesTitle(t *testing.T) {
 			Committed: []string{"distinctive_file.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "alpha beta gamma\ndelta epsilon zeta\neta theta iota",
 	}
 	m := NewModel("/tmp", mg)
@@ -7418,7 +7342,6 @@ func TestApplyDragHighlight_DoesNotHighlightTitleRow(t *testing.T) {
 			Committed: []string{"distinctive_filename.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "alpha\nbeta\ngamma",
 	}
 	m := NewModel("/tmp", mg)
@@ -7459,7 +7382,6 @@ func TestDragAutoScroll_PastBottomEdgeStartsScrolling(t *testing.T) {
 			Committed: []string{"big.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: strings.Repeat("line content here\n", 200),
 	}
 	m := NewModel("/tmp", mg)
@@ -7514,7 +7436,6 @@ func TestDragAutoScroll_ReleaseStopsScrolling(t *testing.T) {
 			Committed: []string{"big.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: strings.Repeat("line\n", 100),
 	}
 	m := NewModel("/tmp", mg)
@@ -7550,7 +7471,6 @@ func TestDragAutoScroll_MotionBackInsideStopsScrolling(t *testing.T) {
 			Committed: []string{"big.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: strings.Repeat("line\n", 100),
 	}
 	m := NewModel("/tmp", mg)
@@ -7589,8 +7509,7 @@ func TestDragAutoScroll_SelectionSpansOffScreenStart(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"big.go"},
 		},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	// 50 distinguishable lines so we can detect off-screen lines in the
 	// extracted text.
@@ -7648,7 +7567,6 @@ func TestMouseDragRelease_ShowsCopiedNotification(t *testing.T) {
 			Committed: []string{"file.go"},
 		},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: "alpha beta gamma\ndelta epsilon zeta\neta theta iota",
 	}
 	m := NewModel("/tmp", mg)
@@ -7681,7 +7599,6 @@ func TestRenderPRDescription_ClosedState(t *testing.T) {
 		prInfo:       git.PRInfoResult{Number: 5, Title: "Closed PR", State: "CLOSED"},
 		changedFiles: git.ChangedFilesResult{Committed: []string{"a.go"}},
 		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -7703,7 +7620,6 @@ func TestRenderPRDescription_ReviewerStates(t *testing.T) {
 		prInfo:       git.PRInfoResult{Number: 20, Title: "Review PR"},
 		changedFiles: git.ChangedFilesResult{Committed: []string{"a.go"}},
 		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:   []git.Commit{{SHA: "abc", Subject: "test"}},
 		reviews: []git.PRReview{
 			{Author: "alice", State: "APPROVED"},
 			{Author: "bob", State: "CHANGES_REQUESTED"},
@@ -8082,8 +7998,7 @@ func TestTreeDefaultStates(t *testing.T) {
 		},
 		allFiles: []string{"src/a.go", "src/b.go", "lib/c.go", "lib/d.go",
 			"vendor/e.go", "vendor/f.go", "docs/readme.md"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		commits: []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -8125,7 +8040,6 @@ func TestHorizontalMouseScroll(t *testing.T) {
 		},
 		allFiles:    []string{"long.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: longLine,
 		fileDiff:    "diff --git a/long.go b/long.go\n--- a/long.go\n+++ b/long.go\n@@ -0,0 +1 @@\n+" + longLine + "\n",
 	}
@@ -8176,9 +8090,8 @@ func TestPRDescriptionShowsDeployments(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"a.go"},
 		},
-		allFiles:   []string{"a.go"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		allFiles: []string{"a.go"},
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		prInfo: git.PRInfoResult{
 			Number: 42, Title: "Deploy test", URL: "https://github.com/x/y/pull/42",
 			State: "OPEN",
@@ -8256,7 +8169,6 @@ func TestLeftWithScroll_ScrollsInsteadOfSwitching(t *testing.T) {
 		},
 		allFiles:    []string{"long.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileDiff:    "diff --git a/long.go b/long.go\n--- a/long.go\n+++ b/long.go\n@@ -0,0 +1 @@\n+" + longLine + "\n",
 		fileContent: longLine,
 	}
@@ -8298,9 +8210,8 @@ func TestEnterOnCICheck_OpensURL(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"a.go"},
 		},
-		allFiles:   []string{"a.go"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		allFiles: []string{"a.go"},
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		prInfo: git.PRInfoResult{
 			Number: 42, Title: "CI test", URL: "https://github.com/x/y/pull/42",
 			State: "OPEN",
@@ -8348,9 +8259,8 @@ func TestEnterOnPRDescription_OpensURL(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"a.go"},
 		},
-		allFiles:   []string{"a.go"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		allFiles: []string{"a.go"},
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		prInfo: git.PRInfoResult{
 			Number: 42, Title: "URL test", URL: "https://github.com/x/y/pull/42",
 			State: "OPEN",
@@ -8443,9 +8353,8 @@ func TestEnterOnComment_OpensURL(t *testing.T) {
 		changedFiles: git.ChangedFilesResult{
 			Committed: []string{"a.go"},
 		},
-		allFiles:   []string{"a.go"},
-		commits:    []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits: []git.Commit{{SHA: "abc", Subject: "test"}},
+		allFiles: []string{"a.go"},
+		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		prInfo: git.PRInfoResult{
 			Number: 42, Title: "URL test", URL: "https://github.com/x/y/pull/42",
 			State: "OPEN",
@@ -8514,7 +8423,6 @@ func TestBug_MultipleRemovedLinesShownInFileView(t *testing.T) {
 				},
 				allFiles:    []string{"f.go"},
 				commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-				allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 				fileDiff:    tt.diff,
 				fileContent: tt.fileContent,
 			}

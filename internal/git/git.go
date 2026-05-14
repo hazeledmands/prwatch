@@ -503,43 +503,21 @@ func (g *Git) FileDiffUncommitted(file string) (string, error) {
 	return "", fmt.Errorf("no diff available for %s", file)
 }
 
-// AllCommits returns the commit history of HEAD with pagination.
-func (g *Git) AllCommits(skip, limit int) ([]Commit, error) {
-	out, err := g.run("log", "--skip", fmt.Sprintf("%d", skip), "-n", fmt.Sprintf("%d", limit), "--format=%H%x09%an%x09%aI%x09%s", "HEAD")
+// Commits returns the list of commits between base and HEAD, newest first.
+// Returns an empty slice when base..HEAD is empty (e.g. on main where base
+// resolves to HEAD itself); per Reading B in PROMPT.md the natural scope
+// there is empty, and the repo history is rendered below the commits-mode
+// cutline via BaseCommits instead of pretending to be "in scope".
+func (g *Git) Commits(base string, skip, limit int) ([]Commit, error) {
+	out, err := g.run("log", "--skip", fmt.Sprintf("%d", skip), "-n", fmt.Sprintf("%d", limit), "--format=%H%x09%an%x09%aI%x09%s", base+"..HEAD")
 	if err != nil {
 		return nil, err
 	}
 	return parseCommitLog(out), nil
 }
 
-// Commits returns the list of commits between base and HEAD, newest first.
-// If no commits exist in the range (e.g. on main), falls back to AllCommits.
-func (g *Git) Commits(base string, skip, limit int) ([]Commit, error) {
-	out, err := g.run("log", "--skip", fmt.Sprintf("%d", skip), "-n", fmt.Sprintf("%d", limit), "--format=%H%x09%an%x09%aI%x09%s", base+"..HEAD")
-	if err != nil {
-		return nil, err
-	}
-	commits := parseCommitLog(out)
-	if skip == 0 && len(commits) == 0 {
-		// On the base branch itself — show full commit history
-		return g.AllCommits(skip, limit)
-	}
-	return commits, nil
-}
-
-// CommitCount returns the total number of commits reachable from HEAD.
-func (g *Git) CommitCount() (int, error) {
-	out, err := g.run("rev-list", "--count", "HEAD")
-	if err != nil {
-		return 0, err
-	}
-	var count int
-	fmt.Sscanf(out, "%d", &count)
-	return count, nil
-}
-
-// CommitCountRange returns the number of commits in base..HEAD.
-// If the range is empty (on the base branch), falls back to CommitCount.
+// CommitCountRange returns the number of commits in base..HEAD. Returns 0
+// when the range is empty (e.g. base == HEAD on main).
 func (g *Git) CommitCountRange(base string) (int, error) {
 	out, err := g.run("rev-list", "--count", base+"..HEAD")
 	if err != nil {
@@ -547,9 +525,6 @@ func (g *Git) CommitCountRange(base string) (int, error) {
 	}
 	var count int
 	fmt.Sscanf(out, "%d", &count)
-	if count == 0 {
-		return g.CommitCount()
-	}
 	return count, nil
 }
 

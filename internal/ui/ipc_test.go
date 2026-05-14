@@ -23,7 +23,6 @@ func TestHandleIPC_Render(t *testing.T) {
 		fileContent: "package main\n",
 		allFiles:    []string{"file.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 	}
 
 	m := NewModel("/tmp/test", mock)
@@ -77,7 +76,6 @@ func TestHandleIPC_Keys(t *testing.T) {
 		fileDiff:    "+new",
 		allFiles:    []string{"a.go", "b.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
-		allCommits:  []git.Commit{{SHA: "abc", Subject: "test"}},
 		commitPatch: "diff\n+added",
 	}
 

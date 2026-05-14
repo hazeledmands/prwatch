@@ -88,7 +88,7 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 	if m.isUncommittedFile(file) {
 		diff, _ = m.git.FileDiffUncommitted(file)
 	} else if m.isCommittedFile(file) {
-		diff, _ = m.git.FileDiffCommitted(m.base, file)
+		diff, _ = m.git.FileDiffCommitted(m.scope.OldBase(), file)
 	}
 	if diff != "" {
 		annotations := parseDiffAnnotations(diff)

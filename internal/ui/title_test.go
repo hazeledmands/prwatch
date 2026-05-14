@@ -231,7 +231,7 @@ func newTitleTestModel(t *testing.T, mock *mockGit, mode Mode) *Model {
 	m := NewModel("/tmp", mock)
 	m.width = 100
 	m.height = 30
-	m.base = "origin/main"
+	m.scope.SyncFromLoad("origin/main", "", 0, 0)
 	m.mode = mode
 	m.updateLayout()
 	return m
@@ -314,7 +314,7 @@ func TestTitle_FilesMode_NoDiff_UntrackedShowsMtime(t *testing.T) {
 	m := NewModel(dir, mock)
 	m.width = 100
 	m.height = 30
-	m.base = "origin/main"
+	m.scope.SyncFromLoad("origin/main", "", 0, 0)
 	m.mode = FilesMode
 	m.updateLayout()
 	m.allFiles = []string{"fresh.txt"}
@@ -353,7 +353,7 @@ func TestTitle_FilesMode_BinaryUntracked(t *testing.T) {
 	m := NewModel(dir, mock)
 	m.width = 100
 	m.height = 30
-	m.base = "origin/main"
+	m.scope.SyncFromLoad("origin/main", "", 0, 0)
 	m.mode = FilesMode
 	m.updateLayout()
 	m.allFiles = []string{"logo.png"}
@@ -495,7 +495,7 @@ func TestTitle_FilesMode_Diff_Uncommitted_PrependsMtime(t *testing.T) {
 	m := NewModel(dir, mock)
 	m.width = 100
 	m.height = 30
-	m.base = "origin/main"
+	m.scope.SyncFromLoad("origin/main", "", 0, 0)
 	m.mode = FilesMode
 	m.updateLayout()
 	m.uncommittedFiles = []string{"edited.go"}

@@ -216,11 +216,11 @@ sidebar should show:
 
 ## commit range scope
 
-the app maintains a global "commit range" — the slice of history currently in scope for files mode and the status-bar counts. its inner end is pinned to the working tree; its outer end is a movable handle.
+the app maintains a global "commit range" — the slice of history currently in scope for files mode, the status-bar counts, and the position of the commits-mode cutline. its inner end is pinned to the working tree; its outer end is a movable handle.
 
 the default outer endpoint matches today's natural PR delta:
 - on a branch with a merge-base, the merge-base itself (so default scope = the PR delta).
-- on a branch without a merge-base, the working tree (so default scope = uncommitted/staged only, no commits).
+- on a branch without a merge-base (e.g. main itself, or a detached HEAD), the working tree (so default scope = uncommitted/staged only, no commits). the repository's history is still visible in commits mode — see "effects on each mode" below.
 
 `scope-extend-back` extends the handle one commit further back. `scope-contract-forward` moves it one commit closer to the working tree. `scope-reset` snaps back to default. extension stops at the root commit; contraction stops at the working tree (zero commits in scope).
 
@@ -243,10 +243,6 @@ commits mode loads commits in pages of 100. `scope-extend-back` past the current
 ## edge cases
 
 when running in a non-git directory, files mode should be the only mode.
-
-running in a branch without a base branch (i.e. directly in main, or a detached head):
-- file modes should show uncommitted changes
-- commit mode should list the full commit history
 
 detached HEAD works normally, status bar shows `detached @ <short sha>` instead of a branch name.
 

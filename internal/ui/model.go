@@ -56,8 +56,6 @@ type GitDataSource interface {
 	DetectBaseFromPR(baseRefName string) (string, error)
 	ChangedFiles(base string) (gitpkg.ChangedFilesResult, error)
 	Commits(base string, skip, limit int) ([]gitpkg.Commit, error)
-	AllCommits(skip, limit int) ([]gitpkg.Commit, error)
-	CommitCount() (int, error)
 	CommitCountRange(base string) (int, error)
 	FileDiffCommitted(base, file string) (string, error)
 	FileDiffUncommitted(file string) (string, error)
@@ -84,12 +82,10 @@ type Model struct {
 	focus      Focus
 	width      int
 	height     int
-	base       string
-	// naturalBase is the default outer endpoint for the commit-range scope:
-	// what detectBase() resolves to at load time. m.base equals naturalBase at
-	// the default scope position; scope-extend / scope-contract walk m.base
-	// away from naturalBase, and scope-reset snaps it back.
-	naturalBase        string
+	// scope describes the commit range currently in view: (oldBase, newBase].
+	// It owns the scope-extend / scope-contract / scope-reset state and feeds
+	// the in-scope commit/file queries below. See scope.go.
+	scope              *scope
 	repoInfo           gitpkg.RepoInfoResult
 	prInfo             gitpkg.PRInfoResult
 	ciStatus           gitpkg.CIStatusResult
@@ -107,7 +103,6 @@ type Model struct {
 	ignoredDirs        map[string]bool // ignored entries that are directories — render as expandable
 	loadedIgnoredDirs  map[string]bool // ignored dirs whose contents have been lazy-loaded
 	commits            []gitpkg.Commit
-	commitCount        int                   // true total commit count (from rev-list --count)
 	commitsLoaded      int                   // how many commits have been loaded so far
 	behindCount        int                   // how many commits behind base
 	baseCommits        []gitpkg.Commit       // commits from the base branch (for commit mode category 4)
@@ -164,13 +159,24 @@ type mainItemKey struct {
 
 // Messages
 type gitDataMsg struct {
-	repoInfo         gitpkg.RepoInfoResult
-	prInfo           gitpkg.PRInfoResult
-	ciStatus         gitpkg.CIStatusResult
-	prReviews        []gitpkg.PRReview
-	prCommentCount   int
-	base             string // base used for queries — equals naturalBase except when the user has scrubbed the scope handle
-	naturalBase      string // base detected fresh this load — what scope-reset would snap to
+	repoInfo       gitpkg.RepoInfoResult
+	prInfo         gitpkg.PRInfoResult
+	ciStatus       gitpkg.CIStatusResult
+	prReviews      []gitpkg.PRReview
+	prCommentCount int
+	// queryOldBase is the scope.OldBase() the load actually queried against.
+	// Used by the stale-load guard: if the user scrubbed between dispatch and
+	// return, this won't match the model's current scope and the scope-dependent
+	// fields (commits, baseCommits, changed files) get discarded.
+	queryOldBase string
+	// natural{Old,New}Base / natural{Old,New}Offset describe the freshly-detected
+	// natural endpoints at load time. Passed to scope.SyncFromLoad, which either
+	// adopts them (when not scrubbed) or only updates the natural fields (when
+	// scrubbed, preserving the user's scrub).
+	naturalOldBase   string
+	naturalNewBase   string
+	naturalOldOffset int
+	naturalNewOffset int
 	committedFiles   []string
 	uncommittedFiles []string
 	stagedFiles      []string
@@ -180,7 +186,6 @@ type gitDataMsg struct {
 	ignoredFiles     map[string]bool
 	ignoredDirs      map[string]bool // subset of ignoredFiles whose entries are directories
 	commits          []gitpkg.Commit
-	commitCount      int
 	baseCommits      []gitpkg.Commit
 	prComments       []gitpkg.PRComment
 	prDeployments    []gitpkg.PRDeployment
@@ -242,6 +247,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		dir:           dir,
 		mode:          FilesMode,
 		focus:         SidebarFocus,
+		scope:         &scope{},
 		sidebar:       newSidebar(),
 		mainPane:      newMainPane(),
 		sidebarPct:    30, // default 30% of width
@@ -443,43 +449,34 @@ func (m *Model) loadGitData() tea.Msg {
 		ciChecks = checksResult.Checks
 	}
 
-	// Prefer the PR-reported base when available; fall back to local detection.
-	var base string
-	if prInfo.BaseRef != "" {
-		if sha, berr := m.git.DetectBaseFromPR(prInfo.BaseRef); berr == nil {
-			base = sha
-		}
-	}
-	if base == "" {
-		var berr error
-		base, berr = m.git.DetectBaseLocal()
-		if berr != nil {
-			return gitDataMsg{err: berr}
-		}
+	// Detect the natural scope base. Prefer the PR-reported base when
+	// available; fall back to local detection.
+	naturalOldBase, berr := detectNaturalBase(m.git, prInfo.BaseRef)
+	if berr != nil {
+		return gitDataMsg{err: berr}
 	}
 
-	files, err := m.git.ChangedFiles(base)
+	// Pick the base used for queries: if the user has scrubbed the scope
+	// handle, that's the scrubbed outer endpoint; otherwise the natural one.
+	queryOldBase := naturalOldBase
+	if m.scope.IsScrubbed() && m.scope.OldBase() != "" {
+		queryOldBase = m.scope.OldBase()
+	}
+
+	files, err := m.git.ChangedFiles(queryOldBase)
 	if err != nil {
 		return gitDataMsg{err: err}
 	}
 
-	// Fetch commits and total count, preserving pagination state
+	// In-scope commits + count are always range-relative now. On main / detached
+	// HEAD the range is empty (queryOldBase == HEAD), so commits = []; the full
+	// repo history is rendered below the cutline via BaseCommits.
 	pageSize := max(commitPageSize, m.commitsLoaded)
-	var commits []gitpkg.Commit
-	var commitCount int
-	if info.IsDetachedHead || info.Branch == "main" || info.Branch == "master" {
-		commits, err = m.git.AllCommits(0, pageSize)
-		if err != nil {
-			return gitDataMsg{err: err}
-		}
-		commitCount, _ = m.git.CommitCount()
-	} else {
-		commits, err = m.git.Commits(base, 0, pageSize)
-		if err != nil {
-			return gitDataMsg{err: err}
-		}
-		commitCount, _ = m.git.CommitCountRange(base)
+	commits, err := m.git.Commits(queryOldBase, 0, pageSize)
+	if err != nil {
+		return gitDataMsg{err: err}
 	}
+	naturalOldOffset, _ := m.git.CommitCountRange(naturalOldBase)
 
 	// Compute behind count: how many commits on the base branch we don't have
 	var behindCount int
@@ -494,10 +491,11 @@ func (m *Model) loadGitData() tea.Msg {
 		behindCount = m.git.BehindCount(baseRef)
 	}
 
-	// Fetch base branch commits for commit mode category 4
+	// Below-cutline commits (out-of-scope context). On non-detached-HEAD this
+	// is what the commits-mode "Base" section renders.
 	var baseCommits []gitpkg.Commit
-	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
-		baseCommits, _ = m.git.BaseCommits(base, 50)
+	if !info.IsDetachedHead {
+		baseCommits, _ = m.git.BaseCommits(queryOldBase, 50)
 	}
 
 	// Fetch tracked + untracked files (no ignored — those come from the
@@ -512,7 +510,9 @@ func (m *Model) loadGitData() tea.Msg {
 		ciStatus:         ciStatus,
 		prReviews:        prAll.Reviews,
 		prCommentCount:   prAll.CommentCount,
-		base:             base,
+		queryOldBase:     queryOldBase,
+		naturalOldBase:   naturalOldBase,
+		naturalOldOffset: naturalOldOffset,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
 		stagedFiles:      files.Staged,
@@ -522,7 +522,6 @@ func (m *Model) loadGitData() tea.Msg {
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
 		commits:          commits,
-		commitCount:      commitCount,
 		baseCommits:      baseCommits,
 		behindCount:      behindCount,
 		prComments:       prAll.Comments,
@@ -531,6 +530,19 @@ func (m *Model) loadGitData() tea.Msg {
 		reviewRequests:   prAll.ReviewRequests,
 		prFetchFailed:    prFetchFailed,
 	}
+}
+
+// detectNaturalBase resolves the natural outer endpoint of the scope range
+// for the current branch. Prefers a PR-reported base when available; falls
+// back to local merge-base detection (which on main/detached HEAD returns
+// HEAD itself, yielding an empty natural scope per Reading B).
+func detectNaturalBase(g GitDataSource, prBaseRef string) (string, error) {
+	if prBaseRef != "" {
+		if sha, err := g.DetectBaseFromPR(prBaseRef); err == nil {
+			return sha, nil
+		}
+	}
+	return g.DetectBaseLocal()
 }
 
 // detectBase returns the merge-base SHA to use for diff computations,
@@ -564,53 +576,33 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		}
 	}
 
-	// Prefer the PR-reported base if PR data has loaded; otherwise use
-	// local detection (no gh shell-out). When PR data arrives later, the
-	// prRefreshMsg handler re-dispatches loadLocalGitData so the base
-	// upgrades to match the PR's baseRefName.
-	naturalBase, err := m.detectBase()
+	// Detect the natural scope base. Prefer the PR-reported base if PR data
+	// has loaded; fall back to local detection. When PR data arrives later,
+	// prRefreshMsg re-dispatches loadLocalGitData so the natural base upgrades
+	// to match the PR's baseRefName.
+	naturalOldBase, err := m.detectBase()
 	if err != nil {
 		return gitDataMsg{err: err}
 	}
 
-	// If the user has scrubbed the scope handle, queries use the scrubbed
-	// outer endpoint instead of the natural base. The handler preserves
-	// m.base when the load returns.
-	base := naturalBase
-	if m.base != "" && m.base != naturalBase {
-		base = m.base
+	// Pick the base used for queries: scrubbed outer endpoint when scrubbed,
+	// natural base otherwise.
+	queryOldBase := naturalOldBase
+	if m.scope.IsScrubbed() && m.scope.OldBase() != "" {
+		queryOldBase = m.scope.OldBase()
 	}
 
-	files, err := m.git.ChangedFiles(base)
+	files, err := m.git.ChangedFiles(queryOldBase)
 	if err != nil {
 		return gitDataMsg{err: err}
 	}
 
-	// Preserve pagination: reload at least as many commits as the user has already seen
 	pageSize := max(commitPageSize, m.commitsLoaded)
-
-	// Main / master / detached HEAD have no PR delta; the historical default
-	// is to list the whole repo history. When the user scrubs the scope
-	// handle on those branches we want HEAD~N and the displayed commits to
-	// reflect the scrubbed range — otherwise scope-extend-back would show
-	// total-commits-in-repo no matter how far back the handle moved.
-	onMainLike := info.IsDetachedHead || info.Branch == "main" || info.Branch == "master"
-	scopedOnMainLike := onMainLike && base != naturalBase
-	var commits []gitpkg.Commit
-	var commitCount int
-	if onMainLike && !scopedOnMainLike {
-		commits, err = m.git.AllCommits(0, pageSize)
-		if err != nil {
-			return gitDataMsg{err: err}
-		}
-		commitCount, _ = m.git.CommitCount()
-	} else {
-		commits, err = m.git.Commits(base, 0, pageSize)
-		if err != nil {
-			return gitDataMsg{err: err}
-		}
-		commitCount, _ = m.git.CommitCountRange(base)
+	commits, err := m.git.Commits(queryOldBase, 0, pageSize)
+	if err != nil {
+		return gitDataMsg{err: err}
 	}
+	naturalOldOffset, _ := m.git.CommitCountRange(naturalOldBase)
 
 	var behindCount int
 	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
@@ -625,8 +617,8 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	}
 
 	var baseCommits []gitpkg.Commit
-	if !info.IsDetachedHead && (!onMainLike || scopedOnMainLike) {
-		baseCommits, _ = m.git.BaseCommits(base, 50)
+	if !info.IsDetachedHead {
+		baseCommits, _ = m.git.BaseCommits(queryOldBase, 50)
 	}
 
 	allFiles, _ := m.git.AllFiles()
@@ -634,8 +626,9 @@ func (m *Model) loadLocalGitData() tea.Msg {
 
 	return gitDataMsg{
 		repoInfo:         info,
-		base:             base,
-		naturalBase:      naturalBase,
+		queryOldBase:     queryOldBase,
+		naturalOldBase:   naturalOldBase,
+		naturalOldOffset: naturalOldOffset,
 		committedFiles:   files.Committed,
 		uncommittedFiles: files.Uncommitted,
 		stagedFiles:      files.Staged,
@@ -645,7 +638,6 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
 		commits:          commits,
-		commitCount:      commitCount,
 		baseCommits:      baseCommits,
 		behindCount:      behindCount,
 		localOnly:        true, // preserve existing PR data
@@ -654,16 +646,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 
 func (m *Model) loadMoreCommits() tea.Msg {
 	skip := m.commitsLoaded
-	info := m.repoInfo
-	onMainLike := info.IsDetachedHead || info.Branch == "main" || info.Branch == "master"
-	scopedOnMainLike := onMainLike && m.base != m.naturalBase && m.naturalBase != ""
-	var commits []gitpkg.Commit
-	var err error
-	if onMainLike && !scopedOnMainLike {
-		commits, err = m.git.AllCommits(skip, commitPageSize)
-	} else {
-		commits, err = m.git.Commits(m.base, skip, commitPageSize)
-	}
+	commits, err := m.git.Commits(m.scope.OldBase(), skip, commitPageSize)
 	if err != nil {
 		return nil
 	}
@@ -766,29 +749,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sortPRData()
 			}
 		}
-		// Stale-load guard. If a periodic tick's loadLocalGitData was already
-		// in flight when the user scrubbed the scope handle, the tick's msg
-		// carries the pre-scrub base. Applying it would overwrite m.base and
-		// the file/commit lists with data for the wrong scope. Discard the
-		// scope-dependent fields; the next load (re-dispatched by the scope
-		// command) is authoritative.
-		if m.base != "" && msg.base != "" && msg.base != m.base {
-			if msg.naturalBase != "" {
-				m.naturalBase = msg.naturalBase
-			}
+		// Stale-load guard. If a periodic tick's load was already in flight
+		// when the user scrubbed the scope handle, msg.queryOldBase reflects
+		// the pre-scrub state and msg.commits / committedFiles / baseCommits
+		// describe the wrong slice of history. Sync the natural endpoints so
+		// scope-reset still snaps correctly, then discard the rest. The next
+		// load (re-dispatched by the scope command) is authoritative.
+		currentOld := m.scope.OldBase()
+		if currentOld != "" && msg.queryOldBase != "" && msg.queryOldBase != currentOld {
+			m.scope.SyncFromLoad(msg.naturalOldBase, msg.naturalNewBase, msg.naturalOldOffset, msg.naturalNewOffset)
 			m.updateLayout()
 			m.updateSidebarItems()
 			m.updateMainContent()
 			return m, nil
 		}
 
-		m.base = msg.base
-		if msg.naturalBase != "" {
-			m.naturalBase = msg.naturalBase
-		} else {
-			// Empty-repo / pre-natural-base loads carry no naturalBase.
-			m.naturalBase = msg.base
-		}
+		m.scope.SyncFromLoad(msg.naturalOldBase, msg.naturalNewBase, msg.naturalOldOffset, msg.naturalNewOffset)
 		m.committedFiles = msg.committedFiles
 		m.uncommittedFiles = msg.uncommittedFiles
 		m.stagedFiles = msg.stagedFiles
@@ -838,7 +814,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.commits = msg.commits
-		m.commitCount = msg.commitCount
 		m.commitsLoaded = len(msg.commits)
 		m.baseCommits = msg.baseCommits
 		m.behindCount = msg.behindCount
@@ -1229,41 +1204,34 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.loadLocalGitData, m.loadPRStatus)
 
 	case key.Matches(msg, keys.ScopeReset):
-		if m.naturalBase == "" || m.base == m.naturalBase {
+		if !m.scope.IsScrubbed() {
 			return m, nil
 		}
-		m.base = m.naturalBase
+		m.scope.Reset()
 		if m.git == nil {
 			return m, nil
 		}
 		return m, m.loadLocalGitData
 
 	case key.Matches(msg, keys.ScopeExtendBack):
-		if m.git == nil || m.base == "" {
+		if m.git == nil {
 			return m, nil
 		}
-		parent, err := m.git.Parent(m.base)
-		if err != nil {
-			// At root commit (or other failure) — no-op.
+		if err := m.scope.ExtendBack(m.git); err != nil {
+			// At root commit, unloaded, or other failure — no-op.
 			return m, nil
 		}
-		m.base = parent
 		return m, m.loadLocalGitData
 
 	case key.Matches(msg, keys.ScopeContractForward):
-		if m.git == nil || m.base == "" {
+		if m.git == nil {
 			return m, nil
 		}
-		// Walk one commit toward HEAD via first-parent. Done via git
-		// rather than reading m.commits[len-1] because on main / master /
-		// detached HEAD, m.commits lists the full repo history (oldest
-		// entry would be the root commit, not the child of m.base).
-		child, err := m.git.FirstChildToward(m.base, "HEAD")
-		if err != nil {
-			// No child — we're at the workdir limit (m.base == HEAD).
+		if err := m.scope.ContractForward(m.git); err != nil {
+			// FirstChildToward failed unexpectedly — no-op. (The empty-range
+			// case is handled inside scope.ContractForward as a silent no-op.)
 			return m, nil
 		}
-		m.base = child
 		return m, m.loadLocalGitData
 
 	case key.Matches(msg, keys.PRBrowse):
@@ -1894,7 +1862,7 @@ func (m *Model) updateSidebarItems() {
 		items := buildCommitsSidebar(
 			m.commits, m.baseCommits,
 			m.uncommittedFiles, m.stagedFiles,
-			m.repoInfo.AheadCount, m.commitsLoaded, m.commitCount,
+			m.repoInfo.AheadCount, m.commitsLoaded, m.scope.Len(),
 		)
 		m.sidebar.SetItems(items)
 	case PRMode:
@@ -1963,7 +1931,7 @@ func (m *Model) updateMainContent() {
 		m.updateNonGitFilesMode(setItem)
 		return
 	}
-	if m.base == "" {
+	if m.scope.OldBase() == "" {
 		return // preserve current main panel content (and lastMainItem)
 	}
 
@@ -2141,13 +2109,6 @@ func parseKeyName(name string) tea.KeyPressMsg {
 	}
 }
 
-// scopeHandleInfo returns a snapshot of the scope handle for the status bar,
-// or nil at the default scope position. m.commitCount already counts commits
-// in m.base..HEAD, which equals N for HEAD~N.
-func (m *Model) scopeHandleInfo() *scopeHandleInfo {
-	return scopeHandleFromBase(m.base, m.naturalBase, m.commitCount)
-}
-
 func (m *Model) View() tea.View {
 	if m.debugLog != nil {
 		m.debugLog.Printf("[render] mode=%d focus=%d items=%d selected=%d offset=%d",
@@ -2179,14 +2140,14 @@ func (m *Model) View() tea.View {
 		mode:             m.mode,
 		confirming:       m.confirming,
 		uncommitCount:    len(m.uncommittedFiles) + len(m.stagedFiles),
-		commitCount:      m.commitCount,
+		commitCount:      m.scope.Len(),
 		behindCount:      m.behindCount,
 		changedFileCount: len(m.committedFiles) + len(m.uncommittedFiles) + len(m.stagedFiles),
 		prLoading:        m.loading && m.git != nil,
 		showHelp:         m.help.IsOpen(),
 		hoverX:           m.hoverX,
 		hoverY:           m.hoverY,
-		scopeHandle:      m.scopeHandleInfo(),
+		scopeHandle:      m.scope.Handle(),
 	})
 	m.modeLabels = labels
 	m.line2Labels = l2Labels

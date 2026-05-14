@@ -1,0 +1,111 @@
+# 2026/05/13 17:20:00.309464 [TestProperty_DragAcrossModesNoPanic] [rapid] draw isGit: 1
+# 2026/05/13 17:20:00.309482 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nCommitted: 0
+# 2026/05/13 17:20:00.309491 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nUncommitted: 0
+# 2026/05/13 17:20:00.309500 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nStaged: 0
+# 2026/05/13 17:20:00.309508 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nCommits: 1
+# 2026/05/13 17:20:00.309518 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nOtherFiles: 0
+# 2026/05/13 17:20:00.309525 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nIgnored: 0
+# 2026/05/13 17:20:00.309539 [TestProperty_DragAcrossModesNoPanic] [rapid] draw commit0_emoji: 1
+# 2026/05/13 17:20:00.309546 [TestProperty_DragAcrossModesNoPanic] [rapid] draw branch: "main"
+# 2026/05/13 17:20:00.309558 [TestProperty_DragAcrossModesNoPanic] [rapid] draw detached: false
+# 2026/05/13 17:20:00.309565 [TestProperty_DragAcrossModesNoPanic] [rapid] draw prNum: 0
+# 2026/05/13 17:20:00.309572 [TestProperty_DragAcrossModesNoPanic] [rapid] draw aheadCount: 0
+# 2026/05/13 17:20:00.309580 [TestProperty_DragAcrossModesNoPanic] [rapid] draw fileDiff_emoji: 1
+# 2026/05/13 17:20:00.309588 [TestProperty_DragAcrossModesNoPanic] [rapid] draw fileContent_emoji: 1
+# 2026/05/13 17:20:00.309598 [TestProperty_DragAcrossModesNoPanic] [rapid] draw commitPatch_emoji: 1
+# 2026/05/13 17:20:00.309605 [TestProperty_DragAcrossModesNoPanic] [rapid] draw hasAPIError: true
+# 2026/05/13 17:20:00.309610 [TestProperty_DragAcrossModesNoPanic] [rapid] draw hasBaseCommits: false
+# 2026/05/13 17:20:00.309620 [TestProperty_DragAcrossModesNoPanic] [rapid] draw mode: 1
+# 2026/05/13 17:20:00.309627 [TestProperty_DragAcrossModesNoPanic] [rapid] draw width: 40
+# 2026/05/13 17:20:00.309634 [TestProperty_DragAcrossModesNoPanic] [rapid] draw height: 11
+# 2026/05/13 17:20:00.309712 [TestProperty_DragAcrossModesNoPanic] [rapid] draw y1: 0
+# 2026/05/13 17:20:00.309719 [TestProperty_DragAcrossModesNoPanic] [rapid] draw y2: 10
+# 2026/05/13 17:20:00.309728 [TestProperty_DragAcrossModesNoPanic] [rapid] draw x1: 0
+# 2026/05/13 17:20:00.309734 [TestProperty_DragAcrossModesNoPanic] [rapid] draw x2: 0
+# 2026/05/13 17:20:00.312457 [TestProperty_DragAcrossModesNoPanic] selectedText() contains character "+" not in viewport (mode=1)
+# 
+v0.4.8#14813489711555890308
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x1f2b5a0e61c3a6
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
