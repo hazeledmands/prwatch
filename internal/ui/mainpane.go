@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
@@ -316,6 +317,16 @@ func parseDiffAnnotations(unifiedDiff string) map[int]diffAnnotation {
 			}
 			newLineNo++
 		}
+	}
+
+	// Flush any remaining pendingRemoved lines that the loop didn't consume.
+	// This happens when the diff ends on `-` lines with no trailing `+`,
+	// context, or new hunk header to flush against — e.g. a file shrunk by
+	// pure deletion at end-of-file, where the diff has no final newline.
+	if len(pendingRemoved) > 0 && newLineNo > 0 {
+		ann := annotations[newLineNo]
+		ann.removedLines = append(ann.removedLines, pendingRemoved...)
+		annotations[newLineNo] = ann
 	}
 
 	return annotations
@@ -801,6 +812,32 @@ func (m *mainPane) applyFileViewFormatting(content string) (string, int) {
 			}
 		}
 	}
+
+	// Emit any "tail" annotations whose line number is past the last source
+	// line. These come from diffs that end on `-` lines — parseDiffAnnotations
+	// attaches the pending removed batch to annotations[newLineNo], which is
+	// one beyond the last new-file line for an end-of-file deletion. Without
+	// this pass the rows never render and the deletions disappear from view.
+	if m.showRemoved {
+		tailKeys := make([]int, 0)
+		for k := range m.diffAnnotations {
+			if k > len(lines) {
+				tailKeys = append(tailKeys, k)
+			}
+		}
+		sort.Ints(tailKeys)
+		for _, k := range tailKeys {
+			ann := m.diffAnnotations[k]
+			for _, removed := range ann.removedLines {
+				gutterMark := " - "
+				if m.lineNumbers {
+					gutterMark = strings.Repeat(" ", numWidth) + " - "
+				}
+				result = append(result, diffRemoveLineStyle.Render(gutterMark+removed))
+			}
+		}
+	}
+
 	return strings.Join(result, "\n"), gutterWidth
 }
 

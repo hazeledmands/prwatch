@@ -1,0 +1,313 @@
+# 2026/05/15 12:25:34.960368 [TestProperty_DragAcrossModesNoPanic] [rapid] draw isGit: 1
+# 2026/05/15 12:25:34.960388 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nCommitted: 12
+# 2026/05/15 12:25:34.960398 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nUncommitted: 0
+# 2026/05/15 12:25:34.960412 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nStaged: 2
+# 2026/05/15 12:25:34.960419 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nCommits: 2
+# 2026/05/15 12:25:34.960450 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file0.go: 1
+# 2026/05/15 12:25:34.960458 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file1.go: 1
+# 2026/05/15 12:25:34.960467 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file2.go: 1
+# 2026/05/15 12:25:34.960476 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file3.go: 1
+# 2026/05/15 12:25:34.960489 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file4.go: 1
+# 2026/05/15 12:25:34.960496 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file5.go: 1
+# 2026/05/15 12:25:34.960503 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file6.go: 1
+# 2026/05/15 12:25:34.960510 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file7.go: 1
+# 2026/05/15 12:25:34.960517 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file8.go: 1
+# 2026/05/15 12:25:34.960525 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file9.go: 1
+# 2026/05/15 12:25:34.960533 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file10.go: 1
+# 2026/05/15 12:25:34.960557 [TestProperty_DragAcrossModesNoPanic] [rapid] draw changeType_file11.go: 1
+# 2026/05/15 12:25:34.960575 [TestProperty_DragAcrossModesNoPanic] [rapid] draw addStaged_staged0.go: 1
+# 2026/05/15 12:25:34.960584 [TestProperty_DragAcrossModesNoPanic] [rapid] draw addStaged_staged1.go: 1
+# 2026/05/15 12:25:34.960593 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nOtherFiles: 0
+# 2026/05/15 12:25:34.960603 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nIgnored: 2
+# 2026/05/15 12:25:34.960613 [TestProperty_DragAcrossModesNoPanic] [rapid] draw ignoredKind0: 0
+# 2026/05/15 12:25:34.960623 [TestProperty_DragAcrossModesNoPanic] [rapid] draw ignoredKind1: 0
+# 2026/05/15 12:25:34.960642 [TestProperty_DragAcrossModesNoPanic] [rapid] draw commit0_emoji: 1
+# 2026/05/15 12:25:34.960655 [TestProperty_DragAcrossModesNoPanic] [rapid] draw commit1_emoji: 0.25
+# 2026/05/15 12:25:34.960664 [TestProperty_DragAcrossModesNoPanic] [rapid] draw commit1_emojiVal: "🔥"
+# 2026/05/15 12:25:34.960674 [TestProperty_DragAcrossModesNoPanic] [rapid] draw branch: "main"
+# 2026/05/15 12:25:34.960682 [TestProperty_DragAcrossModesNoPanic] [rapid] draw detached: false
+# 2026/05/15 12:25:34.960689 [TestProperty_DragAcrossModesNoPanic] [rapid] draw prNum: 42
+# 2026/05/15 12:25:34.960698 [TestProperty_DragAcrossModesNoPanic] [rapid] draw prTitle_emoji: 0.125
+# 2026/05/15 12:25:34.960704 [TestProperty_DragAcrossModesNoPanic] [rapid] draw prTitle_emojiVal: "🔥"
+# 2026/05/15 12:25:34.960713 [TestProperty_DragAcrossModesNoPanic] [rapid] draw isDraft: false
+# 2026/05/15 12:25:34.960726 [TestProperty_DragAcrossModesNoPanic] [rapid] draw aheadCount: 0
+# 2026/05/15 12:25:34.960734 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_nHunks: 2
+# 2026/05/15 12:25:34.960743 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_skip0: 0
+# 2026/05/15 12:25:34.960751 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_nOps0: 6
+# 2026/05/15 12:25:34.960781 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h0_o0_kind: "context"
+# 2026/05/15 12:25:34.960801 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h0_o1_kind: "context"
+# 2026/05/15 12:25:34.960829 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h0_o2_kind: "context"
+# 2026/05/15 12:25:34.960855 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h0_o3_kind: "context"
+# 2026/05/15 12:25:34.960869 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h0_o4_kind: "context"
+# 2026/05/15 12:25:34.960883 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h0_o5_kind: "added"
+# 2026/05/15 12:25:34.960900 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_skip1: 1
+# 2026/05/15 12:25:34.960911 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_nOps1: 4
+# 2026/05/15 12:25:34.960920 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h1_o0_kind: "added"
+# 2026/05/15 12:25:34.960932 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h1_o1_kind: "added"
+# 2026/05/15 12:25:34.960943 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h1_o2_kind: "added"
+# 2026/05/15 12:25:34.960956 [TestProperty_DragAcrossModesNoPanic] [rapid] draw diff_op_h1_o3_kind: "added"
+# 2026/05/15 12:25:34.960976 [TestProperty_DragAcrossModesNoPanic] [rapid] draw commitPatch_emoji: 1
+# 2026/05/15 12:25:34.960986 [TestProperty_DragAcrossModesNoPanic] [rapid] draw hasReviews: false
+# 2026/05/15 12:25:34.960992 [TestProperty_DragAcrossModesNoPanic] [rapid] draw hasComments: true
+# 2026/05/15 12:25:34.961000 [TestProperty_DragAcrossModesNoPanic] [rapid] draw nComments: 1
+# 2026/05/15 12:25:34.961010 [TestProperty_DragAcrossModesNoPanic] [rapid] draw commenter0_emoji: 1
+# 2026/05/15 12:25:34.961022 [TestProperty_DragAcrossModesNoPanic] [rapid] draw commentBody0_emoji: 1
+# 2026/05/15 12:25:34.961030 [TestProperty_DragAcrossModesNoPanic] [rapid] draw hasAPIError: false
+# 2026/05/15 12:25:34.961037 [TestProperty_DragAcrossModesNoPanic] [rapid] draw hasBaseCommits: false
+# 2026/05/15 12:25:34.961043 [TestProperty_DragAcrossModesNoPanic] [rapid] draw mode: 0
+# 2026/05/15 12:25:34.961050 [TestProperty_DragAcrossModesNoPanic] [rapid] draw width: 41
+# 2026/05/15 12:25:34.961058 [TestProperty_DragAcrossModesNoPanic] [rapid] draw height: 12
+# 2026/05/15 12:25:34.970858 [TestProperty_DragAcrossModesNoPanic] [rapid] draw y1: 7
+# 2026/05/15 12:25:34.970872 [TestProperty_DragAcrossModesNoPanic] [rapid] draw y2: 2
+# 2026/05/15 12:25:34.970882 [TestProperty_DragAcrossModesNoPanic] [rapid] draw x1: 1
+# 2026/05/15 12:25:34.970890 [TestProperty_DragAcrossModesNoPanic] [rapid] draw x2: 2
+# 2026/05/15 12:25:34.976622 [TestProperty_DragAcrossModesNoPanic] selectedText() contains character "x" not in viewport (mode=0)
+# 
+v0.4.8#3314776525720558931
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x9867f1f40f739
+0xc
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x3723723723724
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x6856c47037428
+0x3
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x5
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1
+0x0
+0x38e38e38e38e4
+0x3
+0x38e38e38e38e4
+0x1
+0x38e38e38e38e4
+0x1
+0x0
+0x1
+0x38e38e38e38e4
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x1be5fadd98e6d8
+0x3b53aabbf0782
+0x2
+0x15d71ffeb82a45
+0x1135f535256f85
+0x7
+0x158598cfb6c05
+0x199b0e16047aeb
+0x2
+0xfae1f34b8040b
+0x616e21d8d8f6e
+0x1
+0x10017db1c888b8
+0x470b34ac24dd9
+0x2

@@ -44,6 +44,99 @@ func maybeEmoji(t *rapid.T, tag string, s string) string {
 	return s
 }
 
+// genUnifiedDiff produces a randomly-shaped well-formed unified diff together
+// with the matching "after" file content (the sequence of context + added
+// lines joined by newlines). Callers should set fileContent = newContent so
+// diff annotations align with what gets rendered.
+//
+// The generator covers shapes that historically broke the parser/renderer:
+//   - hunks that end on `-` lines (no trailing `+`/context to flush pending
+//     removed lines — produced the INCONSISTENCIES.md trailing-deletion bug)
+//   - purely-additive hunks (oldCount=0)
+//   - purely-subtractive hunks (newCount=0, all `-` then EOF)
+//   - leading `-` lines before any context inside a hunk
+//   - multiple hunks separated by unchanged regions
+//   - the empty-diff case (file unchanged)
+//
+// Returns ("", "") for the empty-diff case.
+func genUnifiedDiff(t *rapid.T) (diff, newContent string) {
+	nHunks := rapid.IntRange(0, 3).Draw(t, "diff_nHunks")
+	if nHunks == 0 {
+		return "", ""
+	}
+
+	var diffBody strings.Builder
+	var newLines []string
+	oldLine, newLine := 1, 1
+
+	for h := 0; h < nHunks; h++ {
+		// Optional unchanged region between hunks: advances old/new line
+		// counters and contributes to the new file content, but is not in
+		// the diff body.
+		skip := rapid.IntRange(0, 3).Draw(t, fmt.Sprintf("diff_skip%d", h))
+		for s := 0; s < skip; s++ {
+			newLines = append(newLines, fmt.Sprintf("unchanged_h%d_s%d", h, s))
+			oldLine++
+			newLine++
+		}
+
+		nOps := rapid.IntRange(1, 6).Draw(t, fmt.Sprintf("diff_nOps%d", h))
+		var hunkBody strings.Builder
+		oldStart, newStart := oldLine, newLine
+		oldCount, newCount := 0, 0
+
+		for op := 0; op < nOps; op++ {
+			kind := rapid.SampledFrom([]string{"context", "added", "removed"}).Draw(
+				t, fmt.Sprintf("diff_op_h%d_o%d_kind", h, op))
+			text := fmt.Sprintf("%s_h%do%d", kind, h, op)
+			switch kind {
+			case "context":
+				hunkBody.WriteString(" " + text + "\n")
+				newLines = append(newLines, text)
+				oldCount++
+				newCount++
+				oldLine++
+				newLine++
+			case "added":
+				hunkBody.WriteString("+" + text + "\n")
+				newLines = append(newLines, text)
+				newCount++
+				newLine++
+			case "removed":
+				hunkBody.WriteString("-" + text + "\n")
+				oldCount++
+				oldLine++
+			}
+		}
+
+		// For purely-additive (oldCount=0) or purely-subtractive (newCount=0)
+		// hunks, real git emits the line *before* the change as the header
+		// start. parseDiffAnnotations doesn't actually use that nuance but
+		// emit it anyway to keep the diff realistic.
+		oldHdr := oldStart
+		if oldCount == 0 {
+			oldHdr = oldStart - 1
+			if oldHdr < 0 {
+				oldHdr = 0
+			}
+		}
+		newHdr := newStart
+		if newCount == 0 {
+			newHdr = newStart - 1
+			if newHdr < 0 {
+				newHdr = 0
+			}
+		}
+
+		fmt.Fprintf(&diffBody, "@@ -%d,%d +%d,%d @@\n", oldHdr, oldCount, newHdr, newCount)
+		diffBody.WriteString(hunkBody.String())
+	}
+
+	diff = "diff --git a/f b/f\n--- a/f\n+++ b/f\n" + diffBody.String()
+	newContent = strings.Join(newLines, "\n")
+	return diff, newContent
+}
+
 // genMockGit generates random but valid mockGit instances for property testing.
 func genMockGit(t *rapid.T) *mockGit {
 	nCommitted := rapid.IntRange(0, 20).Draw(t, "nCommitted")
@@ -142,6 +235,16 @@ func genMockGit(t *rapid.T) *mockGit {
 
 	aheadCount := rapid.IntRange(0, 10).Draw(t, "aheadCount")
 
+	// Generate a diverse unified-diff shape, and use its "after" content as
+	// the file content so annotations align with rendered lines. Fall back
+	// to a minimal one-line change for the no-op case so downstream tests
+	// that assume non-empty fileDiff still have something to chew on.
+	fileDiff, fileContent := genUnifiedDiff(t)
+	if fileDiff == "" {
+		fileDiff = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new"
+		fileContent = "line1\nline2\nline3"
+	}
+
 	return &mockGit{
 		repoInfo: git.RepoInfoResult{
 			Branch:         branch,
@@ -164,8 +267,8 @@ func genMockGit(t *rapid.T) *mockGit {
 		commits:      commits,
 		allFiles:     allFiles,
 		ignoredFiles: ignoredFiles,
-		fileDiff:     maybeEmoji(t, "fileDiff", "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new"),
-		fileContent:  maybeEmoji(t, "fileContent", "line1\nline2\nline3"),
+		fileDiff:     fileDiff,
+		fileContent:  fileContent,
 		commitPatch:  maybeEmoji(t, "commitPatch", "commit 0000000\n\n    msg\n\ndiff\n+added"),
 	}
 }
@@ -2495,6 +2598,120 @@ func TestProperty_ProgressPercent_BottomIs100(t *testing.T) {
 		mp.viewport.GotoBottom()
 		if got := mp.progressPercent(); got != 100 {
 			t.Fatalf("at bottom, expected 100, got %d", got)
+		}
+	})
+}
+
+// TestProperty_ParseDiffAnnotations_PreservesAllRemovedLines verifies that
+// parseDiffAnnotations captures every `-` line from the input diff as a
+// removedLines entry on some annotation. Previously the parser silently
+// dropped `-` lines that appeared at the end of a diff with no following
+// `+`, context, or new hunk header to flush them — which is the shape of
+// the working-tree diff for a file shrunk by pure deletion (e.g. the
+// INCONSISTENCIES.md case where 18 trailing `-` lines never reached the
+// main pane).
+func TestProperty_ParseDiffAnnotations_PreservesAllRemovedLines(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		diff, _ := genUnifiedDiff(t)
+		if diff == "" {
+			return // no-op for the unchanged-file case
+		}
+
+		var expected []string
+		for _, line := range strings.Split(diff, "\n") {
+			if strings.HasPrefix(line, "---") {
+				continue // file header, not a deletion
+			}
+			if strings.HasPrefix(line, "-") {
+				expected = append(expected, line[1:])
+			}
+		}
+
+		annotations := parseDiffAnnotations(diff)
+		var got []string
+		for _, ann := range annotations {
+			got = append(got, ann.removedLines...)
+		}
+
+		sort.Strings(expected)
+		sort.Strings(got)
+		if !stringSlicesEqual(expected, got) {
+			t.Fatalf("removed-line preservation failed\ndiff:\n%s\nexpected (%d): %q\ngot (%d): %q",
+				diff, len(expected), expected, len(got), got)
+		}
+	})
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestProperty_FileViewRender_PreservesAllRemovedLines runs every diff shape
+// produced by genUnifiedDiff through parseDiffAnnotations + the file-view
+// renderer and verifies that the rendered output contains every `-` line
+// from the diff.
+//
+// Catches the INCONSISTENCIES.md class of bug: diffs that end with `-` lines
+// can land annotations past the new file's last line, and the per-line
+// rendering loop never reaches them.
+//
+// `-` lines that get paired into a 1-to-1 `~` inline-diff (diffLineChanged
+// with exactly one pendingRemoved) render via character-level diffmatchpatch
+// output, which interleaves old/new content and isn't a substring match —
+// those are exempt and tracked separately.
+func TestProperty_FileViewRender_PreservesAllRemovedLines(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		diff, newContent := genUnifiedDiff(t)
+		if diff == "" {
+			return
+		}
+
+		annotations := parseDiffAnnotations(diff)
+
+		mp := newMainPane()
+		mp.SetSize(200, 100)
+		mp.lineNumbers = false
+		mp.showRemoved = true
+		mp.diffAnnotations = annotations
+		mp.SetPlainContent(newContent)
+		formatted, _ := mp.applyFileViewFormatting(newContent)
+		rendered := stripANSI(formatted)
+
+		// Build the set of removed-line texts the renderer is *exempt* from
+		// preserving as contiguous substrings: the one removed line per
+		// diffLineChanged annotation that drives the inline-diff renderer.
+		exempt := make(map[string]int)
+		for _, ann := range annotations {
+			if ann.kind == diffLineChanged && len(ann.removedLines) > 0 {
+				last := ann.removedLines[len(ann.removedLines)-1]
+				exempt[last]++
+			}
+		}
+
+		for _, line := range strings.Split(diff, "\n") {
+			if strings.HasPrefix(line, "---") {
+				continue
+			}
+			if !strings.HasPrefix(line, "-") {
+				continue
+			}
+			removed := line[1:]
+			if exempt[removed] > 0 {
+				exempt[removed]--
+				continue
+			}
+			if !strings.Contains(rendered, removed) {
+				t.Fatalf("removed line %q missing from rendered output\ndiff:\n%s\nnewContent:\n%q\nannotations: %+v\nrendered:\n%s",
+					removed, diff, newContent, annotations, rendered)
+			}
 		}
 	})
 }

@@ -577,6 +577,76 @@ func TestParseDiffAnnotations_MultiLineBlockNotPaired(t *testing.T) {
 	}
 }
 
+// TestParseDiffAnnotations_TrailingDeletionsAtEOF reproduces the
+// INCONSISTENCIES.md case: a diff that shrinks a file by deleting trailing
+// lines, with no `+`, context, or new hunk header after the deletions.
+// Previously the parser dropped these `-` lines entirely because pendingRemoved
+// was only flushed when one of those terminators was seen.
+func TestParseDiffAnnotations_TrailingDeletionsAtEOF(t *testing.T) {
+	diff := `@@ -1,5 +1,2 @@
+ keep1
+ keep2
+-drop1
+-drop2
+-drop3
+`
+	annotations := parseDiffAnnotations(diff)
+	var got []string
+	for _, ann := range annotations {
+		got = append(got, ann.removedLines...)
+	}
+	want := []string{"drop1", "drop2", "drop3"}
+	if len(got) != len(want) {
+		t.Fatalf("trailing `-` lines were dropped: want %v, got %v (annotations=%+v)", want, got, annotations)
+	}
+}
+
+// TestParseDiffAnnotations_TrailingDeletionsNoFinalNewline guards the
+// strictly-EOF case: a diff body where the final character is the last `-`
+// line content with no trailing newline at all. Without that newline, the
+// "" sentinel that currently flushes pendingRemoved (via the context-line
+// branch) never appears, and the trailing `-` lines are dropped.
+func TestParseDiffAnnotations_TrailingDeletionsNoFinalNewline(t *testing.T) {
+	diff := "@@ -1,5 +1,2 @@\n keep1\n keep2\n-drop1\n-drop2\n-drop3"
+	annotations := parseDiffAnnotations(diff)
+	var got []string
+	for _, ann := range annotations {
+		got = append(got, ann.removedLines...)
+	}
+	want := []string{"drop1", "drop2", "drop3"}
+	if len(got) != len(want) {
+		t.Fatalf("trailing `-` lines were dropped: want %v, got %v (annotations=%+v)", want, got, annotations)
+	}
+}
+
+// TestFileViewRender_TrailingDeletionsVisible reproduces the
+// INCONSISTENCIES.md rendering case: after parseDiffAnnotations attaches the
+// trailing pending removed lines to annotations[N] where N == len(newLines)+1,
+// the renderer must still emit them — currently the per-line loop in
+// applyFileViewFormatting never reaches that index, so the lines disappear.
+func TestFileViewRender_TrailingDeletionsVisible(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(120, 30)
+	mp.lineNumbers = false
+	mp.showRemoved = true
+
+	// Mirrors the INCONSISTENCIES.md working-tree diff: 2 context lines
+	// followed by 3 trailing deletions. After parseDiffAnnotations, pending
+	// removed lines hang off annotations[3] — beyond the 2-line new file.
+	mp.diffAnnotations = map[int]diffAnnotation{
+		3: {removedLines: []string{"drop1", "drop2", "drop3"}},
+	}
+	mp.SetPlainContent("keep1\nkeep2")
+
+	rendered := stripANSIForWidth(mp.viewport.View())
+	for _, deleted := range []string{"drop1", "drop2", "drop3"} {
+		if !strings.Contains(rendered, deleted) {
+			t.Errorf("rendered output should contain trailing deleted line %q; got:\n%s",
+				deleted, rendered)
+		}
+	}
+}
+
 // TestRenderInlineDiff_MultiSegment exercises the case where two changes are
 // separated by retained text. A naive prefix/suffix differ would collapse the
 // middle into one big delete+insert block; the diffmatchpatch-backed renderer

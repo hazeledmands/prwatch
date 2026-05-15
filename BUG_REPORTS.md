@@ -15,6 +15,29 @@
   vpOffset > 0 lets a stray "+" through. Seed file is committed; bug needs
   investigation separately from scope work.
 
+- `TestProperty_DragAcrossModesNoPanic` fails on a second seed
+  (`testdata/rapid/TestProperty_DragAcrossModesNoPanic/...-20260515122534-4472.fail`):
+  `selectedText() contains character "x" not in viewport (mode=0)`. Same
+  family of bug as the previous entry — `selectedText` reads scrolled-off
+  content while the viewport-membership check only sees rendered output.
+  Surfaced by widening `genMockGit` to emit diverse unified-diff shapes
+  (the new `genUnifiedDiff` generator), which shifted the rapid RNG stream
+  and uncovered another drag clamp/coordinate gap. Seed config: FilesMode,
+  width=41 height=12, drag (1,7)→(2,2), longer-than-default fileContent
+  produced by the new diff generator. Pre-existing; fix lives with the
+  earlier entry.
+
+- `TestProperty_DragSelectsCorrectText` fails on a new rapid seed
+  (`testdata/rapid/TestProperty_DragSelectsCorrectText/...-20260515122504-4472.fail`):
+  highlight/selection mismatch when drag starts at `y=0` (the status-bar
+  row, above the content area). Model's `selectedText` includes the first
+  source line; the visual highlight only covers lines 2 and 3. Same
+  family as the `DragAcrossModesNoPanic` failures — model and renderer
+  disagree on how to clamp a drag that begins outside the content area.
+  Seed: width=60 height=15 wrap=true lineNums=false drag=(24,0)→(25,7),
+  fileContent of 6 long source lines that wrap to multiple visible rows.
+  Surfaced by the same `genUnifiedDiff` wiring as above. Pre-existing.
+
 ## Fixed Bugs
 
 - Scope handle on main/master/detached HEAD jumped to HEAD~362 on the first press of either `[` or `]`, then refused to advance: `loadLocalGitData` (and `loadMoreCommits`) used `AllCommits`/`CommitCount` whenever on a main-like branch, ignoring the scrubbed base, so `commitCount` always reported total-commits-in-repo. Compounding bug: `scope-contract-forward` used `m.commits[len-1]` to find the "next commit toward HEAD," but on main `m.commits` is the full history, so its oldest entry is the root commit — pressing `[` from any scope state jumped the handle straight to the root. Fixed by (a) switching on-main-like loads to base..HEAD when scrubbed (so `commitCount` reflects the scrub), and (b) replacing the `m.commits[len-1]` lookup with a new `git.FirstChildToward(base, head)` helper that walks one first-parent step toward HEAD. Regression tests cover all three observed symptoms.
