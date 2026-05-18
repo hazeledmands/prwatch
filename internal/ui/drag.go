@@ -22,9 +22,18 @@ const dragScrollInterval = 60 * time.Millisecond
 // frame as the mouse events. scrollDir is +1 to auto-scroll the viewport
 // down (drag past the bottom edge), -1 to scroll up, 0 when the drag end is
 // inside the viewport.
+//
+// originStartY records the screen Y at the moment Begin was called. Unlike
+// startY (which AdvanceAutoScroll decrements to re-anchor the click to its
+// absolute content row when the viewport scrolls), originStartY never
+// changes during the drag. SelectedText uses it to tell a click that
+// originated outside the content area (status bar / borders / title) from
+// a click that originated in content and was later scrolled above the
+// viewport — only the latter should pull its original row into the copy.
 type dragSelection struct {
 	startX, startY int
 	endX, endY     int
+	originStartY   int
 	active         bool
 	scrollDir      int
 }
@@ -41,7 +50,7 @@ type dragGeometry struct {
 }
 
 func newDragSelection() *dragSelection {
-	return &dragSelection{startX: -1, startY: -1}
+	return &dragSelection{startX: -1, startY: -1, originStartY: -1}
 }
 
 // Begin starts a drag at the given pixel position. The end is initialized
@@ -50,6 +59,7 @@ func (d *dragSelection) Begin(x, y int) {
 	d.active = true
 	d.scrollDir = 0
 	d.startX, d.startY = x, y
+	d.originStartY = y
 	d.endX, d.endY = x, y
 }
 
@@ -225,7 +235,8 @@ func (d *dragSelection) SelectedText(g dragGeometry) string {
 
 	startY, endY := d.startY, d.endY
 	startX, endX := d.startX, d.endX
-	if startY > endY || (startY == endY && startX > endX) {
+	swapped := startY > endY || (startY == endY && startX > endX)
+	if swapped {
 		startY, endY = endY, startY
 		startX, endX = endX, startX
 	}
@@ -239,12 +250,41 @@ func (d *dragSelection) SelectedText(g dragGeometry) string {
 		return ""
 	}
 
+	// Detect a drag whose "earlier" end (the swapped-min Y) originated
+	// outside the content area. originStartY records the un-adjusted screen
+	// Y at Begin time; endY is mutated only by MoveEnd, which doesn't apply
+	// the auto-scroll correction that distorts startY. We can therefore
+	// check each side directly and only clamp the side that was actually
+	// above content at the time of the drag.
+	anchorAboveContent := false
+	if swapped {
+		// After swap, local startY corresponds to d.endY (the drag end).
+		anchorAboveContent = d.endY < contentStartY
+	} else {
+		// No swap — local startY corresponds to the original click, whose
+		// screen-coord origin is d.originStartY (or d.startY when Begin
+		// hasn't been called; tests that bypass Begin leave originStartY at
+		// the -1 sentinel, in which case d.startY itself is the truth).
+		originY := d.originStartY
+		if originY < 0 {
+			originY = d.startY
+		}
+		anchorAboveContent = originY < contentStartY
+	}
+
 	vpOffset := g.pane.viewport.YOffset()
 	startY = vpOffset + (startY - contentStartY)
 	endY = vpOffset + (endY - contentStartY)
 	startX -= contentStartX
 	endX -= contentStartX
 
+	if anchorAboveContent {
+		// The user never saw any content above vpOffset; clamp to the first
+		// visible row rather than translating to a (possibly off-screen)
+		// absolute row. Matches ApplyHighlight's clamp to contentStartY.
+		startY = vpOffset
+		startX = 0
+	}
 	if startY < 0 {
 		startY = 0
 		startX = 0

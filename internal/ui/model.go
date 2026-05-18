@@ -1336,7 +1336,12 @@ func (m *Model) clearSearch() {
 }
 
 func (m *Model) statusBarLines() int {
-	return statusBarLineCount(statusBarData{info: m.repoInfo, pr: m.prInfo, prLoading: (m.loading || !m.prLoadedOnce) && m.git != nil})
+	return statusBarLineCount(statusBarData{
+		info:      m.repoInfo,
+		pr:        m.prInfo,
+		prError:   m.prError,
+		prLoading: (m.loading || !m.prLoadedOnce) && m.git != nil,
+	})
 }
 
 func (m *Model) sidebarPixelWidth() int {

@@ -2,43 +2,53 @@
 
 - renaming a file in git doesn't reflect properly in the sidebar.
 
-- `TestProperty_DragAcrossModesNoPanic` fails on a specific rapid seed
-  (`testdata/rapid/TestProperty_DragAcrossModesNoPanic/...-20260513172000-22131.fail`):
-  `selectedText() contains character "+" not in viewport (mode=1)` —
-  drag-selection returns content not visible on screen. Seed: width=40
-  height=11 y1=0 y2=10 x1=0 x2=0 (column drag covering most of a narrow
-  viewport) in CommitsMode with `hasAPIError=true`, `hasBaseCommits=false`.
-  Surfaced by `./scripts/rapid 100` during the Reading B / scope-encapsulation
-  refactor; underlying mismatch is pre-existing — `SelectedText` reads
-  `viewport.GetContent()` (full content, including scrolled-off lines) while
-  the test's viewport-membership check looks only at rendered output, so any
-  vpOffset > 0 lets a stray "+" through. Seed file is committed; bug needs
-  investigation separately from scope work.
-
-- `TestProperty_DragAcrossModesNoPanic` fails on a second seed
-  (`testdata/rapid/TestProperty_DragAcrossModesNoPanic/...-20260515122534-4472.fail`):
-  `selectedText() contains character "x" not in viewport (mode=0)`. Same
-  family of bug as the previous entry — `selectedText` reads scrolled-off
-  content while the viewport-membership check only sees rendered output.
-  Surfaced by widening `genMockGit` to emit diverse unified-diff shapes
-  (the new `genUnifiedDiff` generator), which shifted the rapid RNG stream
-  and uncovered another drag clamp/coordinate gap. Seed config: FilesMode,
-  width=41 height=12, drag (1,7)→(2,2), longer-than-default fileContent
-  produced by the new diff generator. Pre-existing; fix lives with the
-  earlier entry.
-
-- `TestProperty_DragSelectsCorrectText` fails on a new rapid seed
-  (`testdata/rapid/TestProperty_DragSelectsCorrectText/...-20260515122504-4472.fail`):
-  highlight/selection mismatch when drag starts at `y=0` (the status-bar
-  row, above the content area). Model's `selectedText` includes the first
-  source line; the visual highlight only covers lines 2 and 3. Same
-  family as the `DragAcrossModesNoPanic` failures — model and renderer
-  disagree on how to clamp a drag that begins outside the content area.
-  Seed: width=60 height=15 wrap=true lineNums=false drag=(24,0)→(25,7),
-  fileContent of 6 long source lines that wrap to multiple visible rows.
-  Surfaced by the same `genUnifiedDiff` wiring as above. Pre-existing.
+- `TestProperty_InteractionInvariants` fails on a rapid seed
+  (`testdata/rapid/TestProperty_InteractionInvariants/...-20260518112037-70712.fail`):
+  scroll-memory off-by-one when returning to a previously-visited file
+  whose diff produced a "tail" annotation past the last source line.
+  Seed: FilesMode, width=57 height=12, 10 random actions, `hasAPIError`,
+  `hasComments`; step 7 returns to file2.go and finds source line 4 at
+  top instead of the recorded 5. Bisected to commit a755699 (the
+  trailing-`-` renderer fix): the post-loop tail-row pass in
+  `applyFileViewFormatting` extends `formattedContent` past the source-
+  line range, and that interferes with how `ViewportToSourceLine` /
+  `ScrollToSourceLine` round-trip a saved source line via
+  `m.sourceToFormatLine`. Real users running into the INCONSISTENCIES.md
+  shape still see the deletions render; the regression is in the
+  test-only round-trip invariant for synthetic random action sequences.
+  Seed committed for replay; fix candidate is to update the
+  source↔format mapping when the tail rows are appended, or move the
+  rendering of "past-EOF" annotations onto a phantom source line so the
+  mapping stays consistent.
 
 ## Fixed Bugs
+
+- Drag-selection clamp diverged between the model's `selectedText` and the
+  visual `ApplyHighlight` when a drag started above the content area
+  (status bar / top border / title row) AND the viewport was scrolled
+  (`vpOffset > 0`). `ApplyHighlight` clamped startY to the first visible
+  row, but `selectedText` translated to `vpOffset + (startY - contentStartY)`
+  which could land on an absolute content row that was scrolled off above
+  the viewport — pulling content the user never saw into the copy. Fixed
+  by recording `originStartY` on `Begin()` (the un-adjusted screen Y at
+  click time, which `AdvanceAutoScroll` does NOT mutate) and using it in
+  `selectedText` to detect the "click began above content" case directly;
+  in that case clamp to `vpOffset` so the selection starts at the first
+  visible row, matching the visual highlight. The auto-scroll case
+  (original click was in content, viewport then moved out from under it)
+  is preserved — `originStartY ≥ contentStartY` still translates to the
+  absolute content row via the existing path. Three seeds (one each for
+  `TestProperty_DragAcrossModesNoPanic` from May 13 and May 15, and one
+  for `TestProperty_DragSelectsCorrectText`) replay cleanly with the fix.
+
+- `Model.statusBarLines()` diverged from `Model.updateLayout()` on how
+  many status-bar rows to count when there was a PR error but no PR
+  loading state — `statusBarLines` only passed `prLoading`, while
+  `updateLayout` passed `prError` too. Layout sized panes based on the
+  actual 3-row status bar while `dragGeom` reported 2 rows, so all
+  downstream callers (drag math, hit-testing) used a `contentStartY`
+  that was one row too high. Fixed by passing `prError` through
+  `statusBarLines` to match the rendering path.
 
 - Scope handle on main/master/detached HEAD jumped to HEAD~362 on the first press of either `[` or `]`, then refused to advance: `loadLocalGitData` (and `loadMoreCommits`) used `AllCommits`/`CommitCount` whenever on a main-like branch, ignoring the scrubbed base, so `commitCount` always reported total-commits-in-repo. Compounding bug: `scope-contract-forward` used `m.commits[len-1]` to find the "next commit toward HEAD," but on main `m.commits` is the full history, so its oldest entry is the root commit — pressing `[` from any scope state jumped the handle straight to the root. Fixed by (a) switching on-main-like loads to base..HEAD when scrubbed (so `commitCount` reflects the scrub), and (b) replacing the `m.commits[len-1]` lookup with a new `git.FirstChildToward(base, head)` helper that walks one first-parent step toward HEAD. Regression tests cover all three observed symptoms.
 

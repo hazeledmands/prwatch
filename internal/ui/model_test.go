@@ -7533,12 +7533,12 @@ func TestDragAutoScroll_SelectionSpansOffScreenStart(t *testing.T) {
 
 	contentStartY := m.statusBarLines() + 2 // +1 top border, +1 title row
 
-	// Click at the top of the visible content (line 0).
-	m.drag.active = true
-	m.drag.startX = m.sidebarPixelWidth() + 5
-	m.drag.startY = contentStartY
-	m.drag.endX = m.drag.startX
-	m.drag.endY = contentStartY
+	// Click at the top of the visible content (line 0). Use Begin so
+	// originStartY records the in-content origin — SelectedText relies
+	// on it to distinguish "click-then-auto-scrolled-above" (preserve the
+	// original row) from "click-began-above-content" (clamp to first
+	// visible row).
+	m.drag.Begin(m.sidebarPixelWidth()+5, contentStartY)
 
 	// Simulate the user dragging past the bottom enough to scroll off the
 	// click line. Each tick scrolls by one line and decrements dragStartY.
