@@ -1029,11 +1029,26 @@ func (m *mainPane) ViewportToSourceLine() int {
 			linesUsed = 1
 		}
 		if viewportLine+linesUsed > vpOffset {
-			// This formatted line contains the viewport offset
+			// This formatted line contains the viewport offset.
 			if src, ok := reverseMap[i]; ok {
 				return src
 			}
-			return i + 1
+			// No direct mapping for this formatted index — it's a
+			// rendered-only row (removed-line prefix above a source line,
+			// or a "tail" annotation past the last source line). Return the
+			// most recently mapped source line whose formatted index is
+			// ≤ i, matching the non-wrap branch above. Using `i + 1` as the
+			// fallback (the old behavior) returned the formatted index as
+			// if it were a source line, which happened to give the right
+			// answer for some shapes but broke the ScrollToSourceLine round
+			// trip when clamping landed yOffset on such an unmapped row.
+			best := 1
+			for formattedIdx, srcLine := range reverseMap {
+				if formattedIdx <= i && srcLine > best {
+					best = srcLine
+				}
+			}
+			return best
 		}
 		viewportLine += linesUsed
 	}

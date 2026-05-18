@@ -2,26 +2,24 @@
 
 - renaming a file in git doesn't reflect properly in the sidebar.
 
-- `TestProperty_InteractionInvariants` fails on a rapid seed
-  (`testdata/rapid/TestProperty_InteractionInvariants/...-20260518112037-70712.fail`):
-  scroll-memory off-by-one when returning to a previously-visited file
-  whose diff produced a "tail" annotation past the last source line.
-  Seed: FilesMode, width=57 height=12, 10 random actions, `hasAPIError`,
-  `hasComments`; step 7 returns to file2.go and finds source line 4 at
-  top instead of the recorded 5. Bisected to commit a755699 (the
-  trailing-`-` renderer fix): the post-loop tail-row pass in
-  `applyFileViewFormatting` extends `formattedContent` past the source-
-  line range, and that interferes with how `ViewportToSourceLine` /
-  `ScrollToSourceLine` round-trip a saved source line via
-  `m.sourceToFormatLine`. Real users running into the INCONSISTENCIES.md
-  shape still see the deletions render; the regression is in the
-  test-only round-trip invariant for synthetic random action sequences.
-  Seed committed for replay; fix candidate is to update the
-  source↔format mapping when the tail rows are appended, or move the
-  rendering of "past-EOF" annotations onto a phantom source line so the
-  mapping stays consistent.
-
 ## Fixed Bugs
+
+- `ViewportToSourceLine` (wrap branch) fell back to `i + 1` when the
+  viewport top landed on a formatted row with no direct source mapping
+  (a removed-line prefix above a source line, or a "tail" annotation
+  past the last source line). That returned the formatted index as if
+  it were a source line, which happened to round-trip with
+  `ScrollToSourceLine` for some shapes by coincidence, but broke when
+  the post-loop tail-row pass in `applyFileViewFormatting` (a755699)
+  shifted clamping by one row — saved at fallback-i+1, restored to a
+  position where `reverseMap` had a different direct hit. Fixed by
+  mirroring the non-wrap branch fallback ("closest source line with
+  formattedIdx ≤ i") so VTS returns the source line whose section
+  contains the viewport top, regardless of which row inside that
+  section we landed on. The
+  `testdata/rapid/TestProperty_InteractionInvariants/...-20260518112037-70712.fail`
+  seed now replays cleanly; 500-iter sweep across `InteractionInvariants`
+  + the drag property tests is green.
 
 - Drag-selection clamp diverged between the model's `selectedText` and the
   visual `ApplyHighlight` when a drag started above the content area
