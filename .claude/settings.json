@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./scripts/rapid:*)"
+      "Bash(./scripts/rapid:*)",
+      "Bash(head:*)",
+      "Bash(grep:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(sort:*)",
+      "Bash(find:*)"
     ]
   }
 }
