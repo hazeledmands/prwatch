@@ -24,6 +24,16 @@ need to reproduce it.
 Run `./scripts/rapid` for thorough property-test sweeps. Do not invoke
 `PRWATCH_RAPID_CHECKS=N go test ...` directly.
 
+## Don't chain Bash commands with `;` or `&&`
+
+Issue one command per Bash tool call. Even when each chained command would
+be auto-allowed individually (`git log`, `git status`, `echo`, `cat`), the
+permission validator evaluates the whole compound line and asks because no
+allowlist pattern covers the chained form. Two consecutive Bash calls each
+matching their own pattern is silent; one compound call prompts. Reach for
+chaining only when the commands genuinely need to share shell state (e.g.
+`cd dir && test ...`).
+
 ## Spec is in PROMPT.md
 
 `PROMPT.md` is the product spec — source of truth, do not edit. Use:
