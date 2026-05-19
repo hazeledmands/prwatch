@@ -551,6 +551,152 @@ func TestTitle_FilesMode_Diff_Committed_PrependsShaAndTime(t *testing.T) {
 	}
 }
 
+// Pure rename (no content changes) in the working tree: title left shows
+// "<old> → <new>"; right side reads "renamed · uncommitted · <time>".
+func TestTitle_FilesMode_Rename_WorkingTree_PureNoEdits(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "new.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mtime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "main"},
+		base:     "origin/main",
+		changedFiles: git.ChangedFilesResult{
+			Uncommitted: []string{"new.go"},
+			Renamed:     []git.Rename{{Old: "old.go", New: "new.go"}},
+		},
+		fileContent:          "package main\n",
+		fileDiff:             "",
+		lastCommitForFileErr: errors.New("untracked"),
+	}
+	m := NewModel(dir, mock)
+	m.width = 100
+	m.height = 30
+	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.mode = FilesMode
+	m.updateLayout()
+	m.uncommittedFiles = []string{"new.go"}
+	m.renamedFiles = mock.changedFiles.Renamed
+	m.allFiles = []string{"new.go"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "new.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	if got, want := m.mainPane.titleLeft, "old.go → new.go"; got != want {
+		t.Errorf("rename titleLeft: got %q, want %q", got, want)
+	}
+	got := m.mainPane.hunkTitleRight()
+	if !regexp.MustCompile(`^renamed · uncommitted · \S+ ago$`).MatchString(got) {
+		t.Errorf("rename no-diff right: got %q, want 'renamed · uncommitted · <time>'", got)
+	}
+}
+
+// Pure rename committed: right side reads "renamed · <sha7> · <time>".
+func TestTitle_FilesMode_Rename_Committed_PureNoEdits(t *testing.T) {
+	authoredAt := time.Now().Add(-3 * time.Hour)
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "main"},
+		base:     "origin/main",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"new.go"},
+			Renamed:   []git.Rename{{Old: "old.go", New: "new.go"}},
+		},
+		fileContent:       "package main\n",
+		fileDiff:          "",
+		lastCommitForFile: git.Commit{SHA: "deadbeef0123456", AuthorDate: authoredAt, Author: "hazel", Subject: "rename"},
+	}
+	m := newTitleTestModel(t, mock, FilesMode)
+	m.committedFiles = []string{"new.go"}
+	m.renamedFiles = mock.changedFiles.Renamed
+	m.allFiles = []string{"new.go"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "new.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	if got, want := m.mainPane.titleLeft, "old.go → new.go"; got != want {
+		t.Errorf("rename titleLeft: got %q, want %q", got, want)
+	}
+	got := m.mainPane.hunkTitleRight()
+	if !regexp.MustCompile(`^renamed · deadbee · \S+ ago$`).MatchString(got) {
+		t.Errorf("committed pure-rename right: got %q, want 'renamed · deadbee · <time>'", got)
+	}
+}
+
+// Rename with content edits: title left still shows the arrow; right side
+// uses the regular hunk-position metadata (rename doesn't suppress edit info).
+func TestTitle_FilesMode_Rename_WithEdits(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "new.go")
+	if err := os.WriteFile(path, []byte("package main\n// edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mtime := time.Now().Add(-1 * time.Hour)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	diff := `diff --git a/old.go b/new.go
+similarity index 70%
+rename from old.go
+rename to new.go
+--- a/old.go
++++ b/new.go
+@@ -1,1 +1,2 @@
+ package main
++// edit
+`
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "main"},
+		base:     "origin/main",
+		changedFiles: git.ChangedFilesResult{
+			Uncommitted: []string{"new.go"},
+			Renamed:     []git.Rename{{Old: "old.go", New: "new.go"}},
+		},
+		fileContent:          "package main\n// edit\n",
+		fileDiff:             diff,
+		lastCommitForFileErr: errors.New("untracked"),
+	}
+	m := NewModel(dir, mock)
+	m.width = 100
+	m.height = 30
+	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.mode = FilesMode
+	m.updateLayout()
+	m.uncommittedFiles = []string{"new.go"}
+	m.renamedFiles = mock.changedFiles.Renamed
+	m.allFiles = []string{"new.go"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "new.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	if got, want := m.mainPane.titleLeft, "old.go → new.go"; got != want {
+		t.Errorf("rename+edits titleLeft: got %q, want %q", got, want)
+	}
+	titleRow := strings.Split(stripANSI(m.mainPane.View(false)), "\n")[1]
+	if !regexp.MustCompile(`uncommitted · \S+ ago · hunk 1/1`).MatchString(titleRow) {
+		t.Errorf("rename+edits right: got %q, want 'uncommitted · <time> ago · hunk 1/1'", titleRow)
+	}
+}
+
 // When the prefix is set but no hunks are present, View() must NOT prepend
 // the prefix (the right side falls back to noHunkRight).
 func TestMainPane_DiffPrefix_OmittedWhenNoHunks(t *testing.T) {
