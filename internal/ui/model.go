@@ -1797,11 +1797,11 @@ func (m *Model) fileItemKind(file string, defaultKind sidebarItemKind) sidebarIt
 }
 
 func (m *Model) changeBadge(file string) string {
-	return changeBadgeFor(file, m.deletedFiles, m.addedFiles, m.committedFiles, m.uncommittedFiles, m.stagedFiles)
+	return changeBadgeFor(file, m.deletedFiles, m.addedFiles, m.committedFiles, m.uncommittedFiles, m.stagedFiles, m.renamedFiles)
 }
 
 func (m *Model) applyChangeBadges(items []sidebarItem) []sidebarItem {
-	return applyChangeBadges(items, m.deletedFiles, m.addedFiles, m.committedFiles, m.uncommittedFiles, m.stagedFiles)
+	return applyChangeBadges(items, m.deletedFiles, m.addedFiles, m.committedFiles, m.uncommittedFiles, m.stagedFiles, m.renamedFiles)
 }
 
 func (m *Model) isCommittedFile(file string) bool {
@@ -1864,7 +1864,7 @@ func (m *Model) updateSidebarItems() {
 			m.uncommittedFiles, m.stagedFiles, m.committedFiles, m.allFiles,
 			m.ignoredFiles, m.ignoredDirs, m.collapsedDirs,
 			m.showIgnored, m.git != nil,
-			m.deletedFiles, m.addedFiles,
+			m.deletedFiles, m.addedFiles, m.renamedFiles,
 			m.isDeletedFile,
 		)
 		m.sidebar.SetItems(items)

@@ -11,8 +11,9 @@ import (
 // lazily initializes collapse state for newly-seen directories — the collapsed
 // map is mutated in place.
 //
-// changedSection passes deleted+added+committed+uncommitted+staged through to
-// applyChangeBadges so the [-]/[+]/[±] suffixes can be applied to file items.
+// changedSection passes deleted+added+committed+uncommitted+staged+renamed
+// through to applyChangeBadges so the [-]/[+]/[±]/[→] suffixes can be
+// applied to file items.
 func buildFilesSidebar(
 	uncommitted, staged, committed, allFiles []string,
 	ignoredFiles map[string]bool,
@@ -20,6 +21,7 @@ func buildFilesSidebar(
 	collapsed map[string]bool,
 	showIgnored, isGit bool,
 	deleted, added []string,
+	renamed []gitpkg.Rename,
 	deletedFn func(file string) bool,
 ) []sidebarItem {
 	changedSet := make(map[string]bool, len(uncommitted)+len(staged)+len(committed))
@@ -124,7 +126,7 @@ func buildFilesSidebar(
 		items = append(items, buildTreeItems(otherFiles, itemNormal, sectionAllFiles, collapsed, ignoredDirs, otherKind)...)
 	}
 
-	return applyChangeBadges(items, deleted, added, committed, uncommitted, staged)
+	return applyChangeBadges(items, deleted, added, committed, uncommitted, staged, renamed)
 }
 
 // buildCommitsSidebar constructs the sidebar for commits mode.
