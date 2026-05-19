@@ -574,6 +574,8 @@ func checkBottomBorder(t *rapid.T, m *Model, context string) {
 // checkChangeBadgeInvariants verifies that files in the New Changes, Staged,
 // and Committed sections of the sidebar carry a change-type badge in their
 // suffix, and that the badge matches the change type:
+//   - Renamed files (from ChangedFilesResult.Renamed) must show [→] — takes
+//     precedence over the additive/deletive/modifying badges below
 //   - Deleted files (from ChangedFilesResult.Deleted) must show [-]
 //   - Uncommitted (untracked/unstaged) files must show [+]
 //   - Other files in changed sections must show either [+] or [±]
@@ -592,6 +594,10 @@ func checkChangeBadgeInvariants(t *rapid.T, m *Model, context string) {
 	uncommittedSet := make(map[string]bool)
 	for _, f := range m.uncommittedFiles {
 		uncommittedSet[f] = true
+	}
+	renamedSet := make(map[string]bool)
+	for _, r := range m.renamedFiles {
+		renamedSet[r.New] = true
 	}
 
 	// Walk items tracking the current section header.
@@ -621,6 +627,11 @@ func checkChangeBadgeInvariants(t *rapid.T, m *Model, context string) {
 		}
 
 		switch {
+		case renamedSet[item.filePath]:
+			if suffix != "[→]" {
+				t.Fatalf("%s: renamed file %q should have badge [→] but got %q",
+					context, item.filePath, suffix)
+			}
 		case deletedSet[item.filePath]:
 			if suffix != "[-]" {
 				t.Fatalf("%s: deleted file %q should have badge [-] but got %q",
@@ -640,12 +651,83 @@ func checkChangeBadgeInvariants(t *rapid.T, m *Model, context string) {
 	}
 }
 
+// checkRenameInvariants verifies that renamed files render correctly:
+//   - Each rename target appears exactly once in the sidebar's changed sections
+//     (with filePath == new path)
+//   - The old path of a rename does not leak into any sidebar section
+//   - When a renamed file is the selected sidebar item, the main pane's
+//     titleLeft is "<old> → <new>"
+//
+// Only runs in FilesMode.
+func checkRenameInvariants(t *rapid.T, m *Model, context string) {
+	t.Helper()
+	if m.mode != FilesMode {
+		return
+	}
+	if len(m.renamedFiles) == 0 {
+		return
+	}
+
+	renameByNew := make(map[string]string, len(m.renamedFiles))
+	oldPaths := make(map[string]string, len(m.renamedFiles)) // old → new (for error messages)
+	for _, r := range m.renamedFiles {
+		renameByNew[r.New] = r.Old
+		oldPaths[r.Old] = r.New
+	}
+
+	newCount := make(map[string]int)
+	for _, item := range m.sidebar.items {
+		if !item.kind.selectable() || item.filePath == "" {
+			continue
+		}
+		// Only count in changed sections (the "All Files" section may include
+		// the new path again as the unchanged listing).
+		// We can't easily inspect the section here without retracking the
+		// header, so instead use the heuristic: items with a non-empty suffix
+		// are in changed sections (since applyChangeBadges only annotates
+		// those).
+		if strings.TrimSpace(item.suffix) == "" {
+			continue
+		}
+		if _, ok := renameByNew[item.filePath]; ok {
+			newCount[item.filePath]++
+		}
+		if newPath, ok := oldPaths[item.filePath]; ok {
+			t.Fatalf("%s: old rename path %q leaked into sidebar (rename: %q → %q)",
+				context, item.filePath, item.filePath, newPath)
+		}
+	}
+	for _, r := range m.renamedFiles {
+		switch newCount[r.New] {
+		case 0:
+			t.Fatalf("%s: renamed file %q (from %q) missing from sidebar changed sections",
+				context, r.New, r.Old)
+		case 1:
+			// expected
+		default:
+			t.Fatalf("%s: renamed file %q appears %d times in sidebar changed sections (expected 1)",
+				context, r.New, newCount[r.New])
+		}
+	}
+
+	// Title-bar arrow when a renamed file is selected.
+	selected := m.sidebar.SelectedItem()
+	if old, ok := renameByNew[selected]; ok {
+		expected := old + " → " + selected
+		if m.mainPane.titleLeft != expected {
+			t.Fatalf("%s: selected rename %q has titleLeft %q, expected %q",
+				context, selected, m.mainPane.titleLeft, expected)
+		}
+	}
+}
+
 func checkAllInvariants(t *rapid.T, m *Model, context string) {
 	t.Helper()
 	checkRenderInvariants(t, m, context)
 	checkSidebarInvariants(t, m, context)
 	checkBottomBorder(t, m, context)
 	checkChangeBadgeInvariants(t, m, context)
+	checkRenameInvariants(t, m, context)
 }
 
 // ---------------------------------------------------------------------------
