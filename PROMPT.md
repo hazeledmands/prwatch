@@ -119,7 +119,9 @@ deleted files should still show up in this view, but they should be red.
 
 the main pane should be the currently-selected file, and it should highlight the diff for the current changeset.
 
-title bar: file path on the left. on the right:
+renames are detected via git's similarity heuristic and treated as a single change rather than a delete + add. detection runs over working-tree state too (not just staged/committed), so a `mv` shows as one entry whether or not it's been `git add`-ed. the sidebar entry sits in the section appropriate to its newest state (new changes → staged → committed) and shows the new path; the old path surfaces in the title bar. a rename combined with content edits is still one entry, with the diff displayed as usual.
+
+title bar: file path on the left — for renamed files, the left side shows `<old-path> → <new-path>` instead of a single path. on the right:
 - when the file has a diff, derived from the visible viewport range against the file's hunk list:
   - single hunk visible: `hunk N/M`
   - multiple hunks visible: `viewing hunks N through M`
@@ -130,6 +132,7 @@ title bar: file path on the left. on the right:
 - when the file has no diff:
   - `<sha7> · <relative-time>` for tracked files (most recent commit touching the file)
   - `untracked · <relative-time>` for untracked files (working-tree mtime)
+  - `renamed · <uncommitted|sha7> · <relative-time>` for files renamed with no content changes (a pure `mv`). uncommitted form for working-tree or staged renames; sha7 form for renames that landed in a commit.
   - binary files prefix the result: `binary · <sha7> · <relative-time>` or `binary · untracked · <relative-time>`. binary files always render via this no-diff format regardless of whether they have a diff, since their content can't be hunk-displayed.
   - falls back to `no changes` if nothing is available
 - the right side is followed by ` · N%`, the user's progress through the file based on the bottom-most visible source line. 100% means the last line is in view; empty content or content that fits entirely in the viewport both report 100%.
@@ -138,6 +141,7 @@ change-type indicators: in the new changes, staged, and committed sections, each
   - `[-]` in red for files that are entirely deletions (file was removed or diff is all removals)
   - `[+]` in green for entirely new files (file was added or diff is all additions)
   - `[±]` in the default color for files with a mix of additions and deletions
+  - `[→]` in the default color for renamed files (with or without content changes). takes precedence over `[+]`/`[-]`/`[±]` — a rename plus edits is still primarily a rename.
 
 `toggle-ignored` should toggle on/off view of gitignored files in all files mode. the default setting should be to show ignored files. ignored files should show up in a dimmed color.
 
