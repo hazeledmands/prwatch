@@ -10,5 +10,18 @@
       "Bash(sort:*)",
       "Bash(find:*)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/hooks/block-rapid-env.sh"
+          }
+        ]
+      }
+    ]
   }
 }
