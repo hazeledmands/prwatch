@@ -19,10 +19,17 @@ bug or log it in `BUG_REPORTS.md`. Hiding a discovered failure by removing
 its seed file means the bug will keep biting and we lose the seed we'd
 need to reproduce it.
 
-## Heavy property runs use `./scripts/rapid`
+## All rapid runs go through `./scripts/rapid`
 
-Run `./scripts/rapid` for thorough property-test sweeps. Do not invoke
-`PRWATCH_RAPID_CHECKS=N go test ...` directly.
+Any time you'd set `PRWATCH_RAPID_CHECKS`, use `./scripts/rapid` instead —
+this applies to focused single-test runs at low counts, not just big
+sweeps. The inline `PRWATCH_RAPID_CHECKS=N go test ...` form triggers a
+permission prompt; the script does not.
+
+The script forwards `-run`, `-v`, `-timeout`, etc. to `go test`:
+- `./scripts/rapid` — default 200 iterations, all rapid tests
+- `./scripts/rapid 50 -run TestProperty_TreeModeNavigation -v` — focused
+- `./scripts/rapid 1000 -run TestRenderTitleRow` — heavy, single test
 
 ## Don't chain Bash commands with `;` or `&&`
 
