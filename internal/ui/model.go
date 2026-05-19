@@ -98,6 +98,7 @@ type Model struct {
 	stagedFiles        []string        // staged but uncommitted
 	deletedFiles       []string        // files deleted in base..HEAD
 	addedFiles         []string        // files that are entirely new additions
+	renamedFiles       []gitpkg.Rename // files renamed (in any of base..HEAD, staged, or working tree)
 	allFiles           []string        // all files in the repo (for files mode)
 	ignoredFiles       map[string]bool // gitignored files (for dimming in all-files view)
 	ignoredDirs        map[string]bool // ignored entries that are directories — render as expandable
@@ -182,6 +183,7 @@ type gitDataMsg struct {
 	stagedFiles      []string
 	deletedFiles     []string
 	addedFiles       []string
+	renamedFiles     []gitpkg.Rename
 	allFiles         []string
 	ignoredFiles     map[string]bool
 	ignoredDirs      map[string]bool // subset of ignoredFiles whose entries are directories
@@ -518,6 +520,7 @@ func (m *Model) loadGitData() tea.Msg {
 		stagedFiles:      files.Staged,
 		deletedFiles:     files.Deleted,
 		addedFiles:       files.Added,
+		renamedFiles:     files.Renamed,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
@@ -634,6 +637,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		stagedFiles:      files.Staged,
 		deletedFiles:     files.Deleted,
 		addedFiles:       files.Added,
+		renamedFiles:     files.Renamed,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
@@ -770,6 +774,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stagedFiles = msg.stagedFiles
 		m.deletedFiles = msg.deletedFiles
 		m.addedFiles = msg.addedFiles
+		m.renamedFiles = msg.renamedFiles
 		m.allFiles = msg.allFiles
 		// Snapshot deep paths from the previous ignoredFiles before we
 		// overwrite — we need to reattach them after the new top-level set

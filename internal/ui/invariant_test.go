@@ -179,6 +179,36 @@ func genMockGit(t *rapid.T) *mockGit {
 			added = append(added, f)
 		}
 	}
+	// Randomly mark some files in each changed bucket as renames. A renamed
+	// file's new path stays in its original bucket; we record the old path in
+	// `renamed` and strip the file from `added`/`deleted` (a rename is neither).
+	var renamed []git.Rename
+	renameTargets := make(map[string]bool) // new paths that are rename targets
+	pickRenames := func(bucket []string, tag string) {
+		for _, f := range bucket {
+			if rapid.Float64Range(0, 1).Draw(t, "rename_"+tag+"_"+f) < 0.25 {
+				renamed = append(renamed, git.Rename{Old: "old_" + f, New: f})
+				renameTargets[f] = true
+			}
+		}
+	}
+	pickRenames(uncommitted, "u")
+	pickRenames(staged, "s")
+	pickRenames(committed, "c")
+	if len(renameTargets) > 0 {
+		stripRenames := func(in []string) []string {
+			out := make([]string, 0, len(in))
+			for _, f := range in {
+				if !renameTargets[f] {
+					out = append(out, f)
+				}
+			}
+			return out
+		}
+		added = stripRenames(added)
+		deleted = stripRenames(deleted)
+	}
+
 	// Generate unchanged files that only appear in the "All Files" section
 	nOther := rapid.IntRange(0, 15).Draw(t, "nOtherFiles")
 	otherFiles := make([]string, nOther)
@@ -263,6 +293,7 @@ func genMockGit(t *rapid.T) *mockGit {
 			Staged:      staged,
 			Deleted:     deleted,
 			Added:       added,
+			Renamed:     renamed,
 		},
 		commits:      commits,
 		allFiles:     allFiles,

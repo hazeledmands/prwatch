@@ -318,6 +318,15 @@ func (g *Git) BehindCount(baseRef string) int {
 	return count
 }
 
+// Rename describes a file that was renamed from Old to New. The New path
+// appears in exactly one of Committed/Uncommitted/Staged; the Old path does
+// not appear in Deleted (it isn't a deletion) and the New path does not
+// appear in Added (it isn't a new file).
+type Rename struct {
+	Old string
+	New string
+}
+
 // ChangedFilesResult separates committed and uncommitted file changes.
 type ChangedFilesResult struct {
 	Committed   []string // files changed in base..HEAD only
@@ -325,6 +334,7 @@ type ChangedFilesResult struct {
 	Staged      []string // staged but uncommitted files
 	Deleted     []string // files deleted in base..HEAD (subset of Committed)
 	Added       []string // files that are entirely new additions (untracked, newly added in staged, or pure-add in base..HEAD)
+	Renamed     []Rename // files renamed in base..HEAD, staged index, or working tree. Indexed by new path.
 }
 
 // ChangedFiles returns files changed between base and HEAD, separated by commit status.
