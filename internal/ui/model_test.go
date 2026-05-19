@@ -679,11 +679,13 @@ func TestScope_StaleLoadDoesNotOverwriteScrubbedBase(t *testing.T) {
 	// A periodic tick's loadLocalGitData, dispatched BEFORE the scope keypress,
 	// finally returns. queryOldBase reflects the pre-scrub state. Without the
 	// stale-load guard, the handler would overwrite the scrubbed scope state.
+	staleChanges := git.NewChangedFiles()
+	staleChanges.Add(git.ChangedFile{Path: "old-file.go", Section: git.SectionCommitted, Class: git.ClassModified})
 	staleMsg := gitDataMsg{
 		repoInfo:       git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
 		queryOldBase:   "natural-sha",
 		naturalOldBase: "natural-sha",
-		committedFiles: []string{"old-file.go"},
+		changes:        staleChanges,
 		localOnly:      true,
 	}
 	m.Update(staleMsg)
@@ -693,10 +695,8 @@ func TestScope_StaleLoadDoesNotOverwriteScrubbedBase(t *testing.T) {
 	}
 	// File lists from the stale load must also be discarded so the UI
 	// doesn't briefly show the wrong scope's content.
-	for _, f := range m.committedFiles {
-		if f == "old-file.go" {
-			t.Errorf("stale committedFiles applied; got %v", m.committedFiles)
-		}
+	if _, ok := m.changes.Get("old-file.go"); ok {
+		t.Errorf("stale committedFiles applied; m.changes still contains old-file.go")
 	}
 }
 
@@ -1560,11 +1560,12 @@ func TestGitDataMsg(t *testing.T) {
 	m.updateLayout()
 
 	msg := gitDataMsg{
-		repoInfo:         git.RepoInfoResult{Branch: "test", RepoName: "repo"},
-		queryOldBase:     "abc123",
-		naturalOldBase:   "abc123",
-		committedFiles:   []string{"file1.go", "file2.go"},
-		uncommittedFiles: []string{"file3.go"},
+		repoInfo:       git.RepoInfoResult{Branch: "test", RepoName: "repo"},
+		queryOldBase:   "abc123",
+		naturalOldBase: "abc123",
+		changes: changesFromSlices(
+			[]string{"file1.go", "file2.go"}, []string{"file3.go"}, nil, nil, nil, nil,
+		),
 	}
 	result, _ := m.Update(msg)
 	m = result.(*Model)
@@ -1572,7 +1573,7 @@ func TestGitDataMsg(t *testing.T) {
 	if m.repoInfo.Branch != "test" {
 		t.Error("should store repo info")
 	}
-	if len(m.committedFiles) != 2 {
+	if len(m.changes.InSection(git.SectionCommitted)) != 2 {
 		t.Error("should store committed files")
 	}
 }
@@ -1668,8 +1669,9 @@ func TestInit_NonGit(t *testing.T) {
 	if dataMsg.err != nil {
 		t.Fatal(dataMsg.err)
 	}
-	if len(dataMsg.uncommittedFiles) != 2 {
-		t.Errorf("expected 2 files, got %d: %v", len(dataMsg.uncommittedFiles), dataMsg.uncommittedFiles)
+	uncCount := len(dataMsg.changes.InSection(git.SectionUncommitted))
+	if uncCount != 2 {
+		t.Errorf("expected 2 files, got %d", uncCount)
 	}
 }
 
@@ -1683,7 +1685,7 @@ func TestUpdateMainContent_NonGit(t *testing.T) {
 	m.updateLayout()
 
 	// Simulate receiving file data
-	m.uncommittedFiles = []string{"test.txt"}
+	putChanges(m, git.SectionUncommitted, git.ClassAdded, "test.txt")
 	m.updateSidebarItems()
 	m.updateMainContent()
 
@@ -1722,8 +1724,8 @@ func TestUpdateMainContent_CommitMode(t *testing.T) {
 
 func TestUpdateSidebarItems_FileMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.committedFiles = []string{"b.go", "a.go"}
-	m.uncommittedFiles = []string{"z.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "b.go", "a.go")
+	putChanges(m, git.SectionUncommitted, git.ClassAdded, "z.go")
 	m.mode = FilesMode
 
 	m.updateSidebarItems()
@@ -2120,7 +2122,7 @@ func TestLoadGitData_RealRepo(t *testing.T) {
 	if dataMsg.queryOldBase == "" {
 		t.Error("queryOldBase should not be empty")
 	}
-	if len(dataMsg.committedFiles) == 0 {
+	if len(dataMsg.changes.InSection(git.SectionCommitted)) == 0 {
 		t.Error("should have committed files")
 	}
 }
@@ -2172,7 +2174,7 @@ func TestUpdateMainContent_FileViewWithGit(t *testing.T) {
 
 func TestHandleKey_DownInSidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.committedFiles = []string{"a.go", "b.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "a.go", "b.go")
 	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
@@ -2187,7 +2189,7 @@ func TestHandleKey_DownInSidebar(t *testing.T) {
 
 func TestHandleKey_UpInSidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.committedFiles = []string{"a.go", "b.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "a.go", "b.go")
 	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
@@ -2225,7 +2227,7 @@ func TestTabTogglesFocus(t *testing.T) {
 
 func TestG_GoToTop_Sidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.committedFiles = []string{"a.go", "b.go", "c.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "a.go", "b.go", "c.go")
 	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
@@ -2247,7 +2249,7 @@ func TestG_GoToTop_Sidebar(t *testing.T) {
 
 func TestG_GoToBottom_Sidebar(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.committedFiles = []string{"a.go", "b.go", "c.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "a.go", "b.go", "c.go")
 	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = SidebarFocus
@@ -2500,7 +2502,7 @@ func TestMouseClick_Sidebar(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.committedFiles = []string{"a.go", "b.go", "c.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "a.go", "b.go", "c.go")
 	m.mode = FilesMode
 	m.updateSidebarItems()
 	m.focus = MainFocus
@@ -2539,7 +2541,7 @@ func TestMouseClick_DirectoryToggle(t *testing.T) {
 	m.mode = FilesMode
 	// Need multiple files under one directory to create an expandable dir node
 	// (single-leaf dirs get compacted into a single line)
-	m.committedFiles = []string{"pkg/foo.go", "pkg/bar.go", "main.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "pkg/foo.go", "pkg/bar.go", "main.go")
 	m.updateLayout()
 	m.updateSidebarItems()
 
@@ -2814,7 +2816,7 @@ func TestMouseWheel_Sidebar(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.committedFiles = []string{"a.go", "b.go", "c.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "a.go", "b.go", "c.go")
 	m.mode = FilesMode
 	m.updateSidebarItems()
 
@@ -3008,7 +3010,7 @@ func TestUpdateMainContent_NonGit_BadFile(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 	m.mode = FilesMode
-	m.uncommittedFiles = []string{"nonexistent_file.xyz"}
+	putChanges(m, git.SectionUncommitted, git.ClassAdded, "nonexistent_file.xyz")
 	m.updateSidebarItems()
 	m.updateMainContent()
 	// Should show error in content
@@ -3076,7 +3078,7 @@ func TestCurrentLineNumber_EmptyContent(t *testing.T) {
 
 func TestModeSwitching_RetainsFileSelection(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.committedFiles = []string{"a.go", "b.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "a.go", "b.go")
 	m.mode = FilesMode
 	m.updateSidebarItems()
 
@@ -3228,7 +3230,7 @@ func TestUpdateMainContent_FileView_WithGitAndError(t *testing.T) {
 	m.updateLayout()
 	m.scope.SyncFromLoad("HEAD", "", 0, 0)
 	m.mode = FilesMode
-	m.committedFiles = []string{"nonexistent_file.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "nonexistent_file.go")
 	m.updateSidebarItems()
 	m.updateMainContent()
 	// FileContent will try to read from disk, fail, and fall back to git show,
@@ -3311,7 +3313,7 @@ func TestLoadGitData_Success(t *testing.T) {
 	if dataMsg.repoInfo.Branch != "feature" {
 		t.Error("should have repo info")
 	}
-	if len(dataMsg.committedFiles) != 1 {
+	if len(dataMsg.changes.InSection(git.SectionCommitted)) != 1 {
 		t.Error("should have committed files")
 	}
 }
@@ -3348,7 +3350,7 @@ func TestUpdateMainContent_WithMockGit_FileContentError(t *testing.T) {
 	m.scope.SyncFromLoad("abc", "", 0, 0)
 	m.updateLayout()
 	m.mode = FilesMode
-	m.committedFiles = []string{"file.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "file.go")
 	m.updateSidebarItems()
 	m.updateMainContent()
 	if !strings.Contains(m.mainPane.content, "Error") {
@@ -3368,7 +3370,7 @@ func TestUpdateMainContent_WithMockGit_FileViewSuccess(t *testing.T) {
 	m.scope.SyncFromLoad("abc", "", 0, 0)
 	m.updateLayout()
 	m.mode = FilesMode
-	m.committedFiles = []string{"main.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "main.go")
 	m.updateSidebarItems()
 	m.updateMainContent()
 	if !strings.Contains(m.mainPane.content, "package main") {
@@ -3458,23 +3460,21 @@ func TestLoadNonGitFiles_RecursiveWalk(t *testing.T) {
 		"subdir/child.txt":       true,
 		"subdir/nested/deep.txt": true,
 	}
-	if len(dataMsg.uncommittedFiles) != len(expected) {
-		t.Errorf("expected %d files, got %d: %v", len(expected), len(dataMsg.uncommittedFiles), dataMsg.uncommittedFiles)
+	got := dataMsg.changes.InSection(git.SectionUncommitted)
+	if len(got) != len(expected) {
+		paths := make([]string, len(got))
+		for i, f := range got {
+			paths[i] = f.Path
+		}
+		t.Errorf("expected %d files, got %d: %v", len(expected), len(got), paths)
 	}
-	for _, f := range dataMsg.uncommittedFiles {
-		if !expected[f] {
-			t.Errorf("unexpected file %q", f)
+	for _, f := range got {
+		if !expected[f.Path] {
+			t.Errorf("unexpected file %q", f.Path)
 		}
 	}
 	for f := range expected {
-		found := false
-		for _, got := range dataMsg.uncommittedFiles {
-			if got == f {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if _, ok := dataMsg.changes.Get(f); !ok {
 			t.Errorf("missing expected file %q", f)
 		}
 	}
@@ -5547,7 +5547,7 @@ func TestHandleSidebarRight_LeafSwitchesToMain(t *testing.T) {
 	m.collapsedDirs = make(map[string]bool)
 	m.mode = FilesMode
 	m.focus = SidebarFocus
-	m.committedFiles = []string{"file.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "file.go")
 	m.updateLayout()
 	m.updateSidebarItems()
 
@@ -5572,7 +5572,7 @@ func TestHandleEnter_MainPane_FileMode_OpensEditor(t *testing.T) {
 	m.loading = false
 	m.mode = FilesMode
 	m.focus = MainFocus
-	m.committedFiles = []string{"file.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "file.go")
 	m.updateLayout()
 	m.updateSidebarItems()
 	m.mainPane.SetContent("line1\nline2\nline3")
@@ -7090,7 +7090,7 @@ func TestYankPath_SidebarFocused(t *testing.T) {
 	m.loading = false
 	m.mode = FilesMode
 	m.focus = SidebarFocus
-	m.committedFiles = []string{"internal/auth.go", "config.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "internal/auth.go", "config.go")
 	m.updateLayout()
 	m.updateSidebarItems()
 
@@ -7119,7 +7119,7 @@ func TestYankPath_MainPaneFocused(t *testing.T) {
 	m.loading = false
 	m.mode = FilesMode
 	m.focus = MainFocus
-	m.committedFiles = []string{"auth.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "auth.go")
 	m.updateLayout()
 	m.updateSidebarItems()
 	m.mainPane.SetContent("line1\nline2\nline3\nline4\nline5")
@@ -7146,7 +7146,7 @@ func TestYankPath_DirectoryIgnored(t *testing.T) {
 	m.collapsedDirs = make(map[string]bool)
 	m.mode = FilesMode
 	m.focus = SidebarFocus
-	m.committedFiles = []string{"pkg/foo.go", "pkg/bar.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "pkg/foo.go", "pkg/bar.go")
 	m.updateLayout()
 	m.updateSidebarItems()
 

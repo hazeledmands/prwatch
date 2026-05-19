@@ -330,20 +330,24 @@ type Rename struct {
 	Pure bool
 }
 
-// ChangedFilesResult separates committed and uncommitted file changes.
-//
-// The slice fields are the legacy shape; new code should consume Files
-// (a unified per-file view that captures section + class + rename info in
-// one place). The slices and Files are populated in parallel and describe
-// the same set of changes.
+// ChangedFilesResult is the raw shape returned by git.ChangedFiles, with one
+// slice per section/class bucket. Production callers should immediately
+// convert to the unified per-file view via ToChangedFiles; the slice shape
+// remains primarily because it's convenient for mocks and tests to construct.
 type ChangedFilesResult struct {
-	Committed   []string      // files changed in base..HEAD only
-	Uncommitted []string      // unstaged or untracked files (new changes)
-	Staged      []string      // staged but uncommitted files
-	Deleted     []string      // files deleted in base..HEAD (subset of Committed)
-	Added       []string      // files that are entirely new additions (untracked, newly added in staged, or pure-add in base..HEAD)
-	Renamed     []Rename      // files renamed in base..HEAD, staged index, or working tree. Indexed by new path.
-	Files       *ChangedFiles // unified per-file view
+	Committed   []string // files changed in base..HEAD only
+	Uncommitted []string // unstaged or untracked files (new changes)
+	Staged      []string // staged but uncommitted files
+	Deleted     []string // files deleted in base..HEAD (subset of Committed)
+	Added       []string // files that are entirely new additions (untracked, newly added in staged, or pure-add in base..HEAD)
+	Renamed     []Rename // files renamed in base..HEAD, staged index, or working tree
+}
+
+// ToChangedFiles builds the unified per-file view from the slice fields.
+// Section priority for files appearing in multiple buckets: Uncommitted >
+// Staged > Committed. Class priority: Renamed > Deleted > Added > Modified.
+func (r ChangedFilesResult) ToChangedFiles() *ChangedFiles {
+	return buildChangedFiles(r.Committed, r.Uncommitted, r.Staged, r.Deleted, r.Added, r.Renamed)
 }
 
 // ChangedFiles returns files changed between base and HEAD, separated by commit status.
@@ -520,8 +524,6 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 	sort.Strings(added)
 	sort.Slice(renamed, func(i, j int) bool { return renamed[i].New < renamed[j].New })
 
-	files := buildChangedFiles(committed, uncommitted, staged, deleted, added, renamed)
-
 	return ChangedFilesResult{
 		Committed:   committed,
 		Uncommitted: uncommitted,
@@ -529,7 +531,6 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 		Deleted:     deleted,
 		Added:       added,
 		Renamed:     renamed,
-		Files:       files,
 	}, nil
 }
 

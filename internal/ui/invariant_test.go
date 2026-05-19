@@ -498,7 +498,7 @@ func viewWithTimeout(t *rapid.T, m *Model, context string) tea.View {
 	case <-time.After(1 * time.Second):
 		t.Fatalf("%s: View() hung for >1s (mode=%d, focus=%d, sidebarWidth=%d, width=%d, height=%d, files=%d, commits=%d)",
 			context, m.mode, m.focus, m.sidebar.width, m.width, m.height,
-			len(m.committedFiles)+len(m.uncommittedFiles)+len(m.stagedFiles), len(m.commits))
+			m.changes.Len(), len(m.commits))
 		return tea.View{} // unreachable
 	}
 }
@@ -587,17 +587,11 @@ func checkChangeBadgeInvariants(t *rapid.T, m *Model, context string) {
 		return
 	}
 
-	deletedSet := make(map[string]bool)
-	for _, f := range m.deletedFiles {
-		deletedSet[f] = true
-	}
-	uncommittedSet := make(map[string]bool)
-	for _, f := range m.uncommittedFiles {
-		uncommittedSet[f] = true
-	}
-	renamedSet := make(map[string]bool)
-	for _, r := range m.renamedFiles {
-		renamedSet[r.New] = true
+	want := map[git.Class]string{
+		git.ClassRenamed:  "[→]",
+		git.ClassDeleted:  "[-]",
+		git.ClassAdded:    "[+]",
+		git.ClassModified: "[±]",
 	}
 
 	// Walk items tracking the current section header.
@@ -622,31 +616,17 @@ func checkChangeBadgeInvariants(t *rapid.T, m *Model, context string) {
 		}
 
 		suffix := strings.TrimSpace(item.suffix)
-		if suffix == "" {
-			t.Fatalf("%s: file %q in section %q has no change-type badge", context, item.filePath, section)
+		f, ok := m.changes.Get(item.filePath)
+		if !ok {
+			t.Fatalf("%s: file %q in section %q has no ChangedFile entry", context, item.filePath, section)
 		}
-
-		switch {
-		case renamedSet[item.filePath]:
-			if suffix != "[→]" {
-				t.Fatalf("%s: renamed file %q should have badge [→] but got %q",
-					context, item.filePath, suffix)
-			}
-		case deletedSet[item.filePath]:
-			if suffix != "[-]" {
-				t.Fatalf("%s: deleted file %q should have badge [-] but got %q",
-					context, item.filePath, suffix)
-			}
-		case uncommittedSet[item.filePath]:
-			if suffix != "[+]" {
-				t.Fatalf("%s: untracked file %q should have badge [+] but got %q",
-					context, item.filePath, suffix)
-			}
-		default:
-			if suffix != "[+]" && suffix != "[±]" {
-				t.Fatalf("%s: file %q in section %q should have badge [+] or [±] but got %q",
-					context, item.filePath, section, suffix)
-			}
+		expected, ok := want[f.Class]
+		if !ok {
+			t.Fatalf("%s: file %q has unknown Class=%v", context, item.filePath, f.Class)
+		}
+		if suffix != expected {
+			t.Fatalf("%s: file %q (Class=%v) should have badge %q but got %q",
+				context, item.filePath, f.Class, expected, suffix)
 		}
 	}
 }
@@ -664,15 +644,16 @@ func checkRenameInvariants(t *rapid.T, m *Model, context string) {
 	if m.mode != FilesMode {
 		return
 	}
-	if len(m.renamedFiles) == 0 {
+	renames := m.changes.Renames()
+	if len(renames) == 0 {
 		return
 	}
 
-	renameByNew := make(map[string]string, len(m.renamedFiles))
-	oldPaths := make(map[string]string, len(m.renamedFiles)) // old → new (for error messages)
-	for _, r := range m.renamedFiles {
-		renameByNew[r.New] = r.Old
-		oldPaths[r.Old] = r.New
+	renameByNew := make(map[string]string, len(renames))
+	oldPaths := make(map[string]string, len(renames)) // old → new (for error messages)
+	for _, r := range renames {
+		renameByNew[r.Path] = r.OldPath
+		oldPaths[r.OldPath] = r.Path
 	}
 
 	newCount := make(map[string]int)
@@ -697,16 +678,16 @@ func checkRenameInvariants(t *rapid.T, m *Model, context string) {
 				context, item.filePath, item.filePath, newPath)
 		}
 	}
-	for _, r := range m.renamedFiles {
-		switch newCount[r.New] {
+	for _, r := range renames {
+		switch newCount[r.Path] {
 		case 0:
 			t.Fatalf("%s: renamed file %q (from %q) missing from sidebar changed sections",
-				context, r.New, r.Old)
+				context, r.Path, r.OldPath)
 		case 1:
 			// expected
 		default:
 			t.Fatalf("%s: renamed file %q appears %d times in sidebar changed sections (expected 1)",
-				context, r.New, newCount[r.New])
+				context, r.Path, newCount[r.Path])
 		}
 	}
 
@@ -1855,31 +1836,11 @@ func checkTreeStructure(t *rapid.T, m *Model, allFiles []string, ignoredDirs map
 // after earlier sections have already been built.
 func checkInitialCollapseState(t *rapid.T, m *Model, context string) {
 	t.Helper()
-	// Build set of dirs from committed/uncommitted files so we can exempt
-	// shared dirs in the "All Files" section from the must-be-collapsed rule.
+	// Build set of dirs from every changed file so we can exempt shared dirs
+	// in the "All Files" section from the must-be-collapsed rule.
 	changedDirs := make(map[string]bool)
-	for _, f := range m.committedFiles {
-		for d := f; ; {
-			if i := strings.LastIndex(d, "/"); i >= 0 {
-				d = d[:i]
-				changedDirs[d] = true
-			} else {
-				break
-			}
-		}
-	}
-	for _, f := range m.uncommittedFiles {
-		for d := f; ; {
-			if i := strings.LastIndex(d, "/"); i >= 0 {
-				d = d[:i]
-				changedDirs[d] = true
-			} else {
-				break
-			}
-		}
-	}
-	for _, f := range m.stagedFiles {
-		for d := f; ; {
+	for _, f := range m.changes.All() {
+		for d := f.Path; ; {
 			if i := strings.LastIndex(d, "/"); i >= 0 {
 				d = d[:i]
 				changedDirs[d] = true

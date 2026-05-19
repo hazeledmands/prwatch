@@ -93,13 +93,7 @@ type Model struct {
 	prReviewRequests   []gitpkg.PRReviewRequest
 	prError            string // error message for PR/GitHub API issues
 	prCommentCount     int
-	committedFiles     []string
-	uncommittedFiles   []string             // unstaged/untracked (new changes)
-	stagedFiles        []string             // staged but uncommitted
-	deletedFiles       []string             // files deleted in base..HEAD
-	addedFiles         []string             // files that are entirely new additions
-	renamedFiles       []gitpkg.Rename      // files renamed (in any of base..HEAD, staged, or working tree)
-	changes            *gitpkg.ChangedFiles // unified per-file view; superset of the slice fields above
+	changes            *gitpkg.ChangedFiles // unified per-file view of base..HEAD + index + working tree
 	allFiles           []string             // all files in the repo (for files mode)
 	ignoredFiles       map[string]bool      // gitignored files (for dimming in all-files view)
 	ignoredDirs        map[string]bool      // ignored entries that are directories — render as expandable
@@ -179,12 +173,6 @@ type gitDataMsg struct {
 	naturalNewBase   string
 	naturalOldOffset int
 	naturalNewOffset int
-	committedFiles   []string
-	uncommittedFiles []string
-	stagedFiles      []string
-	deletedFiles     []string
-	addedFiles       []string
-	renamedFiles     []gitpkg.Rename
 	changes          *gitpkg.ChangedFiles
 	allFiles         []string
 	ignoredFiles     map[string]bool
@@ -310,8 +298,12 @@ func (m *Model) loadNonGitFiles() tea.Msg {
 	if err != nil {
 		return gitDataMsg{err: err}
 	}
+	changes := gitpkg.NewChangedFiles()
+	for _, p := range files {
+		changes.Add(gitpkg.ChangedFile{Path: p, Section: gitpkg.SectionUncommitted, Class: gitpkg.ClassAdded})
+	}
 	return gitDataMsg{
-		uncommittedFiles: files,
+		changes: changes,
 	}
 }
 
@@ -472,10 +464,9 @@ func (m *Model) loadGitData() tea.Msg {
 			changes.Add(gitpkg.ChangedFile{Path: p, Section: gitpkg.SectionUncommitted, Class: gitpkg.ClassAdded})
 		}
 		return gitDataMsg{
-			repoInfo:         info,
-			uncommittedFiles: allFiles,
-			allFiles:         allFiles,
-			changes:          changes,
+			repoInfo: info,
+			allFiles: allFiles,
+			changes:  changes,
 		}
 	}
 
@@ -556,13 +547,7 @@ func (m *Model) loadGitData() tea.Msg {
 		queryOldBase:     queryOldBase,
 		naturalOldBase:   naturalOldBase,
 		naturalOldOffset: naturalOldOffset,
-		committedFiles:   files.Committed,
-		uncommittedFiles: files.Uncommitted,
-		stagedFiles:      files.Staged,
-		deletedFiles:     files.Deleted,
-		addedFiles:       files.Added,
-		renamedFiles:     files.Renamed,
-		changes:          files.EnsureFiles(),
+		changes:          files.ToChangedFiles(),
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
@@ -613,11 +598,15 @@ func (m *Model) loadLocalGitData() tea.Msg {
 	// Empty repo (no commits yet): skip diff/commit operations that require HEAD
 	if info.IsEmpty {
 		allFiles, _ := m.git.AllFiles()
+		changes := gitpkg.NewChangedFiles()
+		for _, p := range allFiles {
+			changes.Add(gitpkg.ChangedFile{Path: p, Section: gitpkg.SectionUncommitted, Class: gitpkg.ClassAdded})
+		}
 		return gitDataMsg{
-			repoInfo:         info,
-			uncommittedFiles: allFiles,
-			allFiles:         allFiles,
-			localOnly:        true,
+			repoInfo:  info,
+			allFiles:  allFiles,
+			changes:   changes,
+			localOnly: true,
 		}
 	}
 
@@ -674,13 +663,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		queryOldBase:     queryOldBase,
 		naturalOldBase:   naturalOldBase,
 		naturalOldOffset: naturalOldOffset,
-		committedFiles:   files.Committed,
-		uncommittedFiles: files.Uncommitted,
-		stagedFiles:      files.Staged,
-		deletedFiles:     files.Deleted,
-		addedFiles:       files.Added,
-		renamedFiles:     files.Renamed,
-		changes:          files.EnsureFiles(),
+		changes:          files.ToChangedFiles(),
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
@@ -746,8 +729,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.debugLog.Printf("[fs] RefreshMsg (file watcher)")
 		// Data loads
 		case gitDataMsg:
-			m.debugLog.Printf("[data] gitDataMsg localOnly=%v committed=%d uncommitted=%d allFiles=%d",
-				msg.localOnly, len(msg.committedFiles), len(msg.uncommittedFiles), len(msg.allFiles))
+			changedCount := 0
+			if msg.changes != nil {
+				changedCount = msg.changes.Len()
+			}
+			m.debugLog.Printf("[data] gitDataMsg localOnly=%v changed=%d allFiles=%d",
+				msg.localOnly, changedCount, len(msg.allFiles))
 		case allFilesMsg:
 			m.debugLog.Printf("[data] allFilesMsg files=%d", len(msg.files))
 		case ignoredDirLoadedMsg:
@@ -812,12 +799,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.scope.SyncFromLoad(msg.naturalOldBase, msg.naturalNewBase, msg.naturalOldOffset, msg.naturalNewOffset)
-		m.committedFiles = msg.committedFiles
-		m.uncommittedFiles = msg.uncommittedFiles
-		m.stagedFiles = msg.stagedFiles
-		m.deletedFiles = msg.deletedFiles
-		m.addedFiles = msg.addedFiles
-		m.renamedFiles = msg.renamedFiles
 		m.changes = msg.changes
 		if m.changes == nil {
 			m.changes = gitpkg.NewChangedFiles()
@@ -1771,22 +1752,6 @@ func (m *Model) currentLineNumber() int {
 	return m.mainPane.ScrollTop() + 1
 }
 
-// syncChanges keeps m.changes consistent with the legacy slice fields. Some
-// tests mutate the slices directly after NewModel; production code populates
-// both in lockstep via gitDataMsg, so the rebuild is a no-op there. Removed
-// when the slice fields are deleted.
-func (m *Model) syncChanges() {
-	r := gitpkg.ChangedFilesResult{
-		Committed:   m.committedFiles,
-		Uncommitted: m.uncommittedFiles,
-		Staged:      m.stagedFiles,
-		Deleted:     m.deletedFiles,
-		Added:       m.addedFiles,
-		Renamed:     m.renamedFiles,
-	}
-	m.changes = r.EnsureFiles()
-}
-
 func (m *Model) isUncommittedFile(file string) bool {
 	f, ok := m.changes.Get(file)
 	if !ok {
@@ -1878,7 +1843,6 @@ func (m *Model) isDeletedFile(file string) bool {
 }
 
 func (m *Model) updateSidebarItems() {
-	m.syncChanges()
 	// Snapshot collapse state and sidebar before the update for debug diffing.
 	var collapseBefore map[string]bool
 	var selectedBefore int
@@ -1982,7 +1946,6 @@ func (m *Model) restoreModeState() {
 }
 
 func (m *Model) updateMainContent() {
-	m.syncChanges()
 	// Save the source line at the top of the main pane under the item we
 	// were just showing, so the next time the user navigates to it we can
 	// drop them back at the same line.

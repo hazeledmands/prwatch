@@ -416,7 +416,7 @@ func TestTitle_CommitsMode_NewChangesShortstat(t *testing.T) {
 `,
 	}
 	m := newTitleTestModel(t, mock, CommitsMode)
-	m.uncommittedFiles = []string{"a.go"}
+	putChanges(m, git.SectionUncommitted, git.ClassAdded, "a.go")
 	m.updateSidebarItems()
 	for i, item := range m.sidebar.items {
 		if item.label == "new changes" {
@@ -498,7 +498,7 @@ func TestTitle_FilesMode_Diff_Uncommitted_PrependsMtime(t *testing.T) {
 	m.scope.SyncFromLoad("origin/main", "", 0, 0)
 	m.mode = FilesMode
 	m.updateLayout()
-	m.uncommittedFiles = []string{"edited.go"}
+	putChanges(m, git.SectionUncommitted, git.ClassAdded, "edited.go")
 	m.allFiles = []string{"edited.go"}
 	m.updateSidebarItems()
 	for i, item := range m.sidebar.items {
@@ -534,7 +534,7 @@ func TestTitle_FilesMode_Diff_Committed_PrependsShaAndTime(t *testing.T) {
 		lastCommitForFile: git.Commit{SHA: "feedfac0123456", AuthorDate: authoredAt, Author: "hazel", Subject: "land"},
 	}
 	m := newTitleTestModel(t, mock, FilesMode)
-	m.committedFiles = []string{"done.go"}
+	putChanges(m, git.SectionCommitted, git.ClassModified, "done.go")
 	m.allFiles = []string{"done.go"}
 	m.updateSidebarItems()
 	for i, item := range m.sidebar.items {
@@ -580,8 +580,7 @@ func TestTitle_FilesMode_Rename_WorkingTree_PureNoEdits(t *testing.T) {
 	m.scope.SyncFromLoad("origin/main", "", 0, 0)
 	m.mode = FilesMode
 	m.updateLayout()
-	m.uncommittedFiles = []string{"new.go"}
-	m.renamedFiles = mock.changedFiles.Renamed
+	addChange(m, git.ChangedFile{Path: "new.go", Section: git.SectionUncommitted, Class: git.ClassRenamed, OldPath: "old.go", PureRename: true})
 	m.allFiles = []string{"new.go"}
 	m.updateSidebarItems()
 	for i, item := range m.sidebar.items {
@@ -635,8 +634,7 @@ func TestTitle_FilesMode_Rename_WorkingTree_HeaderOnlyDiff(t *testing.T) {
 	m.scope.SyncFromLoad("origin/main", "", 0, 0)
 	m.mode = FilesMode
 	m.updateLayout()
-	m.uncommittedFiles = []string{"new.go"}
-	m.renamedFiles = mock.changedFiles.Renamed
+	addChange(m, git.ChangedFile{Path: "new.go", Section: git.SectionUncommitted, Class: git.ClassRenamed, OldPath: "old.go", PureRename: true})
 	m.allFiles = []string{"new.go"}
 	m.updateSidebarItems()
 	for i, item := range m.sidebar.items {
@@ -668,8 +666,7 @@ func TestTitle_FilesMode_Rename_Committed_PureNoEdits(t *testing.T) {
 		lastCommitForFile: git.Commit{SHA: "deadbeef0123456", AuthorDate: authoredAt, Author: "hazel", Subject: "rename"},
 	}
 	m := newTitleTestModel(t, mock, FilesMode)
-	m.committedFiles = []string{"new.go"}
-	m.renamedFiles = mock.changedFiles.Renamed
+	addChange(m, git.ChangedFile{Path: "new.go", Section: git.SectionCommitted, Class: git.ClassRenamed, OldPath: "old.go", PureRename: true})
 	m.allFiles = []string{"new.go"}
 	m.updateSidebarItems()
 	for i, item := range m.sidebar.items {
@@ -728,8 +725,7 @@ rename to new.go
 	m.scope.SyncFromLoad("origin/main", "", 0, 0)
 	m.mode = FilesMode
 	m.updateLayout()
-	m.uncommittedFiles = []string{"new.go"}
-	m.renamedFiles = mock.changedFiles.Renamed
+	addChange(m, git.ChangedFile{Path: "new.go", Section: git.SectionUncommitted, Class: git.ClassRenamed, OldPath: "old.go"})
 	m.allFiles = []string{"new.go"}
 	m.updateSidebarItems()
 	for i, item := range m.sidebar.items {

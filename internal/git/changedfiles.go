@@ -2,19 +2,6 @@ package git
 
 import "sort"
 
-// EnsureFiles populates Files from the slice fields if it's nil, then returns
-// it. Used by callers that build ChangedFilesResult by hand (tests/mocks)
-// without going through git.ChangedFiles. Once the legacy slice fields are
-// removed, callers will build *ChangedFiles directly and this fallback can be
-// dropped.
-func (r *ChangedFilesResult) EnsureFiles() *ChangedFiles {
-	if r.Files != nil {
-		return r.Files
-	}
-	r.Files = buildChangedFiles(r.Committed, r.Uncommitted, r.Staged, r.Deleted, r.Added, r.Renamed)
-	return r.Files
-}
-
 // Section is the slot a changed file occupies in the user's workflow.
 // Sections are mutually exclusive — each changed file is in exactly one.
 type Section int
