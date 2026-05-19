@@ -331,13 +331,19 @@ type Rename struct {
 }
 
 // ChangedFilesResult separates committed and uncommitted file changes.
+//
+// The slice fields are the legacy shape; new code should consume Files
+// (a unified per-file view that captures section + class + rename info in
+// one place). The slices and Files are populated in parallel and describe
+// the same set of changes.
 type ChangedFilesResult struct {
-	Committed   []string // files changed in base..HEAD only
-	Uncommitted []string // unstaged or untracked files (new changes)
-	Staged      []string // staged but uncommitted files
-	Deleted     []string // files deleted in base..HEAD (subset of Committed)
-	Added       []string // files that are entirely new additions (untracked, newly added in staged, or pure-add in base..HEAD)
-	Renamed     []Rename // files renamed in base..HEAD, staged index, or working tree. Indexed by new path.
+	Committed   []string      // files changed in base..HEAD only
+	Uncommitted []string      // unstaged or untracked files (new changes)
+	Staged      []string      // staged but uncommitted files
+	Deleted     []string      // files deleted in base..HEAD (subset of Committed)
+	Added       []string      // files that are entirely new additions (untracked, newly added in staged, or pure-add in base..HEAD)
+	Renamed     []Rename      // files renamed in base..HEAD, staged index, or working tree. Indexed by new path.
+	Files       *ChangedFiles // unified per-file view
 }
 
 // ChangedFiles returns files changed between base and HEAD, separated by commit status.
@@ -514,6 +520,8 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 	sort.Strings(added)
 	sort.Slice(renamed, func(i, j int) bool { return renamed[i].New < renamed[j].New })
 
+	files := buildChangedFiles(committed, uncommitted, staged, deleted, added, renamed)
+
 	return ChangedFilesResult{
 		Committed:   committed,
 		Uncommitted: uncommitted,
@@ -521,7 +529,60 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 		Deleted:     deleted,
 		Added:       added,
 		Renamed:     renamed,
+		Files:       files,
 	}, nil
+}
+
+// buildChangedFiles assembles the unified per-file view from the legacy
+// section + class slices. Each path lands in exactly one section, with the
+// class inferred from membership in the deleted/added/renamed sets.
+//
+// Section priority when a file is in multiple buckets (which can happen if
+// the caller passes overlapping inputs): uncommitted > staged > committed.
+// Class priority: renamed > deleted > added > modified.
+func buildChangedFiles(committed, uncommitted, staged, deleted, added []string, renamed []Rename) *ChangedFiles {
+	out := NewChangedFiles()
+	renameByNew := make(map[string]Rename, len(renamed))
+	for _, r := range renamed {
+		renameByNew[r.New] = r
+	}
+	addedSet := make(map[string]bool, len(added))
+	for _, a := range added {
+		addedSet[a] = true
+	}
+	deletedSet := make(map[string]bool, len(deleted))
+	for _, d := range deleted {
+		deletedSet[d] = true
+	}
+	classify := func(path string) (Class, string, bool) {
+		if r, ok := renameByNew[path]; ok {
+			return ClassRenamed, r.Old, r.Pure
+		}
+		if deletedSet[path] {
+			return ClassDeleted, "", false
+		}
+		if addedSet[path] {
+			return ClassAdded, "", false
+		}
+		return ClassModified, "", false
+	}
+	// Iterate by section, highest priority first. The collection's Add
+	// replaces any prior entry, so the latest section assignment wins for
+	// any path that overlaps (shouldn't happen with the current producer,
+	// but the data shape doesn't enforce uniqueness).
+	for _, p := range committed {
+		cls, oldPath, pure := classify(p)
+		out.Add(ChangedFile{Path: p, Section: SectionCommitted, Class: cls, OldPath: oldPath, PureRename: pure})
+	}
+	for _, p := range staged {
+		cls, oldPath, pure := classify(p)
+		out.Add(ChangedFile{Path: p, Section: SectionStaged, Class: cls, OldPath: oldPath, PureRename: pure})
+	}
+	for _, p := range uncommitted {
+		cls, oldPath, pure := classify(p)
+		out.Add(ChangedFile{Path: p, Section: SectionUncommitted, Class: cls, OldPath: oldPath, PureRename: pure})
+	}
+	return out
 }
 
 // parseRenameNameStatus parses the output of `git diff -M --name-status
