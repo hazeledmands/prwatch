@@ -85,7 +85,14 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 		return
 	}
 	var diff string
-	if m.isUncommittedFile(file) {
+	if m.isPureRename(file) {
+		// Pure rename: skip diff entirely so the title bar's no-diff
+		// "renamed · …" right side fires. FileDiff* would otherwise return
+		// either a header-only diff (committed/staged rename) or a
+		// synthetic /dev/null diff (untracked working-tree rename), and the
+		// diff branch below would render the file as all-additions or "no
+		// changes" instead.
+	} else if m.isUncommittedFile(file) {
 		diff, _ = m.git.FileDiffUncommitted(file)
 	} else if m.isCommittedFile(file) {
 		diff, _ = m.git.FileDiffCommitted(m.scope.OldBase(), file)

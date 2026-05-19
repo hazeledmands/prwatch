@@ -369,6 +369,18 @@ func (m *Model) isRenamedFile(file string) bool {
 	return ok
 }
 
+// isPureRename reports whether file is a rename target with no content
+// changes (git similarity = 100). The title bar uses this to choose between
+// the "renamed · ..." no-diff right side and the regular hunk-position one.
+func (m *Model) isPureRename(file string) bool {
+	for _, r := range m.renamedFiles {
+		if r.New == file {
+			return r.Pure
+		}
+	}
+	return false
+}
+
 // fileTitleLeft returns the title-bar's left side for file. For renamed files
 // it returns "<old> → <new>"; otherwise just the file path.
 func (m *Model) fileTitleLeft(file string) string {

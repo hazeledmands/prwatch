@@ -601,6 +601,58 @@ func TestTitle_FilesMode_Rename_WorkingTree_PureNoEdits(t *testing.T) {
 	}
 }
 
+// Real-world regression: even when git returns a non-empty header-only diff
+// for a pure rename (rename header + similarity index 100% + no hunks), the
+// title bar still uses the "renamed · …" right side rather than the diff
+// branch's hunk-position fallback.
+func TestTitle_FilesMode_Rename_WorkingTree_HeaderOnlyDiff(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "new.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mtime := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	// git diff -M --no-index output for a pure rename: rename header + 100%
+	// similarity + no hunks.
+	headerOnly := "diff --git a/old.go b/new.go\nsimilarity index 100%\nrename from old.go\nrename to new.go\n"
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "main"},
+		base:     "origin/main",
+		changedFiles: git.ChangedFilesResult{
+			Uncommitted: []string{"new.go"},
+			Renamed:     []git.Rename{{Old: "old.go", New: "new.go", Pure: true}},
+		},
+		fileContent:          "package main\n",
+		fileDiff:             headerOnly,
+		lastCommitForFileErr: errors.New("untracked"),
+	}
+	m := NewModel(dir, mock)
+	m.width = 100
+	m.height = 30
+	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.mode = FilesMode
+	m.updateLayout()
+	m.uncommittedFiles = []string{"new.go"}
+	m.renamedFiles = mock.changedFiles.Renamed
+	m.allFiles = []string{"new.go"}
+	m.updateSidebarItems()
+	for i, item := range m.sidebar.items {
+		if item.filePath == "new.go" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	got := m.mainPane.hunkTitleRight()
+	if !regexp.MustCompile(`^renamed · uncommitted · \S+ ago$`).MatchString(got) {
+		t.Errorf("header-only pure rename right: got %q, want 'renamed · uncommitted · <time>'", got)
+	}
+}
+
 // Pure rename committed: right side reads "renamed · <sha7> · <time>".
 func TestTitle_FilesMode_Rename_Committed_PureNoEdits(t *testing.T) {
 	authoredAt := time.Now().Add(-3 * time.Hour)

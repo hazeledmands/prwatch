@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -321,10 +322,12 @@ func (g *Git) BehindCount(baseRef string) int {
 // Rename describes a file that was renamed from Old to New. The New path
 // appears in exactly one of Committed/Uncommitted/Staged; the Old path does
 // not appear in Deleted (it isn't a deletion) and the New path does not
-// appear in Added (it isn't a new file).
+// appear in Added (it isn't a new file). Pure is true when git's similarity
+// score is 100 — the file moved without any content edits.
 type Rename struct {
-	Old string
-	New string
+	Old  string
+	New  string
+	Pure bool
 }
 
 // ChangedFilesResult separates committed and uncommitted file changes.
@@ -533,7 +536,8 @@ func parseRenameNameStatus(out string) []Rename {
 		if len(parts) < 3 || !strings.HasPrefix(parts[0], "R") {
 			continue
 		}
-		renamed = append(renamed, Rename{Old: parts[1], New: parts[2]})
+		score, _ := strconv.Atoi(parts[0][1:])
+		renamed = append(renamed, Rename{Old: parts[1], New: parts[2], Pure: score >= 100})
 	}
 	return renamed
 }
@@ -570,6 +574,7 @@ func parsePorcelainV2Renames(out string) []Rename {
 		if !strings.HasPrefix(xScore, "R") {
 			continue // ignore copies (C)
 		}
+		score, _ := strconv.Atoi(xScore[1:])
 		// The 10th whitespace-delimited token is the new path; recover by
 		// walking past 9 fields so spaces in the new path survive.
 		idx := 0
@@ -585,7 +590,7 @@ func parsePorcelainV2Renames(out string) []Rename {
 			continue
 		}
 		newPath := header[idx:]
-		renamed = append(renamed, Rename{Old: origPath, New: newPath})
+		renamed = append(renamed, Rename{Old: origPath, New: newPath, Pure: score >= 100})
 	}
 	return renamed
 }
@@ -649,7 +654,7 @@ func (g *Git) detectPureMvRenames(existing []Rename, untrackedSet map[string]boo
 		}
 		sha := fields[1]
 		if newPath, ok := untrackedByHash[sha]; ok {
-			matches = append(matches, Rename{Old: old, New: newPath})
+			matches = append(matches, Rename{Old: old, New: newPath, Pure: true})
 			delete(untrackedByHash, sha) // one-to-one pairing
 		}
 	}

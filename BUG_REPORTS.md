@@ -1,8 +1,19 @@
 ## New Bugs
 
-- renaming a file in git doesn't reflect properly in the sidebar.
-
 ## Fixed Bugs
+
+- Renaming a file in git showed up as two unrelated entries (delete + add)
+  in the sidebar instead of a single rename. Fixed by detecting renames at
+  the git layer via `git diff -M` (committed + staged), `git status
+  --porcelain=v2 -M` (working tree), and a content-hash fallback for the
+  pure-mv-without-add case that porcelain v2 can't cross. The new
+  `git.Rename{Old, New, Pure}` flows through `ChangedFilesResult.Renamed`
+  into the model; sidebar shows the new path with a `[→]` badge that takes
+  precedence over `[+]`/`[-]`/`[±]`, title bar shows `<old> → <new>` on
+  the left, and pure renames get a `renamed · …` no-diff right side.
+  Property invariants (`checkRenameInvariants`,
+  `TestApplyChangeBadgesRenameWins`) and unit tests in `title_test.go`
+  guard against regressions.
 
 - `ViewportToSourceLine` (wrap branch) fell back to `i + 1` when the
   viewport top landed on a formatted row with no direct source mapping
