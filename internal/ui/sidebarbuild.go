@@ -7,23 +7,46 @@ import (
 	gitpkg "github.com/hazeledmands/prwatch/internal/git"
 )
 
+// pathsInSection returns the sorted paths in cf for section s as a plain
+// []string, for callers (sidebar/commits-mode pseudo-entry detection, status
+// bar counts) that still want a flat list rather than the per-file view.
+func pathsInSection(cf *gitpkg.ChangedFiles, s gitpkg.Section) []string {
+	entries := cf.InSection(s)
+	out := make([]string, len(entries))
+	for i, f := range entries {
+		out[i] = f.Path
+	}
+	return out
+}
+
 // buildFilesSidebar constructs the sidebar item list for files mode. It also
 // lazily initializes collapse state for newly-seen directories — the collapsed
 // map is mutated in place.
 //
-// changedSection passes deleted+added+committed+uncommitted+staged+renamed
-// through to applyChangeBadges so the [-]/[+]/[±]/[→] suffixes can be
-// applied to file items.
+// The Uncommitted/Staged/Committed sections come from cf.InSection; the All
+// Files section is built from allFiles minus paths already in cf, plus
+// ignored files when showIgnored is true. Change-type badges ([→]/[-]/[+]/
+// [±]) are applied via applyChangeBadges after the tree is assembled.
 func buildFilesSidebar(
-	uncommitted, staged, committed, allFiles []string,
+	cf *gitpkg.ChangedFiles,
+	allFiles []string,
 	ignoredFiles map[string]bool,
 	ignoredDirs map[string]bool,
 	collapsed map[string]bool,
 	showIgnored, isGit bool,
-	deleted, added []string,
-	renamed []gitpkg.Rename,
-	deletedFn func(file string) bool,
 ) []sidebarItem {
+	pathsIn := func(s gitpkg.Section) []string {
+		entries := cf.InSection(s)
+		out := make([]string, len(entries))
+		for i, f := range entries {
+			out[i] = f.Path
+		}
+		return out
+	}
+	uncommitted := pathsIn(gitpkg.SectionUncommitted)
+	staged := pathsIn(gitpkg.SectionStaged)
+	committed := pathsIn(gitpkg.SectionCommitted)
+
 	changedSet := make(map[string]bool, len(uncommitted)+len(staged)+len(committed))
 	for _, f := range uncommitted {
 		changedSet[f] = true
@@ -74,7 +97,7 @@ func buildFilesSidebar(
 	autoCollapse(sectionCommitted, extractDirs(committed))
 
 	itemKind := func(f string) sidebarItemKind {
-		if deletedFn != nil && deletedFn(f) {
+		if entry, ok := cf.Get(f); ok && entry.Class == gitpkg.ClassDeleted {
 			return itemDeleted
 		}
 		return itemNormal
@@ -126,7 +149,7 @@ func buildFilesSidebar(
 		items = append(items, buildTreeItems(otherFiles, itemNormal, sectionAllFiles, collapsed, ignoredDirs, otherKind)...)
 	}
 
-	return applyChangeBadges(items, deleted, added, committed, uncommitted, staged, renamed)
+	return applyChangeBadges(items, cf)
 }
 
 // buildCommitsSidebar constructs the sidebar for commits mode.

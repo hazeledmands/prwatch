@@ -358,10 +358,8 @@ func (m *Model) fileContextRight(file string, binary bool) string {
 // a known rename, plus true. When the file isn't a rename target, returns
 // ("", false).
 func (m *Model) renameOldPath(file string) (string, bool) {
-	for _, r := range m.renamedFiles {
-		if r.New == file {
-			return r.Old, true
-		}
+	if f, ok := m.changes.Get(file); ok && f.Class == gitpkg.ClassRenamed {
+		return f.OldPath, true
 	}
 	return "", false
 }
@@ -376,12 +374,8 @@ func (m *Model) isRenamedFile(file string) bool {
 // changes (git similarity = 100). The title bar uses this to choose between
 // the "renamed · ..." no-diff right side and the regular hunk-position one.
 func (m *Model) isPureRename(file string) bool {
-	for _, r := range m.renamedFiles {
-		if r.New == file {
-			return r.Pure
-		}
-	}
-	return false
+	f, ok := m.changes.Get(file)
+	return ok && f.Class == gitpkg.ClassRenamed && f.PureRename
 }
 
 // fileTitleLeft returns the title-bar's left side for file. For renamed files
@@ -568,7 +562,7 @@ func (m *Model) loadGitData() tea.Msg {
 		deletedFiles:     files.Deleted,
 		addedFiles:       files.Added,
 		renamedFiles:     files.Renamed,
-		changes:          files.Files,
+		changes:          files.EnsureFiles(),
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
@@ -686,7 +680,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		deletedFiles:     files.Deleted,
 		addedFiles:       files.Added,
 		renamedFiles:     files.Renamed,
-		changes:          files.Files,
+		changes:          files.EnsureFiles(),
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
@@ -1777,8 +1771,28 @@ func (m *Model) currentLineNumber() int {
 	return m.mainPane.ScrollTop() + 1
 }
 
+// syncChanges keeps m.changes consistent with the legacy slice fields. Some
+// tests mutate the slices directly after NewModel; production code populates
+// both in lockstep via gitDataMsg, so the rebuild is a no-op there. Removed
+// when the slice fields are deleted.
+func (m *Model) syncChanges() {
+	r := gitpkg.ChangedFilesResult{
+		Committed:   m.committedFiles,
+		Uncommitted: m.uncommittedFiles,
+		Staged:      m.stagedFiles,
+		Deleted:     m.deletedFiles,
+		Added:       m.addedFiles,
+		Renamed:     m.renamedFiles,
+	}
+	m.changes = r.EnsureFiles()
+}
+
 func (m *Model) isUncommittedFile(file string) bool {
-	return containsString(m.uncommittedFiles, file) || containsString(m.stagedFiles, file)
+	f, ok := m.changes.Get(file)
+	if !ok {
+		return false
+	}
+	return f.Section == gitpkg.SectionUncommitted || f.Section == gitpkg.SectionStaged
 }
 
 func (m *Model) selectFirstComment() {
@@ -1838,10 +1852,6 @@ func (m *Model) commitIndexFromSidebarItem(label string) int {
 	return -1
 }
 
-func (m *Model) isDeletedFile(file string) bool {
-	return containsString(m.deletedFiles, file)
-}
-
 func (m *Model) fileItemKind(file string, defaultKind sidebarItemKind) sidebarItemKind {
 	if m.isDeletedFile(file) {
 		return itemDeleted
@@ -1850,18 +1860,25 @@ func (m *Model) fileItemKind(file string, defaultKind sidebarItemKind) sidebarIt
 }
 
 func (m *Model) changeBadge(file string) string {
-	return changeBadgeFor(file, m.deletedFiles, m.addedFiles, m.committedFiles, m.uncommittedFiles, m.stagedFiles, m.renamedFiles)
+	return changeBadgeFor(file, m.changes)
 }
 
 func (m *Model) applyChangeBadges(items []sidebarItem) []sidebarItem {
-	return applyChangeBadges(items, m.deletedFiles, m.addedFiles, m.committedFiles, m.uncommittedFiles, m.stagedFiles, m.renamedFiles)
+	return applyChangeBadges(items, m.changes)
 }
 
 func (m *Model) isCommittedFile(file string) bool {
-	return containsString(m.committedFiles, file)
+	f, ok := m.changes.Get(file)
+	return ok && f.Section == gitpkg.SectionCommitted
+}
+
+func (m *Model) isDeletedFile(file string) bool {
+	f, ok := m.changes.Get(file)
+	return ok && f.Class == gitpkg.ClassDeleted
 }
 
 func (m *Model) updateSidebarItems() {
+	m.syncChanges()
 	// Snapshot collapse state and sidebar before the update for debug diffing.
 	var collapseBefore map[string]bool
 	var selectedBefore int
@@ -1914,17 +1931,17 @@ func (m *Model) updateSidebarItems() {
 	switch m.mode {
 	case FilesMode:
 		items := buildFilesSidebar(
-			m.uncommittedFiles, m.stagedFiles, m.committedFiles, m.allFiles,
+			m.changes, m.allFiles,
 			m.ignoredFiles, m.ignoredDirs, m.collapsedDirs,
 			m.showIgnored, m.git != nil,
-			m.deletedFiles, m.addedFiles, m.renamedFiles,
-			m.isDeletedFile,
 		)
 		m.sidebar.SetItems(items)
 	case CommitsMode:
+		uncommittedPaths := pathsInSection(m.changes, gitpkg.SectionUncommitted)
+		stagedPaths := pathsInSection(m.changes, gitpkg.SectionStaged)
 		items := buildCommitsSidebar(
 			m.commits, m.baseCommits,
-			m.uncommittedFiles, m.stagedFiles,
+			uncommittedPaths, stagedPaths,
 			m.repoInfo.AheadCount, m.commitsLoaded, m.scope.Len(),
 		)
 		m.sidebar.SetItems(items)
@@ -1965,6 +1982,7 @@ func (m *Model) restoreModeState() {
 }
 
 func (m *Model) updateMainContent() {
+	m.syncChanges()
 	// Save the source line at the top of the main pane under the item we
 	// were just showing, so the next time the user navigates to it we can
 	// drop them back at the same line.
@@ -2202,10 +2220,10 @@ func (m *Model) View() tea.View {
 		commentCount:     m.prCommentCount,
 		mode:             m.mode,
 		confirming:       m.confirming,
-		uncommitCount:    len(m.uncommittedFiles) + len(m.stagedFiles),
+		uncommitCount:    m.changes.Len() - len(m.changes.InSection(gitpkg.SectionCommitted)),
 		commitCount:      m.scope.Len(),
 		behindCount:      m.behindCount,
-		changedFileCount: len(m.committedFiles) + len(m.uncommittedFiles) + len(m.stagedFiles),
+		changedFileCount: m.changes.Len(),
 		prLoading:        m.loading && m.git != nil,
 		showHelp:         m.help.IsOpen(),
 		hoverX:           m.hoverX,
