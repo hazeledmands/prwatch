@@ -94,15 +94,16 @@ type Model struct {
 	prError            string // error message for PR/GitHub API issues
 	prCommentCount     int
 	committedFiles     []string
-	uncommittedFiles   []string        // unstaged/untracked (new changes)
-	stagedFiles        []string        // staged but uncommitted
-	deletedFiles       []string        // files deleted in base..HEAD
-	addedFiles         []string        // files that are entirely new additions
-	renamedFiles       []gitpkg.Rename // files renamed (in any of base..HEAD, staged, or working tree)
-	allFiles           []string        // all files in the repo (for files mode)
-	ignoredFiles       map[string]bool // gitignored files (for dimming in all-files view)
-	ignoredDirs        map[string]bool // ignored entries that are directories — render as expandable
-	loadedIgnoredDirs  map[string]bool // ignored dirs whose contents have been lazy-loaded
+	uncommittedFiles   []string             // unstaged/untracked (new changes)
+	stagedFiles        []string             // staged but uncommitted
+	deletedFiles       []string             // files deleted in base..HEAD
+	addedFiles         []string             // files that are entirely new additions
+	renamedFiles       []gitpkg.Rename      // files renamed (in any of base..HEAD, staged, or working tree)
+	changes            *gitpkg.ChangedFiles // unified per-file view; superset of the slice fields above
+	allFiles           []string             // all files in the repo (for files mode)
+	ignoredFiles       map[string]bool      // gitignored files (for dimming in all-files view)
+	ignoredDirs        map[string]bool      // ignored entries that are directories — render as expandable
+	loadedIgnoredDirs  map[string]bool      // ignored dirs whose contents have been lazy-loaded
 	commits            []gitpkg.Commit
 	commitsLoaded      int                   // how many commits have been loaded so far
 	behindCount        int                   // how many commits behind base
@@ -184,6 +185,7 @@ type gitDataMsg struct {
 	deletedFiles     []string
 	addedFiles       []string
 	renamedFiles     []gitpkg.Rename
+	changes          *gitpkg.ChangedFiles
 	allFiles         []string
 	ignoredFiles     map[string]bool
 	ignoredDirs      map[string]bool // subset of ignoredFiles whose entries are directories
@@ -264,6 +266,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		search:        newSearchOverlay(),
 		drag:          newDragSelection(),
 		loading:       g != nil,
+		changes:       gitpkg.NewChangedFiles(),
 	}
 }
 
@@ -470,10 +473,15 @@ func (m *Model) loadGitData() tea.Msg {
 	// Empty repo (no commits yet): skip diff/commit operations that require HEAD
 	if info.IsEmpty {
 		allFiles, _ := m.git.AllFiles()
+		changes := gitpkg.NewChangedFiles()
+		for _, p := range allFiles {
+			changes.Add(gitpkg.ChangedFile{Path: p, Section: gitpkg.SectionUncommitted, Class: gitpkg.ClassAdded})
+		}
 		return gitDataMsg{
 			repoInfo:         info,
 			uncommittedFiles: allFiles,
 			allFiles:         allFiles,
+			changes:          changes,
 		}
 	}
 
@@ -560,6 +568,7 @@ func (m *Model) loadGitData() tea.Msg {
 		deletedFiles:     files.Deleted,
 		addedFiles:       files.Added,
 		renamedFiles:     files.Renamed,
+		changes:          files.Files,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
@@ -677,6 +686,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 		deletedFiles:     files.Deleted,
 		addedFiles:       files.Added,
 		renamedFiles:     files.Renamed,
+		changes:          files.Files,
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
 		ignoredDirs:      ignoredDirSet,
@@ -814,6 +824,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.deletedFiles = msg.deletedFiles
 		m.addedFiles = msg.addedFiles
 		m.renamedFiles = msg.renamedFiles
+		m.changes = msg.changes
+		if m.changes == nil {
+			m.changes = gitpkg.NewChangedFiles()
+		}
 		m.allFiles = msg.allFiles
 		// Snapshot deep paths from the previous ignoredFiles before we
 		// overwrite — we need to reattach them after the new top-level set
