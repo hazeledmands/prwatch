@@ -203,6 +203,167 @@ func TestChangedFiles_FileInBothGoesToUncommitted(t *testing.T) {
 	}
 }
 
+// setupRenameRepo creates a repo where original.go exists on main with enough
+// content to satisfy git's similarity heuristic, then checks out a feature
+// branch with no further commits. Tests rename original.go → renamed.go in
+// various states (committed/staged/working-tree) and check ChangedFiles.
+func setupRenameRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	cmds := [][]string{
+		{"git", "init", "--initial-branch=main"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+	}
+	for _, args := range cmds {
+		cmd := command.DefaultFactory(args[0], args[1:]...)
+		cmd.SetDir(dir)
+		var stderr bytes.Buffer
+		cmd.SetStderr(&stderr)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("setup %v: %s %v", args, stderr.String(), err)
+		}
+	}
+
+	// Some real content so -M's similarity check has something to chew on.
+	body := "package original\n\n" +
+		"func A() int { return 1 }\nfunc B() int { return 2 }\nfunc C() int { return 3 }\n"
+	writeFile(t, dir, "original.go", body)
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "initial")
+	runGit(t, dir, "checkout", "-b", "hazel/test/rename")
+	return dir
+}
+
+func TestChangedFiles_Rename_Committed(t *testing.T) {
+	dir := setupRenameRepo(t)
+	g := noGH(dir)
+
+	runGit(t, dir, "mv", "original.go", "renamed.go")
+	runGit(t, dir, "commit", "-m", "rename")
+
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Renamed) != 1 {
+		t.Fatalf("expected 1 rename, got %d: %#v", len(result.Renamed), result.Renamed)
+	}
+	r := result.Renamed[0]
+	if r.Old != "original.go" || r.New != "renamed.go" {
+		t.Errorf("rename pair = %#v, want {Old:original.go New:renamed.go}", r)
+	}
+	for _, bucket := range [][]string{result.Committed, result.Uncommitted, result.Staged, result.Deleted, result.Added} {
+		for _, f := range bucket {
+			if f == "original.go" {
+				t.Errorf("old rename path leaked into bucket: %v", bucket)
+			}
+		}
+	}
+	if !containsString(result.Committed, "renamed.go") {
+		t.Errorf("renamed.go missing from committed: %v", result.Committed)
+	}
+	if containsString(result.Added, "renamed.go") {
+		t.Errorf("renamed.go should not appear in added: %v", result.Added)
+	}
+}
+
+func TestChangedFiles_Rename_Staged(t *testing.T) {
+	dir := setupRenameRepo(t)
+	g := noGH(dir)
+
+	runGit(t, dir, "mv", "original.go", "renamed.go")
+
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Renamed) != 1 {
+		t.Fatalf("expected 1 rename, got %d: %#v", len(result.Renamed), result.Renamed)
+	}
+	r := result.Renamed[0]
+	if r.Old != "original.go" || r.New != "renamed.go" {
+		t.Errorf("rename pair = %#v, want {Old:original.go New:renamed.go}", r)
+	}
+	for _, bucket := range [][]string{result.Committed, result.Uncommitted, result.Staged, result.Deleted, result.Added} {
+		for _, f := range bucket {
+			if f == "original.go" {
+				t.Errorf("old rename path leaked into bucket: %v", bucket)
+			}
+		}
+	}
+	if !containsString(result.Staged, "renamed.go") {
+		t.Errorf("renamed.go missing from staged: %v", result.Staged)
+	}
+	if containsString(result.Added, "renamed.go") {
+		t.Errorf("renamed.go should not appear in added: %v", result.Added)
+	}
+}
+
+func TestChangedFiles_Rename_WorkingTree(t *testing.T) {
+	dir := setupRenameRepo(t)
+	g := noGH(dir)
+
+	// Working-tree rename: plain mv, no git mv. Old path becomes a tracked
+	// deletion; new path is untracked. Detection requires porcelain v2 since
+	// plain `git diff -M` can't see the untracked new path.
+	if err := os.Rename(filepath.Join(dir, "original.go"), filepath.Join(dir, "renamed.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Renamed) != 1 {
+		t.Fatalf("expected 1 rename, got %d: %#v", len(result.Renamed), result.Renamed)
+	}
+	r := result.Renamed[0]
+	if r.Old != "original.go" || r.New != "renamed.go" {
+		t.Errorf("rename pair = %#v, want {Old:original.go New:renamed.go}", r)
+	}
+	for _, bucket := range [][]string{result.Committed, result.Uncommitted, result.Staged, result.Deleted, result.Added} {
+		for _, f := range bucket {
+			if f == "original.go" {
+				t.Errorf("old rename path leaked into bucket: %v", bucket)
+			}
+		}
+	}
+	if !containsString(result.Uncommitted, "renamed.go") {
+		t.Errorf("renamed.go missing from uncommitted: %v", result.Uncommitted)
+	}
+	if containsString(result.Added, "renamed.go") {
+		t.Errorf("renamed.go should not appear in added: %v", result.Added)
+	}
+}
+
+// containsString is a tiny test helper. The production code has its own
+// containsString in the ui package but it's not exported.
+func containsString(slice []string, s string) bool {
+	for _, x := range slice {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
 func TestFileDiffCommitted(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)

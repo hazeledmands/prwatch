@@ -339,9 +339,13 @@ type ChangedFilesResult struct {
 
 // ChangedFiles returns files changed between base and HEAD, separated by commit status.
 // Files that appear in both committed and uncommitted go to Uncommitted only.
+// Renames are detected and reported as Rename pairs; the old path is suppressed
+// from Deleted and the new path is suppressed from Added so each rename
+// surfaces as exactly one entry.
 func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
-	// Get committed changes (base..HEAD)
-	out, err := g.run("diff", "--name-only", base+"..HEAD")
+	// All diff calls below pass -M so renames collapse to the new path
+	// (the old path is reclassified from D+A to R and dropped from --name-only).
+	out, err := g.run("diff", "-M", "--name-only", base+"..HEAD")
 	if err != nil {
 		return ChangedFilesResult{}, err
 	}
@@ -356,7 +360,7 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 
 	// Get staged changes (index vs HEAD)
 	stagedSet := make(map[string]bool)
-	out, err = g.run("diff", "--name-only", "--cached", "HEAD")
+	out, err = g.run("diff", "-M", "--name-only", "--cached", "HEAD")
 	if err == nil {
 		for _, f := range strings.Split(out, "\n") {
 			f = strings.TrimSpace(f)
@@ -368,7 +372,7 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 
 	// Get unstaged changes (working tree vs index)
 	unstagedSet := make(map[string]bool)
-	out, err = g.run("diff", "--name-only")
+	out, err = g.run("diff", "-M", "--name-only")
 	if err == nil {
 		for _, f := range strings.Split(out, "\n") {
 			f = strings.TrimSpace(f)
@@ -388,6 +392,34 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 				untrackedSet[f] = true
 			}
 		}
+	}
+
+	// Detect renames before partitioning so we can suppress the old paths
+	// from the unstaged/untracked sets (where -M on diff can't reach them
+	// because the new side of a working-tree rename may be untracked).
+	var renamed []Rename
+	if out, err := g.run("diff", "-M", "--name-status", "--diff-filter=R", base+"..HEAD"); err == nil {
+		renamed = append(renamed, parseRenameNameStatus(out)...)
+	}
+	if out, err := g.run("diff", "-M", "--name-status", "--diff-filter=R", "--cached", "HEAD"); err == nil {
+		renamed = append(renamed, parseRenameNameStatus(out)...)
+	}
+	if out, err := g.run("status", "--porcelain=v2", "-M", "--untracked-files=all"); err == nil {
+		renamed = append(renamed, parsePorcelainV2Renames(out)...)
+	}
+	// Fallback: pure working-tree renames (mv without git add) where the new
+	// path is untracked. `git diff -M` can't see across that boundary, and
+	// `git status --porcelain=v2 -M` won't pair tracked-deleted with untracked
+	// either. Catch the pure case (content unchanged) by matching index blob
+	// hashes against the working-tree hashes of untracked files.
+	renamed = append(renamed, g.detectPureMvRenames(renamed, untrackedSet)...)
+	renamed = dedupRenamesByNew(renamed)
+
+	// Strip rename old paths from working-tree-derived sets (-M doesn't cover
+	// these when the new side is untracked).
+	for _, r := range renamed {
+		delete(unstagedSet, r.Old)
+		delete(untrackedSet, r.Old)
 	}
 
 	// Files in both committed and any local change go to the local bucket only
@@ -416,9 +448,10 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 		staged = append(staged, f)
 	}
 
-	// Detect deleted files (in base..HEAD)
+	// Detect deleted files (in base..HEAD). -M reclassifies rename old paths
+	// from D to R so they fall out of this list naturally.
 	deletedSet := make(map[string]bool)
-	out, err = g.run("diff", "--name-only", "--diff-filter=D", base+"..HEAD")
+	out, err = g.run("diff", "-M", "--name-only", "--diff-filter=D", base+"..HEAD")
 	if err == nil {
 		for _, f := range strings.Split(out, "\n") {
 			f = strings.TrimSpace(f)
@@ -437,8 +470,10 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 
 	// Detect "pure addition" files: committed files added in base..HEAD,
 	// staged files that are newly added to the index, and all untracked files.
+	// -M keeps rename new paths out of --diff-filter=A on the tracked side;
+	// for working-tree renames where the new path is untracked, we strip below.
 	addedSet := make(map[string]bool)
-	out, err = g.run("diff", "--name-only", "--diff-filter=A", base+"..HEAD")
+	out, err = g.run("diff", "-M", "--name-only", "--diff-filter=A", base+"..HEAD")
 	if err == nil {
 		for _, f := range strings.Split(out, "\n") {
 			f = strings.TrimSpace(f)
@@ -447,7 +482,7 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 			}
 		}
 	}
-	out, err = g.run("diff", "--name-only", "--diff-filter=A", "--cached", "HEAD")
+	out, err = g.run("diff", "-M", "--name-only", "--diff-filter=A", "--cached", "HEAD")
 	if err == nil {
 		for _, f := range strings.Split(out, "\n") {
 			f = strings.TrimSpace(f)
@@ -458,6 +493,10 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 	}
 	for f := range untrackedSet {
 		addedSet[f] = true
+	}
+	// Working-tree rename targets get reported as untracked above; strip.
+	for _, r := range renamed {
+		delete(addedSet, r.New)
 	}
 
 	var added []string
@@ -470,6 +509,7 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 	sort.Strings(staged)
 	sort.Strings(deleted)
 	sort.Strings(added)
+	sort.Slice(renamed, func(i, j int) bool { return renamed[i].New < renamed[j].New })
 
 	return ChangedFilesResult{
 		Committed:   committed,
@@ -477,7 +517,161 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 		Staged:      staged,
 		Deleted:     deleted,
 		Added:       added,
+		Renamed:     renamed,
 	}, nil
+}
+
+// parseRenameNameStatus parses the output of `git diff -M --name-status
+// --diff-filter=R`. Each line has the form "R<score>\t<old>\t<new>".
+func parseRenameNameStatus(out string) []Rename {
+	var renamed []Rename
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 || !strings.HasPrefix(parts[0], "R") {
+			continue
+		}
+		renamed = append(renamed, Rename{Old: parts[1], New: parts[2]})
+	}
+	return renamed
+}
+
+// parsePorcelainV2Renames parses the output of `git status --porcelain=v2 -M`,
+// returning each line of type 2 (rename/copy) where the rename is in the
+// working tree or index. The line format is:
+//
+//	2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <newPath>\t<origPath>
+//
+// We accept R in either X or Y position; copies (C) are skipped.
+func parsePorcelainV2Renames(out string) []Rename {
+	var renamed []Rename
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(line, "2 ") {
+			continue
+		}
+		tab := strings.IndexByte(line, '\t')
+		if tab < 0 {
+			continue
+		}
+		header := line[:tab]
+		origPath := line[tab+1:]
+		fields := strings.Fields(header)
+		// Format: "2" XY sub mH mI mW hH hI X+score newPath  → 10 fields
+		if len(fields) < 10 {
+			continue
+		}
+		xy := fields[1]
+		if len(xy) < 2 || (xy[0] != 'R' && xy[1] != 'R') {
+			continue
+		}
+		xScore := fields[8]
+		if !strings.HasPrefix(xScore, "R") {
+			continue // ignore copies (C)
+		}
+		// The 10th whitespace-delimited token is the new path; recover by
+		// walking past 9 fields so spaces in the new path survive.
+		idx := 0
+		for n := 0; n < 9; n++ {
+			sp := strings.IndexByte(header[idx:], ' ')
+			if sp < 0 {
+				idx = -1
+				break
+			}
+			idx += sp + 1
+		}
+		if idx < 0 {
+			continue
+		}
+		newPath := header[idx:]
+		renamed = append(renamed, Rename{Old: origPath, New: newPath})
+	}
+	return renamed
+}
+
+// detectPureMvRenames pairs working-tree-deleted tracked files with untracked
+// files whose content hashes match — the case where the user ran `mv` (or an
+// editor) without `git add`, so both endpoints sit outside what `git diff -M`
+// or `git status --porcelain=v2 -M` can pair on their own. Limited to content-
+// identical pairs (mv with no edits); rename+edits requires staging.
+//
+// existing carries renames already found via porcelain v2 / diff so we don't
+// double-pair. untrackedSet provides candidate new paths.
+func (g *Git) detectPureMvRenames(existing []Rename, untrackedSet map[string]bool) []Rename {
+	if len(untrackedSet) == 0 {
+		return nil
+	}
+	pairedOld := make(map[string]bool, len(existing))
+	pairedNew := make(map[string]bool, len(existing))
+	for _, r := range existing {
+		pairedOld[r.Old] = true
+		pairedNew[r.New] = true
+	}
+
+	// Hash each untracked file once, keyed by blob sha.
+	untrackedByHash := make(map[string]string, len(untrackedSet))
+	for u := range untrackedSet {
+		if pairedNew[u] {
+			continue
+		}
+		h, err := g.run("hash-object", "--", u)
+		if err != nil {
+			continue
+		}
+		untrackedByHash[strings.TrimSpace(h)] = u
+	}
+	if len(untrackedByHash) == 0 {
+		return nil
+	}
+
+	// Find tracked deletions in the working tree.
+	out, err := g.run("diff", "--name-only", "--diff-filter=D")
+	if err != nil {
+		return nil
+	}
+
+	var matches []Rename
+	for _, old := range strings.Split(out, "\n") {
+		old = strings.TrimSpace(old)
+		if old == "" || pairedOld[old] {
+			continue
+		}
+		// Read the index blob sha for old.
+		stage, err := g.run("ls-files", "--stage", "--", old)
+		if err != nil {
+			continue
+		}
+		stage = strings.TrimSpace(stage)
+		fields := strings.Fields(stage)
+		if len(fields) < 2 {
+			continue
+		}
+		sha := fields[1]
+		if newPath, ok := untrackedByHash[sha]; ok {
+			matches = append(matches, Rename{Old: old, New: newPath})
+			delete(untrackedByHash, sha) // one-to-one pairing
+		}
+	}
+	return matches
+}
+
+// dedupRenamesByNew keeps the first occurrence of each new path. Used when
+// the same rename appears in both --cached and porcelain-v2 status output.
+func dedupRenamesByNew(in []Rename) []Rename {
+	if len(in) == 0 {
+		return in
+	}
+	seen := make(map[string]bool, len(in))
+	out := in[:0]
+	for _, r := range in {
+		if seen[r.New] {
+			continue
+		}
+		seen[r.New] = true
+		out = append(out, r)
+	}
+	return out
 }
 
 // FileDiffCommitted returns the diff for a committed file between base and HEAD.
