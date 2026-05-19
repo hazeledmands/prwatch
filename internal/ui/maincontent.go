@@ -80,7 +80,7 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 		m.mainPane.ClearDiffHunks()
 		m.mainPane.SetNoHunkRight(m.fileContextRight(file, true))
 		m.mainPane.SetDiffPrefix("")
-		m.mainPane.SetTitleWithHunks(file)
+		m.mainPane.SetTitleWithHunks(m.fileTitleLeft(file))
 		setItem(mainItemKey{m.mode, file})
 		return
 	}
@@ -112,7 +112,7 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 	}
 	m.mainPane.SetFilename(file)
 	m.mainPane.SetPlainContent(content)
-	m.mainPane.SetTitleWithHunks(file)
+	m.mainPane.SetTitleWithHunks(m.fileTitleLeft(file))
 	setItem(mainItemKey{m.mode, file})
 }
 

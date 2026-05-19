@@ -43,15 +43,20 @@ func fileDiffPrefix(file string, isUncommitted, isCommitted bool, stat statMtime
 // fileContextRight builds the right-side title text for a file with no active
 // diff. Components join with " · " in this order:
 //
-//	[binary] [<sha7>|untracked] [<relative-time>]
+//	[binary] [renamed] [<sha7>|uncommitted|untracked] [<relative-time>]
 //
 // Tracked files show the most recent commit's short SHA + author time;
 // untracked files show "untracked" + the file's mtime. Binary files prefix
-// the result with "binary".
-func fileContextRight(file string, binary bool, stat statMtimeFn, lastCommit lastCommitFn) string {
+// the result with "binary". Renamed files prefix the result with "renamed";
+// the middle field reads "uncommitted" (not "untracked") when no commit is
+// known, since a rename means the file existed under another name.
+func fileContextRight(file string, binary, renamed bool, stat statMtimeFn, lastCommit lastCommitFn) string {
 	var parts []string
 	if binary {
 		parts = append(parts, "binary")
+	}
+	if renamed {
+		parts = append(parts, "renamed")
 	}
 
 	var trackedInfo, rel string
@@ -62,7 +67,11 @@ func fileContextRight(file string, binary bool, stat statMtimeFn, lastCommit las
 		}
 	}
 	if trackedInfo == "" {
-		trackedInfo = "untracked"
+		if renamed {
+			trackedInfo = "uncommitted"
+		} else {
+			trackedInfo = "untracked"
+		}
 		if stat != nil {
 			if mt, ok := stat(file); ok {
 				rel = relativeTime(mt)

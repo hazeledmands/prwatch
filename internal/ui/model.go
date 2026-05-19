@@ -348,7 +348,34 @@ func (m *Model) fileDiffPrefix(file string) string {
 }
 
 func (m *Model) fileContextRight(file string, binary bool) string {
-	return fileContextRight(file, binary, m.statMtime, m.lastCommitForFile)
+	return fileContextRight(file, binary, m.isRenamedFile(file), m.statMtime, m.lastCommitForFile)
+}
+
+// renameOldPath returns the pre-rename path for file if it's the new side of
+// a known rename, plus true. When the file isn't a rename target, returns
+// ("", false).
+func (m *Model) renameOldPath(file string) (string, bool) {
+	for _, r := range m.renamedFiles {
+		if r.New == file {
+			return r.Old, true
+		}
+	}
+	return "", false
+}
+
+// isRenamedFile reports whether file is the new side of a rename.
+func (m *Model) isRenamedFile(file string) bool {
+	_, ok := m.renameOldPath(file)
+	return ok
+}
+
+// fileTitleLeft returns the title-bar's left side for file. For renamed files
+// it returns "<old> → <new>"; otherwise just the file path.
+func (m *Model) fileTitleLeft(file string) string {
+	if old, ok := m.renameOldPath(file); ok {
+		return old + " → " + file
+	}
+	return file
 }
 
 // statMtime returns the working-tree mtime of file (relative to m.dir).
