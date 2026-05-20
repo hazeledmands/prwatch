@@ -16,3 +16,7 @@
 
 1. I would love to be able to leave comments inline in the code and have that be visible to a claude agent running in a session in the same directory.
 2. I would also love to be able to view PR comments inline, and leave PR comments for others inline.
+
+# SEMANTIC BROWSING
+
+1. It would be very nice if prwatch had some kind of LSP-derived understanding of the code syntax, so the user could click on identifiers to go-to-definition, find usages, look at documentation, etc.
