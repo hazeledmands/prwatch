@@ -114,9 +114,13 @@ Stream-mode keyboard selection needs Column for the active end — extending wit
 - **LSP semantic browsing** (`IDEAS.md: SEMANTIC BROWSING`). Heaviest data-layer extension (process management, indexing). Position's `Column` field is forward-compatible; full implementation deferred.
 
 **Testing:**
-- Property tests for `Position` and `Range` invariants (round-trip through viewport scroll, scope change, etc.) belong in `internal/ui/position_test.go` per the CLAUDE.md guidance on extracted state machines.
-- Existing rapid drag-selection tests guard step 2.
-- New rapid tests for visual-mode selection mirror the drag tests in shape.
+
+Step 1 is a pure internal refactor with no behavior change, so guards should test observable behavior, not internal helpers. The existing rapid suite already does this — keypress sequences in, rendered output / model state asserted out — and survives internal renaming because it doesn't name the internals.
+
+- **Existing observable-behavior coverage is the primary guard for step 1.** Strong: `TestProperty_InteractionInvariants` (viewport↔source round-trip), `TestProperty_DragSelectsCorrectText` + `TestProperty_DragAcrossModesNoPanic`, the three `TestProperty_ProgressPercent_*` properties. Moderate: `title_test.go` + snapshots for hunk-title rendering.
+- **Add one golden snapshot before step 1** capturing a representative complex state (multi-hunk file, mid-scroll, drag-selected, progress percent showing) as a concrete before/after artifact. Snapshot tests survive internal renames because they assert on rendered strings.
+- **Defer property tests for `Position` and `Range`** until those types are doing something observable — step 2 when drag stores them, step 5 when visual mode populates `Column`. At that point the tests guard features, not abstractions, so they survive future rearrangement.
+- New rapid tests for visual-mode selection (step 5) mirror the drag tests in shape.
 
 ---
 
