@@ -208,3 +208,62 @@ func TestSnapshot_AheadOfUpstream(t *testing.T) {
 	out := renderScenario(mock, 100, 30)
 	assertGolden(t, "ahead_upstream", out)
 }
+
+// TestSnapshot_MidScrollMultiHunk captures the main pane rendering when a
+// multi-hunk file is scrolled past the first hunk. It exists as a concrete
+// before/after artifact for the Position/Range refactor (PLAN.md step 1):
+// it exercises the joint output of hunkTitleRight, progressPercent,
+// visibleHunkRange, ViewportToSourceLine, and ViewportBottomSourceLine —
+// the touch points that step 1 will route through Position/Range. A drift
+// here means the refactor changed something it shouldn't have.
+func TestSnapshot_MidScrollMultiHunk(t *testing.T) {
+	mock := standardMock()
+	mock.fileDiff = "diff --git a/auth.go b/auth.go\n" +
+		"--- a/auth.go\n" +
+		"+++ b/auth.go\n" +
+		"@@ -3,6 +3,7 @@ package auth\n" +
+		" \n" +
+		" import (\n" +
+		" \t\"fmt\"\n" +
+		"+\t\"errors\"\n" +
+		" \t\"os\"\n" +
+		" )\n" +
+		" \n" +
+		"@@ -15,7 +16,8 @@ func init() {\n" +
+		" \ta := 1\n" +
+		" \tb := 2\n" +
+		"-\tc := 3\n" +
+		"+\tc := 3\n" +
+		"+\td := 4\n" +
+		" \treturn\n" +
+		" }\n" +
+		" \n" +
+		"@@ -28,5 +30,6 @@ func cleanup() {\n" +
+		" \tp := 1\n" +
+		" \tq := 2\n" +
+		"+\tr := 3\n" +
+		" \treturn\n" +
+		" }\n"
+	mock.fileContent = strings.Repeat("filler line\n", 40)
+
+	m := initModel(mock, FilesMode, 100, 30)
+
+	// Select the first file in the sidebar (skip non-file items like
+	// the Description pseudo-entry).
+	for i, item := range m.sidebar.items {
+		if item.filePath != "" {
+			m.sidebar.SelectIndex(i)
+			break
+		}
+	}
+	m.updateMainContent()
+
+	// Scroll partway into the file so progressPercent is non-trivial and
+	// hunkTitleRight transitions between hunks. With viewport height ~26
+	// content rows after status bar / borders, an offset of 10 should put
+	// us in or just past the second hunk.
+	m.mainPane.viewport.SetYOffset(10)
+
+	out := stripANSI(m.RenderOnce(100, 30))
+	assertGolden(t, "midscroll_multihunk", out)
+}

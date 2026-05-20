@@ -1,0 +1,30 @@
+  files commits pr help · myapp                                                                     
+  feature/add-auth → main · 1 uncommitted · 2 commits · 3 changed files                             
+  PR #42: Add authentication                                                                        
+╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
+│New Changes (1)               ││README.md            uncommitted · viewing hunks 2 through 3 · 82%│
+│  README.md                [+]││11   filler line                                                  │
+│──────────────────────────────││12   filler line                                                  │
+│Committed (2)                 ││13   filler line                                                  │
+│  auth.go                  [±]││14   filler line                                                  │
+│  config.go                [±]││15   filler line                                                  │
+│                              ││16   filler line                                                  │
+│                              ││17   filler line                                                  │
+│                              ││   ~     c := 3                                                   │
+│                              ││18 ~ filler line                                                  │
+│                              ││19 + filler line                                                  │
+│                              ││20   filler line                                                  │
+│                              ││21   filler line                                                  │
+│                              ││22   filler line                                                  │
+│                              ││23   filler line                                                  │
+│                              ││24   filler line                                                  │
+│                              ││25   filler line                                                  │
+│                              ││26   filler line                                                  │
+│                              ││27   filler line                                                  │
+│                              ││28   filler line                                                  │
+│                              ││29   filler line                                                  │
+│                              ││30   filler line                                                  │
+│                              ││31   filler line                                                  │
+│                              ││32 + filler line                                                  │
+│                              ││33   filler line                                                  │
+╰──────────────────────────────╯╰──────────────────────────────────────────────────────────────────╯
