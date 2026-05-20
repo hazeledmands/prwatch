@@ -983,128 +983,137 @@ func (m *mainPane) ScrollToSourceLine(sourceLine int) {
 	m.viewport.SetYOffset(sourceLine - 1)
 }
 
-// viewportToSourceLine converts a viewport scroll offset to the closest source
-// file line number. This reverses the formatting/wrapping transformation so that
-// hunk navigation can compare viewport position against source line numbers.
+// viewportToSourceLine converts the viewport's scroll offset to the closest
+// source file line number. Thin wrapper around sourceLineAtViewportOffset
+// with the top-of-viewport row.
 func (m *mainPane) viewportToSourceLine() int {
 	return m.sourceLineAtViewportOffset(m.viewport.YOffset())
 }
 
-// sourceLineAtViewportOffset returns the source line at the given viewport
-// row offset (0 = first visible row, 1 = next visible row, …). Used by
-// viewportToSourceLine (with YOffset) and by drag click-to-Position
-// translation (with YOffset + screen-y - contentStartY).
-func (m *mainPane) sourceLineAtViewportOffset(vpOffset int) int {
-	if m.sourceToFormatLine == nil || len(m.sourceToFormatLine) == 0 {
-		return vpOffset + 1
+// viewportBottomSourceLine returns the source line at the bottom of the
+// visible viewport. Thin wrapper around sourceLineAtViewportOffset with
+// the bottom-of-viewport row.
+func (m *mainPane) viewportBottomSourceLine() int {
+	bottomRow := m.viewport.YOffset() + m.viewport.Height() - 1
+	if bottomRow < 0 {
+		bottomRow = 0
 	}
-	// Build reverse map: formatted line -> source line
-	reverseMap := make(map[int]int, len(m.sourceToFormatLine))
-	for src, fmt := range m.sourceToFormatLine {
-		reverseMap[fmt] = src
-	}
-
-	if !m.wordWrap || m.width <= 0 {
-		// Without wrapping, viewport line = formatted line
-		if src, ok := reverseMap[vpOffset]; ok {
-			return src
-		}
-		// Find the closest formatted line <= vpOffset
-		best := 1
-		for formattedIdx, srcLine := range reverseMap {
-			if formattedIdx <= vpOffset && srcLine > best {
-				best = srcLine
-			}
-		}
-		return best
-	}
-
-	// With wrapping: walk through formatted lines, counting viewport lines
-	formattedLines := strings.Split(m.formattedContent, "\n")
-	viewportLine := 0
-	for i, line := range formattedLines {
-		lineW := ansiAwareIterate(line, func(r rune, w int) {})
-		var linesUsed int
-		if lineW > m.width {
-			linesUsed = (lineW + m.width - 1) / m.width
-		} else {
-			linesUsed = 1
-		}
-		if viewportLine+linesUsed > vpOffset {
-			// This formatted line contains the viewport offset.
-			if src, ok := reverseMap[i]; ok {
-				return src
-			}
-			// No direct mapping for this formatted index — it's a
-			// rendered-only row (removed-line prefix above a source line,
-			// or a "tail" annotation past the last source line). Return the
-			// most recently mapped source line whose formatted index is
-			// ≤ i, matching the non-wrap branch above. Using `i + 1` as the
-			// fallback (the old behavior) returned the formatted index as
-			// if it were a source line, which happened to give the right
-			// answer for some shapes but broke the ScrollToSourceLine round
-			// trip when clamping landed yOffset on such an unmapped row.
-			best := 1
-			for formattedIdx, srcLine := range reverseMap {
-				if formattedIdx <= i && srcLine > best {
-					best = srcLine
-				}
-			}
-			return best
-		}
-		viewportLine += linesUsed
-	}
-	return len(formattedLines)
+	return m.sourceLineAtViewportOffset(bottomRow)
 }
 
-// viewportBottomSourceLine returns the source line number at the bottom of the
-// visible viewport.
-func (m *mainPane) viewportBottomSourceLine() int {
-	bottomOffset := m.viewport.YOffset() + m.viewport.Height() - 1
-	if bottomOffset < 0 {
-		bottomOffset = 0
+// sourceLineAtViewportOffset returns the 1-indexed source line displayed
+// at the given 0-indexed viewport row (0 = first visible row). Wrap-aware:
+// with word wrap on, walks formattedLines accumulating each line's
+// wrapped row count until the target is found. For rows that fall on a
+// rendered-only formatted line (removed-line prefix above a source line,
+// "tail" annotation past EOF), returns the most recently mapped source
+// line ≤ that row — matches the behavior the May 18 InteractionInvariants
+// regression seed depends on.
+func (m *mainPane) sourceLineAtViewportOffset(target int) int {
+	if target < 0 {
+		target = 0
 	}
-	if m.sourceToFormatLine == nil || len(m.sourceToFormatLine) == 0 {
-		return bottomOffset + 1
+	if len(m.sourceToFormatLine) == 0 {
+		return target + 1
 	}
-	reverseMap := make(map[int]int, len(m.sourceToFormatLine))
-	for src, fmt := range m.sourceToFormatLine {
-		reverseMap[fmt] = src
-	}
+	reverseMap := m.buildReverseSourceMap()
 
 	if !m.wordWrap || m.width <= 0 {
-		if src, ok := reverseMap[bottomOffset]; ok {
-			return src
-		}
-		best := 1
-		for formattedIdx, srcLine := range reverseMap {
-			if formattedIdx <= bottomOffset && srcLine > best {
-				best = srcLine
-			}
-		}
-		return best
+		// viewport row == formatted line index
+		return mostRecentSourceLineAtOrBefore(reverseMap, target)
 	}
 
 	formattedLines := strings.Split(m.formattedContent, "\n")
-	viewportLine := 0
+	viewportRow := 0
 	lastSrc := 1
 	for i, line := range formattedLines {
-		lineW := ansiAwareIterate(line, func(r rune, w int) {})
-		var linesUsed int
-		if lineW > m.width {
-			linesUsed = (lineW + m.width - 1) / m.width
-		} else {
-			linesUsed = 1
-		}
 		if src, ok := reverseMap[i]; ok {
 			lastSrc = src
 		}
-		if viewportLine+linesUsed > bottomOffset {
+		linesUsed := wrappedRowCount(line, m.width)
+		if viewportRow+linesUsed > target {
 			return lastSrc
 		}
-		viewportLine += linesUsed
+		viewportRow += linesUsed
 	}
+	// Past end of content: return the most recent mapped source line, matching
+	// the no-wrap branch and the old viewportBottomSourceLine behavior. The
+	// old viewportToSourceLine returned len(formattedLines) here, which isn't
+	// a valid source line when the content has rendered-only rows.
 	return lastSrc
+}
+
+// sourceLineToViewportOffset returns the 0-indexed viewport row at which
+// the given 1-indexed source line first appears. Inverse of
+// sourceLineAtViewportOffset; wrap-aware. Returns 0 when the source line
+// has no formatted mapping (treated as "before any content"). Used by
+// ApplyHighlight / SelectedText to convert Selection's source-space
+// anchor and active back to screen rows for rendering.
+func (m *mainPane) sourceLineToViewportOffset(sourceLine int) int {
+	if len(m.sourceToFormatLine) == 0 {
+		row := sourceLine - 1
+		if row < 0 {
+			row = 0
+		}
+		return row
+	}
+	formattedIdx, ok := m.sourceToFormatLine[sourceLine]
+	if !ok {
+		return 0
+	}
+	if !m.wordWrap || m.width <= 0 {
+		return formattedIdx
+	}
+	formattedLines := strings.Split(m.formattedContent, "\n")
+	viewportRow := 0
+	for i, line := range formattedLines {
+		if i == formattedIdx {
+			return viewportRow
+		}
+		viewportRow += wrappedRowCount(line, m.width)
+	}
+	return viewportRow
+}
+
+// buildReverseSourceMap returns formattedIndex → sourceLine, the inverse
+// of m.sourceToFormatLine.
+func (m *mainPane) buildReverseSourceMap() map[int]int {
+	out := make(map[int]int, len(m.sourceToFormatLine))
+	for src, fmt := range m.sourceToFormatLine {
+		out[fmt] = src
+	}
+	return out
+}
+
+// mostRecentSourceLineAtOrBefore looks up reverseMap[target], falling
+// back to the largest entry whose formatted index ≤ target. Used by the
+// no-wrap branch of sourceLineAtViewportOffset and is the same fallback
+// the wrap branch arrives at via online lastSrc tracking.
+func mostRecentSourceLineAtOrBefore(reverseMap map[int]int, target int) int {
+	if src, ok := reverseMap[target]; ok {
+		return src
+	}
+	best := 1
+	for formattedIdx, srcLine := range reverseMap {
+		if formattedIdx <= target && srcLine > best {
+			best = srcLine
+		}
+	}
+	return best
+}
+
+// wrappedRowCount returns the number of viewport rows a single formatted
+// line occupies given the current pane width. Used by both directions of
+// the source ↔ viewport-row translation in wrap mode.
+func wrappedRowCount(line string, width int) int {
+	if width <= 0 {
+		return 1
+	}
+	lineW := ansiAwareIterate(line, func(r rune, w int) {})
+	if lineW > width {
+		return (lineW + width - 1) / width
+	}
+	return 1
 }
 
 // visibleRange returns the [top, bottom] source-line range currently
