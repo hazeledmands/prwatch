@@ -10,7 +10,7 @@
 
 # ACTIONS/SHORTCUTS
 
-1. `o` opens the active PR in the browser; if there is no PR but a pushed branch, it should open the branch. ideally it would also open the currently-visible line / commit etc if you're in one of those views.
+1. `o` opens the active PR in the browser; if there is no PR but a pushed branch, it should open the branch. ideally it would also open the currently-visible line / commit etc if you're in one of those views. if there is no branch but a remote, it should just open the repo (on whatever relevant file)
 
 # SESSION / PR COMMENTS
 
