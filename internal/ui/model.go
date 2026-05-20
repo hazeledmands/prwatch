@@ -1752,6 +1752,32 @@ func (m *Model) currentLineNumber() int {
 	return m.mainPane.ScrollTop() + 1
 }
 
+// visibleRange returns the [top, bottom] source-line range currently
+// visible in the main pane, with File populated from the current sidebar
+// selection when it refers to a changed file. This is the diff-display
+// view of the viewport — the source lines are mapped through any wrap /
+// inline-removal formatting via ViewportToSourceLine and
+// ViewportBottomSourceLine. The visible-range-as-a-pair pattern is
+// already used implicitly by hunkTitleRight, progressPercent (bottom
+// only), and drag selection; this method names it.
+func (m *Model) visibleRange() Range {
+	top := m.mainPane.ViewportToSourceLine()
+	bottom := m.mainPane.ViewportBottomSourceLine()
+	if bottom < top {
+		bottom = top
+	}
+	var file *gitpkg.ChangedFile
+	if path := m.sidebar.SelectedItem(); path != "" {
+		if f, ok := m.changes.Get(path); ok {
+			file = &f
+		}
+	}
+	return Range{
+		Start: Position{File: file, SourceLine: top},
+		End:   Position{File: file, SourceLine: bottom},
+	}
+}
+
 func (m *Model) isUncommittedFile(file string) bool {
 	f, ok := m.changes.Get(file)
 	if !ok {

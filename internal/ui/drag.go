@@ -354,12 +354,11 @@ func (m *Model) yankPath() tea.Cmd {
 	if m.focus == SidebarFocus {
 		text = file
 	} else {
-		topLine := m.mainPane.ViewportToSourceLine()
-		bottomLine := m.mainPane.ViewportBottomSourceLine()
-		if topLine == bottomLine {
-			text = fmt.Sprintf("%s:%d", file, topLine)
+		vr := m.visibleRange()
+		if vr.Start.SourceLine == vr.End.SourceLine {
+			text = fmt.Sprintf("%s:%d", file, vr.Start.SourceLine)
 		} else {
-			text = fmt.Sprintf("%s:%d-%d", file, topLine, bottomLine)
+			text = fmt.Sprintf("%s:%d-%d", file, vr.Start.SourceLine, vr.End.SourceLine)
 		}
 	}
 	m.copyToClipboard(text)
