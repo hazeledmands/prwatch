@@ -261,126 +261,201 @@ func scheduleDragScrollTick() tea.Cmd {
 // the visible View()). That matters when auto-scroll has moved the
 // viewport during the drag: the original click line may now be off-screen
 // above, but the user still expects it included in the copy.
+//
+// The body is decomposed into helpers that each own one concern:
+// normalize → clamp-vertically → translate pixel-to-content-row →
+// per-line extraction. Behavior is unchanged from the pre-split version;
+// see REFACTOR_IDEAS.md for the deferred source-space rewrite that will
+// replace the whole pipeline with Position-driven iteration.
 func (d *dragSelection) SelectedText(g dragGeometry) string {
 	if d.startX == d.endX && d.startY == d.endY {
 		return ""
 	}
 
-	topBorder := 1
-	titleRow := 1
-	mainLeftBorder := 1
-	contentStartY := g.statusRows + topBorder + titleRow
-	contentStartX := g.sidebarW + mainLeftBorder
+	startY, endY, startX, endX, swapped := d.normalizedPixelBounds()
+	startY, endY, startX, endX, ok := clampSelectionVertically(g, startY, endY, startX, endX)
+	if !ok {
+		return ""
+	}
 
-	viewportContent := g.pane.viewport.GetContent()
-	contentLines := strings.Split(viewportContent, "\n")
+	contentStartY := mainPaneContentTop(g)
+	contentStartX := mainPaneContentLeft(g)
+	anchorAbove := d.originalAnchorAboveContent(swapped, contentStartY)
+	absStartY, absEndY, absStartX, absEndX := pixelsToContentRows(
+		g, startY, endY, startX, endX, contentStartY, contentStartX, anchorAbove,
+	)
 
-	startY, endY := d.startY, d.endY
-	startX, endX := d.startX, d.endX
-	swapped := startY > endY || (startY == endY && startX > endX)
+	return extractSelectionText(g, absStartY, absEndY, absStartX, absEndX)
+}
+
+// normalizedPixelBounds returns the drag's start/end pixel coordinates
+// in canonical (start ≤ end) order. swapped reports whether the
+// canonical start came from d.endX/Y rather than d.startX/Y — downstream
+// code needs that to know which original end corresponded to the click.
+func (d *dragSelection) normalizedPixelBounds() (startY, endY, startX, endX int, swapped bool) {
+	startY, endY = d.startY, d.endY
+	startX, endX = d.startX, d.endX
+	swapped = startY > endY || (startY == endY && startX > endX)
 	if swapped {
 		startY, endY = endY, startY
 		startX, endX = endX, startX
 	}
+	return startY, endY, startX, endX, swapped
+}
 
+// clampSelectionVertically clamps the canonical (start ≤ end) pixel
+// bounds to the main pane's content area. Returns ok=false when the
+// whole selection is below content (nothing selectable). When the end
+// is past content, it is pulled to the last content row and the right
+// edge — matching the visual highlight, which extends to the far right
+// when the user drags off the bottom.
+func clampSelectionVertically(g dragGeometry, startY, endY, startX, endX int) (int, int, int, int, bool) {
 	contentEndY := g.screenH - 2
 	if endY > contentEndY {
 		endY = contentEndY
 		endX = g.screenW
 	}
 	if startY > contentEndY {
-		return ""
+		return startY, endY, startX, endX, false
 	}
+	return startY, endY, startX, endX, true
+}
 
-	// Detect a drag whose "earlier" end (the swapped-min Y) originated
-	// outside the content area. anchorPos is nil iff the original click
-	// was outside content; the active end's status comes from its current
-	// pixel Y (it's never mutated by auto-scroll). After swap, the local
-	// startY corresponds to whichever original end was upper on screen.
-	anchorAboveContent := false
+// originalAnchorAboveContent reports whether the *original* click landed
+// above the content area at Begin time — distinct from "the upper end of
+// the swapped-canonical selection is above content," which is what a
+// naive Y check would tell us.
+//
+// When swapped, the upper end of the canonical selection corresponds to
+// d.endY (the live mouse position, never mutated by auto-scroll), so a
+// direct pixel-Y check answers the question. When not swapped, the
+// upper end corresponds to the original click — sel.Anchor records that
+// click's source-space translation (nil iff outside content), and
+// falling back to d.startY handles tests that bypass Begin.
+func (d *dragSelection) originalAnchorAboveContent(swapped bool, contentStartY int) bool {
 	if swapped {
-		// After swap, local startY corresponds to d.endY (the drag end).
-		anchorAboveContent = d.endY < contentStartY
-	} else {
-		// No swap — local startY corresponds to the original click.
-		// sel.Anchor is set by Begin to nil when the click was outside the
-		// content area; absent Begin (a test that constructs the struct
-		// directly), sel.Anchor is nil so we fall back to checking startY.
-		if d.sel.Anchor != nil {
-			anchorAboveContent = false
-		} else {
-			anchorAboveContent = d.startY < contentStartY
-		}
+		return d.endY < contentStartY
 	}
+	if d.sel.Anchor != nil {
+		return false
+	}
+	return d.startY < contentStartY
+}
 
+// pixelsToContentRows translates clamped pixel coords into absolute
+// (viewport-content-relative) row and column offsets, the units that
+// viewport.GetContent() lines and per-line column slicing operate on.
+// When anchorAbove, the top of the selection is clamped to the first
+// visible row instead of translated to an absolute row the user never
+// saw.
+func pixelsToContentRows(
+	g dragGeometry,
+	startY, endY, startX, endX int,
+	contentStartY, contentStartX int,
+	anchorAbove bool,
+) (absStartY, absEndY, absStartX, absEndX int) {
 	vpOffset := g.pane.viewport.YOffset()
-	startY = vpOffset + (startY - contentStartY)
-	endY = vpOffset + (endY - contentStartY)
-	startX -= contentStartX
-	endX -= contentStartX
+	absStartY = vpOffset + (startY - contentStartY)
+	absEndY = vpOffset + (endY - contentStartY)
+	absStartX = startX - contentStartX
+	absEndX = endX - contentStartX
 
-	if anchorAboveContent {
-		// The user never saw any content above vpOffset; clamp to the first
-		// visible row rather than translating to a (possibly off-screen)
-		// absolute row. Matches ApplyHighlight's clamp to contentStartY.
-		startY = vpOffset
-		startX = 0
+	if anchorAbove {
+		absStartY = vpOffset
+		absStartX = 0
 	}
-	if startY < 0 {
-		startY = 0
-		startX = 0
+	if absStartY < 0 {
+		absStartY = 0
+		absStartX = 0
 	}
-	if startX < 0 {
-		startX = 0
+	if absStartX < 0 {
+		absStartX = 0
 	}
-	if endX < 0 {
-		endX = 0
+	if absEndX < 0 {
+		absEndX = 0
 	}
+	return absStartY, absEndY, absStartX, absEndX
+}
 
+// extractSelectionText iterates content rows in the pane's full rendered
+// output (not just the visible window) and accumulates the selected
+// text, stripping ANSI, trimming the gutter, and joining word-wrap
+// continuations into a single logical line in the output.
+func extractSelectionText(g dragGeometry, absStartY, absEndY, absStartX, absEndX int) string {
+	contentLines := strings.Split(g.pane.viewport.GetContent(), "\n")
 	gw := g.pane.gutterWidth
 	contMap := g.pane.wrapContinuation
-	var selected strings.Builder
-	for y := startY; y <= endY && y < len(contentLines); y++ {
-		line := stripANSIForWidth(contentLines[y])
-		line = strings.TrimRight(line, " ")
 
+	var out strings.Builder
+	for y := absStartY; y <= absEndY && y < len(contentLines); y++ {
 		isCont := contMap != nil && y < len(contMap) && contMap[y]
-		if isCont {
-			if gw > 0 && len(line) > gw {
-				line = line[gw:]
-			}
-		} else if gw > 0 && len(line) > gw {
-			line = line[gw:]
-		}
-
-		lineWidth := displayWidthOf(line)
-		fromCol := 0
-		toCol := lineWidth
-		if y == startY {
-			fromCol = max(0, startX-gw)
-		}
-		if y == endY {
-			toCol = max(0, endX+1-gw)
-		}
-		if fromCol > lineWidth {
-			fromCol = lineWidth
-		}
-		if toCol > lineWidth {
-			toCol = lineWidth
-		}
-		if fromCol < toCol {
-			selected.WriteString(sliceByDisplayCol(line, fromCol, toCol))
-		}
-		if y < endY {
+		fromCol, toCol := selectionColumnsForRow(y, absStartY, absEndY, absStartX, absEndX, gw)
+		out.WriteString(extractLineFragment(contentLines[y], fromCol, toCol, gw, isCont))
+		if y < absEndY {
 			nextAbsY := y + 1
 			if contMap != nil && nextAbsY < len(contMap) && contMap[nextAbsY] {
 				continue
 			}
-			selected.WriteString("\n")
+			out.WriteString("\n")
 		}
 	}
+	return out.String()
+}
 
-	return selected.String()
+// selectionColumnsForRow returns the [fromCol, toCol) post-gutter column
+// range to extract from the row at y. Inner rows get the full line;
+// the first and last rows clip on absStartX/absEndX. Columns are
+// gutter-relative (0 == first character after the gutter).
+func selectionColumnsForRow(y, absStartY, absEndY, absStartX, absEndX, gw int) (int, int) {
+	const noUpperBound = -1 // sentinel; extractLineFragment clamps to line width
+	fromCol := 0
+	toCol := noUpperBound
+	if y == absStartY {
+		fromCol = max(0, absStartX-gw)
+	}
+	if y == absEndY {
+		toCol = max(0, absEndX+1-gw)
+	}
+	return fromCol, toCol
+}
+
+// extractLineFragment pulls the [fromCol, toCol) gutter-relative slice
+// out of a single rendered line, after stripping ANSI codes, trimming
+// trailing whitespace, and removing the gutter prefix. A toCol of -1
+// means "to end of line." Returns empty string when the range is empty
+// or past the line's content.
+func extractLineFragment(line string, fromCol, toCol, gw int, isContinuation bool) string {
+	stripped := stripANSIForWidth(line)
+	stripped = strings.TrimRight(stripped, " ")
+	if gw > 0 && len(stripped) > gw {
+		stripped = stripped[gw:]
+	}
+	lineWidth := displayWidthOf(stripped)
+	if toCol < 0 || toCol > lineWidth {
+		toCol = lineWidth
+	}
+	if fromCol > lineWidth {
+		fromCol = lineWidth
+	}
+	if fromCol >= toCol {
+		return ""
+	}
+	_ = isContinuation // reserved for future wrap-aware semantics; currently identical handling
+	return sliceByDisplayCol(stripped, fromCol, toCol)
+}
+
+// mainPaneContentTop returns the screen-Y of the first row inside the
+// main pane's content area (below status bar, top border, title row).
+func mainPaneContentTop(g dragGeometry) int {
+	const topBorder, titleRow = 1, 1
+	return g.statusRows + topBorder + titleRow
+}
+
+// mainPaneContentLeft returns the screen-X of the first column inside
+// the main pane's content area (past the sidebar and left border).
+func mainPaneContentLeft(g dragGeometry) int {
+	const mainLeftBorder = 1
+	return g.sidebarW + mainLeftBorder
 }
 
 // yankPath copies the current file path to the clipboard. Sidebar focused:

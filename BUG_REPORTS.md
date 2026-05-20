@@ -1,6 +1,15 @@
 ## New Bugs
 
 - Scrolling to next/prev hunk doesn't work when the hunk is only removals.
+- Flaky `viewWithTimeout` assertion in `TestProperty_DragSelectsCorrectText`:
+  occasional "View() hung for >1s" under stress (300+ iter), but the
+  captured seed replays cleanly at default check count. Seed at
+  `testdata/rapid/TestProperty_DragSelectsCorrectText/...-20260520145748-58114.fail`.
+  Per-property timing was identical with/without the SelectedText split,
+  so this looks like a pre-existing performance edge under load rather
+  than a regression. Worth profiling View() on the captured configuration
+  (13 files, FilesMode, 66×38 viewport with sidebar 19) when there's
+  bandwidth.
 
 ## Fixed Bugs
 
