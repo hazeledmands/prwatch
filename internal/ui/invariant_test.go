@@ -2354,7 +2354,7 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			// Capture pre-action position so we can record it as the
 			// "where we left off" line if this action navigates elsewhere.
 			prevKey := itemKey{m.mode, m.sidebar.SelectedItem()}
-			prevSrc := m.mainPane.ViewportToSourceLine()
+			prevSrc := m.mainPane.visibleRange().Start.SourceLine
 
 			// 20% chance of a special key (enter, tab, arrows, pgup/dn)
 			var msg tea.Msg
@@ -2395,7 +2395,7 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 				if prevKey.item != "" && nowKey != prevKey {
 					expectedScroll[prevKey] = prevSrc
 					if want, ok := expectedScroll[nowKey]; ok {
-						got := m.mainPane.ViewportToSourceLine()
+						got := m.mainPane.visibleRange().Start.SourceLine
 						if got != want {
 							t.Fatalf("%s: returning to %+v: expected source line %d, got %d (recorded on prior leave from this item)",
 								context, nowKey, want, got)

@@ -213,9 +213,9 @@ func TestSnapshot_AheadOfUpstream(t *testing.T) {
 // multi-hunk file is scrolled past the first hunk. It exists as a concrete
 // before/after artifact for the Position/Range refactor (PLAN.md step 1):
 // it exercises the joint output of hunkTitleRight, progressPercent,
-// visibleHunkRange, ViewportToSourceLine, and ViewportBottomSourceLine —
-// the touch points that step 1 will route through Position/Range. A drift
-// here means the refactor changed something it shouldn't have.
+// visibleHunkRange, and visibleRange — the touch points that step 1
+// routes through Position/Range. A drift here means the refactor changed
+// something it shouldn't have.
 func TestSnapshot_MidScrollMultiHunk(t *testing.T) {
 	mock := standardMock()
 	mock.fileDiff = "diff --git a/auth.go b/auth.go\n" +

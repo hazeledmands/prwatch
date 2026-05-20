@@ -1785,7 +1785,7 @@ func (m *Model) jumpToFirstDiff() {
 }
 
 func (m *Model) jumpToNextDiff(direction int) {
-	if line, ok := nextDiffLine(m.mainPane.DiffLineNumbers(), m.mainPane.ViewportToSourceLine(), direction); ok {
+	if line, ok := nextDiffLine(m.mainPane.DiffLineNumbers(), m.mainPane.visibleRange().Start.SourceLine, direction); ok {
 		m.mainPane.ScrollToSourceLine(line)
 	}
 }
@@ -1949,7 +1949,7 @@ func (m *Model) updateMainContent() {
 	// Save the source line at the top of the main pane under the item we
 	// were just showing, so the next time the user navigates to it we can
 	// drop them back at the same line.
-	m.viewMemory.RememberMainScroll(m.lastMainItem, m.mainPane.ViewportToSourceLine())
+	m.viewMemory.RememberMainScroll(m.lastMainItem, m.mainPane.visibleRange().Start.SourceLine)
 
 	prevKey := m.lastMainItem
 	// setItem records the (mode, item) currently displayed and, if it

@@ -444,12 +444,9 @@ func (m *mainPane) progressPercent() int {
 	if total <= 0 {
 		return 100
 	}
-	bottom := m.ViewportBottomSourceLine()
+	bottom := m.visibleRange().End.SourceLine
 	if bottom >= total {
 		return 100
-	}
-	if bottom < 0 {
-		bottom = 0
 	}
 	return (bottom * 100) / total
 }
@@ -543,7 +540,7 @@ func (m *mainPane) refreshViewport() {
 		// Diff content has no gutter/line-number formatting, so there is no
 		// source-line → formatted-line mapping to maintain. Clear any
 		// leftover from a prior plain-content render so callers (e.g.
-		// ViewportToSourceLine, ScrollToSourceLine) fall through to the
+		// viewportToSourceLine, ScrollToSourceLine) fall through to the
 		// 1:1 viewport-line mapping appropriate for diff content.
 		m.sourceToFormatLine = nil
 	} else {
@@ -986,10 +983,10 @@ func (m *mainPane) ScrollToSourceLine(sourceLine int) {
 	m.viewport.SetYOffset(sourceLine - 1)
 }
 
-// ViewportToSourceLine converts a viewport scroll offset to the closest source
+// viewportToSourceLine converts a viewport scroll offset to the closest source
 // file line number. This reverses the formatting/wrapping transformation so that
 // hunk navigation can compare viewport position against source line numbers.
-func (m *mainPane) ViewportToSourceLine() int {
+func (m *mainPane) viewportToSourceLine() int {
 	vpOffset := m.viewport.YOffset()
 	if m.sourceToFormatLine == nil || len(m.sourceToFormatLine) == 0 {
 		return vpOffset + 1
@@ -1053,9 +1050,9 @@ func (m *mainPane) ViewportToSourceLine() int {
 	return len(formattedLines)
 }
 
-// ViewportBottomSourceLine returns the source line number at the bottom of the
+// viewportBottomSourceLine returns the source line number at the bottom of the
 // visible viewport.
-func (m *mainPane) ViewportBottomSourceLine() int {
+func (m *mainPane) viewportBottomSourceLine() int {
 	bottomOffset := m.viewport.YOffset() + m.viewport.Height() - 1
 	if bottomOffset < 0 {
 		bottomOffset = 0
@@ -1105,16 +1102,16 @@ func (m *mainPane) ViewportBottomSourceLine() int {
 
 // visibleRange returns the [top, bottom] source-line range currently
 // visible in the viewport. Source lines are mapped through any wrap /
-// inline-removal formatting via ViewportToSourceLine and
-// ViewportBottomSourceLine. The visible-range-as-a-pair pattern is
+// inline-removal formatting via viewportToSourceLine and
+// viewportBottomSourceLine. The visible-range-as-a-pair pattern is
 // already used implicitly by hunkTitleRight, progressPercent (bottom
 // only), and drag selection — this method names it.
 //
 // Positions are line-only; file/document identity is paired with the
 // range externally by callers that need it (see PLAN.md).
 func (m *mainPane) visibleRange() Range {
-	top := m.ViewportToSourceLine()
-	bottom := m.ViewportBottomSourceLine()
+	top := m.viewportToSourceLine()
+	bottom := m.viewportBottomSourceLine()
 	if bottom < top {
 		bottom = top
 	}

@@ -7639,20 +7639,6 @@ func TestRenderPRDescription_ReviewerStates(t *testing.T) {
 	}
 }
 
-func TestViewportToSourceLine(t *testing.T) {
-	mp := newMainPane()
-	mp.SetSize(80, 24)
-
-	// Set plain content with known line mapping
-	mp.SetPlainContent("line1\nline2\nline3\nline4\nline5")
-
-	// At top, source line should be 1
-	srcLine := mp.ViewportToSourceLine()
-	if srcLine < 1 {
-		t.Errorf("source line at top should be >= 1, got %d", srcLine)
-	}
-}
-
 func TestCIStatusBar_ShowsTextLabel(t *testing.T) {
 	data := statusBarData{
 		info:     git.RepoInfoResult{Branch: "main", RepoName: "repo", DirName: "repo"},
