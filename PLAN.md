@@ -63,14 +63,22 @@ prwatch/
 ```go
 type Position struct {
     SourceLine int           // 1-indexed line in the displayed version
-    Column     int           // 0-indexed column; populated for stream selection, LSP, and mouse drag (added in step 5)
+    Column     int           // 0-indexed column past the gutter; populated for mouse drag (step 2), visual mode (step 5), LSP (deferred)
     Side       Side          // add | remove | context — needed for PR comments + deep-links (added in step 6)
 }
 
 type Range struct {
     Start, End Position
 }
+
+type Selection struct {
+    Anchor *Position // nil = clicked outside content at Begin time
+    Active *Position // nil = currently outside content
+    // Mode SelectionMode — added in step 5 for vim-style v/V/Ctrl-V
+}
 ```
+
+`Selection` projects to `Range` via a normalize method; `Range` doesn't recover Selection's direction.
 
 Position is line-and-column only; file/document identity is paired with it at the call site rather than embedded, following the convention used by LSP, VS Code, tree-sitter, and other editor APIs. This keeps `mainPane` (which owns source-line data) independent of `Model` (which owns file identity via sidebar selection). `Ref` for the whole-scope-diff work is similarly paired externally.
 

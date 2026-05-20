@@ -987,7 +987,14 @@ func (m *mainPane) ScrollToSourceLine(sourceLine int) {
 // file line number. This reverses the formatting/wrapping transformation so that
 // hunk navigation can compare viewport position against source line numbers.
 func (m *mainPane) viewportToSourceLine() int {
-	vpOffset := m.viewport.YOffset()
+	return m.sourceLineAtViewportOffset(m.viewport.YOffset())
+}
+
+// sourceLineAtViewportOffset returns the source line at the given viewport
+// row offset (0 = first visible row, 1 = next visible row, …). Used by
+// viewportToSourceLine (with YOffset) and by drag click-to-Position
+// translation (with YOffset + screen-y - contentStartY).
+func (m *mainPane) sourceLineAtViewportOffset(vpOffset int) int {
 	if m.sourceToFormatLine == nil || len(m.sourceToFormatLine) == 0 {
 		return vpOffset + 1
 	}

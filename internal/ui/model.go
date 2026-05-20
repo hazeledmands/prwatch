@@ -1524,7 +1524,8 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	} else {
 		// Clicked in main pane — start drag tracking for copy
 		m.focus = MainFocus
-		m.drag.Begin(x, y)
+		g := m.dragGeom()
+		m.drag.Begin(x, y, g.sourcePositionAt(x, y))
 	}
 	return m, nil
 }

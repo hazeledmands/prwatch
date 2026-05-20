@@ -20,7 +20,7 @@ func TestDragSelection_BeginInitializesState(t *testing.T) {
 		y := rapid.IntRange(-100, 100).Draw(t, "y")
 		d := newDragSelection()
 		d.scrollDir = +1 // poison
-		d.Begin(x, y)
+		d.Begin(x, y, nil)
 		if !d.IsActive() {
 			t.Fatal("Begin should activate the drag")
 		}
@@ -46,7 +46,7 @@ func TestDragSelection_MoveEndUpdatesRange(t *testing.T) {
 		x2 := rapid.IntRange(0, 100).Draw(t, "x2")
 		y2 := rapid.IntRange(0, 100).Draw(t, "y2")
 		d := newDragSelection()
-		d.Begin(x1, y1)
+		d.Begin(x1, y1, nil)
 		d.MoveEnd(x2, y2)
 		if d.startX != x1 || d.startY != y1 {
 			t.Fatalf("MoveEnd disturbed start: (%d,%d) want (%d,%d)", d.startX, d.startY, x1, y1)
@@ -72,7 +72,7 @@ func TestDragSelection_ReleaseDeactivates(t *testing.T) {
 		y2 := rapid.IntRange(0, 100).Draw(t, "y2")
 
 		d := newDragSelection()
-		d.Begin(x1, y1)
+		d.Begin(x1, y1, nil)
 		d.scrollDir = -1 // simulate scrolling at release time
 		if !d.Release(x2, y2) {
 			t.Fatal("Release on active drag should return true")
@@ -104,7 +104,7 @@ func TestDragSelection_CancelIdempotent(t *testing.T) {
 
 		d := newDragSelection()
 		if startActive {
-			d.Begin(x, y)
+			d.Begin(x, y, nil)
 			d.scrollDir = dir
 		}
 		d.Cancel()

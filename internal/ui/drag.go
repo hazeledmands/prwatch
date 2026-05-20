@@ -18,22 +18,27 @@ type dragScrollTickMsg struct{}
 const dragScrollInterval = 60 * time.Millisecond
 
 // dragSelection owns the click-drag-release state used to highlight and copy
-// a region of the main pane. The fields are pixel coordinates in the same
-// frame as the mouse events. scrollDir is +1 to auto-scroll the viewport
-// down (drag past the bottom edge), -1 to scroll up, 0 when the drag end is
-// inside the viewport.
+// a region of the main pane. The pixel-coord fields (startX/Y, endX/Y) are
+// in the same frame as the mouse events. scrollDir is +1 to auto-scroll the
+// viewport down (drag past the bottom edge), -1 to scroll up, 0 when the
+// drag end is inside the viewport.
 //
-// originStartY records the screen Y at the moment Begin was called. Unlike
-// startY (which AdvanceAutoScroll decrements to re-anchor the click to its
-// absolute content row when the viewport scrolls), originStartY never
-// changes during the drag. SelectedText uses it to tell a click that
-// originated outside the content area (status bar / borders / title) from
-// a click that originated in content and was later scrolled above the
-// viewport — only the latter should pull its original row into the copy.
+// anchorPos is the click position translated into source space at Begin
+// time. nil means the click originated outside the content area (status
+// bar, title row, sidebar, gutter) — SelectedText uses this to clamp the
+// upper end of the selection to the first visible content row instead of
+// pulling a screen row the user never saw into the copy. Unlike startY
+// (which AdvanceAutoScroll decrements to re-anchor the click to its
+// absolute content row as the viewport scrolls), anchorPos survives scroll
+// natively because it's in source coordinates.
+//
+// In this slice the active end is still pixel-only (endX/Y); slice 2
+// promotes both ends to a Selection { Anchor, Active *Position } and
+// drops the pixel fields entirely.
 type dragSelection struct {
 	startX, startY int
 	endX, endY     int
-	originStartY   int
+	anchorPos      *Position
 	active         bool
 	scrollDir      int
 }
@@ -49,17 +54,47 @@ type dragGeometry struct {
 	pane       *mainPane
 }
 
-func newDragSelection() *dragSelection {
-	return &dragSelection{startX: -1, startY: -1, originStartY: -1}
+// sourcePositionAt translates a screen pixel coordinate to a Position in
+// source space. Returns nil iff (x, y) lands vertically outside the main
+// pane's content rows — title row, status bar, top/bottom border. Clicks
+// on the gutter or past the right edge still resolve to a Position
+// (column clamped), since they anchor to a real source row. The nil
+// distinction is what SelectedText uses in place of the old originStartY
+// "anchor above content" check; horizontal placement is handled by
+// existing column clamping further downstream.
+func (g dragGeometry) sourcePositionAt(x, y int) *Position {
+	topBorder := 1
+	titleRow := 1
+	contentStartY := g.statusRows + topBorder + titleRow
+	contentEndY := g.screenH - 2
+	if y < contentStartY || y > contentEndY {
+		return nil
+	}
+	gutterOffset := g.sidebarW + 1 + g.pane.gutterWidth
+	col := x - gutterOffset
+	if col < 0 {
+		col = 0
+	}
+	vpRelativeY := y - contentStartY
+	return &Position{
+		SourceLine: g.pane.sourceLineAtViewportOffset(g.pane.viewport.YOffset() + vpRelativeY),
+		Column:     col,
+	}
 }
 
-// Begin starts a drag at the given pixel position. The end is initialized
-// to the same point so HasRange reports false until the mouse moves.
-func (d *dragSelection) Begin(x, y int) {
+func newDragSelection() *dragSelection {
+	return &dragSelection{startX: -1, startY: -1}
+}
+
+// Begin starts a drag at the given pixel position. anchor is the click
+// translated into source-space — nil iff (x, y) lands outside the content
+// area. The end is initialized to the same point so HasRange reports false
+// until the mouse moves.
+func (d *dragSelection) Begin(x, y int, anchor *Position) {
 	d.active = true
 	d.scrollDir = 0
 	d.startX, d.startY = x, y
-	d.originStartY = y
+	d.anchorPos = anchor
 	d.endX, d.endY = x, y
 }
 
@@ -251,25 +286,24 @@ func (d *dragSelection) SelectedText(g dragGeometry) string {
 	}
 
 	// Detect a drag whose "earlier" end (the swapped-min Y) originated
-	// outside the content area. originStartY records the un-adjusted screen
-	// Y at Begin time; endY is mutated only by MoveEnd, which doesn't apply
-	// the auto-scroll correction that distorts startY. We can therefore
-	// check each side directly and only clamp the side that was actually
-	// above content at the time of the drag.
+	// outside the content area. anchorPos is nil iff the original click
+	// was outside content; the active end's status comes from its current
+	// pixel Y (it's never mutated by auto-scroll). After swap, the local
+	// startY corresponds to whichever original end was upper on screen.
 	anchorAboveContent := false
 	if swapped {
 		// After swap, local startY corresponds to d.endY (the drag end).
 		anchorAboveContent = d.endY < contentStartY
 	} else {
-		// No swap — local startY corresponds to the original click, whose
-		// screen-coord origin is d.originStartY (or d.startY when Begin
-		// hasn't been called; tests that bypass Begin leave originStartY at
-		// the -1 sentinel, in which case d.startY itself is the truth).
-		originY := d.originStartY
-		if originY < 0 {
-			originY = d.startY
+		// No swap — local startY corresponds to the original click.
+		// anchorPos is set by Begin to nil when the click was outside the
+		// content area; absent Begin (a test that constructs the struct
+		// directly), anchorPos is nil so we fall back to checking startY.
+		if d.anchorPos != nil {
+			anchorAboveContent = false
+		} else {
+			anchorAboveContent = d.startY < contentStartY
 		}
-		anchorAboveContent = originY < contentStartY
 	}
 
 	vpOffset := g.pane.viewport.YOffset()
