@@ -1,5 +1,7 @@
 ## New Bugs
 
+- Scrolling to next/prev hunk doesn't work when the hunk is only removals.
+
 ## Fixed Bugs
 
 - Renaming a file in git showed up as two unrelated entries (delete + add)

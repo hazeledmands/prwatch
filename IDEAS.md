@@ -2,7 +2,6 @@
 
 1. I would prefer that shift+J or shift+down navigated between *hunks* instead of *diff lines*. given that the number of hunks are shown in the main pane's title bar, I imagine that there's a divergence in the definition of "hunk" and maybe something can be extracted here
 2. It would be very nice to be able to click on "hunk 1/2" to open a little UI popover that lets me navigate the hunks by mouse
-3. Bug report: I'm noticing that scrolling to next/prev hunk doesn't work when hunk is only removals
 
 # SCOPE & THE FILES VIEW
 
