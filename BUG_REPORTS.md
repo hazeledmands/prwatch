@@ -4,6 +4,19 @@
 
 ## Fixed Bugs
 
+- Selecting a PR-mode pseudo-entry ("(no comments)", "(no reviews)",
+  "(no CI checks)") left the previous item's content showing in the main
+  pane — `applyCICheckContent`'s no-match branch only updated the title.
+  That stale-content state also poisoned scroll memory: capturing
+  `visible.Start.SourceLine` while showing some other item's content
+  produced a value that couldn't round-trip when navigating back, because
+  the content under foot when restoring differed from when remembering.
+  Surfaced by a 300-iter stress run during the position-refactor work
+  (`testdata/rapid/TestProperty_InteractionInvariants/...-20260520144058-13094.fail`);
+  fixed by clearing the main pane content in the no-match fallback so
+  the pseudo-entries have predictable empty bodies and scroll memory
+  round-trips cleanly.
+
 - Renaming a file in git showed up as two unrelated entries (delete + add)
   in the sidebar instead of a single rename. Fixed by detecting renames at
   the git layer via `git diff -M` (committed + staged), `git status

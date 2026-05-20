@@ -207,7 +207,11 @@ func (m *Model) updatePRModeContent(setItem itemSetter) {
 }
 
 // applyCICheckContent matches selected against m.ciChecks and updates the
-// main pane. Falls back to setting just the title if no check matches.
+// main pane. When no check matches — pseudo-entries like "(no comments)"
+// land here — clear the body so we don't leave stale content from the
+// previously-selected item on screen. Stale content also poisons scroll
+// memory: saving visible.Start.SourceLine while showing a different
+// item's content gives a value that can't round-trip on return.
 func (m *Model) applyCICheckContent(selected string) {
 	for _, check := range m.ciChecks {
 		if !strings.Contains(selected, check.Name) {
@@ -222,6 +226,7 @@ func (m *Model) applyCICheckContent(selected string) {
 		m.mainPane.SetTitle("CI · "+check.Name, status)
 		return
 	}
+	m.mainPane.SetPlainContent("")
 	m.mainPane.SetTitle(selected, "")
 }
 
