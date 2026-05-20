@@ -11,6 +11,11 @@
 
 1. `o` opens the active PR in the browser; if there is no PR but a pushed branch, it should open the branch. ideally it would also open the currently-visible line / commit etc if you're in one of those views. if there is no branch but a remote, it should just open the repo (on whatever relevant file)
 
+# KEYBOARD SELECTION
+
+1. We have mouse drag-to-copy, but I'd love to be able to make selections by keyboard too — vim-style visual mode. `v` for stream selection, `V` for line selection, cursor movement extends the selection, `y` copies. Line-mode is probably the most useful in a diff context — "select N lines, copy without gutter prefixes". Block-mode (vim's Ctrl-V) is interesting but has weird edge cases with diff gutters and mixed +/- lines; probably defer.
+2. A selection (a pair of line positions) has the same shape as a PR comment range, so there's room to unify — the same primitive that powers "select to copy" could also power "select to leave a comment".
+
 # SESSION / PR COMMENTS
 
 1. I would love to be able to leave comments inline in the code and have that be visible to a claude agent running in a session in the same directory.
