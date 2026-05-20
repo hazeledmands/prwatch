@@ -1005,8 +1005,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hoverY = msg.Y
 		var autoScrollCmd tea.Cmd
 		if m.drag.IsActive() {
-			m.drag.MoveEnd(msg.X, msg.Y)
-			autoScrollCmd = m.drag.UpdateAutoScroll(msg.Y, m.dragGeom())
+			g := m.dragGeom()
+			m.drag.MoveEnd(msg.X, msg.Y, g.sourcePositionAt(msg.X, msg.Y))
+			autoScrollCmd = m.drag.UpdateAutoScroll(msg.Y, g)
 		}
 		// Update sidebar hover index
 		sidebarW := m.sidebarPixelWidth()
@@ -1021,7 +1022,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, autoScrollCmd
 
 	case tea.MouseReleaseMsg:
-		if m.drag.Release(msg.X, msg.Y) {
+		g := m.dragGeom()
+		if m.drag.Release(msg.X, msg.Y, g.sourcePositionAt(msg.X, msg.Y)) {
 			return m, m.copySelection()
 		}
 		return m, nil

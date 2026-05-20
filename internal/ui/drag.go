@@ -19,26 +19,26 @@ const dragScrollInterval = 60 * time.Millisecond
 
 // dragSelection owns the click-drag-release state used to highlight and copy
 // a region of the main pane. The pixel-coord fields (startX/Y, endX/Y) are
-// in the same frame as the mouse events. scrollDir is +1 to auto-scroll the
-// viewport down (drag past the bottom edge), -1 to scroll up, 0 when the
-// drag end is inside the viewport.
+// in the same frame as the mouse events; the rendering paths (ApplyHighlight,
+// SelectedText) still iterate by screen coordinates and clip by screen X.
+// scrollDir is +1 to auto-scroll the viewport down (drag past the bottom
+// edge), -1 to scroll up, 0 when the drag end is inside the viewport.
 //
-// anchorPos is the click position translated into source space at Begin
-// time. nil means the click originated outside the content area (status
-// bar, title row, sidebar, gutter) — SelectedText uses this to clamp the
-// upper end of the selection to the first visible content row instead of
-// pulling a screen row the user never saw into the copy. Unlike startY
-// (which AdvanceAutoScroll decrements to re-anchor the click to its
-// absolute content row as the viewport scrolls), anchorPos survives scroll
-// natively because it's in source coordinates.
+// sel.Anchor and sel.Active hold the click and current-mouse positions
+// translated into source space. Anchor is set once at Begin; Active is
+// re-set every MoveEnd / Release. nil means the corresponding event landed
+// vertically outside the content area (title row, status bar, borders);
+// SelectedText uses Anchor's nil-ness to clamp the upper end of the
+// selection to the first visible content row instead of pulling a screen
+// row the user never saw into the copy.
 //
-// In this slice the active end is still pixel-only (endX/Y); slice 2
-// promotes both ends to a Selection { Anchor, Active *Position } and
-// drops the pixel fields entirely.
+// Pixel storage is still kept because rendering iterates rendered rows;
+// see REFACTOR_IDEAS.md for the deferred pixel→Position migration in
+// ApplyHighlight / SelectedText.
 type dragSelection struct {
 	startX, startY int
 	endX, endY     int
-	anchorPos      *Position
+	sel            Selection
 	active         bool
 	scrollDir      int
 }
@@ -89,29 +89,36 @@ func newDragSelection() *dragSelection {
 // Begin starts a drag at the given pixel position. anchor is the click
 // translated into source-space — nil iff (x, y) lands outside the content
 // area. The end is initialized to the same point so HasRange reports false
-// until the mouse moves.
+// until the mouse moves; Active mirrors Anchor at start.
 func (d *dragSelection) Begin(x, y int, anchor *Position) {
 	d.active = true
 	d.scrollDir = 0
 	d.startX, d.startY = x, y
-	d.anchorPos = anchor
+	d.sel.Anchor = anchor
+	d.sel.Active = anchor
 	d.endX, d.endY = x, y
 }
 
-// MoveEnd updates the drag end position. Caller should additionally call
-// UpdateAutoScroll to manage scroll-direction state.
-func (d *dragSelection) MoveEnd(x, y int) {
+// MoveEnd updates the drag end position. active is the source-space
+// translation of (x, y) — nil iff the mouse is currently vertically
+// outside the content area (above or below). Caller should additionally
+// call UpdateAutoScroll to manage scroll-direction state.
+func (d *dragSelection) MoveEnd(x, y int, active *Position) {
 	d.endX, d.endY = x, y
+	d.sel.Active = active
 }
 
-// Release finalizes an active drag at the given pixel position. Returns
-// true if the drag was active; the caller should then trigger a copy.
-func (d *dragSelection) Release(x, y int) bool {
+// Release finalizes an active drag at the given pixel position. active is
+// the source-space translation of (x, y), or nil if outside content.
+// Returns true if the drag was active; the caller should then trigger a
+// copy.
+func (d *dragSelection) Release(x, y int, active *Position) bool {
 	if !d.active {
 		return false
 	}
 	d.active = false
 	d.scrollDir = 0
+	d.sel.Active = active
 	d.endX, d.endY = x, y
 	return true
 }
@@ -296,10 +303,10 @@ func (d *dragSelection) SelectedText(g dragGeometry) string {
 		anchorAboveContent = d.endY < contentStartY
 	} else {
 		// No swap — local startY corresponds to the original click.
-		// anchorPos is set by Begin to nil when the click was outside the
+		// sel.Anchor is set by Begin to nil when the click was outside the
 		// content area; absent Begin (a test that constructs the struct
-		// directly), anchorPos is nil so we fall back to checking startY.
-		if d.anchorPos != nil {
+		// directly), sel.Anchor is nil so we fall back to checking startY.
+		if d.sel.Anchor != nil {
 			anchorAboveContent = false
 		} else {
 			anchorAboveContent = d.startY < contentStartY

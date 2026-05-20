@@ -47,7 +47,7 @@ func TestDragSelection_MoveEndUpdatesRange(t *testing.T) {
 		y2 := rapid.IntRange(0, 100).Draw(t, "y2")
 		d := newDragSelection()
 		d.Begin(x1, y1, nil)
-		d.MoveEnd(x2, y2)
+		d.MoveEnd(x2, y2, nil)
 		if d.startX != x1 || d.startY != y1 {
 			t.Fatalf("MoveEnd disturbed start: (%d,%d) want (%d,%d)", d.startX, d.startY, x1, y1)
 		}
@@ -74,7 +74,7 @@ func TestDragSelection_ReleaseDeactivates(t *testing.T) {
 		d := newDragSelection()
 		d.Begin(x1, y1, nil)
 		d.scrollDir = -1 // simulate scrolling at release time
-		if !d.Release(x2, y2) {
+		if !d.Release(x2, y2, nil) {
 			t.Fatal("Release on active drag should return true")
 		}
 		if d.IsActive() {
@@ -88,7 +88,7 @@ func TestDragSelection_ReleaseDeactivates(t *testing.T) {
 		}
 
 		// A second release with the drag now inactive returns false.
-		if d.Release(x2, y2) {
+		if d.Release(x2, y2, nil) {
 			t.Fatal("Release on inactive drag should return false")
 		}
 	})
