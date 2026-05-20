@@ -22,14 +22,6 @@ both methods, not a drop-in change, and worth doing when there's a
 forcing function (e.g., visual mode in step 5 making the source-space
 operation more obviously natural).
 
-## `viewportBottomSourceLine` duplicates `sourceLineAtViewportOffset` walk logic
-
-`mainpane.go:viewportBottomSourceLine` has its own wrap-walking loop
-that's structurally very similar to `sourceLineAtViewportOffset`'s, but
-it tracks `lastSrc` rather than looking up at the target index. The two
-could share a parameterized helper. Untouched in step 1 because behavior
-preservation > cleanup; revisit when one of them needs to change anyway.
-
 ## `SelectedText` is doing too many jobs
 
 `drag.go:SelectedText` mixes swap-normalization, off-content clamping,
