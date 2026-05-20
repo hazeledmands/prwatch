@@ -405,11 +405,9 @@ func (m *mainPane) hunkTitleRight() string {
 		}
 		return "no changes"
 	}
-	topLine := m.ViewportToSourceLine()
-	bottomLine := m.ViewportBottomSourceLine()
-	if bottomLine < topLine {
-		bottomLine = topLine
-	}
+	vr := m.visibleRange()
+	topLine := vr.Start.SourceLine
+	bottomLine := vr.End.SourceLine
 	first, last := visibleHunkRange(m.diffHunks, topLine, bottomLine)
 	switch {
 	case first < 0:
@@ -1103,6 +1101,27 @@ func (m *mainPane) ViewportBottomSourceLine() int {
 		viewportLine += linesUsed
 	}
 	return lastSrc
+}
+
+// visibleRange returns the [top, bottom] source-line range currently
+// visible in the viewport. Source lines are mapped through any wrap /
+// inline-removal formatting via ViewportToSourceLine and
+// ViewportBottomSourceLine. The visible-range-as-a-pair pattern is
+// already used implicitly by hunkTitleRight, progressPercent (bottom
+// only), and drag selection — this method names it.
+//
+// Positions are line-only; file/document identity is paired with the
+// range externally by callers that need it (see PLAN.md).
+func (m *mainPane) visibleRange() Range {
+	top := m.ViewportToSourceLine()
+	bottom := m.ViewportBottomSourceLine()
+	if bottom < top {
+		bottom = top
+	}
+	return Range{
+		Start: Position{SourceLine: top},
+		End:   Position{SourceLine: bottom},
+	}
 }
 
 // highlightSearch applies a contrasting background to matching text in each line.

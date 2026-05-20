@@ -1,19 +1,16 @@
 package ui
 
-import (
-	"github.com/hazeledmands/prwatch/internal/git"
-)
-
-// Position names a specific point in the diff being displayed: which file,
-// which 1-indexed source line in the displayed version. As features land it
-// will grow additional fields — Column for stream-mode visual selection,
-// Side for deep-links and PR comments, Ref for whole-scope diff — see
-// PLAN.md for the staged rollout.
+// Position names a specific point in the displayed text of the main pane:
+// which 1-indexed source line. As features land it will grow additional
+// fields — Column for stream-mode visual selection, Side for deep-links
+// and PR comments — see PLAN.md for the staged rollout.
 //
-// Position is the singular point. Range is the pair, naming spans like the
-// visible viewport window, selections, hunk extents, and PR comment ranges.
+// Position is line-and-column only; file/document identity is paired with
+// it at the call site rather than embedded, following the convention used
+// by LSP, VS Code, tree-sitter, and other editor APIs. Range is the pair,
+// naming spans like the visible viewport window, selections, hunk extents,
+// and PR comment ranges.
 type Position struct {
-	File       *git.ChangedFile
 	SourceLine int
 }
 

@@ -62,11 +62,9 @@ prwatch/
 
 ```go
 type Position struct {
-    File       *ChangedFile  // which changed file
     SourceLine int           // 1-indexed line in the displayed version
-    Column     int           // 0-indexed column; populated for stream selection, LSP, and mouse drag
-    Side       Side          // add | remove | context — needed for PR comments + deep-links
-    Ref        string        // which ref this line lives in (interacts with scope-diff)
+    Column     int           // 0-indexed column; populated for stream selection, LSP, and mouse drag (added in step 5)
+    Side       Side          // add | remove | context — needed for PR comments + deep-links (added in step 6)
 }
 
 type Range struct {
@@ -74,14 +72,16 @@ type Range struct {
 }
 ```
 
+Position is line-and-column only; file/document identity is paired with it at the call site rather than embedded, following the convention used by LSP, VS Code, tree-sitter, and other editor APIs. This keeps `mainPane` (which owns source-line data) independent of `Model` (which owns file identity via sidebar selection). `Ref` for the whole-scope-diff work is similarly paired externally.
+
 Position is a singular point (cursor / focus / anchor / active). Range is a pair (selection, visible window, hunk extent, comment range). Today the cursor doesn't exist as a distinct concept — `Position` references derive from viewport-top until visual mode / click-to-place lands.
 
 Each feature becomes a pure function of these:
-- `o` deep-link: `Position → URL` or `Range → range URL`
+- `o` deep-link: `(file, Position) → URL` or `(file, Range) → range URL`
 - Hunk nav: `(Position, []diffHunk, direction) → Position`
 - Hunk title display: `(Range visible, []diffHunk) → string` (already shaped this way)
-- Comment lookup: `Position → []Comment`
-- LSP query: `Position → LspRequest` (uses Column)
+- Comment lookup: `(file, Position) → []Comment`
+- LSP query: `(file, Position) → LspRequest` (uses Column)
 - `progressPercent`: `Range visible → int` (uses `visible.End`, stays viewport-based even when cursor exists — "how much of the file have I seen" is a more useful semantics for diff review than vim's cursor-position convention)
 
 **Selection = a Range with mode.** `Selection { Anchor Position; Active Position; Mode SelectionMode }` covers:
@@ -94,7 +94,7 @@ Stream-mode keyboard selection needs Column for the active end — extending wit
 
 **Implementation order:**
 
-1. **Name `Position` and `Range`; introduce `Model.visibleRange()`.** Route existing "where am I" and "what's on screen" call-sites through them. Behavior unchanged — this is a setup refactor whose payoff appears in steps 2+. The leverage comes from downstream callers taking typed values instead of bare ints.
+1. **Name `Position` and `Range`; introduce `mainPane.visibleRange()`.** Route existing "where am I" and "what's on screen" call-sites through them. Behavior unchanged — this is a setup refactor whose payoff appears in steps 2+. The leverage comes from downstream callers taking typed values instead of bare ints. `visibleRange` lives on `mainPane` because source-line data does; callers that also need file identity pair it externally.
 2. **Convert `dragSelection` to Position-based.** Mouse handler translates `(x, y) → Position` at event time. Eliminates the `originStartY` workaround (`drag.go:26-32`) since a Position anchor survives viewport scroll natively. Existing rapid tests guard regressions.
 3. **Hunk-grain navigation.** `shift+J`/`shift+down` move active Position to next hunk start instead of next diff line. Should also fix the removal-only-hunk bug — hunk-indexed nav doesn't depend on a new-file line existing.
 4. **Hunk popover.** Clickable "hunk N/M" in the title bar opens a list; click navigates active Position.
