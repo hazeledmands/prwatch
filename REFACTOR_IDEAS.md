@@ -4,21 +4,34 @@ Standing list of refactor opportunities noticed in passing but deferred so
 the work in flight stays focused. New entries go at the top; once a
 refactor is taken on or rejected, prune the entry.
 
-## Drag rendering still uses pixel coordinates
+## Drop pixel storage from dragSelection (slice 5)
 
-`ApplyHighlight` and `SelectedText` in `internal/ui/drag.go` iterate the
-viewport's rendered output by screen Y and clip by screen X. The
-Position-based refactor (PLAN.md step 2) replaces the *storage* of the
-drag's anchor/active with `Selection { Anchor, Active *Position }`, but
-the rendering still works in pixel space — derived from the Selection
-at call time today.
+After the source-space rendering migration, `dragSelection` still keeps
+`startX, startY, endX, endY` for three narrow reasons:
 
-A fuller migration would make ApplyHighlight / SelectedText iterate by
-source line + column directly. That eliminates the pixel↔source
-round-trip per call and removes a class of bugs where the viewport's
-formatted rows don't line up with the Selection (wrap toggle mid-drag,
-viewport resize during auto-scroll, etc.). It's a meaningful rewrite of
-both methods, not a drop-in change, and worth doing when there's a
-forcing function (e.g., visual mode in step 5 making the source-space
-operation more obviously natural).
+- `HasRange()` checks `startX != endX || startY != endY`.
+- `AdvanceAutoScroll` mutates `startY` (kept anchor pixel-pinned across
+  viewport scrolls). With source-space anchoring this mutation is
+  unnecessary — the anchor's source line is naturally stable across
+  scrolls.
+- `resolveSelectionEnds` reads `d.endY` to derive "active is currently
+  above vs below content" when `sel.Active` is nil.
 
+Slice 5 plan:
+1. Replace the active-direction signal — either a richer endpoint type
+   (`Endpoint { Pos *Position; OutsideAbove bool }`) or carry the
+   direction in `dragSelection` alongside `sel.Active`.
+2. Rewrite `HasRange` against `Selection`.
+3. Drop the `d.startY -= delta` line in `AdvanceAutoScroll`. Update the
+   `TestDragAutoScroll_PastBottomEdgeStartsScrolling` invariant — it
+   currently asserts the mutation; rewrite to assert anchor stability in
+   source space (selection still spans the original click line after
+   scrolling).
+4. Remove the pixel fields from the struct and `Begin/MoveEnd/Release`
+   signatures. Tests setting pixel fields directly (`setDragRect` in
+   `drag_test.go`) become `setDragSelection(m, anchor, anchorRow,
+   active, activeRow)` or similar.
+
+The forcing function is visual-mode (PLAN.md step 5): keyboard cursors
+are source-native, with no pixel coords to fall back on. Doing slice 5
+before step 5 makes step 5's wiring cleaner.
