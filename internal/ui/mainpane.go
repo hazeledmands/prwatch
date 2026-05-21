@@ -169,39 +169,90 @@ func hunkPositionForLine(hunks []diffHunk, sourceLine int) hunkPosition {
 	return pos
 }
 
-// parseDiffHunks extracts hunks from a unified diff.
+// parseDiffHunks extracts hunks from a unified diff, recording each
+// hunk's *change-line* range — the new-file line bounds spanned by its
+// `+`/`-` markers — rather than the header's full new-file range
+// (which includes leading and trailing context). That way "hunk visible
+// in the viewport" tracks "you can see something that actually changed,"
+// not "you can see the hunk's leading context."
 //
-// Pure-deletion hunks (header `+A,0`) are kept and anchored to their
-// newStart line: removed lines are visually attached to that anchor in
-// the rendered view, so hunk-grain nav needs a target. Their EndLine
-// equals StartLine (a 1-line range at the anchor) so visibleHunkRange
-// and the title-bar code treat them as visible whenever the anchor row
-// is in the viewport.
+// Walks the hunk body to find where the changes are:
+//   - `+line` advances newLineNo and marks a change at the line it
+//     just emitted.
+//   - `-line` doesn't advance newLineNo (removed lines aren't in the
+//     new file) but marks a change at the current newLineNo — the line
+//     the removal visually attaches to in the rendered view.
+//   - ` line` (context) just advances newLineNo.
 //
-// Headers with a 0 anchor (`+0,0`) are clamped to line 1 — that's
-// where pre-line-1 removals visually attach.
+// Pure-deletion hunks (header `+A,0`) anchor to A: removed lines attach
+// to that line in the rendered view, so hunk-grain nav has a target.
+// Their EndLine equals StartLine so visibleHunkRange treats them as a
+// 1-line hunk visible whenever the anchor row is in the viewport.
+// Headers with a 0 anchor (`+0,0`) clamp to line 1 — that's where
+// pre-line-1 removals visually attach.
 func parseDiffHunks(unifiedDiff string) []diffHunk {
 	if unifiedDiff == "" {
 		return nil
 	}
 	var hunks []diffHunk
+	var inHunk bool
+	var newLineNo int
+	var firstChange, lastChange int // 0 means "no change seen yet"
+
+	finish := func() {
+		if !inHunk || firstChange == 0 {
+			return
+		}
+		hunks = append(hunks, diffHunk{StartLine: firstChange, EndLine: lastChange})
+	}
+
 	for _, line := range strings.Split(unifiedDiff, "\n") {
-		if !strings.HasPrefix(line, "@@") {
+		if strings.HasPrefix(line, "@@") {
+			finish()
+			inHunk = false
+			start, count := parseHunkHeader(line)
+			if start <= 0 && count > 0 {
+				continue // malformed
+			}
+			if start < 1 {
+				start = 1
+			}
+			inHunk = true
+			newLineNo = start
+			firstChange = 0
+			lastChange = 0
+			if count == 0 {
+				// Pure-deletion hunk: removed-line annotations attach
+				// to line `start` even though the body has no `+` to
+				// pin a change to.
+				firstChange = start
+				lastChange = start
+			}
 			continue
 		}
-		start, count := parseHunkHeader(line)
-		if start <= 0 && count > 0 {
-			continue // malformed: positive count but no start
+		if !inHunk {
+			continue
 		}
-		if start < 1 {
-			start = 1
+		switch {
+		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
+			// File header inside a multi-file diff; not a body line.
+		case strings.HasPrefix(line, "+"):
+			if firstChange == 0 {
+				firstChange = newLineNo
+			}
+			lastChange = newLineNo
+			newLineNo++
+		case strings.HasPrefix(line, "-"):
+			if firstChange == 0 {
+				firstChange = newLineNo
+			}
+			lastChange = newLineNo
+			// removed lines don't advance newLineNo
+		case strings.HasPrefix(line, " "):
+			newLineNo++
 		}
-		endLine := start + count - 1
-		if count == 0 {
-			endLine = start
-		}
-		hunks = append(hunks, diffHunk{StartLine: start, EndLine: endLine})
 	}
+	finish()
 	return hunks
 }
 
@@ -443,31 +494,12 @@ func (m *mainPane) progressPercent() int {
 }
 
 // visibleHunkRange returns the inclusive [first, last] indices of hunks
-// whose content is meaningfully visible in [topLine, bottomLine].
-// "Meaningfully" means: at least 2 of the hunk's lines fit in the
-// viewport, or — for hunks that are smaller than 2 lines — the hunk's
-// single line is in the viewport. Returns (-1, -1) when no hunks
-// qualify.
-//
-// The 2-line threshold excludes the eager-edge case where a hunk's
-// last line is at the viewport top, or its first line at the viewport
-// bottom: the rest of the hunk is off-screen, so reporting it as a
-// hunk being viewed misleads. The carve-out for 1-line hunks keeps
-// pure-deletion hunks (StartLine == EndLine) visible when their anchor
-// row is on screen.
+// that intersect the visible source-line range [topLine, bottomLine].
+// Returns (-1, -1) when no hunks intersect.
 func visibleHunkRange(hunks []diffHunk, topLine, bottomLine int) (int, int) {
 	first, last := -1, -1
 	for i, h := range hunks {
-		overlap := min(h.EndLine, bottomLine) - max(h.StartLine, topLine) + 1
-		if overlap <= 0 {
-			continue
-		}
-		hunkSize := h.EndLine - h.StartLine + 1
-		threshold := 2
-		if hunkSize < threshold {
-			threshold = hunkSize
-		}
-		if overlap < threshold {
+		if h.EndLine < topLine || h.StartLine > bottomLine {
 			continue
 		}
 		if first < 0 {

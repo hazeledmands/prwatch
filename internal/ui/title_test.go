@@ -146,13 +146,19 @@ diff --git a/b.go b/b.go
 -removed
 `
 	got := parseDiffHunks(diff)
+	// Hunks record their *change-line* bounds — the new-file lines that
+	// have +/- markers — not the header's full new-file range (which
+	// includes leading/trailing context). This way "hunk visible" in
+	// the title bar tracks "you can see something that changed," not
+	// "you can see the hunk's leading context."
 	want := []diffHunk{
-		{StartLine: 1, EndLine: 4},
-		{StartLine: 11, EndLine: 13},
-		// Pure-deletion hunk is anchored to its newStart (clamped to 1
-		// when the header says "+0,0") so hunk-grain nav can jump to it.
-		// EndLine == StartLine so visibleHunkRange treats it as a 1-line
-		// hunk visible whenever its anchor is in the viewport.
+		// `@@ -1,3 +1,4 @@` body has a single + at new-line 2.
+		{StartLine: 2, EndLine: 2},
+		// `@@ -10,2 +11,3 @@` body has a single + at new-line 12.
+		{StartLine: 12, EndLine: 12},
+		// Pure-deletion hunk (`+0,0`) is anchored to its newStart
+		// (clamped to 1) where the removed lines attach in the
+		// rendered view; EndLine == StartLine.
 		{StartLine: 1, EndLine: 1},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -862,49 +868,65 @@ func TestHunkTitleRight_MultipleVisible(t *testing.T) {
 	}
 }
 
-// A hunk whose only visible line is its last line at the viewport top
-// edge (or first line at the viewport bottom edge) is "just barely on
-// screen" — most of the hunk's content is off-screen. The title should
-// not advertise it as a hunk being viewed.
+// Reproduction of the eager-title bug seen on IDEAS.md, end-to-end via
+// the diff parser. The diff has two hunks:
 //
-// Concretely: hunks 0 and 2 here each contribute exactly one row to the
-// viewport (line 5 at the top for hunk 0; line 25 at the bottom for
-// hunk 2). Hunk 1 is fully visible. Title should report just hunk 1.
-func TestHunkTitleRight_ExcludesEdgeBarelyVisible(t *testing.T) {
-	hunks := []diffHunk{
-		{StartLine: 1, EndLine: 5},
-		{StartLine: 10, EndLine: 20},
-		{StartLine: 25, EndLine: 30},
+//	@@ -3,6 +3,10 @@   (header span 3-12; actual changes at lines 6-9)
+//	@@ -10,6 +14,7 @@  (header span 14-20; actual change at line 17)
+//
+// Viewport shows lines 1-16. Hunk 1's adds (lines 6-9) are visible.
+// Hunk 2's actual change (line 17) is off-screen below; only its
+// leading *context* (lines 14-16) is in the viewport. Title used to
+// say "viewing hunks 1 through 2" because visibleHunkRange checked
+// against the header span (14-20). Fix: parseDiffHunks emits the
+// change-line bounds (the +/- lines), so hunk 2 is at [17, 17] and
+// correctly counts as off-screen here.
+func TestHunkTitleRight_LeadingContextDoesntCountAsVisible(t *testing.T) {
+	diff := `@@ -3,6 +3,10 @@
+ keep
+ keep
+ keep
++added6
++added7
++added8
++added9
+ keep
+ keep
+ keep
+@@ -10,6 +14,7 @@
+ keep
+ keep
+ keep
++added17
+ keep
+ keep
+ keep
+`
+	hunks := parseDiffHunks(diff)
+	want := []diffHunk{
+		{StartLine: 6, EndLine: 9},
+		{StartLine: 17, EndLine: 17},
 	}
+	if !reflect.DeepEqual(hunks, want) {
+		t.Fatalf("parseDiffHunks should record change-line bounds, not header bounds:\n got: %+v\nwant: %+v", hunks, want)
+	}
+
 	mp := newMainPane()
-	mp.SetSize(80, 22) // viewport height 21 → covers source rows 5..25 when YOffset=4
+	mp.SetSize(80, 17) // viewport height 16 → visible source lines [1, 16]
 	var body strings.Builder
-	for i := 0; i < 40; i++ {
+	for i := 1; i <= 30; i++ {
 		body.WriteString("line\n")
 	}
 	mp.SetPlainContent(body.String())
 	mp.SetDiffHunks(hunks)
-	mp.viewport.SetYOffset(4) // source line 5 at top
+	mp.viewport.SetYOffset(0)
 
-	got := mp.hunkTitleRight()
-	if got != "hunk 2/3" {
-		t.Errorf("edge-only hunks should be excluded; got %q, want %q", got, "hunk 2/3")
+	if got := mp.visibleRange().End.SourceLine; got != 16 {
+		t.Fatalf("test precondition: viewport bottom should be 16; got %d", got)
 	}
-}
-
-// A 1-line hunk (e.g., a removal-only hunk anchored to a single line)
-// must still register as visible when its single line is on screen.
-// The "at least 2 visible lines" rule from the edge-exclusion change
-// is gated on the hunk's own size: a 1-line hunk only needs its 1
-// line to qualify.
-func TestHunkTitleRight_SingleLineHunkVisible(t *testing.T) {
-	hunks := []diffHunk{
-		{StartLine: 10, EndLine: 10}, // removal-only style
-	}
-	mp := hunkTitleHarness(hunks, 50)
-	mp.viewport.SetYOffset(9) // source line 10 at top
-	if got := mp.hunkTitleRight(); got != "hunk 1/1" {
-		t.Errorf("1-line hunk at viewport top: got %q, want %q", got, "hunk 1/1")
+	if got := mp.hunkTitleRight(); got != "hunk 1/2" {
+		t.Errorf("hunk 2's change line is off-screen below; title should say %q, got %q",
+			"hunk 1/2", got)
 	}
 }
 
