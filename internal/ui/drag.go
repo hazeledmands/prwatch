@@ -18,29 +18,36 @@ type dragScrollTickMsg struct{}
 const dragScrollInterval = 60 * time.Millisecond
 
 // dragSelection owns the click-drag-release state used to highlight and copy
-// a region of the main pane. The pixel-coord fields (startX/Y, endX/Y) are
-// in the same frame as the mouse events; the rendering paths (ApplyHighlight,
-// SelectedText) still iterate by screen coordinates and clip by screen X.
+// a region of the main pane. Source-space iteration is the canonical path:
+// sel.Anchor / sel.Active hold the click and live-mouse positions in
+// source coordinates (line + column); anchorVpRow / activeVpRow carry the
+// click's viewport row for wrap-row disambiguation; the pixel fields are
+// retained only for HasRange, AdvanceAutoScroll's anchor re-pin, and
+// resolveSelectionEnds' active-direction signal — see REFACTOR_IDEAS.md
+// for the deferred pixel-storage cleanup.
+//
 // scrollDir is +1 to auto-scroll the viewport down (drag past the bottom
 // edge), -1 to scroll up, 0 when the drag end is inside the viewport.
 //
-// sel.Anchor and sel.Active hold the click and current-mouse positions
-// translated into source space. Anchor is set once at Begin; Active is
-// re-set every MoveEnd / Release. nil means the corresponding event landed
-// vertically outside the content area (title row, status bar, borders);
-// SelectedText uses Anchor's nil-ness to clamp the upper end of the
-// selection to the first visible content row instead of pulling a screen
-// row the user never saw into the copy.
-//
-// Pixel storage is still kept because rendering iterates rendered rows;
-// see REFACTOR_IDEAS.md for the deferred pixel→Position migration in
-// ApplyHighlight / SelectedText.
+// Anchor/Active nil means the corresponding event landed outside the
+// content area (title row, status bar, borders) or past the last source
+// row (in pane padding); resolveSelectionEnds clamps these to the
+// visible source range with column 0 (above) or maxColumn (below).
 type dragSelection struct {
 	startX, startY int
 	endX, endY     int
 	sel            Selection
-	active         bool
-	scrollDir      int
+	// anchorVpRow / activeVpRow are the viewport rows the click /
+	// last-move landed on. They disambiguate Position.Column at wrap-row
+	// boundaries: a click past wrap row K's right edge has Column at
+	// row K+1's start in source-space, but the user clicked on row K.
+	// Clip logic constrains each endpoint's effect to its click vpRow's
+	// wrap row. -1 means "no row info" (endpoint is nil or test set
+	// fields without going through Begin/MoveEnd/Release).
+	anchorVpRow int
+	activeVpRow int
+	active      bool
+	scrollDir   int
 }
 
 // dragGeometry is the screen-layout snapshot dragSelection needs to map
@@ -55,70 +62,104 @@ type dragGeometry struct {
 }
 
 // sourcePositionAt translates a screen pixel coordinate to a Position in
-// source space. Returns nil iff (x, y) lands vertically outside the main
-// pane's content rows — title row, status bar, top/bottom border. Clicks
-// on the gutter or past the right edge still resolve to a Position
-// (column clamped), since they anchor to a real source row. The nil
-// distinction is what SelectedText uses in place of the old originStartY
-// "anchor above content" check; horizontal placement is handled by
-// existing column clamping further downstream.
-func (g dragGeometry) sourcePositionAt(x, y int) *Position {
-	topBorder := 1
-	titleRow := 1
-	contentStartY := g.statusRows + topBorder + titleRow
-	contentEndY := g.screenH - 2
-	if y < contentStartY || y > contentEndY {
-		return nil
+// source space. Returns nil iff (x, y) lands somewhere with no
+// underlying source row:
+//   - vertically outside the main pane's content rows (title row, status
+//     bar, top/bottom border, i.e. y < contentTop or y > screenH-2), OR
+//   - inside the pane content area but past the last rendered content
+//     row (drag below the source's last line, into pane padding).
+//
+// The nil signal lets resolveSelectionEnds clamp the active end to the
+// visible source range instead of pinning it to the last source line's
+// column 0 (which would shrink the selection on the bottom row when the
+// user dragged past content).
+//
+// Clicks on the gutter or past the right edge still resolve to a
+// Position (column clamped) since they anchor to a real source row.
+// Position.Column is source-absolute via absoluteColumnFromDisplay so
+// clicks on wrap-continuation rows clip the right source columns.
+// sourcePositionAt's vpRow return value is the absolute viewport row
+// the click landed on. Always ≥ 0 when the returned *Position is
+// non-nil; -1 when nil. Source-space clipping (extractSourceRange /
+// buildHighlightClips) uses the click vpRow to confine each endpoint's
+// effect to its clicked wrap row — necessary because source-absolute
+// Column is ambiguous at wrap-row boundaries (col=N on row K's right
+// edge equals col=N at row K+1's left edge in source space). Without
+// the vpRow disambiguation, drags past a wrap row's right edge spill
+// one char into the next wrap row.
+func (g dragGeometry) sourcePositionAt(x, y int) (*Position, int) {
+	if y < mainPaneContentTop(g) || y > g.screenH-2 {
+		return nil, -1
+	}
+	vpRow := g.pane.viewport.YOffset() + (y - mainPaneContentTop(g))
+	if vpRow >= viewportContentRowCount(g.pane) {
+		return nil, -1
 	}
 	gutterOffset := g.sidebarW + 1 + g.pane.gutterWidth
-	col := x - gutterOffset
-	if col < 0 {
-		col = 0
+	displayCol := x - gutterOffset
+	if displayCol < 0 {
+		displayCol = 0
 	}
-	vpRelativeY := y - contentStartY
 	return &Position{
-		SourceLine: g.pane.sourceLineAtViewportOffset(g.pane.viewport.YOffset() + vpRelativeY),
-		Column:     col,
+		SourceLine: g.pane.sourceLineAtViewportOffset(vpRow),
+		Column:     g.pane.absoluteColumnFromDisplay(vpRow, displayCol),
+	}, vpRow
+}
+
+// viewportContentRowCount returns the number of rows of actual content
+// the viewport holds (wrap-extended, post-truncation). Used to detect
+// "past content" clicks that land inside the pane but below the source
+// — the viewport widget pads with blanks past this count.
+func viewportContentRowCount(pane *mainPane) int {
+	content := pane.viewport.GetContent()
+	if content == "" {
+		return 0
 	}
+	return strings.Count(content, "\n") + 1
 }
 
 func newDragSelection() *dragSelection {
-	return &dragSelection{startX: -1, startY: -1}
+	return &dragSelection{startX: -1, startY: -1, anchorVpRow: -1, activeVpRow: -1}
 }
 
-// Begin starts a drag at the given pixel position. anchor is the click
-// translated into source-space — nil iff (x, y) lands outside the content
-// area. The end is initialized to the same point so HasRange reports false
-// until the mouse moves; Active mirrors Anchor at start.
-func (d *dragSelection) Begin(x, y int, anchor *Position) {
+// Begin starts a drag at the given pixel position. anchor + anchorRow
+// come from g.sourcePositionAt(x, y); anchor is nil and anchorRow is -1
+// when (x, y) lands outside the content area. The end is initialized to
+// the same point so HasRange reports false until the mouse moves; Active
+// mirrors Anchor at start.
+func (d *dragSelection) Begin(x, y int, anchor *Position, anchorRow int) {
 	d.active = true
 	d.scrollDir = 0
 	d.startX, d.startY = x, y
 	d.sel.Anchor = anchor
 	d.sel.Active = anchor
+	d.anchorVpRow = anchorRow
+	d.activeVpRow = anchorRow
 	d.endX, d.endY = x, y
 }
 
-// MoveEnd updates the drag end position. active is the source-space
-// translation of (x, y) — nil iff the mouse is currently vertically
-// outside the content area (above or below). Caller should additionally
-// call UpdateAutoScroll to manage scroll-direction state.
-func (d *dragSelection) MoveEnd(x, y int, active *Position) {
+// MoveEnd updates the drag end position. active + activeRow come from
+// g.sourcePositionAt(x, y); active is nil and activeRow is -1 when
+// the mouse is currently outside content (or past the last source row).
+// Caller should additionally call UpdateAutoScroll to manage
+// scroll-direction state.
+func (d *dragSelection) MoveEnd(x, y int, active *Position, activeRow int) {
 	d.endX, d.endY = x, y
 	d.sel.Active = active
+	d.activeVpRow = activeRow
 }
 
-// Release finalizes an active drag at the given pixel position. active is
-// the source-space translation of (x, y), or nil if outside content.
-// Returns true if the drag was active; the caller should then trigger a
-// copy.
-func (d *dragSelection) Release(x, y int, active *Position) bool {
+// Release finalizes an active drag. active + activeRow come from
+// g.sourcePositionAt(x, y); see MoveEnd. Returns true if the drag was
+// active; the caller should then trigger a copy.
+func (d *dragSelection) Release(x, y int, active *Position, activeRow int) bool {
 	if !d.active {
 		return false
 	}
 	d.active = false
 	d.scrollDir = 0
 	d.sel.Active = active
+	d.activeVpRow = activeRow
 	d.endX, d.endY = x, y
 	return true
 }
@@ -143,63 +184,130 @@ func (d *dragSelection) HasRange() bool {
 func (d *dragSelection) ScrollDir() int { return d.scrollDir }
 
 // ApplyHighlight returns content with reverse-video applied to the
-// drag-selected region. Constrains highlighting to the main pane content
-// area only.
+// drag-selected region. Operates on the Selection (source-space ends)
+// resolved through resolveSelectionEnds — wraps and gutter are handled
+// by source-space column math, not screen-coord clipping. Lines outside
+// the main pane content area (status bar, borders, title row) are never
+// touched.
 func (d *dragSelection) ApplyHighlight(content string, g dragGeometry) string {
-	startY, endY := d.startY, d.endY
-	startX, endX := d.startX, d.endX
-	if startY > endY || (startY == endY && startX > endX) {
-		startY, endY = endY, startY
-		startX, endX = endX, startX
+	if !d.HasRange() {
+		return content
 	}
-
-	topBorder := 1
-	titleRow := 1
-	contentStartY := g.statusRows + topBorder + titleRow
-	gutterOffset := g.sidebarW + 1 + g.pane.gutterWidth
-	if startX < gutterOffset {
-		startX = gutterOffset
-	}
-	if endX >= g.screenW {
-		endX = g.screenW - 1
-	}
-	contentEndY := g.screenH - 2
-	if startY < contentStartY {
-		startY = contentStartY
-		startX = gutterOffset
-	}
-	if endY > contentEndY {
-		endY = contentEndY
+	upper, lower, ok := d.resolveSelectionEnds(g)
+	if !ok {
+		return content
 	}
 
 	lines := strings.Split(content, "\n")
+	contentStartY := mainPaneContentTop(g)
+	contentEndY := g.screenH - 2
+	vpOffset := g.pane.viewport.YOffset()
+	gutterOffset := g.sidebarW + 1 + g.pane.gutterWidth
 	rightBorderCol := g.screenW - 1
 
-	for y := startY; y <= endY && y < len(lines); y++ {
-		fromCol := gutterOffset
-		stripped := stripANSIForWidth(lines[y])
+	for _, clip := range buildHighlightClips(g.pane, upper, lower) {
+		screenY := contentStartY + (clip.vpRow - vpOffset)
+		if screenY < contentStartY || screenY > contentEndY || screenY >= len(lines) {
+			continue
+		}
+		fromCol := gutterOffset + clip.fromDisplayCol
+		toCol := gutterOffset + clip.toDisplayCol + 1
+		if toCol > rightBorderCol+1 {
+			toCol = rightBorderCol + 1
+		}
+		stripped := stripANSIForWidth(lines[screenY])
 		mainContent := sliceByDisplayCol(stripped, gutterOffset, rightBorderCol)
 		trimmed := strings.TrimRight(mainContent, " ")
 		contentEndCol := gutterOffset + displayWidthOf(trimmed)
-		toCol := contentEndCol
-		if y == startY {
-			fromCol = startX
-		}
-		if y == endY {
-			toCol = min(endX+1, contentEndCol)
+		if toCol > contentEndCol {
+			toCol = contentEndCol
 		}
 		if fromCol >= toCol {
 			continue
 		}
-
-		before, middle, after := splitAtDisplayCols(lines[y], fromCol, toCol)
+		before, middle, after := splitAtDisplayCols(lines[screenY], fromCol, toCol)
 		selected := stripANSIForWidth(middle)
 		if selected == "" {
 			continue
 		}
-		lines[y] = before + "\x1b[7m" + selected + "\x1b[27m" + after
+		lines[screenY] = before + "\x1b[7m" + selected + "\x1b[27m" + after
 	}
 	return strings.Join(lines, "\n")
+}
+
+// highlightClip names one screen-row's slice of the highlight region in
+// gutter-relative display columns. Built by buildHighlightClips and
+// consumed by ApplyHighlight.
+type highlightClip struct {
+	vpRow                        int
+	fromDisplayCol, toDisplayCol int
+}
+
+// buildHighlightClips walks source lines [upper.SourceLine,
+// lower.SourceLine], emitting one or more clips per source line — one
+// per wrap row in wrap mode, one per source line in no-wrap mode. The
+// clips' display columns are gutter-relative.
+//
+// Source-space → screen-space conversion is done here in one place; the
+// rendering loop in ApplyHighlight then just applies the clips. Wrap-
+// row column boundaries come from wrapRowSourceColRange (uses
+// absoluteColumnFromDisplay for source-absolute starts).
+//
+// upper.VpRow / lower.VpRow constrain the wrap-row range on the
+// endpoint source lines (see selectionRowRange). This is the
+// disambiguation for wrap-row-boundary clicks: source-absolute
+// upper.Column on row K+1's left edge equals lower.Column on row K's
+// right edge, but the click was on a specific row.
+func buildHighlightClips(pane *mainPane, upper, lower orderedEnd) []highlightClip {
+	var clips []highlightClip
+	for sl := upper.SourceLine; sl <= lower.SourceLine; sl++ {
+		if _, mapped := pane.sourceToFormatLine[sl]; !mapped {
+			continue
+		}
+		firstVpRow, rowCount := selectionRowRange(pane, sl, upper, lower)
+		for k := 0; k < rowCount; k++ {
+			vpRow := firstVpRow + k
+			rowSrcStart, rowSrcEnd := pane.wrapRowSourceColRange(vpRow)
+
+			selStart := rowSrcStart
+			selEnd := rowSrcEnd
+			if sl == upper.SourceLine && upper.VpRow == vpRow && upper.Column > selStart {
+				selStart = upper.Column
+			}
+			if sl == lower.SourceLine && lower.VpRow == vpRow && lower.Column < selEnd {
+				selEnd = lower.Column
+			}
+			if selStart > selEnd {
+				continue
+			}
+			clips = append(clips, highlightClip{
+				vpRow:          vpRow,
+				fromDisplayCol: selStart - rowSrcStart,
+				toDisplayCol:   selEnd - rowSrcStart,
+			})
+		}
+	}
+	return clips
+}
+
+// selectionRowRange returns (firstVpRow, count) — the wrap rows of
+// source line sl that participate in the selection. By default this is
+// all of sl's wrap rows. The endpoint VpRows narrow it on the endpoint
+// source lines: an upper click on row K means iterate from K (no earlier
+// rows); a lower click on row K means iterate up to and including K (no
+// later rows).
+func selectionRowRange(pane *mainPane, sl int, upper, lower orderedEnd) (firstVpRow, count int) {
+	firstVpRow = pane.sourceLineToViewportOffset(sl)
+	count = pane.wrapRowCountAtVpRow(firstVpRow)
+	if sl == upper.SourceLine && upper.VpRow >= firstVpRow && upper.VpRow < firstVpRow+count {
+		skip := upper.VpRow - firstVpRow
+		firstVpRow = upper.VpRow
+		count -= skip
+	}
+	if sl == lower.SourceLine && lower.VpRow >= firstVpRow && lower.VpRow < firstVpRow+count {
+		count = lower.VpRow - firstVpRow + 1
+	}
+	return firstVpRow, count
 }
 
 // UpdateAutoScroll inspects the drag-end Y in screen coords and updates
@@ -252,171 +360,202 @@ func scheduleDragScrollTick() tea.Cmd {
 	})
 }
 
-// SelectedText extracts the plain text from the current drag selection,
-// stripping ANSI codes, gutter prefixes, and joining word-wrap
-// continuations. Returns empty string if the drag start and end are the
-// same point.
-//
-// The selection works against the viewport's full GetContent() (not just
-// the visible View()). That matters when auto-scroll has moved the
-// viewport during the drag: the original click line may now be off-screen
-// above, but the user still expects it included in the copy.
-//
-// The body is decomposed into helpers that each own one concern:
-// normalize → clamp-vertically → translate pixel-to-content-row →
-// per-line extraction. Behavior is unchanged from the pre-split version;
-// see REFACTOR_IDEAS.md for the deferred source-space rewrite that will
-// replace the whole pipeline with Position-driven iteration.
+// SelectedText extracts the plain text from the current drag selection.
+// Operates on Selection's source-space endpoints — no pixel coordinates
+// in the body. Iterates source lines in [upper, lower] via
+// pane.sourceToFormatLine, pulling formatted (pre-wrap) content per
+// source line, clipping by source-absolute column on the first and last
+// source lines. Wrapped lines emit one logical line of output (joined
+// in source space), not one per wrap row.
 func (d *dragSelection) SelectedText(g dragGeometry) string {
-	if d.startX == d.endX && d.startY == d.endY {
+	if !d.HasRange() {
 		return ""
 	}
-
-	startY, endY, startX, endX, swapped := d.normalizedPixelBounds()
-	startY, endY, startX, endX, ok := clampSelectionVertically(g, startY, endY, startX, endX)
+	upper, lower, ok := d.resolveSelectionEnds(g)
 	if !ok {
 		return ""
 	}
-
-	contentStartY := mainPaneContentTop(g)
-	contentStartX := mainPaneContentLeft(g)
-	anchorAbove := d.originalAnchorAboveContent(swapped, contentStartY)
-	absStartY, absEndY, absStartX, absEndX := pixelsToContentRows(
-		g, startY, endY, startX, endX, contentStartY, contentStartX, anchorAbove,
-	)
-
-	return extractSelectionText(g, absStartY, absEndY, absStartX, absEndX)
+	return extractSourceRange(g.pane, upper, lower)
 }
 
-// normalizedPixelBounds returns the drag's start/end pixel coordinates
-// in canonical (start ≤ end) order. swapped reports whether the
-// canonical start came from d.endX/Y rather than d.startX/Y — downstream
-// code needs that to know which original end corresponded to the click.
-func (d *dragSelection) normalizedPixelBounds() (startY, endY, startX, endX int, swapped bool) {
-	startY, endY = d.startY, d.endY
-	startX, endX = d.startX, d.endX
-	swapped = startY > endY || (startY == endY && startX > endX)
-	if swapped {
-		startY, endY = endY, startY
-		startX, endX = endX, startX
-	}
-	return startY, endY, startX, endX, swapped
+// orderedEnd is a Position paired with the click's viewport row, used
+// to disambiguate source-absolute Column at wrap-row boundaries. VpRow
+// is -1 when the endpoint was synthesized (e.g., clamped to
+// visible.Start when the click was outside content) — meaning "no row
+// constraint, iterate all wrap rows of this source line."
+type orderedEnd struct {
+	Position
+	VpRow int
 }
 
-// clampSelectionVertically clamps the canonical (start ≤ end) pixel
-// bounds to the main pane's content area. Returns ok=false when the
-// whole selection is below content (nothing selectable). When the end
-// is past content, it is pulled to the last content row and the right
-// edge — matching the visual highlight, which extends to the far right
-// when the user drags off the bottom.
-func clampSelectionVertically(g dragGeometry, startY, endY, startX, endX int) (int, int, int, int, bool) {
-	contentEndY := g.screenH - 2
-	if endY > contentEndY {
-		endY = contentEndY
-		endX = g.screenW
-	}
-	if startY > contentEndY {
-		return startY, endY, startX, endX, false
-	}
-	return startY, endY, startX, endX, true
-}
-
-// originalAnchorAboveContent reports whether the *original* click landed
-// above the content area at Begin time — distinct from "the upper end of
-// the swapped-canonical selection is above content," which is what a
-// naive Y check would tell us.
+// resolveSelectionEnds returns the Selection's two endpoints in document
+// order (upper ≤ lower by SourceLine then Column), substituting visible-
+// range clamps for any end that lands outside the content area.
 //
-// When swapped, the upper end of the canonical selection corresponds to
-// d.endY (the live mouse position, never mutated by auto-scroll), so a
-// direct pixel-Y check answers the question. When not swapped, the
-// upper end corresponds to the original click — sel.Anchor records that
-// click's source-space translation (nil iff outside content), and
-// falling back to d.startY handles tests that bypass Begin.
-func (d *dragSelection) originalAnchorAboveContent(swapped bool, contentStartY int) bool {
-	if swapped {
-		return d.endY < contentStartY
-	}
-	if d.sel.Anchor != nil {
-		return false
-	}
-	return d.startY < contentStartY
-}
+// Classification of outside-content ends:
+//   - Anchor nil → click was outside at Begin time. In practice the only
+//     reachable case is "above content" (clicks below content land on
+//     borders that don't initiate drags via Begin), so anchor-nil clamps
+//     the upper end to (visible.Start, col 0).
+//   - Active nil → mouse is currently above or below content. The
+//     d.endY pixel-Y signal disambiguates: < contentStartY = above
+//     (upper-clamp), > contentEndY = below (lower-clamp at end-of-line).
+//     This is the last transitional use of pixel storage in the
+//     rendering path; pixel fields go away in slice 5 once a richer
+//     Endpoint type (or visual-mode's source-native input) replaces the
+//     direction signal.
+//
+// Anchors that scrolled off-screen (auto-scroll moved the viewport past
+// the original click) are intentionally NOT clamped — the source line
+// is stable across viewport scrolls in source-space, so the original
+// click line is preserved in the copy even when no longer visible. This
+// matches the old pixel behavior of decrementing startY in
+// AdvanceAutoScroll to keep the anchor pinned to its content row.
+func (d *dragSelection) resolveSelectionEnds(g dragGeometry) (upper, lower orderedEnd, ok bool) {
+	visible := g.pane.visibleRange()
+	contentStartY := mainPaneContentTop(g)
+	contentEndY := g.screenH - 2
 
-// pixelsToContentRows translates clamped pixel coords into absolute
-// (viewport-content-relative) row and column offsets, the units that
-// viewport.GetContent() lines and per-line column slicing operate on.
-// When anchorAbove, the top of the selection is clamped to the first
-// visible row instead of translated to an absolute row the user never
-// saw.
-func pixelsToContentRows(
-	g dragGeometry,
-	startY, endY, startX, endX int,
-	contentStartY, contentStartX int,
-	anchorAbove bool,
-) (absStartY, absEndY, absStartX, absEndX int) {
-	vpOffset := g.pane.viewport.YOffset()
-	absStartY = vpOffset + (startY - contentStartY)
-	absEndY = vpOffset + (endY - contentStartY)
-	absStartX = startX - contentStartX
-	absEndX = endX - contentStartX
-
-	if anchorAbove {
-		absStartY = vpOffset
-		absStartX = 0
-	}
-	if absStartY < 0 {
-		absStartY = 0
-		absStartX = 0
-	}
-	if absStartX < 0 {
-		absStartX = 0
-	}
-	if absEndX < 0 {
-		absEndX = 0
-	}
-	return absStartY, absEndY, absStartX, absEndX
-}
-
-// extractSelectionText iterates content rows in the pane's full rendered
-// output (not just the visible window) and accumulates the selected
-// text, stripping ANSI, trimming the gutter, and joining word-wrap
-// continuations into a single logical line in the output.
-func extractSelectionText(g dragGeometry, absStartY, absEndY, absStartX, absEndX int) string {
-	contentLines := strings.Split(g.pane.viewport.GetContent(), "\n")
-	gw := g.pane.gutterWidth
-	contMap := g.pane.wrapContinuation
-
-	var out strings.Builder
-	for y := absStartY; y <= absEndY && y < len(contentLines); y++ {
-		isCont := contMap != nil && y < len(contMap) && contMap[y]
-		fromCol, toCol := selectionColumnsForRow(y, absStartY, absEndY, absStartX, absEndX, gw)
-		out.WriteString(extractLineFragment(contentLines[y], fromCol, toCol, gw, isCont))
-		if y < absEndY {
-			nextAbsY := y + 1
-			if contMap != nil && nextAbsY < len(contMap) && contMap[nextAbsY] {
-				continue
-			}
-			out.WriteString("\n")
+	activeDir := 0 // -1 above, +1 below; 0 when active is inside content
+	if d.sel.Active == nil {
+		// Active is nil when (a) mouse is above content, (b) mouse is
+		// below the pane, or (c) mouse is inside the pane but past the
+		// last source row (in pane padding). Cases (b) and (c) both
+		// clamp the lower end to visible.End. Pixel-Y disambiguates (a)
+		// from (b)+(c); the vpRow check picks up (c).
+		vpRow := g.pane.viewport.YOffset() + (d.endY - contentStartY)
+		switch {
+		case d.endY < contentStartY:
+			activeDir = -1
+		case d.endY > contentEndY || vpRow >= viewportContentRowCount(g.pane):
+			activeDir = +1
+		default:
+			// Active is nil but pixel-Y is inside content and on a real
+			// source row — happens in tests that set pixel fields
+			// without populating sel. Treat as no selectable range.
+			return orderedEnd{}, orderedEnd{}, false
 		}
 	}
-	return out.String()
+
+	anchor := orderedEnd{VpRow: d.anchorVpRow}
+	if d.sel.Anchor != nil {
+		anchor.Position = *d.sel.Anchor
+	}
+	active := orderedEnd{VpRow: d.activeVpRow}
+	if d.sel.Active != nil {
+		active.Position = *d.sel.Active
+	}
+
+	// Synthesized endpoints (anchor/active outside content) pin to the
+	// first/last visible wrap row, not just the source line. That matters
+	// when the synthesized source line wraps: without a VpRow, the
+	// iteration would pull in wrap rows that scrolled off-screen above
+	// (or extend into rows below the active mouse).
+	vpOffset := g.pane.viewport.YOffset()
+	visibleTopRow := vpOffset
+	visibleBottomRow := vpOffset + g.pane.viewport.Height() - 1
+	if last := viewportContentRowCount(g.pane) - 1; last >= 0 && visibleBottomRow > last {
+		visibleBottomRow = last
+	}
+
+	switch {
+	case d.sel.Anchor == nil && d.sel.Active == nil:
+		return orderedEnd{}, orderedEnd{}, false
+	case d.sel.Anchor == nil:
+		upper = orderedEnd{Position: Position{SourceLine: visible.Start.SourceLine, Column: 0}, VpRow: visibleTopRow}
+		lower = active
+	case d.sel.Active == nil:
+		if activeDir < 0 {
+			upper = orderedEnd{Position: Position{SourceLine: visible.Start.SourceLine, Column: 0}, VpRow: visibleTopRow}
+			lower = anchor
+		} else {
+			upper = anchor
+			lower = orderedEnd{Position: Position{SourceLine: visible.End.SourceLine, Column: maxColumn}, VpRow: visibleBottomRow}
+		}
+	default:
+		if positionLess(anchor.Position, active.Position) {
+			upper, lower = anchor, active
+		} else {
+			upper, lower = active, anchor
+		}
+	}
+	return upper, lower, true
 }
 
-// selectionColumnsForRow returns the [fromCol, toCol) post-gutter column
-// range to extract from the row at y. Inner rows get the full line;
-// the first and last rows clip on absStartX/absEndX. Columns are
-// gutter-relative (0 == first character after the gutter).
-func selectionColumnsForRow(y, absStartY, absEndY, absStartX, absEndX, gw int) (int, int) {
-	const noUpperBound = -1 // sentinel; extractLineFragment clamps to line width
-	fromCol := 0
-	toCol := noUpperBound
-	if y == absStartY {
-		fromCol = max(0, absStartX-gw)
+// positionLess returns true iff a precedes b in document order
+// (SourceLine, then Column).
+func positionLess(a, b Position) bool {
+	if a.SourceLine != b.SourceLine {
+		return a.SourceLine < b.SourceLine
 	}
-	if y == absEndY {
-		toCol = max(0, absEndX+1-gw)
+	return a.Column < b.Column
+}
+
+// maxColumn is the sentinel "to end of line" column. extractLineFragment
+// clamps any toCol > line width to line width, so column values up to
+// math.MaxInt32 are safe.
+const maxColumn = (1 << 31) - 1
+
+// extractSourceRange walks source lines [upper.SourceLine,
+// lower.SourceLine], pulling each line's visible content out of the
+// viewport's wrap-extended / truncation-applied output and clipping by
+// upper.Column / lower.Column on the first and last lines. Lines with
+// no source mapping (rendered-only rows like inline-removed
+// annotations) are skipped.
+//
+// One logical line of output per source line. In no-wrap mode each
+// source line has exactly one wrap row in viewport.GetContent() (post
+// horizontal-truncation), so the copy preserves only visible chars —
+// chars truncated off the right of the pane are not in the copy. In
+// wrap mode the source line's wrap rows are joined into one logical
+// line (matching the user's expectation that selecting across a wrap
+// break copies one continuous string); chars dropped at word-boundary
+// breaks stay dropped, since they're not visible.
+//
+// upper.VpRow / lower.VpRow narrow the wrap-row iteration on the
+// endpoint source lines (see selectionRowRange), disambiguating clicks
+// at wrap-row boundaries.
+func extractSourceRange(pane *mainPane, upper, lower orderedEnd) string {
+	vpLines := strings.Split(pane.viewport.GetContent(), "\n")
+	var out strings.Builder
+	wroteFirst := false
+	for sl := upper.SourceLine; sl <= lower.SourceLine; sl++ {
+		if _, mapped := pane.sourceToFormatLine[sl]; !mapped {
+			continue
+		}
+		firstVpRow, rowCount := selectionRowRange(pane, sl, upper, lower)
+
+		var srcOut strings.Builder
+		for k := 0; k < rowCount; k++ {
+			vpRow := firstVpRow + k
+			if vpRow < 0 || vpRow >= len(vpLines) {
+				continue
+			}
+			rowStart, rowEnd := pane.wrapRowSourceColRange(vpRow)
+
+			selStart := rowStart
+			selEnd := rowEnd
+			if sl == upper.SourceLine && upper.VpRow == vpRow && upper.Column > selStart {
+				selStart = upper.Column
+			}
+			if sl == lower.SourceLine && lower.VpRow == vpRow && lower.Column < selEnd {
+				selEnd = lower.Column
+			}
+			if selStart > selEnd {
+				continue
+			}
+			fromCol := selStart - rowStart
+			toCol := selEnd - rowStart + 1
+			srcOut.WriteString(extractLineFragment(vpLines[vpRow], fromCol, toCol, pane.gutterWidth))
+		}
+
+		if wroteFirst {
+			out.WriteString("\n")
+		}
+		out.WriteString(srcOut.String())
+		wroteFirst = true
 	}
-	return fromCol, toCol
+	return out.String()
 }
 
 // extractLineFragment pulls the [fromCol, toCol) gutter-relative slice
@@ -424,7 +563,7 @@ func selectionColumnsForRow(y, absStartY, absEndY, absStartX, absEndX, gw int) (
 // trailing whitespace, and removing the gutter prefix. A toCol of -1
 // means "to end of line." Returns empty string when the range is empty
 // or past the line's content.
-func extractLineFragment(line string, fromCol, toCol, gw int, isContinuation bool) string {
+func extractLineFragment(line string, fromCol, toCol, gw int) string {
 	stripped := stripANSIForWidth(line)
 	stripped = strings.TrimRight(stripped, " ")
 	if gw > 0 && len(stripped) > gw {
@@ -440,7 +579,6 @@ func extractLineFragment(line string, fromCol, toCol, gw int, isContinuation boo
 	if fromCol >= toCol {
 		return ""
 	}
-	_ = isContinuation // reserved for future wrap-aware semantics; currently identical handling
 	return sliceByDisplayCol(stripped, fromCol, toCol)
 }
 
@@ -449,13 +587,6 @@ func extractLineFragment(line string, fromCol, toCol, gw int, isContinuation boo
 func mainPaneContentTop(g dragGeometry) int {
 	const topBorder, titleRow = 1, 1
 	return g.statusRows + topBorder + titleRow
-}
-
-// mainPaneContentLeft returns the screen-X of the first column inside
-// the main pane's content area (past the sidebar and left border).
-func mainPaneContentLeft(g dragGeometry) int {
-	const mainLeftBorder = 1
-	return g.sidebarW + mainLeftBorder
 }
 
 // yankPath copies the current file path to the clipboard. Sidebar focused:

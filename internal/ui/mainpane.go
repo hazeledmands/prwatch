@@ -1116,6 +1116,88 @@ func wrappedRowCount(line string, width int) int {
 	return 1
 }
 
+// absoluteColumnFromDisplay translates a (viewport-row, display-column)
+// click into a source-line-absolute, gutter-relative column. With wrap
+// off (or no wrap continuation map / display col on a non-continuation
+// row) the result equals displayCol. On a continuation row it walks
+// back through preceding continuation rows of the same source line,
+// summing their displayed widths (gutter stripped) so the returned
+// column is in the unwrapped source line's coordinate frame.
+//
+// Source-space SelectedText/ApplyHighlight rely on this so partial
+// wrap-row drag selections clip at the right source columns even when
+// word-boundary wrap put the click on the second or third wrap row of
+// a long source line.
+func (m *mainPane) absoluteColumnFromDisplay(vpRow, displayCol int) int {
+	if displayCol < 0 {
+		displayCol = 0
+	}
+	if !m.wordWrap || vpRow < 0 || vpRow >= len(m.wrapContinuation) || !m.wrapContinuation[vpRow] {
+		return displayCol
+	}
+	vpLines := strings.Split(m.viewport.GetContent(), "\n")
+	base := 0
+	for i := vpRow - 1; i >= 0; i-- {
+		if i >= len(vpLines) {
+			continue
+		}
+		base += stripGutterDisplayWidth(vpLines[i], m.gutterWidth)
+		if i >= len(m.wrapContinuation) || !m.wrapContinuation[i] {
+			break
+		}
+	}
+	return base + displayCol
+}
+
+// wrapRowCountAtVpRow returns the number of wrap rows belonging to the
+// source line whose first wrap row is at vpRow. In no-wrap mode (or
+// when wrapContinuation isn't populated) this is always 1; in wrap mode
+// it counts consecutive wrapContinuation=true rows after vpRow.
+func (m *mainPane) wrapRowCountAtVpRow(vpRow int) int {
+	if !m.wordWrap || vpRow < 0 {
+		return 1
+	}
+	count := 1
+	for i := vpRow + 1; i < len(m.wrapContinuation); i++ {
+		if !m.wrapContinuation[i] {
+			break
+		}
+		count++
+	}
+	return count
+}
+
+// wrapRowSourceColRange returns the source-absolute, gutter-relative
+// column range [start, end] (inclusive) covered by the wrap row at
+// vpRow. The start comes from absoluteColumnFromDisplay (with display
+// col 0); the end is start + displayed-width-of-row - 1. Used by
+// buildHighlightClips to intersect a wrap row with the selection's
+// source-column range.
+func (m *mainPane) wrapRowSourceColRange(vpRow int) (int, int) {
+	start := m.absoluteColumnFromDisplay(vpRow, 0)
+	vpLines := strings.Split(m.viewport.GetContent(), "\n")
+	if vpRow < 0 || vpRow >= len(vpLines) {
+		return start, start
+	}
+	w := stripGutterDisplayWidth(vpLines[vpRow], m.gutterWidth)
+	if w == 0 {
+		return start, start
+	}
+	return start, start + w - 1
+}
+
+// stripGutterDisplayWidth returns the displayed width of a rendered
+// viewport row's main content — ANSI stripped, trailing spaces trimmed,
+// gutter (first gw chars) removed.
+func stripGutterDisplayWidth(line string, gw int) int {
+	stripped := stripANSIForWidth(line)
+	stripped = strings.TrimRight(stripped, " ")
+	if gw > 0 && len(stripped) > gw {
+		stripped = stripped[gw:]
+	}
+	return displayWidthOf(stripped)
+}
+
 // visibleRange returns the [top, bottom] source-line range currently
 // visible in the viewport. Source lines are mapped through any wrap /
 // inline-removal formatting via viewportToSourceLine and

@@ -20,7 +20,7 @@ func TestDragSelection_BeginInitializesState(t *testing.T) {
 		y := rapid.IntRange(-100, 100).Draw(t, "y")
 		d := newDragSelection()
 		d.scrollDir = +1 // poison
-		d.Begin(x, y, nil)
+		d.Begin(x, y, nil, -1)
 		if !d.IsActive() {
 			t.Fatal("Begin should activate the drag")
 		}
@@ -46,8 +46,8 @@ func TestDragSelection_MoveEndUpdatesRange(t *testing.T) {
 		x2 := rapid.IntRange(0, 100).Draw(t, "x2")
 		y2 := rapid.IntRange(0, 100).Draw(t, "y2")
 		d := newDragSelection()
-		d.Begin(x1, y1, nil)
-		d.MoveEnd(x2, y2, nil)
+		d.Begin(x1, y1, nil, -1)
+		d.MoveEnd(x2, y2, nil, -1)
 		if d.startX != x1 || d.startY != y1 {
 			t.Fatalf("MoveEnd disturbed start: (%d,%d) want (%d,%d)", d.startX, d.startY, x1, y1)
 		}
@@ -72,9 +72,9 @@ func TestDragSelection_ReleaseDeactivates(t *testing.T) {
 		y2 := rapid.IntRange(0, 100).Draw(t, "y2")
 
 		d := newDragSelection()
-		d.Begin(x1, y1, nil)
+		d.Begin(x1, y1, nil, -1)
 		d.scrollDir = -1 // simulate scrolling at release time
-		if !d.Release(x2, y2, nil) {
+		if !d.Release(x2, y2, nil, -1) {
 			t.Fatal("Release on active drag should return true")
 		}
 		if d.IsActive() {
@@ -88,7 +88,7 @@ func TestDragSelection_ReleaseDeactivates(t *testing.T) {
 		}
 
 		// A second release with the drag now inactive returns false.
-		if d.Release(x2, y2, nil) {
+		if d.Release(x2, y2, nil, -1) {
 			t.Fatal("Release on inactive drag should return false")
 		}
 	})
@@ -104,7 +104,7 @@ func TestDragSelection_CancelIdempotent(t *testing.T) {
 
 		d := newDragSelection()
 		if startActive {
-			d.Begin(x, y, nil)
+			d.Begin(x, y, nil, -1)
 			d.scrollDir = dir
 		}
 		d.Cancel()
@@ -178,11 +178,7 @@ func TestDragApplyHighlight_PreservesStrippedContent(t *testing.T) {
 		x2 := rapid.IntRange(minX, maxX).Draw(t, "x2")
 		y2 := rapid.IntRange(minY, maxY).Draw(t, "y2")
 
-		m.drag.startX = x1
-		m.drag.startY = y1
-		m.drag.endX = x2
-		m.drag.endY = y2
-		m.drag.active = true
+		setDragRect(m, x1, y1, x2, y2)
 
 		v := m.mainPane.viewport.View()
 		highlighted := m.drag.ApplyHighlight(v, geom)
@@ -226,11 +222,7 @@ func TestDragApplyHighlight_NeverHighlightsGutter(t *testing.T) {
 		x2 := rapid.IntRange(gutterOffset, width-2).Draw(t, "x2")
 		y2 := rapid.IntRange(y1, maxY).Draw(t, "y2")
 
-		m.drag.startX = x1
-		m.drag.startY = y1
-		m.drag.endX = x2
-		m.drag.endY = y2
-		m.drag.active = true
+		setDragRect(m, x1, y1, x2, y2)
 
 		// Render the full view (drag highlight is applied to the padded
 		// final render in View()) and check every line.
@@ -333,4 +325,24 @@ func TestDragAdvanceAutoScroll_Terminates(t *testing.T) {
 // view so split-by-line behaves predictably for highlight row checks.
 func stripPaddingNewlines(s string) string {
 	return strings.Trim(s, "\n")
+}
+
+// setDragRect populates both the pixel fields and the source-space
+// Selection ends on m.drag, matching what a real Begin/MoveEnd pair
+// would do for a drag from (x1,y1) to (x2,y2). Tests that bypass Begin
+// to set up a known drag state use this so SelectedText/ApplyHighlight
+// — which iterate by source line/column — see consistent state. Anchor
+// and Active are nil if the corresponding pixel position lands outside
+// content, matching production sourcePositionAt semantics. Click vpRows
+// are captured too so wrap-row clipping disambiguates Column at wrap
+// boundaries.
+func setDragRect(m *Model, x1, y1, x2, y2 int) {
+	g := m.dragGeom()
+	m.drag.startX = x1
+	m.drag.startY = y1
+	m.drag.endX = x2
+	m.drag.endY = y2
+	m.drag.sel.Anchor, m.drag.anchorVpRow = g.sourcePositionAt(x1, y1)
+	m.drag.sel.Active, m.drag.activeVpRow = g.sourcePositionAt(x2, y2)
+	m.drag.active = true
 }

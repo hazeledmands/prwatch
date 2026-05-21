@@ -1173,11 +1173,7 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		m.drag.active = false
 		baseView := viewWithTimeout(t, m, "baseline")
 
-		m.drag.startX = x1
-		m.drag.startY = y1
-		m.drag.endX = x2
-		m.drag.endY = y2
-		m.drag.active = true
+		setDragRect(m, x1, y1, x2, y2)
 
 		got := m.drag.SelectedText(m.dragGeom())
 		if got == "" {
@@ -1510,11 +1506,7 @@ func TestProperty_DragAcrossModesNoPanic(t *testing.T) {
 		x1 := rapid.IntRange(0, width-1).Draw(t, "x1")
 		x2 := rapid.IntRange(0, width-1).Draw(t, "x2")
 
-		m.drag.startX = x1
-		m.drag.startY = y1
-		m.drag.endX = x2
-		m.drag.endY = y2
-		m.drag.active = true
+		setDragRect(m, x1, y1, x2, y2)
 
 		// Should not panic
 		text := m.drag.SelectedText(m.dragGeom())

@@ -7207,10 +7207,7 @@ func TestCopySelection_WithContent(t *testing.T) {
 	m.Update(msg)
 
 	// Drag across main pane area
-	m.drag.startX = 30
-	m.drag.startY = 5
-	m.drag.endX = 50
-	m.drag.endY = 7
+	setDragRect(m, 30, 5, 50, 7)
 	cmd := m.copySelection() // exercises coordinate conversion, line extraction
 	if cmd == nil {
 		t.Fatal("copySelection with content should return a notification timer cmd")
@@ -7238,10 +7235,7 @@ func TestCopySelection_ReversedCoordinates(t *testing.T) {
 	m.Update(msg)
 
 	// End before start (reversed)
-	m.drag.startX = 50
-	m.drag.startY = 8
-	m.drag.endX = 30
-	m.drag.endY = 5
+	setDragRect(m, 50, 8, 30, 5)
 	m.copySelection() // exercises coordinate normalization
 }
 
@@ -7263,10 +7257,7 @@ func TestCopySelection_NegativeCoords(t *testing.T) {
 	m.Update(msg)
 
 	// Drag from before content area
-	m.drag.startX = 0
-	m.drag.startY = 0
-	m.drag.endX = 50
-	m.drag.endY = 8
+	setDragRect(m, 0, 0, 50, 8)
 	m.copySelection() // exercises negative coordinate clamping
 }
 
@@ -7288,10 +7279,7 @@ func TestCopySelection_HiddenSidebar(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	m.drag.startX = 5
-	m.drag.startY = 5
-	m.drag.endX = 40
-	m.drag.endY = 7
+	setDragRect(m, 5, 5, 40, 7)
 	m.copySelection() // exercises sidebarHidden=true path
 }
 
@@ -7320,10 +7308,7 @@ func TestCopySelection_DragOnTitleRowExcludesTitle(t *testing.T) {
 	// from that row downward should still copy file content but never the
 	// title text itself.
 	titleRow := m.statusBarLines() + 1
-	m.drag.startX = m.sidebarPixelWidth() + 5
-	m.drag.startY = titleRow
-	m.drag.endX = m.sidebarPixelWidth() + 30
-	m.drag.endY = titleRow + 3
+	setDragRect(m, m.sidebarPixelWidth()+5, titleRow, m.sidebarPixelWidth()+30, titleRow+3)
 
 	got := m.drag.SelectedText(m.dragGeom())
 	if strings.Contains(got, "distinctive_file.go") {
@@ -7352,11 +7337,7 @@ func TestApplyDragHighlight_DoesNotHighlightTitleRow(t *testing.T) {
 	m.Update(msg)
 
 	titleRow := m.statusBarLines() + 1
-	m.drag.active = true
-	m.drag.startX = m.sidebarPixelWidth() + 1
-	m.drag.startY = titleRow
-	m.drag.endX = m.width - 2
-	m.drag.endY = titleRow
+	setDragRect(m, m.sidebarPixelWidth()+1, titleRow, m.width-2, titleRow)
 
 	view := m.View()
 	lines := strings.Split(view.Content, "\n")
@@ -7540,7 +7521,8 @@ func TestDragAutoScroll_SelectionSpansOffScreenStart(t *testing.T) {
 	// visible row).
 	g := m.dragGeom()
 	clickX, clickY := m.sidebarPixelWidth()+5, contentStartY
-	m.drag.Begin(clickX, clickY, g.sourcePositionAt(clickX, clickY))
+	clickPos, clickRow := g.sourcePositionAt(clickX, clickY)
+	m.drag.Begin(clickX, clickY, clickPos, clickRow)
 
 	// Simulate the user dragging past the bottom enough to scroll off the
 	// click line. Each tick scrolls by one line and decrements dragStartY.
@@ -7550,8 +7532,13 @@ func TestDragAutoScroll_SelectionSpansOffScreenStart(t *testing.T) {
 		m.drag.AdvanceAutoScroll(m.dragGeom())
 	}
 
-	// Mouse is currently at the bottom of the viewport.
-	m.drag.endY = m.height - 2
+	// Mouse is currently at the bottom of the viewport. Route through
+	// MoveEnd so both the pixel-Y direction signal and the sel.Active
+	// source position stay consistent.
+	endX, endY := clickX, m.height-2
+	g2 := m.dragGeom()
+	endPos, endRow := g2.sourcePositionAt(endX, endY)
+	m.drag.MoveEnd(endX, endY, endPos, endRow)
 
 	got := m.drag.SelectedText(m.dragGeom())
 	// The selection should still include the very first line, because the
