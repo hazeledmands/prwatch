@@ -5908,7 +5908,11 @@ func TestJumpToNextDiff_Wrap(t *testing.T) {
 // grain nav anchors the removal hunk to its newStart line.
 //
 // Tests two paths the bug affected: jumpToFirstDiff (run on file load)
-// and jumpToNextDiff from a non-removal hunk to the removal hunk.
+// and jumpToNextDiff from a non-removal hunk to the removal hunk. With
+// Vim-style centering, the hunk's StartLine isn't at viewport top —
+// it sits ~30% down with leading context above — so the assertions
+// check the hunk is visible rather than checking the viewport top
+// equals StartLine.
 func TestJumpToNextDiff_RemovalOnlyHunk(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
@@ -5919,9 +5923,11 @@ func TestJumpToNextDiff_RemovalOnlyHunk(t *testing.T) {
 		allFiles:    []string{"file.go"},
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: strings.Repeat("kept line\n", 60),
-		// Two hunks: a regular added-line hunk at line 5, then a
-		// deletion-only hunk anchored at line 45.
-		fileDiff: `@@ -5,2 +5,3 @@
+		// Two hunks: a regular added-line hunk at line 15, then a
+		// deletion-only hunk anchored at line 45. Hunk 1 is far
+		// enough down that the centering margin doesn't get clamped
+		// to viewport top (which would hide the centering effect).
+		fileDiff: `@@ -15,2 +15,3 @@
  kept
 +added
  kept
@@ -5933,21 +5939,35 @@ func TestJumpToNextDiff_RemovalOnlyHunk(t *testing.T) {
 	}
 	m := NewModel("/tmp", mg)
 	m.width = 80
-	m.height = 10 // small viewport so the second hunk requires scrolling
+	m.height = 20 // tall enough that hunk 1 (line 15) gets centered
 	m.updateLayout()
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	// jumpToFirstDiff (run on file load) should land on hunk 1, not nil
-	// out because the second hunk is a removal-only one.
-	if got := m.mainPane.visibleRange().Start.SourceLine; got != 5 {
-		t.Fatalf("jumpToFirstDiff should land on hunk 1 (line 5); got top=%d", got)
-	}
+	// jumpToFirstDiff (run on file load) should make hunk 1 visible —
+	// not nil out because the second hunk is a removal-only one.
+	assertHunkCentered(t, m, 15, "jumpToFirstDiff")
 
 	m.jumpToNextDiff(+1)
 
-	if got := m.mainPane.visibleRange().Start.SourceLine; got != 45 {
-		t.Errorf("jumpToNextDiff(+1) should scroll to removal hunk's anchor line 45; got top=%d", got)
+	// Press J — should advance to the removal hunk anchored at line 45.
+	assertHunkCentered(t, m, 45, "jumpToNextDiff(+1) to removal hunk")
+}
+
+// assertHunkCentered verifies that the given source line is visible in
+// the main pane with leading context above (Vim-style ~30% centering).
+// The hunk's exact viewport row depends on margin computation, so the
+// assertion is "visible but not at the very top."
+func assertHunkCentered(t *testing.T, m *Model, hunkStart int, when string) {
+	t.Helper()
+	vr := m.mainPane.visibleRange()
+	if hunkStart < vr.Start.SourceLine || hunkStart > vr.End.SourceLine {
+		t.Errorf("%s: hunk start line %d should be visible; got viewport [%d, %d]",
+			when, hunkStart, vr.Start.SourceLine, vr.End.SourceLine)
+	}
+	if vr.Start.SourceLine >= hunkStart {
+		t.Errorf("%s: expected leading context above hunk start %d; viewport.Start=%d",
+			when, hunkStart, vr.Start.SourceLine)
 	}
 }
 

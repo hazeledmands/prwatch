@@ -948,30 +948,38 @@ func (m *mainPane) ScrollToLine(line int) {
 // Unlike ScrollToLine, this accounts for formatting (gutter, removed lines) and
 // word wrapping that may change the viewport line count.
 func (m *mainPane) ScrollToSourceLine(sourceLine int) {
-	// Use the source-to-formatted-line mapping if available
-	if m.sourceToFormatLine != nil {
-		if formattedIdx, ok := m.sourceToFormatLine[sourceLine]; ok {
-			if !m.wordWrap || m.width <= 0 {
-				m.viewport.SetYOffset(formattedIdx)
-				return
-			}
-			// Account for wrapping: count viewport lines for formatted lines 0..formattedIdx-1
-			formattedLines := strings.Split(m.formattedContent, "\n")
-			viewportLine := 0
-			for i := 0; i < formattedIdx && i < len(formattedLines); i++ {
-				lineW := ansiAwareIterate(formattedLines[i], func(r rune, w int) {})
-				if lineW > m.width {
-					viewportLine += (lineW + m.width - 1) / m.width
-				} else {
-					viewportLine++
-				}
-			}
-			m.viewport.SetYOffset(viewportLine)
-			return
-		}
+	m.viewport.SetYOffset(m.sourceLineToViewportOffset(sourceLine))
+}
+
+// hunkNavMargin returns the leading-context row count used when
+// scrolling to a hunk start. ~30% of viewport height — Vim-style
+// centering that leaves room above the target for orientation.
+func (m *mainPane) hunkNavMargin() int {
+	return m.viewport.Height() * 3 / 10
+}
+
+// scrollToHunkStart scrolls the viewport so the given source line sits
+// hunkNavMargin rows down from the top, leaving leading context above.
+// Used by hunk-grain navigation (jumpToFirstDiff / jumpToNextDiff) so
+// hunks don't show up flush against the viewport top.
+func (m *mainPane) scrollToHunkStart(sourceLine int) {
+	target := m.sourceLineToViewportOffset(sourceLine)
+	yOffset := target - m.hunkNavMargin()
+	if yOffset < 0 {
+		yOffset = 0
 	}
-	// Fallback: direct line mapping
-	m.viewport.SetYOffset(sourceLine - 1)
+	m.viewport.SetYOffset(yOffset)
+}
+
+// hunkNavCursor returns the source line at the row hunkNavMargin below
+// the viewport top — i.e., where a scrollToHunkStart would place the
+// target line. After scrollToHunkStart this equals the hunk's
+// StartLine, so jumpToNextDiff uses it as the "current hunk" reference
+// for advancing through the hunk list. Without this, the reference
+// would be viewportTop.SourceLine (= hunkStart - margin) and J would
+// re-find the current hunk instead of advancing.
+func (m *mainPane) hunkNavCursor() int {
+	return m.sourceLineAtViewportOffset(m.viewport.YOffset() + m.hunkNavMargin())
 }
 
 // viewportToSourceLine converts the viewport's scroll offset to the closest

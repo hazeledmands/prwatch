@@ -1783,13 +1783,13 @@ func (m *Model) selectFirstCIFailure() {
 
 func (m *Model) jumpToFirstDiff() {
 	if line, ok := nextHunkStart(m.mainPane.diffHunks, 0, +1); ok {
-		m.mainPane.ScrollToSourceLine(line)
+		m.mainPane.scrollToHunkStart(line)
 	}
 }
 
 func (m *Model) jumpToNextDiff(direction int) {
-	if line, ok := nextHunkStart(m.mainPane.diffHunks, m.mainPane.visibleRange().Start.SourceLine, direction); ok {
-		m.mainPane.ScrollToSourceLine(line)
+	if line, ok := nextHunkStart(m.mainPane.diffHunks, m.mainPane.hunkNavCursor(), direction); ok {
+		m.mainPane.scrollToHunkStart(line)
 	}
 }
 
