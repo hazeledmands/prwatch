@@ -7,11 +7,11 @@ replays for property-test failures. Each one captures a specific seed that
 triggered an invariant violation. Deleting one destroys the ability to
 reproduce the failure.
 
-**Only delete a `.fail` file when:**
-- The test signature has changed and rapid itself reports the file as
-  "no longer valid", OR
-- The underlying bug is fixed AND running the test no longer triggers a
-  failure on that seed.
+**Only delete a `.fail` file when rapid itself reports it as "no longer
+valid"** — typically after a test signature change. A seed that no
+longer triggers a failure on a fixed bug is still a useful regression
+guard ("did the fix get reverted?"), so keep it. The marginal storage
+cost is trivial; the deterministic re-replay value compounds.
 
 If a stress run (`./scripts/rapid` or a higher `PRWATCH_RAPID_CHECKS`)
 surfaces a new failure, **commit the `.fail` file**. Then either fix the
