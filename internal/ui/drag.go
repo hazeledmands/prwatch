@@ -18,36 +18,42 @@ type dragScrollTickMsg struct{}
 const dragScrollInterval = 60 * time.Millisecond
 
 // dragSelection owns the click-drag-release state used to highlight and copy
-// a region of the main pane. Source-space iteration is the canonical path:
-// sel.Anchor / sel.Active hold the click and live-mouse positions in
-// source coordinates (line + column); anchorVpRow / activeVpRow carry the
-// click's viewport row for wrap-row disambiguation; the pixel fields are
-// retained only for HasRange, AdvanceAutoScroll's anchor re-pin, and
-// resolveSelectionEnds' active-direction signal — see REFACTOR_IDEAS.md
-// for the deferred pixel-storage cleanup.
+// a region of the main pane. State is source-space throughout:
 //
-// scrollDir is +1 to auto-scroll the viewport down (drag past the bottom
-// edge), -1 to scroll up, 0 when the drag end is inside the viewport.
+//   - anchor / active hold the click and live-mouse positions as
+//     endpoint values (source Position + viewport row + outside
+//     direction). Both are value types so the struct is comparable; that
+//     drives HasRange.
+//   - inProgress flags whether a drag is currently being tracked
+//     (between Begin and Release/Cancel).
+//   - scrollDir is +1 to auto-scroll the viewport down (drag past the
+//     bottom edge), -1 to scroll up, 0 when the drag end is inside.
 //
-// Anchor/Active nil means the corresponding event landed outside the
-// content area (title row, status bar, borders) or past the last source
-// row (in pane padding); resolveSelectionEnds clamps these to the
-// visible source range with column 0 (above) or maxColumn (below).
+// No pixel coordinates are kept on the struct — pixel-to-source
+// translation happens once at the geometry boundary (dragGeometry.clickAt)
+// and the result is consumed only as a source-space endpoint.
 type dragSelection struct {
-	startX, startY int
-	endX, endY     int
-	sel            Selection
-	// anchorVpRow / activeVpRow are the viewport rows the click /
-	// last-move landed on. They disambiguate Position.Column at wrap-row
-	// boundaries: a click past wrap row K's right edge has Column at
-	// row K+1's start in source-space, but the user clicked on row K.
-	// Clip logic constrains each endpoint's effect to its click vpRow's
-	// wrap row. -1 means "no row info" (endpoint is nil or test set
-	// fields without going through Begin/MoveEnd/Release).
-	anchorVpRow int
-	activeVpRow int
-	active      bool
-	scrollDir   int
+	anchor     endpoint
+	active     endpoint
+	inProgress bool
+	scrollDir  int
+}
+
+// endpoint locates one end of a drag selection. When OutsideDir is 0,
+// Pos and VpRow describe where the click landed: Pos is the source
+// line + column, VpRow is the absolute viewport row (so wrap-row-
+// boundary ambiguity can be disambiguated). When OutsideDir is non-zero
+// the click landed outside the main pane's content rows — -1 above
+// (title row, status bar, or above the pane), +1 below (past the last
+// source row, or below the pane). Pos and VpRow are then meaningless;
+// resolveSelectionEnds substitutes a visible-range clamp.
+//
+// Value-typed (no pointers) so the parent struct is comparable —
+// HasRange is just d.anchor != d.active.
+type endpoint struct {
+	Pos        Position
+	VpRow      int
+	OutsideDir int
 }
 
 // dragGeometry is the screen-layout snapshot dragSelection needs to map
@@ -61,49 +67,43 @@ type dragGeometry struct {
 	pane       *mainPane
 }
 
-// sourcePositionAt translates a screen pixel coordinate to a Position in
-// source space. Returns nil iff (x, y) lands somewhere with no
-// underlying source row:
+// clickAt translates a screen pixel coordinate to a source-space
+// endpoint. Returns an OutsideDir endpoint when the click lands:
 //   - vertically outside the main pane's content rows (title row, status
-//     bar, top/bottom border, i.e. y < contentTop or y > screenH-2), OR
+//     bar, top/bottom border): OutsideDir = -1 (above) or +1 (below).
 //   - inside the pane content area but past the last rendered content
-//     row (drag below the source's last line, into pane padding).
+//     row (drag below the source's last line, into pane padding):
+//     OutsideDir = +1.
 //
-// The nil signal lets resolveSelectionEnds clamp the active end to the
-// visible source range instead of pinning it to the last source line's
-// column 0 (which would shrink the selection on the bottom row when the
-// user dragged past content).
-//
-// Clicks on the gutter or past the right edge still resolve to a
-// Position (column clamped) since they anchor to a real source row.
-// Position.Column is source-absolute via absoluteColumnFromDisplay so
-// clicks on wrap-continuation rows clip the right source columns.
-// sourcePositionAt's vpRow return value is the absolute viewport row
-// the click landed on. Always ≥ 0 when the returned *Position is
-// non-nil; -1 when nil. Source-space clipping (extractSourceRange /
-// buildHighlightClips) uses the click vpRow to confine each endpoint's
-// effect to its clicked wrap row — necessary because source-absolute
-// Column is ambiguous at wrap-row boundaries (col=N on row K's right
-// edge equals col=N at row K+1's left edge in source space). Without
-// the vpRow disambiguation, drags past a wrap row's right edge spill
-// one char into the next wrap row.
-func (g dragGeometry) sourcePositionAt(x, y int) (*Position, int) {
-	if y < mainPaneContentTop(g) || y > g.screenH-2 {
-		return nil, -1
+// Otherwise returns an inside endpoint: Pos is the source line + column
+// (Column source-absolute, wrap-aware via absoluteColumnFromDisplay) and
+// VpRow is the absolute viewport row the click landed on. VpRow is
+// needed to disambiguate source-absolute Column at wrap-row boundaries
+// (col=N on row K's right edge equals col=N at row K+1's left edge in
+// source space).
+func (g dragGeometry) clickAt(x, y int) endpoint {
+	if y < mainPaneContentTop(g) {
+		return endpoint{OutsideDir: -1}
+	}
+	if y > g.screenH-2 {
+		return endpoint{OutsideDir: +1}
 	}
 	vpRow := g.pane.viewport.YOffset() + (y - mainPaneContentTop(g))
 	if vpRow >= viewportContentRowCount(g.pane) {
-		return nil, -1
+		return endpoint{OutsideDir: +1}
 	}
 	gutterOffset := g.sidebarW + 1 + g.pane.gutterWidth
 	displayCol := x - gutterOffset
 	if displayCol < 0 {
 		displayCol = 0
 	}
-	return &Position{
-		SourceLine: g.pane.sourceLineAtViewportOffset(vpRow),
-		Column:     g.pane.absoluteColumnFromDisplay(vpRow, displayCol),
-	}, vpRow
+	return endpoint{
+		Pos: Position{
+			SourceLine: g.pane.sourceLineAtViewportOffset(vpRow),
+			Column:     g.pane.absoluteColumnFromDisplay(vpRow, displayCol),
+		},
+		VpRow: vpRow,
+	}
 }
 
 // viewportContentRowCount returns the number of rows of actual content
@@ -119,65 +119,53 @@ func viewportContentRowCount(pane *mainPane) int {
 }
 
 func newDragSelection() *dragSelection {
-	return &dragSelection{startX: -1, startY: -1, anchorVpRow: -1, activeVpRow: -1}
+	return &dragSelection{}
 }
 
-// Begin starts a drag at the given pixel position. anchor + anchorRow
-// come from g.sourcePositionAt(x, y); anchor is nil and anchorRow is -1
-// when (x, y) lands outside the content area. The end is initialized to
-// the same point so HasRange reports false until the mouse moves; Active
-// mirrors Anchor at start.
-func (d *dragSelection) Begin(x, y int, anchor *Position, anchorRow int) {
-	d.active = true
+// Begin starts a drag at the given endpoint (typically from
+// g.clickAt(x, y)). The active end mirrors the anchor at start so
+// HasRange reports false until the mouse moves.
+func (d *dragSelection) Begin(e endpoint) {
+	d.inProgress = true
 	d.scrollDir = 0
-	d.startX, d.startY = x, y
-	d.sel.Anchor = anchor
-	d.sel.Active = anchor
-	d.anchorVpRow = anchorRow
-	d.activeVpRow = anchorRow
-	d.endX, d.endY = x, y
+	d.anchor = e
+	d.active = e
 }
 
-// MoveEnd updates the drag end position. active + activeRow come from
-// g.sourcePositionAt(x, y); active is nil and activeRow is -1 when
-// the mouse is currently outside content (or past the last source row).
-// Caller should additionally call UpdateAutoScroll to manage
-// scroll-direction state.
-func (d *dragSelection) MoveEnd(x, y int, active *Position, activeRow int) {
-	d.endX, d.endY = x, y
-	d.sel.Active = active
-	d.activeVpRow = activeRow
+// MoveEnd updates the drag's active end (typically from
+// g.clickAt(msg.X, msg.Y)). Caller should additionally call
+// UpdateAutoScroll to manage scroll-direction state when the mouse
+// crosses the pane edges.
+func (d *dragSelection) MoveEnd(e endpoint) {
+	d.active = e
 }
 
-// Release finalizes an active drag. active + activeRow come from
-// g.sourcePositionAt(x, y); see MoveEnd. Returns true if the drag was
-// active; the caller should then trigger a copy.
-func (d *dragSelection) Release(x, y int, active *Position, activeRow int) bool {
-	if !d.active {
+// Release finalizes the drag at the given endpoint. Returns true if the
+// drag was active; the caller should then trigger a copy.
+func (d *dragSelection) Release(e endpoint) bool {
+	if !d.inProgress {
 		return false
 	}
-	d.active = false
+	d.inProgress = false
 	d.scrollDir = 0
-	d.sel.Active = active
-	d.activeVpRow = activeRow
-	d.endX, d.endY = x, y
+	d.active = e
 	return true
 }
 
 // Cancel ends a drag without setting an end point — used when a click
 // lands in the status bar or sidebar.
 func (d *dragSelection) Cancel() {
-	d.active = false
+	d.inProgress = false
 	d.scrollDir = 0
 }
 
 // IsActive reports whether a drag is in progress.
-func (d *dragSelection) IsActive() bool { return d.active }
+func (d *dragSelection) IsActive() bool { return d.inProgress }
 
-// HasRange reports whether the start and end positions differ, i.e.
+// HasRange reports whether the anchor and the active end differ, i.e.
 // whether there is any text to highlight or copy.
 func (d *dragSelection) HasRange() bool {
-	return d.startX != d.endX || d.startY != d.endY
+	return d.anchor != d.active
 }
 
 // ScrollDir reports the current auto-scroll direction. Exposed for tests.
@@ -331,10 +319,11 @@ func (d *dragSelection) UpdateAutoScroll(y int, g dragGeometry) tea.Cmd {
 	return nil
 }
 
-// AdvanceAutoScroll scrolls the main pane viewport one line in scrollDir
-// and re-anchors startY so the original click stays attached to the same
-// content row. Returns the next tick command unless the viewport has hit
-// the corresponding edge.
+// AdvanceAutoScroll scrolls the main pane viewport one line in
+// scrollDir. The anchor's source line/column/vpRow stay stable across
+// scrolls — no re-anchoring needed because the anchor is in source
+// space, not screen space. Returns the next tick command unless the
+// viewport has hit the corresponding edge.
 func (d *dragSelection) AdvanceAutoScroll(g dragGeometry) tea.Cmd {
 	if d.scrollDir == 0 {
 		return nil
@@ -345,12 +334,10 @@ func (d *dragSelection) AdvanceAutoScroll(g dragGeometry) tea.Cmd {
 	} else {
 		g.pane.viewport.ScrollUp(1)
 	}
-	delta := g.pane.viewport.YOffset() - beforeOffset
-	if delta == 0 {
+	if g.pane.viewport.YOffset() == beforeOffset {
 		d.scrollDir = 0
 		return nil
 	}
-	d.startY -= delta
 	return scheduleDragScrollTick()
 }
 
@@ -361,12 +348,12 @@ func scheduleDragScrollTick() tea.Cmd {
 }
 
 // SelectedText extracts the plain text from the current drag selection.
-// Operates on Selection's source-space endpoints — no pixel coordinates
-// in the body. Iterates source lines in [upper, lower] via
-// pane.sourceToFormatLine, pulling formatted (pre-wrap) content per
-// source line, clipping by source-absolute column on the first and last
-// source lines. Wrapped lines emit one logical line of output (joined
-// in source space), not one per wrap row.
+// Operates on the anchor / active endpoints in source space. Iterates
+// source lines in [upper, lower] via pane.sourceToFormatLine, pulling
+// formatted (pre-wrap) content per source line, clipping by source-
+// absolute column on the first and last source lines. Wrapped lines
+// emit one logical line of output (joined in source space), not one
+// per wrap row.
 func (d *dragSelection) SelectedText(g dragGeometry) string {
 	if !d.HasRange() {
 		return ""
@@ -388,69 +375,30 @@ type orderedEnd struct {
 	VpRow int
 }
 
-// resolveSelectionEnds returns the Selection's two endpoints in document
+// resolveSelectionEnds returns the drag's two endpoints in document
 // order (upper ≤ lower by SourceLine then Column), substituting visible-
-// range clamps for any end that lands outside the content area.
+// range clamps for any endpoint that landed outside the content area.
 //
-// Classification of outside-content ends:
-//   - Anchor nil → click was outside at Begin time. In practice the only
-//     reachable case is "above content" (clicks below content land on
-//     borders that don't initiate drags via Begin), so anchor-nil clamps
-//     the upper end to (visible.Start, col 0).
-//   - Active nil → mouse is currently above or below content. The
-//     d.endY pixel-Y signal disambiguates: < contentStartY = above
-//     (upper-clamp), > contentEndY = below (lower-clamp at end-of-line).
-//     This is the last transitional use of pixel storage in the
-//     rendering path; pixel fields go away in slice 5 once a richer
-//     Endpoint type (or visual-mode's source-native input) replaces the
-//     direction signal.
+// Each end is classified by its OutsideDir:
+//   - OutsideDir == -1: click was above the content area (title row,
+//     status bar, or above the pane) → clamps the upper end to
+//     (visible.Start, col 0).
+//   - OutsideDir == +1: click was below the pane or past the last source
+//     row → clamps the lower end to (visible.End, maxColumn).
+//   - OutsideDir == 0: click was inside content; use Pos and VpRow.
 //
 // Anchors that scrolled off-screen (auto-scroll moved the viewport past
-// the original click) are intentionally NOT clamped — the source line
-// is stable across viewport scrolls in source-space, so the original
-// click line is preserved in the copy even when no longer visible. This
-// matches the old pixel behavior of decrementing startY in
-// AdvanceAutoScroll to keep the anchor pinned to its content row.
+// the original click) are intentionally NOT clamped — the anchor's
+// source line is stable across viewport scrolls, so the original click
+// line is preserved in the copy even when no longer visible.
+//
+// Synthesized endpoints (from OutsideDir != 0) carry visibleTopRow /
+// visibleBottomRow as their VpRow so the wrap-row clip logic doesn't
+// pull in rows that scrolled off-screen above or extend past the active
+// mouse.
 func (d *dragSelection) resolveSelectionEnds(g dragGeometry) (upper, lower orderedEnd, ok bool) {
 	visible := g.pane.visibleRange()
-	contentStartY := mainPaneContentTop(g)
-	contentEndY := g.screenH - 2
 
-	activeDir := 0 // -1 above, +1 below; 0 when active is inside content
-	if d.sel.Active == nil {
-		// Active is nil when (a) mouse is above content, (b) mouse is
-		// below the pane, or (c) mouse is inside the pane but past the
-		// last source row (in pane padding). Cases (b) and (c) both
-		// clamp the lower end to visible.End. Pixel-Y disambiguates (a)
-		// from (b)+(c); the vpRow check picks up (c).
-		vpRow := g.pane.viewport.YOffset() + (d.endY - contentStartY)
-		switch {
-		case d.endY < contentStartY:
-			activeDir = -1
-		case d.endY > contentEndY || vpRow >= viewportContentRowCount(g.pane):
-			activeDir = +1
-		default:
-			// Active is nil but pixel-Y is inside content and on a real
-			// source row — happens in tests that set pixel fields
-			// without populating sel. Treat as no selectable range.
-			return orderedEnd{}, orderedEnd{}, false
-		}
-	}
-
-	anchor := orderedEnd{VpRow: d.anchorVpRow}
-	if d.sel.Anchor != nil {
-		anchor.Position = *d.sel.Anchor
-	}
-	active := orderedEnd{VpRow: d.activeVpRow}
-	if d.sel.Active != nil {
-		active.Position = *d.sel.Active
-	}
-
-	// Synthesized endpoints (anchor/active outside content) pin to the
-	// first/last visible wrap row, not just the source line. That matters
-	// when the synthesized source line wraps: without a VpRow, the
-	// iteration would pull in wrap rows that scrolled off-screen above
-	// (or extend into rows below the active mouse).
 	vpOffset := g.pane.viewport.YOffset()
 	visibleTopRow := vpOffset
 	visibleBottomRow := vpOffset + g.pane.viewport.Height() - 1
@@ -459,24 +407,26 @@ func (d *dragSelection) resolveSelectionEnds(g dragGeometry) (upper, lower order
 	}
 
 	switch {
-	case d.sel.Anchor == nil && d.sel.Active == nil:
+	case d.anchor.OutsideDir != 0 && d.active.OutsideDir != 0:
 		return orderedEnd{}, orderedEnd{}, false
-	case d.sel.Anchor == nil:
+	case d.anchor.OutsideDir != 0:
 		upper = orderedEnd{Position: Position{SourceLine: visible.Start.SourceLine, Column: 0}, VpRow: visibleTopRow}
-		lower = active
-	case d.sel.Active == nil:
-		if activeDir < 0 {
+		lower = orderedEnd{Position: d.active.Pos, VpRow: d.active.VpRow}
+	case d.active.OutsideDir != 0:
+		if d.active.OutsideDir < 0 {
 			upper = orderedEnd{Position: Position{SourceLine: visible.Start.SourceLine, Column: 0}, VpRow: visibleTopRow}
-			lower = anchor
+			lower = orderedEnd{Position: d.anchor.Pos, VpRow: d.anchor.VpRow}
 		} else {
-			upper = anchor
+			upper = orderedEnd{Position: d.anchor.Pos, VpRow: d.anchor.VpRow}
 			lower = orderedEnd{Position: Position{SourceLine: visible.End.SourceLine, Column: maxColumn}, VpRow: visibleBottomRow}
 		}
 	default:
-		if positionLess(anchor.Position, active.Position) {
-			upper, lower = anchor, active
+		a := orderedEnd{Position: d.anchor.Pos, VpRow: d.anchor.VpRow}
+		b := orderedEnd{Position: d.active.Pos, VpRow: d.active.VpRow}
+		if positionLess(a.Position, b.Position) {
+			upper, lower = a, b
 		} else {
-			upper, lower = active, anchor
+			upper, lower = b, a
 		}
 	}
 	return upper, lower, true

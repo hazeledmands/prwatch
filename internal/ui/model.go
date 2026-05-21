@@ -1006,8 +1006,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var autoScrollCmd tea.Cmd
 		if m.drag.IsActive() {
 			g := m.dragGeom()
-			pos, vpRow := g.sourcePositionAt(msg.X, msg.Y)
-			m.drag.MoveEnd(msg.X, msg.Y, pos, vpRow)
+			m.drag.MoveEnd(g.clickAt(msg.X, msg.Y))
 			autoScrollCmd = m.drag.UpdateAutoScroll(msg.Y, g)
 		}
 		// Update sidebar hover index
@@ -1024,8 +1023,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseReleaseMsg:
 		g := m.dragGeom()
-		pos, vpRow := g.sourcePositionAt(msg.X, msg.Y)
-		if m.drag.Release(msg.X, msg.Y, pos, vpRow) {
+		if m.drag.Release(g.clickAt(msg.X, msg.Y)) {
 			return m, m.copySelection()
 		}
 		return m, nil
@@ -1529,8 +1527,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// Clicked in main pane — start drag tracking for copy
 		m.focus = MainFocus
 		g := m.dragGeom()
-		pos, vpRow := g.sourcePositionAt(x, y)
-		m.drag.Begin(x, y, pos, vpRow)
+		m.drag.Begin(g.clickAt(x, y))
 	}
 	return m, nil
 }

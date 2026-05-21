@@ -26,20 +26,3 @@ type Position struct {
 type Range struct {
 	Start, End Position
 }
-
-// Selection names a directed pair of Positions backing the drag (and,
-// eventually, the keyboard-driven visual mode in step 5) selection. Unlike
-// Range it's directed: Anchor is where the selection started (the click,
-// or where `v` was pressed); Active is where it currently extends to. Both
-// can be nil to signal "outside the content area" — for the anchor, that
-// means the click landed on title row / status bar / borders; for the
-// active end, that means the mouse is currently above or below content
-// (which triggers auto-scroll downstream rather than placing the active
-// end on a specific source row).
-//
-// In step 5 Selection grows a Mode field (stream / line) to share
-// machinery with vim-style visual mode.
-type Selection struct {
-	Anchor *Position
-	Active *Position
-}

@@ -12,15 +12,31 @@ import (
 // State machine invariants (no Model required)
 // ---------------------------------------------------------------------------
 
+// drawEndpoint generates a random endpoint for property tests: either
+// inside content (with a Position and VpRow) or outside (OutsideDir set
+// to -1 or +1).
+func drawEndpoint(t *rapid.T, tag string) endpoint {
+	if rapid.Bool().Draw(t, tag+"_outside") {
+		dir := rapid.SampledFrom([]int{-1, 1}).Draw(t, tag+"_dir")
+		return endpoint{OutsideDir: dir}
+	}
+	return endpoint{
+		Pos: Position{
+			SourceLine: rapid.IntRange(1, 100).Draw(t, tag+"_line"),
+			Column:     rapid.IntRange(0, 200).Draw(t, tag+"_col"),
+		},
+		VpRow: rapid.IntRange(0, 200).Draw(t, tag+"_vp"),
+	}
+}
+
 // Property: Begin activates the drag, clears scrollDir, and places both
 // endpoints at the click position so HasRange is false until the mouse moves.
 func TestDragSelection_BeginInitializesState(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		x := rapid.IntRange(-100, 100).Draw(t, "x")
-		y := rapid.IntRange(-100, 100).Draw(t, "y")
+		e := drawEndpoint(t, "click")
 		d := newDragSelection()
 		d.scrollDir = +1 // poison
-		d.Begin(x, y, nil, -1)
+		d.Begin(e)
 		if !d.IsActive() {
 			t.Fatal("Begin should activate the drag")
 		}
@@ -28,53 +44,49 @@ func TestDragSelection_BeginInitializesState(t *testing.T) {
 			t.Fatalf("Begin should clear scrollDir, got %d", d.scrollDir)
 		}
 		if d.HasRange() {
-			t.Fatal("after Begin, start==end so HasRange should be false")
+			t.Fatal("after Begin, anchor==active so HasRange should be false")
 		}
-		if d.startX != x || d.startY != y || d.endX != x || d.endY != y {
-			t.Fatalf("Begin coords: start=(%d,%d) end=(%d,%d) want both (%d,%d)",
-				d.startX, d.startY, d.endX, d.endY, x, y)
+		if d.anchor != e || d.active != e {
+			t.Fatalf("Begin endpoints: anchor=%+v active=%+v want both %+v",
+				d.anchor, d.active, e)
 		}
 	})
 }
 
-// Property: MoveEnd updates the end point but never the start; HasRange
-// becomes true iff the end differs from the start.
+// Property: MoveEnd updates the active end but never the anchor; HasRange
+// becomes true iff the active end differs from the anchor.
 func TestDragSelection_MoveEndUpdatesRange(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		x1 := rapid.IntRange(0, 100).Draw(t, "x1")
-		y1 := rapid.IntRange(0, 100).Draw(t, "y1")
-		x2 := rapid.IntRange(0, 100).Draw(t, "x2")
-		y2 := rapid.IntRange(0, 100).Draw(t, "y2")
+		e1 := drawEndpoint(t, "begin")
+		e2 := drawEndpoint(t, "move")
 		d := newDragSelection()
-		d.Begin(x1, y1, nil, -1)
-		d.MoveEnd(x2, y2, nil, -1)
-		if d.startX != x1 || d.startY != y1 {
-			t.Fatalf("MoveEnd disturbed start: (%d,%d) want (%d,%d)", d.startX, d.startY, x1, y1)
+		d.Begin(e1)
+		d.MoveEnd(e2)
+		if d.anchor != e1 {
+			t.Fatalf("MoveEnd disturbed anchor: %+v want %+v", d.anchor, e1)
 		}
-		if d.endX != x2 || d.endY != y2 {
-			t.Fatalf("MoveEnd end: (%d,%d) want (%d,%d)", d.endX, d.endY, x2, y2)
+		if d.active != e2 {
+			t.Fatalf("MoveEnd active: %+v want %+v", d.active, e2)
 		}
-		wantRange := x1 != x2 || y1 != y2
+		wantRange := e1 != e2
 		if d.HasRange() != wantRange {
-			t.Fatalf("HasRange=%v want %v after MoveEnd from (%d,%d) to (%d,%d)",
-				d.HasRange(), wantRange, x1, y1, x2, y2)
+			t.Fatalf("HasRange=%v want %v after MoveEnd from %+v to %+v",
+				d.HasRange(), wantRange, e1, e2)
 		}
 	})
 }
 
 // Property: Release returns true iff the drag was active; it always
-// deactivates and zeroes scrollDir, and records the release coordinates.
+// deactivates and zeroes scrollDir, and records the release endpoint.
 func TestDragSelection_ReleaseDeactivates(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		x1 := rapid.IntRange(0, 100).Draw(t, "x1")
-		y1 := rapid.IntRange(0, 100).Draw(t, "y1")
-		x2 := rapid.IntRange(0, 100).Draw(t, "x2")
-		y2 := rapid.IntRange(0, 100).Draw(t, "y2")
+		e1 := drawEndpoint(t, "begin")
+		e2 := drawEndpoint(t, "release")
 
 		d := newDragSelection()
-		d.Begin(x1, y1, nil, -1)
+		d.Begin(e1)
 		d.scrollDir = -1 // simulate scrolling at release time
-		if !d.Release(x2, y2, nil, -1) {
+		if !d.Release(e2) {
 			t.Fatal("Release on active drag should return true")
 		}
 		if d.IsActive() {
@@ -83,12 +95,12 @@ func TestDragSelection_ReleaseDeactivates(t *testing.T) {
 		if d.scrollDir != 0 {
 			t.Fatalf("Release should clear scrollDir, got %d", d.scrollDir)
 		}
-		if d.endX != x2 || d.endY != y2 {
-			t.Fatalf("Release end coords: (%d,%d) want (%d,%d)", d.endX, d.endY, x2, y2)
+		if d.active != e2 {
+			t.Fatalf("Release active: %+v want %+v", d.active, e2)
 		}
 
 		// A second release with the drag now inactive returns false.
-		if d.Release(x2, y2, nil, -1) {
+		if d.Release(e2) {
 			t.Fatal("Release on inactive drag should return false")
 		}
 	})
@@ -98,13 +110,12 @@ func TestDragSelection_ReleaseDeactivates(t *testing.T) {
 func TestDragSelection_CancelIdempotent(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		startActive := rapid.Bool().Draw(t, "startActive")
-		x := rapid.IntRange(0, 100).Draw(t, "x")
-		y := rapid.IntRange(0, 100).Draw(t, "y")
+		e := drawEndpoint(t, "click")
 		dir := rapid.IntRange(-1, 1).Draw(t, "scrollDir")
 
 		d := newDragSelection()
 		if startActive {
-			d.Begin(x, y, nil, -1)
+			d.Begin(e)
 			d.scrollDir = dir
 		}
 		d.Cancel()
@@ -244,10 +255,10 @@ func TestDragApplyHighlight_NeverHighlightsGutter(t *testing.T) {
 	})
 }
 
-// Property: AdvanceAutoScroll either makes progress (viewport moves and the
-// drag start is re-anchored by the same delta) or stops by setting scrollDir
-// to 0. Repeated calls therefore terminate — they cannot loop forever while
-// scrollDir stays non-zero.
+// Property: AdvanceAutoScroll either makes viewport progress and keeps
+// the anchor's source position stable (no re-anchor needed — source
+// coords are scroll-invariant) or stops by setting scrollDir to 0.
+// Repeated calls therefore terminate.
 func TestDragAdvanceAutoScroll_Terminates(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 140).Draw(t, "width")
@@ -265,13 +276,9 @@ func TestDragAdvanceAutoScroll_Terminates(t *testing.T) {
 		}
 
 		dir := rapid.SampledFrom([]int{-1, +1}).Draw(t, "dir")
-		// Place the drag start inside the content area; the direction
-		// determines whether we drag past the top or bottom edge.
-		m.drag.active = true
-		m.drag.startX = minX + 2
-		m.drag.startY = contentStartY
-		m.drag.endX = minX + 2
-		m.drag.endY = contentStartY
+		// Place the drag at a known click inside the content area; the
+		// direction determines whether we drag past the top or bottom edge.
+		m.drag.Begin(geom.clickAt(minX+2, contentStartY))
 		// Force a known starting scroll position so "scroll up" has room.
 		if dir < 0 {
 			m.mainPane.viewport.ScrollDown(20)
@@ -280,11 +287,10 @@ func TestDragAdvanceAutoScroll_Terminates(t *testing.T) {
 
 		maxIters := 1 + 2*nLines // generous bound; should terminate well before
 		startOffset := m.mainPane.viewport.YOffset()
-		startY := m.drag.startY
+		anchorBefore := m.drag.anchor
 		moved := 0
 		for i := 0; i < maxIters; i++ {
 			prevOffset := m.mainPane.viewport.YOffset()
-			prevStartY := m.drag.startY
 			prevDir := m.drag.scrollDir
 			if prevDir == 0 {
 				break
@@ -295,11 +301,10 @@ func TestDragAdvanceAutoScroll_Terminates(t *testing.T) {
 			curOffset := m.mainPane.viewport.YOffset()
 			delta := curOffset - prevOffset
 			if delta != 0 {
-				// Drag startY must be re-anchored by the same delta so the
-				// original click stays on the same content row.
-				if m.drag.startY != prevStartY-delta {
-					t.Fatalf("startY not re-anchored: was %d, expected %d, got %d (delta=%d)",
-						prevStartY, prevStartY-delta, m.drag.startY, delta)
+				// Anchor stays put in source space — no re-anchoring across scrolls.
+				if m.drag.anchor != anchorBefore {
+					t.Fatalf("anchor changed during scroll: was %+v, now %+v",
+						anchorBefore, m.drag.anchor)
 				}
 				// And we keep going in the same direction.
 				if m.drag.scrollDir != prevDir {
@@ -315,8 +320,8 @@ func TestDragAdvanceAutoScroll_Terminates(t *testing.T) {
 			}
 		}
 		if m.drag.scrollDir != 0 {
-			t.Fatalf("AdvanceAutoScroll did not terminate after %d iterations (dir=%d, startOff=%d, startY=%d, moves=%d)",
-				maxIters, dir, startOffset, startY, moved)
+			t.Fatalf("AdvanceAutoScroll did not terminate after %d iterations (dir=%d, startOff=%d, moves=%d)",
+				maxIters, dir, startOffset, moved)
 		}
 	})
 }
@@ -327,22 +332,15 @@ func stripPaddingNewlines(s string) string {
 	return strings.Trim(s, "\n")
 }
 
-// setDragRect populates both the pixel fields and the source-space
-// Selection ends on m.drag, matching what a real Begin/MoveEnd pair
-// would do for a drag from (x1,y1) to (x2,y2). Tests that bypass Begin
-// to set up a known drag state use this so SelectedText/ApplyHighlight
-// — which iterate by source line/column — see consistent state. Anchor
-// and Active are nil if the corresponding pixel position lands outside
-// content, matching production sourcePositionAt semantics. Click vpRows
-// are captured too so wrap-row clipping disambiguates Column at wrap
-// boundaries.
+// setDragRect populates the drag endpoints as if a real Begin/MoveEnd
+// pair drove a click-and-drag from (x1,y1) to (x2,y2). Tests that
+// bypass Begin to set up a known drag state use this so
+// SelectedText/ApplyHighlight see consistent state — clickAt resolves
+// each end's Pos/VpRow/OutsideDir, including wrap-row disambiguation
+// for clicks past a wrap row's right edge.
 func setDragRect(m *Model, x1, y1, x2, y2 int) {
 	g := m.dragGeom()
-	m.drag.startX = x1
-	m.drag.startY = y1
-	m.drag.endX = x2
-	m.drag.endY = y2
-	m.drag.sel.Anchor, m.drag.anchorVpRow = g.sourcePositionAt(x1, y1)
-	m.drag.sel.Active, m.drag.activeVpRow = g.sourcePositionAt(x2, y2)
-	m.drag.active = true
+	m.drag.anchor = g.clickAt(x1, y1)
+	m.drag.active = g.clickAt(x2, y2)
+	m.drag.inProgress = true
 }

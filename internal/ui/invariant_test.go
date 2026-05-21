@@ -1170,7 +1170,7 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		}
 
 		// Render without drag to capture the baseline view.
-		m.drag.active = false
+		m.drag.inProgress = false
 		baseView := viewWithTimeout(t, m, "baseline")
 
 		setDragRect(m, x1, y1, x2, y2)

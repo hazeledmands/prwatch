@@ -4503,34 +4503,33 @@ func TestMouseDrag_SetsCoordinates(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 
-	// Click in main pane area (x=50 is past sidebar) to start drag
+	// Click in main pane area (x=50 is past sidebar) to start drag.
 	result, _ := m.Update(tea.MouseClickMsg{X: 50, Y: 5, Button: tea.MouseLeft})
 	m = result.(*Model)
-	if !m.drag.active {
+	if !m.drag.IsActive() {
 		t.Error("should be dragging after click in main pane")
 	}
-	if m.drag.startX != 50 || m.drag.startY != 5 {
-		t.Errorf("drag start should be (50,5), got (%d,%d)", m.drag.startX, m.drag.startY)
-	}
+	anchorAfterClick := m.drag.anchor
 
-	// Motion while dragging
+	// Motion while dragging — anchor must not move.
 	result, _ = m.Update(tea.MouseMotionMsg{X: 70, Y: 5})
 	m = result.(*Model)
-	if m.drag.endX != 70 || m.drag.endY != 5 {
-		t.Errorf("drag end should be (70,5), got (%d,%d)", m.drag.endX, m.drag.endY)
+	if m.drag.anchor != anchorAfterClick {
+		t.Errorf("anchor should not move on MouseMotion: was %+v, now %+v",
+			anchorAfterClick, m.drag.anchor)
 	}
 
-	// Release
+	// Release.
 	result, _ = m.Update(tea.MouseReleaseMsg{X: 70, Y: 5})
 	m = result.(*Model)
-	if m.drag.active {
+	if m.drag.IsActive() {
 		t.Error("should not be dragging after release")
 	}
 
-	// Clicking in sidebar should NOT start dragging
+	// Clicking in sidebar should NOT start dragging.
 	result, _ = m.Update(tea.MouseClickMsg{X: 5, Y: 5, Button: tea.MouseLeft})
 	m = result.(*Model)
-	if m.drag.active {
+	if m.drag.IsActive() {
 		t.Error("clicking in sidebar should not start drag")
 	}
 }
@@ -5615,11 +5614,7 @@ func TestDragHighlight(t *testing.T) {
 	m.mainPane.SetPlainContent("some content\nmore content")
 
 	// Start a drag
-	m.drag.active = true
-	m.drag.startX = 40
-	m.drag.startY = 5
-	m.drag.endX = 60
-	m.drag.endY = 5
+	setDragRect(m, 40, 5, 60, 5)
 
 	v := m.View()
 	// Just verify it doesn't crash and produces output
@@ -7176,11 +7171,8 @@ func TestCopySelection_NoDrag(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 
-	m.drag.startX = 5
-	m.drag.startY = 5
-	m.drag.endX = 5
-	m.drag.endY = 5
-	cmd := m.copySelection() // same point = no drag, should return early
+	setDragRect(m, 5, 5, 5, 5) // same point = no range
+	cmd := m.copySelection()   // should return early
 	if cmd != nil {
 		t.Error("no-drag copySelection should return nil cmd")
 	}
@@ -7373,16 +7365,13 @@ func TestDragAutoScroll_PastBottomEdgeStartsScrolling(t *testing.T) {
 	m.Update(msg)
 
 	// Click somewhere in the middle of the main pane.
+	clickX := m.sidebarPixelWidth() + 10
 	clickY := m.statusBarLines() + 5
-	m.drag.active = true
-	m.drag.startX = m.sidebarPixelWidth() + 10
-	m.drag.startY = clickY
-	m.drag.endX = m.drag.startX
-	m.drag.endY = clickY
+	setDragRect(m, clickX, clickY, clickX, clickY)
 
 	// Move the mouse past the bottom edge of the main pane.
 	belowBottomY := m.height // outside the viewport
-	result, cmd := m.Update(tea.MouseMotionMsg{X: m.drag.startX, Y: belowBottomY})
+	result, cmd := m.Update(tea.MouseMotionMsg{X: clickX, Y: belowBottomY})
 	m = result.(*Model)
 
 	if m.drag.scrollDir <= 0 {
@@ -7392,19 +7381,19 @@ func TestDragAutoScroll_PastBottomEdgeStartsScrolling(t *testing.T) {
 		t.Fatal("dragging past bottom should return a tick command to drive auto-scroll")
 	}
 
-	// Run the tick. Expect the viewport to scroll down and dragStartY to
-	// decrement so the original click stays anchored to the same content.
+	// Run the tick. Expect the viewport to scroll down. The anchor stays
+	// stable in source space — no re-anchoring needed because the anchor
+	// is a source position, not a screen-pixel coordinate.
 	prevOffset := m.mainPane.viewport.YOffset()
-	prevDragStartY := m.drag.startY
+	anchorBeforeTick := m.drag.anchor
 	result, _ = m.Update(dragScrollTickMsg{})
 	m = result.(*Model)
 	if m.mainPane.viewport.YOffset() <= prevOffset {
 		t.Errorf("expected viewport to scroll down, offset stayed at %d", prevOffset)
 	}
-	scrollDelta := m.mainPane.viewport.YOffset() - prevOffset
-	if m.drag.startY != prevDragStartY-scrollDelta {
-		t.Errorf("dragStartY should decrease by scroll delta %d (anchor); was %d, now %d",
-			scrollDelta, prevDragStartY, m.drag.startY)
+	if m.drag.anchor != anchorBeforeTick {
+		t.Errorf("anchor should be stable across auto-scroll: was %+v, now %+v",
+			anchorBeforeTick, m.drag.anchor)
 	}
 }
 
@@ -7426,15 +7415,13 @@ func TestDragAutoScroll_ReleaseStopsScrolling(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	m.drag.active = true
-	m.drag.startX = m.sidebarPixelWidth() + 5
-	m.drag.startY = m.statusBarLines() + 5
-	m.drag.endX = m.drag.startX
-	m.drag.endY = m.height // past bottom
+	clickX := m.sidebarPixelWidth() + 5
+	clickY := m.statusBarLines() + 5
+	setDragRect(m, clickX, clickY, clickX, m.height) // past bottom
 	m.drag.scrollDir = +1
 
 	// Mouse release.
-	result, _ := m.Update(tea.MouseReleaseMsg{X: m.drag.endX, Y: m.drag.endY})
+	result, _ := m.Update(tea.MouseReleaseMsg{X: clickX, Y: m.height})
 	m = result.(*Model)
 
 	if m.drag.scrollDir != 0 {
@@ -7461,16 +7448,14 @@ func TestDragAutoScroll_MotionBackInsideStopsScrolling(t *testing.T) {
 	msg := m.loadGitData()
 	m.Update(msg)
 
-	m.drag.active = true
-	m.drag.startX = m.sidebarPixelWidth() + 5
-	m.drag.startY = m.statusBarLines() + 5
-	m.drag.endX = m.drag.startX
-	m.drag.endY = m.height
+	clickX := m.sidebarPixelWidth() + 5
+	clickY := m.statusBarLines() + 5
+	setDragRect(m, clickX, clickY, clickX, m.height)
 	m.drag.scrollDir = +1
 
 	// Mouse moves back into the viewport.
 	insideY := m.statusBarLines() + 10
-	result, _ := m.Update(tea.MouseMotionMsg{X: m.drag.endX, Y: insideY})
+	result, _ := m.Update(tea.MouseMotionMsg{X: clickX, Y: insideY})
 	m = result.(*Model)
 
 	if m.drag.scrollDir != 0 {
@@ -7514,31 +7499,25 @@ func TestDragAutoScroll_SelectionSpansOffScreenStart(t *testing.T) {
 
 	contentStartY := m.statusBarLines() + 2 // +1 top border, +1 title row
 
-	// Click at the top of the visible content (line 0). Use Begin with a
-	// non-nil anchor so SelectedText knows the click began inside content —
-	// the distinction matters for "click-then-auto-scrolled-above" (preserve
-	// the original row) vs "click-began-above-content" (clamp to first
-	// visible row).
+	// Click at the top of the visible content (line 0). The anchor is
+	// inside content — the distinction matters for "click-then-auto-
+	// scrolled-above" (preserve the original row) vs "click-began-
+	// above-content" (clamp to first visible row).
 	g := m.dragGeom()
 	clickX, clickY := m.sidebarPixelWidth()+5, contentStartY
-	clickPos, clickRow := g.sourcePositionAt(clickX, clickY)
-	m.drag.Begin(clickX, clickY, clickPos, clickRow)
+	m.drag.Begin(g.clickAt(clickX, clickY))
 
 	// Simulate the user dragging past the bottom enough to scroll off the
-	// click line. Each tick scrolls by one line and decrements dragStartY.
-	// Drive the auto-scroll manually so we don't depend on real timers.
+	// click line. Each tick scrolls one row; drive auto-scroll manually so
+	// we don't depend on real timers.
 	m.drag.scrollDir = +1
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		m.drag.AdvanceAutoScroll(m.dragGeom())
 	}
 
-	// Mouse is currently at the bottom of the viewport. Route through
-	// MoveEnd so both the pixel-Y direction signal and the sel.Active
-	// source position stay consistent.
+	// Mouse is currently at the bottom of the viewport.
 	endX, endY := clickX, m.height-2
-	g2 := m.dragGeom()
-	endPos, endRow := g2.sourcePositionAt(endX, endY)
-	m.drag.MoveEnd(endX, endY, endPos, endRow)
+	m.drag.MoveEnd(m.dragGeom().clickAt(endX, endY))
 
 	got := m.drag.SelectedText(m.dragGeom())
 	// The selection should still include the very first line, because the
