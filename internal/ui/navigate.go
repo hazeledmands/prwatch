@@ -1,27 +1,32 @@
 package ui
 
-// nextDiffLine picks the next (direction=+1) or previous (direction=-1) diff
-// line from diffLines relative to currentLine. Wraps to the first/last when no
-// strictly-forward/backward neighbor exists. Returns (-1, false) when there
-// are no diff lines at all.
-func nextDiffLine(diffLines []int, currentLine, direction int) (int, bool) {
-	if len(diffLines) == 0 {
+// nextHunkStart picks the next (direction=+1) or previous (direction=-1)
+// hunk's StartLine relative to currentLine. Hunks are assumed sorted by
+// StartLine. Strictly-greater (or strictly-less) is the comparison, so
+// repeated forward presses from inside a hunk advance one hunk per
+// press — currently-inside-K never short-circuits to K's own start.
+// Backward from K's start goes to K-1's start; backward from inside K
+// goes to K's start (vim ]c/[c behavior). Wraps to the first/last when
+// no strictly-forward/backward neighbor exists. Returns (-1, false)
+// when the hunk list is empty.
+func nextHunkStart(hunks []diffHunk, currentLine, direction int) (int, bool) {
+	if len(hunks) == 0 {
 		return -1, false
 	}
 	if direction > 0 {
-		for _, l := range diffLines {
-			if l > currentLine {
-				return l, true
+		for _, h := range hunks {
+			if h.StartLine > currentLine {
+				return h.StartLine, true
 			}
 		}
-		return diffLines[0], true
+		return hunks[0].StartLine, true
 	}
-	for i := len(diffLines) - 1; i >= 0; i-- {
-		if diffLines[i] < currentLine {
-			return diffLines[i], true
+	for i := len(hunks) - 1; i >= 0; i-- {
+		if hunks[i].StartLine < currentLine {
+			return hunks[i].StartLine, true
 		}
 	}
-	return diffLines[len(diffLines)-1], true
+	return hunks[len(hunks)-1].StartLine, true
 }
 
 // nextLeafIndex returns the next (direction=+1) or previous (direction=-1)

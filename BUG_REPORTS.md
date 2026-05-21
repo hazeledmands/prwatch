@@ -1,6 +1,5 @@
 ## New Bugs
 
-- Scrolling to next/prev hunk doesn't work when the hunk is only removals.
 - Flaky `viewWithTimeout` assertion in `TestProperty_DragSelectsCorrectText`:
   occasional "View() hung for >1s" under stress (300+ iter), but the
   captured seed replays cleanly at default check count. Seed at
@@ -12,6 +11,15 @@
   bandwidth.
 
 ## Fixed Bugs
+
+- Scrolling to next/prev hunk skipped removal-only hunks. Root cause:
+  `parseDiffHunks` dropped hunks with `count == 0` (the `+A,0` headers
+  for pure deletions), so `diffHunks` had no entry to jump to and
+  `DiffLineNumbers` only listed added/changed lines. Fixed by anchoring
+  removal-only hunks to their newStart (clamped to 1 for `+0,0`) with
+  `EndLine == StartLine`, and switching `jumpToFirstDiff` /
+  `jumpToNextDiff` to hunk-grain nav (`nextHunkStart` over the hunk
+  list). Regression: `TestJumpToNextDiff_RemovalOnlyHunk`.
 
 - Selecting a PR-mode pseudo-entry ("(no comments)", "(no reviews)",
   "(no CI checks)") left the previous item's content showing in the main

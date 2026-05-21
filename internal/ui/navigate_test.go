@@ -7,45 +7,90 @@ import (
 	"pgregory.net/rapid"
 )
 
-// Property: nextDiffLine wraps and never returns the same line for direction +1
-// when there's at least one strictly-greater diff line.
-func TestNextDiffLineForward(t *testing.T) {
+// Property: nextHunkStart wraps and returns the first hunk whose StartLine
+// is strictly greater than the current line. From inside a hunk K, forward
+// goes to hunk K+1's start (not to a different line within K) — this is
+// what makes nav "hunk-grain": repeated presses advance one hunk per press.
+func TestNextHunkStartForward(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		diffLines := rapid.SliceOfN(rapid.IntRange(1, 200), 1, 20).Draw(t, "diffLines")
-		sort.Ints(diffLines)
+		hunks := drawHunks(t, "hunks")
 		current := rapid.IntRange(0, 250).Draw(t, "current")
 
-		got, ok := nextDiffLine(diffLines, current, +1)
+		got, ok := nextHunkStart(hunks, current, +1)
 		if !ok {
-			t.Fatalf("expected ok with len=%d", len(diffLines))
+			t.Fatalf("expected ok with len=%d", len(hunks))
 		}
-		// If any diff line is > current, the result must equal the first such line.
 		var expected int
 		found := false
-		for _, l := range diffLines {
-			if l > current {
-				expected = l
+		for _, h := range hunks {
+			if h.StartLine > current {
+				expected = h.StartLine
 				found = true
 				break
 			}
 		}
 		if !found {
-			expected = diffLines[0] // wrap
+			expected = hunks[0].StartLine // wrap
 		}
 		if got != expected {
-			t.Fatalf("current=%d diffLines=%v got=%d want=%d", current, diffLines, got, expected)
+			t.Fatalf("current=%d hunks=%+v got=%d want=%d", current, hunks, got, expected)
 		}
 	})
 }
 
-// Property: empty diff lines returns (-1, false).
-func TestNextDiffLineEmpty(t *testing.T) {
+// Property: backward symmetric to forward — first hunk whose StartLine is
+// strictly less than current, wrapping to the last. From the start of hunk
+// K (currentLine == K.StartLine), backward goes to K-1's start (so K can
+// be revisited by a forward press). From the middle of hunk K, backward
+// goes to K's start (vim-style "jump to start of current chunk").
+func TestNextHunkStartBackward(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		hunks := drawHunks(t, "hunks")
+		current := rapid.IntRange(0, 250).Draw(t, "current")
+
+		got, ok := nextHunkStart(hunks, current, -1)
+		if !ok {
+			t.Fatalf("expected ok with len=%d", len(hunks))
+		}
+		var expected int
+		found := false
+		for i := len(hunks) - 1; i >= 0; i-- {
+			if hunks[i].StartLine < current {
+				expected = hunks[i].StartLine
+				found = true
+				break
+			}
+		}
+		if !found {
+			expected = hunks[len(hunks)-1].StartLine // wrap
+		}
+		if got != expected {
+			t.Fatalf("current=%d hunks=%+v got=%d want=%d", current, hunks, got, expected)
+		}
+	})
+}
+
+// Property: empty hunks returns (-1, false).
+func TestNextHunkStartEmpty(t *testing.T) {
 	for _, dir := range []int{-1, +1} {
-		got, ok := nextDiffLine(nil, 5, dir)
+		got, ok := nextHunkStart(nil, 5, dir)
 		if ok || got != -1 {
 			t.Errorf("dir=%d: got=%d ok=%v want (-1,false)", dir, got, ok)
 		}
 	}
+}
+
+// drawHunks generates a sorted list of diffHunks with non-overlapping
+// StartLines so the "next strictly greater" property is unambiguous.
+func drawHunks(t *rapid.T, tag string) []diffHunk {
+	n := rapid.IntRange(1, 10).Draw(t, tag+"_n")
+	starts := rapid.SliceOfNDistinct(rapid.IntRange(1, 200), n, n, func(i int) int { return i }).Draw(t, tag+"_starts")
+	sort.Ints(starts)
+	hunks := make([]diffHunk, len(starts))
+	for i, s := range starts {
+		hunks[i] = diffHunk{StartLine: s, EndLine: s} // 1-line hunks suffice for nav tests
+	}
+	return hunks
 }
 
 // Property: nextLeafIndex skips separators/cutlines/dirs and wraps.

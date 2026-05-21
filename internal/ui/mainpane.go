@@ -169,8 +169,17 @@ func hunkPositionForLine(hunks []diffHunk, sourceLine int) hunkPosition {
 	return pos
 }
 
-// parseDiffHunks extracts hunks from a unified diff. Empty hunks (count == 0,
-// e.g. pure deletions) are dropped.
+// parseDiffHunks extracts hunks from a unified diff.
+//
+// Pure-deletion hunks (header `+A,0`) are kept and anchored to their
+// newStart line: removed lines are visually attached to that anchor in
+// the rendered view, so hunk-grain nav needs a target. Their EndLine
+// equals StartLine (a 1-line range at the anchor) so visibleHunkRange
+// and the title-bar code treat them as visible whenever the anchor row
+// is in the viewport.
+//
+// Headers with a 0 anchor (`+0,0`) are clamped to line 1 — that's
+// where pre-line-1 removals visually attach.
 func parseDiffHunks(unifiedDiff string) []diffHunk {
 	if unifiedDiff == "" {
 		return nil
@@ -181,13 +190,17 @@ func parseDiffHunks(unifiedDiff string) []diffHunk {
 			continue
 		}
 		start, count := parseHunkHeader(line)
-		if start <= 0 || count <= 0 {
-			continue
+		if start <= 0 && count > 0 {
+			continue // malformed: positive count but no start
 		}
-		hunks = append(hunks, diffHunk{
-			StartLine: start,
-			EndLine:   start + count - 1,
-		})
+		if start < 1 {
+			start = 1
+		}
+		endLine := start + count - 1
+		if count == 0 {
+			endLine = start
+		}
+		hunks = append(hunks, diffHunk{StartLine: start, EndLine: endLine})
 	}
 	return hunks
 }
@@ -196,28 +209,6 @@ func parseDiffHunks(unifiedDiff string) []diffHunk {
 func (m *mainPane) ToggleShowRemoved() {
 	m.showRemoved = !m.showRemoved
 	m.refreshViewport()
-}
-
-// DiffLineNumbers returns the sorted list of file line numbers that have diff annotations.
-func (m *mainPane) DiffLineNumbers() []int {
-	if len(m.diffAnnotations) == 0 {
-		return nil
-	}
-	var lines []int
-	for lineNo, ann := range m.diffAnnotations {
-		if ann.kind == diffLineAdded || ann.kind == diffLineChanged {
-			lines = append(lines, lineNo)
-		}
-	}
-	// Sort
-	for i := 0; i < len(lines); i++ {
-		for j := i + 1; j < len(lines); j++ {
-			if lines[j] < lines[i] {
-				lines[i], lines[j] = lines[j], lines[i]
-			}
-		}
-	}
-	return lines
 }
 
 // parseDiffAnnotations parses a unified diff and returns annotations keyed by

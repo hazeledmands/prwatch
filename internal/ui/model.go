@@ -1782,13 +1782,13 @@ func (m *Model) selectFirstCIFailure() {
 }
 
 func (m *Model) jumpToFirstDiff() {
-	if line, ok := nextDiffLine(m.mainPane.DiffLineNumbers(), -1, +1); ok {
+	if line, ok := nextHunkStart(m.mainPane.diffHunks, 0, +1); ok {
 		m.mainPane.ScrollToSourceLine(line)
 	}
 }
 
 func (m *Model) jumpToNextDiff(direction int) {
-	if line, ok := nextDiffLine(m.mainPane.DiffLineNumbers(), m.mainPane.visibleRange().Start.SourceLine, direction); ok {
+	if line, ok := nextHunkStart(m.mainPane.diffHunks, m.mainPane.visibleRange().Start.SourceLine, direction); ok {
 		m.mainPane.ScrollToSourceLine(line)
 	}
 }
@@ -1969,7 +1969,7 @@ func (m *Model) updateMainContent() {
 			m.mainPane.ScrollToSourceLine(line)
 			return
 		}
-		if key.mode == FilesMode && len(m.mainPane.DiffLineNumbers()) > 0 {
+		if key.mode == FilesMode && len(m.mainPane.diffHunks) > 0 {
 			m.jumpToFirstDiff()
 		}
 	}

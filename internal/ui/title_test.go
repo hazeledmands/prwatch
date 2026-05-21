@@ -149,7 +149,11 @@ diff --git a/b.go b/b.go
 	want := []diffHunk{
 		{StartLine: 1, EndLine: 4},
 		{StartLine: 11, EndLine: 13},
-		// pure-deletion hunk dropped (count == 0)
+		// Pure-deletion hunk is anchored to its newStart (clamped to 1
+		// when the header says "+0,0") so hunk-grain nav can jump to it.
+		// EndLine == StartLine so visibleHunkRange treats it as a 1-line
+		// hunk visible whenever its anchor is in the viewport.
+		{StartLine: 1, EndLine: 1},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseDiffHunks mismatch:\n got: %+v\nwant: %+v", got, want)

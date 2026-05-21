@@ -5227,13 +5227,9 @@ func TestJumpToNextDiff(t *testing.T) {
 	m = result.(*Model)
 	m.focus = MainFocus
 
-	// Verify diff annotations are set
-	diffLines := m.mainPane.DiffLineNumbers()
-	if len(diffLines) == 0 {
-		t.Fatal("expected diff annotations to be set")
-	}
-	if len(diffLines) < 2 {
-		t.Fatalf("expected at least 2 diff lines, got %v", diffLines)
+	// Verify diff hunks are set (sourced by jumpToNextDiff for nav).
+	if len(m.mainPane.diffHunks) == 0 {
+		t.Fatal("expected diff hunks to be set")
 	}
 
 	// Verify jumpToNextDiff and jumpToFirstDiff don't panic
@@ -5906,8 +5902,62 @@ func TestJumpToNextDiff_Wrap(t *testing.T) {
 	m = result.(*Model)
 }
 
+// Regression: pressing J on a file whose only change is a deletion-only
+// hunk (no new-file lines) used to do nothing — parseDiffHunks dropped
+// count=0 hunks and the line-grain nav had nothing to jump to. Hunk-
+// grain nav anchors the removal hunk to its newStart line.
+//
+// Tests two paths the bug affected: jumpToFirstDiff (run on file load)
+// and jumpToNextDiff from a non-removal hunk to the removal hunk.
+func TestJumpToNextDiff_RemovalOnlyHunk(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"file.go"},
+		},
+		allFiles:    []string{"file.go"},
+		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent: strings.Repeat("kept line\n", 60),
+		// Two hunks: a regular added-line hunk at line 5, then a
+		// deletion-only hunk anchored at line 45.
+		fileDiff: `@@ -5,2 +5,3 @@
+ kept
++added
+ kept
+@@ -45,3 +45,0 @@
+-removed
+-removed
+-removed
+`,
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 10 // small viewport so the second hunk requires scrolling
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	// jumpToFirstDiff (run on file load) should land on hunk 1, not nil
+	// out because the second hunk is a removal-only one.
+	if got := m.mainPane.visibleRange().Start.SourceLine; got != 5 {
+		t.Fatalf("jumpToFirstDiff should land on hunk 1 (line 5); got top=%d", got)
+	}
+
+	m.jumpToNextDiff(+1)
+
+	if got := m.mainPane.visibleRange().Start.SourceLine; got != 45 {
+		t.Errorf("jumpToNextDiff(+1) should scroll to removal hunk's anchor line 45; got top=%d", got)
+	}
+}
+
 func TestJumpToDiff_WithWrapping(t *testing.T) {
-	// Regression: when wrapping is on, jumping to diffs should still work correctly
+	// Regression: when wrapping is on, hunk-grain nav must still find
+	// hunks below long wrapped lines. Hunks 1 (at line 1) and 2 (at
+	// line N where N is past the wrapped prelude) — pressing J from
+	// inside hunk 1 must scroll past the wrapped prelude to land on
+	// hunk 2.
+	longLine := strings.Repeat("a very long line that will definitely wrap at normal terminal widths because it is so long ", 3)
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -5916,20 +5966,23 @@ func TestJumpToDiff_WithWrapping(t *testing.T) {
 		},
 		allFiles: []string{"file.go"},
 		commits:  []git.Commit{{SHA: "abc", Subject: "test"}},
-		// Create content with long lines that will wrap
-		fileContent: "short\n" + strings.Repeat("a very long line that will definitely wrap at normal terminal widths because it is so long ", 3) + "\nchanged line\nshort\nshort",
-		fileDiff: `@@ -1,5 +1,5 @@
+		// Line 1 = short (hunk 1's location), line 2 = the long wrap-
+		// prone line, lines 3+ are short. Second hunk anchors at the
+		// "changed line" several rows past the wrapped row.
+		fileContent: "first hunk added\n" + longLine + "\nshort\nchanged line\nshort\nshort",
+		fileDiff: `@@ -1,1 +1,1 @@
+-first hunk old
++first hunk added
+@@ -3,3 +3,3 @@
  short
- ` + strings.Repeat("a very long line that will definitely wrap at normal terminal widths because it is so long ", 3) + `
 -old
 +changed line
- short
  short
 `,
 	}
 	m := NewModel("/tmp", mg)
-	m.width = 60  // narrow to trigger wrapping
-	m.height = 10 // short so we need to scroll
+	m.width = 60  // narrow to trigger wrapping of the long line
+	m.height = 10 // short so we need to scroll past the wrapped row
 	m.wordWrap = true
 	m.mainPane.SetWordWrap(true)
 	m.updateLayout()
@@ -5939,14 +5992,13 @@ func TestJumpToDiff_WithWrapping(t *testing.T) {
 	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
 	m = result.(*Model)
 
-	// Jump to next diff
+	// Jump to next hunk — from hunk 1 (line 1) to hunk 2 (line 4),
+	// which sits past the wrapped long row.
 	result, _ = m.Update(tea.KeyPressMsg{Text: "J", Code: 'J'})
 	m = result.(*Model)
 
-	// The viewport should have scrolled past the wrapped long line
-	scrollTop := m.mainPane.ScrollTop()
-	if scrollTop < 2 {
-		t.Errorf("diff jump with wrapping should scroll past wrapped lines, scrollTop=%d", scrollTop)
+	if scrollTop := m.mainPane.ScrollTop(); scrollTop < 2 {
+		t.Errorf("J should scroll past wrapped long line to reach hunk 2, scrollTop=%d", scrollTop)
 	}
 }
 
