@@ -862,6 +862,52 @@ func TestHunkTitleRight_MultipleVisible(t *testing.T) {
 	}
 }
 
+// A hunk whose only visible line is its last line at the viewport top
+// edge (or first line at the viewport bottom edge) is "just barely on
+// screen" — most of the hunk's content is off-screen. The title should
+// not advertise it as a hunk being viewed.
+//
+// Concretely: hunks 0 and 2 here each contribute exactly one row to the
+// viewport (line 5 at the top for hunk 0; line 25 at the bottom for
+// hunk 2). Hunk 1 is fully visible. Title should report just hunk 1.
+func TestHunkTitleRight_ExcludesEdgeBarelyVisible(t *testing.T) {
+	hunks := []diffHunk{
+		{StartLine: 1, EndLine: 5},
+		{StartLine: 10, EndLine: 20},
+		{StartLine: 25, EndLine: 30},
+	}
+	mp := newMainPane()
+	mp.SetSize(80, 22) // viewport height 21 → covers source rows 5..25 when YOffset=4
+	var body strings.Builder
+	for i := 0; i < 40; i++ {
+		body.WriteString("line\n")
+	}
+	mp.SetPlainContent(body.String())
+	mp.SetDiffHunks(hunks)
+	mp.viewport.SetYOffset(4) // source line 5 at top
+
+	got := mp.hunkTitleRight()
+	if got != "hunk 2/3" {
+		t.Errorf("edge-only hunks should be excluded; got %q, want %q", got, "hunk 2/3")
+	}
+}
+
+// A 1-line hunk (e.g., a removal-only hunk anchored to a single line)
+// must still register as visible when its single line is on screen.
+// The "at least 2 visible lines" rule from the edge-exclusion change
+// is gated on the hunk's own size: a 1-line hunk only needs its 1
+// line to qualify.
+func TestHunkTitleRight_SingleLineHunkVisible(t *testing.T) {
+	hunks := []diffHunk{
+		{StartLine: 10, EndLine: 10}, // removal-only style
+	}
+	mp := hunkTitleHarness(hunks, 50)
+	mp.viewport.SetYOffset(9) // source line 10 at top
+	if got := mp.hunkTitleRight(); got != "hunk 1/1" {
+		t.Errorf("1-line hunk at viewport top: got %q, want %q", got, "hunk 1/1")
+	}
+}
+
 func TestHunkTitleRight_AfterLast(t *testing.T) {
 	hunks := []diffHunk{
 		{StartLine: 5, EndLine: 6},

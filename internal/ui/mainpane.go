@@ -442,13 +442,32 @@ func (m *mainPane) progressPercent() int {
 	return (bottom * 100) / total
 }
 
-// visibleHunkRange returns the inclusive [first, last] indices of hunks that
-// intersect the visible source-line range [topLine, bottomLine]. Returns
-// (-1, -1) when no hunks intersect.
+// visibleHunkRange returns the inclusive [first, last] indices of hunks
+// whose content is meaningfully visible in [topLine, bottomLine].
+// "Meaningfully" means: at least 2 of the hunk's lines fit in the
+// viewport, or — for hunks that are smaller than 2 lines — the hunk's
+// single line is in the viewport. Returns (-1, -1) when no hunks
+// qualify.
+//
+// The 2-line threshold excludes the eager-edge case where a hunk's
+// last line is at the viewport top, or its first line at the viewport
+// bottom: the rest of the hunk is off-screen, so reporting it as a
+// hunk being viewed misleads. The carve-out for 1-line hunks keeps
+// pure-deletion hunks (StartLine == EndLine) visible when their anchor
+// row is on screen.
 func visibleHunkRange(hunks []diffHunk, topLine, bottomLine int) (int, int) {
 	first, last := -1, -1
 	for i, h := range hunks {
-		if h.EndLine < topLine || h.StartLine > bottomLine {
+		overlap := min(h.EndLine, bottomLine) - max(h.StartLine, topLine) + 1
+		if overlap <= 0 {
+			continue
+		}
+		hunkSize := h.EndLine - h.StartLine + 1
+		threshold := 2
+		if hunkSize < threshold {
+			threshold = hunkSize
+		}
+		if overlap < threshold {
 			continue
 		}
 		if first < 0 {
