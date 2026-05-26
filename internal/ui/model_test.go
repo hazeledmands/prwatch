@@ -1286,7 +1286,12 @@ func TestFocusSwitching(t *testing.T) {
 	}
 }
 
-func TestArrowKeysScrollHorizontally(t *testing.T) {
+func TestShiftHLScrollsHorizontally(t *testing.T) {
+	// After the cursor remap, h/l are reserved for cursor motion;
+	// horizontal scrolling moved to shift+h / shift+l (FocusLeft /
+	// FocusRight bindings). When wrap is off and content is wider
+	// than the viewport, shift+L scrolls right and shift+H scrolls
+	// back left.
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
@@ -1305,21 +1310,21 @@ func TestArrowKeysScrollHorizontally(t *testing.T) {
 	// Set content wider than viewport to allow scrolling
 	m.mainPane.SetContent(strings.Repeat("x", 200))
 
-	// Press l (right) should scroll right, not switch focus
-	result, _ := m.Update(tea.KeyPressMsg{Text: "l", Code: 'l'})
+	// shift+L: scroll right (FocusRight binding).
+	result, _ := m.Update(tea.KeyPressMsg{Text: "L", Code: 'L'})
 	m = result.(*Model)
 	if m.focus != MainFocus {
-		t.Error("l should not switch focus to sidebar")
+		t.Error("shift+L should not switch focus to sidebar")
 	}
 	if m.mainPane.xOffset != 4 {
-		t.Errorf("expected xOffset 4 after l, got %d", m.mainPane.xOffset)
+		t.Errorf("expected xOffset 4 after shift+L, got %d", m.mainPane.xOffset)
 	}
 
-	// Press h (left) should scroll left
-	result, _ = m.Update(tea.KeyPressMsg{Text: "h", Code: 'h'})
+	// shift+H: scroll left.
+	result, _ = m.Update(tea.KeyPressMsg{Text: "H", Code: 'H'})
 	m = result.(*Model)
 	if m.mainPane.xOffset != 0 {
-		t.Errorf("expected xOffset 0 after h, got %d", m.mainPane.xOffset)
+		t.Errorf("expected xOffset 0 after shift+H, got %d", m.mainPane.xOffset)
 	}
 }
 
@@ -8155,7 +8160,10 @@ func TestPRDescriptionShowsDeployments(t *testing.T) {
 	}
 }
 
-func TestLeftAtScroll0_SwitchesToSidebar(t *testing.T) {
+func TestShiftLeftAtScroll0_SwitchesToSidebar(t *testing.T) {
+	// After the cursor remap, plain left is reserved for cursor motion;
+	// shift+left (FocusLeft binding) keeps the original behavior — at
+	// xOffset=0 in non-wrap mode, switch focus to the sidebar.
 	mg := testGit()
 	m := NewModel("/tmp", mg)
 	m.width = 80
@@ -8172,20 +8180,24 @@ func TestLeftAtScroll0_SwitchesToSidebar(t *testing.T) {
 	m.wordWrap = false
 	m.mainPane.SetWordWrap(false)
 
-	// xOffset is 0 — left arrow should switch focus to sidebar
+	// xOffset is 0 — shift+left should switch focus to sidebar.
 	if m.mainPane.xOffset != 0 {
 		t.Fatalf("expected xOffset=0, got %d", m.mainPane.xOffset)
 	}
 
-	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModShift})
 	m = result.(*Model)
 
 	if m.focus != SidebarFocus {
-		t.Errorf("left at scroll=0 should switch to sidebar, got focus=%d", m.focus)
+		t.Errorf("shift+left at scroll=0 should switch to sidebar, got focus=%d", m.focus)
 	}
 }
 
-func TestLeftWithScroll_ScrollsInsteadOfSwitching(t *testing.T) {
+func TestShiftLeftWithScroll_ScrollsInsteadOfSwitching(t *testing.T) {
+	// After the cursor remap, plain left is reserved for cursor motion;
+	// shift+left (FocusLeft binding) keeps the original behavior — at
+	// xOffset>0 in non-wrap mode, it scrolls left instead of switching
+	// focus.
 	longLine := strings.Repeat("x", 300)
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feat", RepoName: "repo", DirName: "repo"},
@@ -8220,12 +8232,12 @@ func TestLeftWithScroll_ScrollsInsteadOfSwitching(t *testing.T) {
 		t.Fatal("should have scrolled right")
 	}
 
-	// Left arrow should scroll left, not switch focus
-	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	// shift+Left should scroll left, not switch focus.
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModShift})
 	m = result.(*Model)
 
 	if m.focus != MainFocus {
-		t.Error("left with xOffset>0 should scroll, not switch focus")
+		t.Error("shift+left with xOffset>0 should scroll, not switch focus")
 	}
 }
 

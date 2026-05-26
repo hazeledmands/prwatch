@@ -185,7 +185,17 @@ func (d *dragSelection) ApplyHighlight(content string, g dragGeometry) string {
 	if !ok {
 		return content
 	}
+	return paintHighlightClips(content, g, buildHighlightClips(g.pane, upper, lower))
+}
 
+// paintHighlightClips applies reverse-video to the given clips on the
+// rendered content. Shared by dragSelection.ApplyHighlight and
+// selection.ApplyHighlight (and any future highlight consumer) so the
+// rendering math lives in one place.
+func paintHighlightClips(content string, g dragGeometry, clips []highlightClip) string {
+	if len(clips) == 0 {
+		return content
+	}
 	lines := strings.Split(content, "\n")
 	contentStartY := mainPaneContentTop(g)
 	contentEndY := g.screenH - 2
@@ -193,7 +203,7 @@ func (d *dragSelection) ApplyHighlight(content string, g dragGeometry) string {
 	gutterOffset := g.sidebarW + 1 + g.pane.gutterWidth
 	rightBorderCol := g.screenW - 1
 
-	for _, clip := range buildHighlightClips(g.pane, upper, lower) {
+	for _, clip := range clips {
 		screenY := contentStartY + (clip.vpRow - vpOffset)
 		if screenY < contentStartY || screenY > contentEndY || screenY >= len(lines) {
 			continue
@@ -566,7 +576,20 @@ func (m *Model) yankPath() tea.Cmd {
 }
 
 func (m *Model) copySelection() tea.Cmd {
-	text := m.drag.SelectedText(m.dragGeom())
+	return m.copyAndNotify(m.drag.SelectedText(m.dragGeom()))
+}
+
+// copyVisualSelection copies the current visual-mode selection's text
+// to the clipboard. Returns nil cmd when no selection is active or the
+// selected text is empty.
+func (m *Model) copyVisualSelection() tea.Cmd {
+	return m.copyAndNotify(m.selection.SelectedText(m.dragGeom()))
+}
+
+// copyAndNotify pastes text to the clipboard and shows the
+// "copied selection (N lines, M bytes)" notification. Shared by drag
+// and visual-mode yank paths.
+func (m *Model) copyAndNotify(text string) tea.Cmd {
 	if text == "" {
 		return nil
 	}

@@ -1,0 +1,33 @@
+# 2026/05/24 17:08:42.721811 [TestProperty_PositionToDisplay_RoundTrip] [rapid] draw width: 20
+# 2026/05/24 17:08:42.721832 [TestProperty_PositionToDisplay_RoundTrip] [rapid] draw height: 10
+# 2026/05/24 17:08:42.721841 [TestProperty_PositionToDisplay_RoundTrip] [rapid] draw wordWrap: true
+# 2026/05/24 17:08:42.721851 [TestProperty_PositionToDisplay_RoundTrip] [rapid] draw nLines: 2
+# 2026/05/24 17:08:42.721859 [TestProperty_PositionToDisplay_RoundTrip] [rapid] draw lineLen-0: 49
+# 2026/05/24 17:08:42.721872 [TestProperty_PositionToDisplay_RoundTrip] [rapid] draw lineLen-1: 0
+# 2026/05/24 17:08:42.721933 [TestProperty_PositionToDisplay_RoundTrip] [rapid] draw row: 4
+# 2026/05/24 17:08:42.721943 [TestProperty_PositionToDisplay_RoundTrip] [rapid] draw displayCol: 0
+# 2026/05/24 17:08:42.721991 [TestProperty_PositionToDisplay_RoundTrip] Column not invariant: orig=0, after roundtrip=48 (vpRow=4→3, dc=0→0, pos={SourceLine:2 Column:0})
+# 
+v0.4.8#3764007139560649300
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1
+0x0
+0xe3e05a098777c
+0x31
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x4
+0x0
+0x0
+0x0

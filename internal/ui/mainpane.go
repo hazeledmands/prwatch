@@ -1053,76 +1053,78 @@ func (m *mainPane) viewportBottomSourceLine() int {
 
 // sourceLineAtViewportOffset returns the 1-indexed source line displayed
 // at the given 0-indexed viewport row (0 = first visible row). Wrap-aware:
-// with word wrap on, walks formattedLines accumulating each line's
-// wrapped row count until the target is found. For rows that fall on a
-// rendered-only formatted line (removed-line prefix above a source line,
-// "tail" annotation past EOF), returns the most recently mapped source
-// line ≤ that row — matches the behavior the May 18 InteractionInvariants
-// regression seed depends on.
+// with word wrap on, walks m.wrapContinuation to find which formatted
+// line the row belongs to, then maps that formatted line back to a
+// source line via reverseMap. For rows that fall on a rendered-only
+// formatted line (removed-line prefix above a source line, "tail"
+// annotation past EOF), returns the most recently mapped source line
+// ≤ that row.
+//
+// Uses wrapContinuation (populated by wrapLinesWithContinuationMap) as
+// the authoritative source for "which formatted line owns this viewport
+// row" — earlier versions computed this via wrappedRowCount(line, width)
+// which didn't account for the indent applied to continuation rows, so
+// it undercounted wrap rows for indented content (gutter present) and
+// returned the wrong source line for rows past the predicted count.
 func (m *mainPane) sourceLineAtViewportOffset(target int) int {
-	if target < 0 {
-		target = 0
-	}
+	target = max(target, 0)
 	if len(m.sourceToFormatLine) == 0 {
 		return target + 1
 	}
 	reverseMap := m.buildReverseSourceMap()
 
-	if !m.wordWrap || m.width <= 0 {
+	if !m.wordWrap || m.width <= 0 || len(m.wrapContinuation) == 0 {
 		// viewport row == formatted line index
 		return mostRecentSourceLineAtOrBefore(reverseMap, target)
 	}
 
-	formattedLines := strings.Split(m.formattedContent, "\n")
-	viewportRow := 0
-	lastSrc := 1
-	for i, line := range formattedLines {
-		if src, ok := reverseMap[i]; ok {
-			lastSrc = src
+	// Walk wrapContinuation: each false entry marks the first row of a
+	// new formatted line. Count false entries up through `target` to
+	// find the formatted-line index that row belongs to.
+	formattedIdx := -1
+	for i := 0; i <= target && i < len(m.wrapContinuation); i++ {
+		if !m.wrapContinuation[i] {
+			formattedIdx++
 		}
-		linesUsed := wrappedRowCount(line, m.width)
-		if viewportRow+linesUsed > target {
-			return lastSrc
-		}
-		viewportRow += linesUsed
 	}
-	// Past end of content: return the most recent mapped source line, matching
-	// the no-wrap branch and the old viewportBottomSourceLine behavior. The
-	// old viewportToSourceLine returned len(formattedLines) here, which isn't
-	// a valid source line when the content has rendered-only rows.
-	return lastSrc
+	if formattedIdx < 0 {
+		formattedIdx = 0
+	}
+	// Past end of content: stick with the last formatted index we counted.
+	return mostRecentSourceLineAtOrBefore(reverseMap, formattedIdx)
 }
 
 // sourceLineToViewportOffset returns the 0-indexed viewport row at which
 // the given 1-indexed source line first appears. Inverse of
-// sourceLineAtViewportOffset; wrap-aware. Returns 0 when the source line
-// has no formatted mapping (treated as "before any content"). Used by
-// ApplyHighlight / SelectedText to convert Selection's source-space
-// anchor and active back to screen rows for rendering.
+// sourceLineAtViewportOffset; wrap-aware via wrapContinuation. Returns 0
+// when the source line has no formatted mapping (treated as "before any
+// content"). Used by ApplyHighlight / SelectedText to convert source-space
+// positions back to screen rows for rendering.
 func (m *mainPane) sourceLineToViewportOffset(sourceLine int) int {
 	if len(m.sourceToFormatLine) == 0 {
-		row := sourceLine - 1
-		if row < 0 {
-			row = 0
-		}
-		return row
+		return max(sourceLine-1, 0)
 	}
 	formattedIdx, ok := m.sourceToFormatLine[sourceLine]
 	if !ok {
 		return 0
 	}
-	if !m.wordWrap || m.width <= 0 {
+	if !m.wordWrap || m.width <= 0 || len(m.wrapContinuation) == 0 {
 		return formattedIdx
 	}
-	formattedLines := strings.Split(m.formattedContent, "\n")
-	viewportRow := 0
-	for i, line := range formattedLines {
-		if i == formattedIdx {
-			return viewportRow
+	// Walk wrapContinuation: find the formattedIdx-th false entry (0-indexed).
+	// That entry's index is the first viewport row of the target formatted line.
+	seen := -1
+	for i, cont := range m.wrapContinuation {
+		if !cont {
+			seen++
+			if seen == formattedIdx {
+				return i
+			}
 		}
-		viewportRow += wrappedRowCount(line, m.width)
 	}
-	return viewportRow
+	// Source line's formatted index is past the end of wrapped content
+	// (shouldn't normally happen). Return last row.
+	return len(m.wrapContinuation)
 }
 
 // buildReverseSourceMap returns formattedIndex → sourceLine, the inverse
@@ -1150,20 +1152,6 @@ func mostRecentSourceLineAtOrBefore(reverseMap map[int]int, target int) int {
 		}
 	}
 	return best
-}
-
-// wrappedRowCount returns the number of viewport rows a single formatted
-// line occupies given the current pane width. Used by both directions of
-// the source ↔ viewport-row translation in wrap mode.
-func wrappedRowCount(line string, width int) int {
-	if width <= 0 {
-		return 1
-	}
-	lineW := ansiAwareIterate(line, func(r rune, w int) {})
-	if lineW > width {
-		return (lineW + width - 1) / width
-	}
-	return 1
 }
 
 // absoluteColumnFromDisplay translates a (viewport-row, display-column)
@@ -1234,6 +1222,50 @@ func (m *mainPane) wrapRowSourceColRange(vpRow int) (int, int) {
 		return start, start
 	}
 	return start, start + w - 1
+}
+
+// positionToDisplay returns the (viewport row, gutter-relative display
+// column) where pos renders. Inverse of sourceLineAtViewportOffset +
+// absoluteColumnFromDisplay; composes sourceLineToViewportOffset,
+// wrapRowCountAtVpRow, and wrapRowSourceColRange.
+//
+// Used by cursor rendering and any caller that needs to know where on
+// screen a source-space Position lives.
+//
+// Wrap-boundary convention. When pos.Column lands exactly at a wrap-row
+// boundary (Column == start of wrap row K+1, == end+1 of wrap row K),
+// returns the lower row's left edge (vpRow=K+1, displayCol=0). The
+// algorithm walks wrap rows in order and stops at the first row whose
+// source-column range contains Column; since rows are contiguous and
+// non-overlapping, boundary columns land on the next row by definition.
+// This matches the natural semantics — Position{SL, Column} identifies
+// the character at that column, and that character is the first char of
+// the row that starts there.
+//
+// Past EOL. If pos.Column exceeds the source line's last content column
+// (cursor past end-of-line), returns the last wrap row of the source
+// line with displayCol set to the column's offset past the row's start.
+// The returned displayCol may exceed the row's content width.
+func (m *mainPane) positionToDisplay(pos Position) (vpRow, displayCol int) {
+	col := max(pos.Column, 0)
+	firstRow := m.sourceLineToViewportOffset(pos.SourceLine)
+	if !m.wordWrap || m.width <= 0 || len(m.wrapContinuation) == 0 {
+		return firstRow, col
+	}
+	count := m.wrapRowCountAtVpRow(firstRow)
+	for i := range count {
+		row := firstRow + i
+		start, end := m.wrapRowSourceColRange(row)
+		isLast := i == count-1
+		if isLast {
+			if col >= start {
+				return row, col - start
+			}
+		} else if col <= end {
+			return row, col - start
+		}
+	}
+	return firstRow, col
 }
 
 // stripGutterDisplayWidth returns the displayed width of a rendered

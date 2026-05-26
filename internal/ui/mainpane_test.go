@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1162,4 +1163,208 @@ func TestMainPane_TitleSurvivesTinyHeight(t *testing.T) {
 		// Should not panic; we don't assert content here, just stability.
 		_ = mp.View(false)
 	}
+}
+
+// === positionToDisplay — the inverse of sourceLineAtViewportOffset +
+// absoluteColumnFromDisplay. Required for cursor rendering. ===
+
+func TestPositionToDisplay_NoWrap(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 24)
+	mp.SetWordWrap(false)
+	mp.SetPlainContent("line one\nline two\nline three")
+
+	// No-wrap: vpRow == sourceLineToViewportOffset(SL), displayCol == Column.
+	cases := []struct {
+		pos              Position
+		wantRow, wantCol int
+	}{
+		{Position{SourceLine: 1, Column: 0}, 0, 0},
+		{Position{SourceLine: 1, Column: 5}, 0, 5},
+		{Position{SourceLine: 2, Column: 3}, 1, 3},
+		{Position{SourceLine: 3, Column: 7}, 2, 7},
+	}
+	for _, c := range cases {
+		vp, dc := mp.positionToDisplay(c.pos)
+		if vp != c.wantRow || dc != c.wantCol {
+			t.Errorf("positionToDisplay(%+v) = (%d, %d), want (%d, %d)",
+				c.pos, vp, dc, c.wantRow, c.wantCol)
+		}
+	}
+}
+
+func TestPositionToDisplay_NegativeColumnClamps(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 24)
+	mp.SetWordWrap(false)
+	mp.SetPlainContent("hello")
+
+	vp, dc := mp.positionToDisplay(Position{SourceLine: 1, Column: -5})
+	if vp != 0 || dc != 0 {
+		t.Errorf("negative column should clamp to 0, got (%d, %d)", vp, dc)
+	}
+}
+
+func TestPositionToDisplay_WrapSingleRow(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 24)
+	mp.SetWordWrap(true)
+	// Short content — no wrapping needed.
+	mp.SetPlainContent("short line\nanother")
+
+	// Single-row source lines: Position maps to that one row directly.
+	vp, dc := mp.positionToDisplay(Position{SourceLine: 1, Column: 5})
+	if vp != 0 || dc != 5 {
+		t.Errorf("expected (0, 5), got (%d, %d)", vp, dc)
+	}
+	vp, dc = mp.positionToDisplay(Position{SourceLine: 2, Column: 3})
+	if vp != 1 || dc != 3 {
+		t.Errorf("expected (1, 3), got (%d, %d)", vp, dc)
+	}
+}
+
+func TestPositionToDisplay_WrapBoundaryGoesToNextRow(t *testing.T) {
+	// Convention: Column at exactly the start of wrap row K+1 renders on
+	// K+1 at displayCol=0, not on K's right edge. Confirmed by the
+	// algorithm walking wrap rows in order — boundary lands on the next.
+	mp := newMainPane()
+	mp.SetSize(20, 24) // narrow to force wrapping
+	mp.SetWordWrap(true)
+	// 60-char source line: wraps into multiple rows at width 20.
+	long := strings.Repeat("a", 60)
+	mp.SetPlainContent(long + "\nshort")
+
+	// Find where the wrap boundary lands by inspecting the actual
+	// wrap-row ranges of source line 1.
+	firstRow := mp.sourceLineToViewportOffset(1)
+	count := mp.wrapRowCountAtVpRow(firstRow)
+	if count < 2 {
+		t.Skipf("expected line 1 to wrap into 2+ rows, got %d", count)
+	}
+
+	// The start of wrap row K+1 is the boundary col.
+	boundaryStart, _ := mp.wrapRowSourceColRange(firstRow + 1)
+	vp, dc := mp.positionToDisplay(Position{SourceLine: 1, Column: boundaryStart})
+	if vp != firstRow+1 || dc != 0 {
+		t.Errorf("boundary Column=%d should map to (%d, 0), got (%d, %d)",
+			boundaryStart, firstRow+1, vp, dc)
+	}
+}
+
+func TestPositionToDisplay_PastEOL(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 24)
+	mp.SetWordWrap(true)
+	mp.SetPlainContent("hello\nworld")
+
+	// Column past end of line should return the last wrap row of that
+	// source line with displayCol = column past content.
+	vp, dc := mp.positionToDisplay(Position{SourceLine: 1, Column: 100})
+	if vp != 0 {
+		t.Errorf("past-EOL should stay on last wrap row of line 1 (vpRow=0), got %d", vp)
+	}
+	if dc != 100 {
+		t.Errorf("past-EOL displayCol should equal Column - rowStart (= 100), got %d", dc)
+	}
+}
+
+// TestProperty_PositionToDisplay_RoundTrip is the core invariant of Phase A:
+// for any (vpRow, displayCol) inside the displayed content, the derived
+// source-space Position round-trips back through positionToDisplay such
+// that the forward functions recover the original SourceLine and Column.
+//
+// We don't require (vpRow, displayCol) → Position → (vpRow', displayCol')
+// to recover the original screen coords — multiple screen positions can
+// collapse to the same Position at wrap boundaries. We require that the
+// Position is invariant: the forward functions applied to
+// positionToDisplay's output recover SourceLine and Column.
+// TestSourceLineAtViewportOffset_IndentedWrap is the regression test for
+// the wrapContinuation/wrappedRowCount mismatch that the
+// positionToDisplay round-trip property surfaced: long content with a
+// gutter wraps via wrapLinesWithContinuationMap which accounts for the
+// continuation indent, but the legacy wrappedRowCount(line, width)
+// didn't, so sourceLineAtViewportOffset under-counted wrap rows and
+// reported the wrong source line for indented continuations. Now both
+// translation functions walk m.wrapContinuation directly.
+func TestSourceLineAtViewportOffset_IndentedWrap(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(20, 10)
+	mp.SetWordWrap(true)
+	// 49-char line with line numbers + gutter (4-char) wraps into 4
+	// rows; wrappedRowCount(53, 20) would compute only 3.
+	mp.SetPlainContent(strings.Repeat("x", 49) + "\n")
+
+	if len(mp.wrapContinuation) != 5 {
+		t.Fatalf("expected 5 viewport rows, got %d (%v)", len(mp.wrapContinuation), mp.wrapContinuation)
+	}
+	// Rows 0..3 are all source line 1; row 4 is source line 2.
+	for r := range 4 {
+		if got := mp.sourceLineAtViewportOffset(r); got != 1 {
+			t.Errorf("row %d should be source line 1, got %d", r, got)
+		}
+	}
+	if got := mp.sourceLineAtViewportOffset(4); got != 2 {
+		t.Errorf("row 4 should be source line 2, got %d", got)
+	}
+	// Inverse: source line 2 first appears at row 4.
+	if got := mp.sourceLineToViewportOffset(2); got != 4 {
+		t.Errorf("source line 2 should map to row 4, got %d", got)
+	}
+}
+
+func TestProperty_PositionToDisplay_RoundTrip(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		width := rapid.IntRange(20, 120).Draw(t, "width")
+		height := rapid.IntRange(10, 40).Draw(t, "height")
+		wordWrap := rapid.Bool().Draw(t, "wordWrap")
+		nLines := rapid.IntRange(1, 15).Draw(t, "nLines")
+		// Mix short and long lines so wrap exercises both single-row and
+		// multi-row source lines.
+		var lines []string
+		for i := range nLines {
+			n := rapid.IntRange(0, 200).Draw(t, fmt.Sprintf("lineLen-%d", i))
+			lines = append(lines, strings.Repeat("x", n))
+		}
+		content := strings.Join(lines, "\n")
+
+		mp := newMainPane()
+		mp.SetSize(width, height)
+		mp.SetWordWrap(wordWrap)
+		mp.SetPlainContent(content)
+
+		vpContent := mp.viewport.GetContent()
+		vpLines := strings.Split(vpContent, "\n")
+		if len(vpLines) == 0 {
+			return
+		}
+
+		row := rapid.IntRange(0, len(vpLines)-1).Draw(t, "row")
+		// Pick a display column inside the row's content (post-gutter).
+		rowW := stripGutterDisplayWidth(vpLines[row], mp.gutterWidth)
+		if rowW == 0 {
+			return
+		}
+		dc := rapid.IntRange(0, rowW-1).Draw(t, "displayCol")
+
+		// Derive Position from the displayed content via the forward
+		// functions.
+		sl := mp.sourceLineAtViewportOffset(row)
+		col := mp.absoluteColumnFromDisplay(row, dc)
+		pos := Position{SourceLine: sl, Column: col}
+
+		// Round-trip through positionToDisplay.
+		gotRow, gotDc := mp.positionToDisplay(pos)
+
+		// The inverse should recover the same Position.
+		recoveredSL := mp.sourceLineAtViewportOffset(gotRow)
+		recoveredCol := mp.absoluteColumnFromDisplay(gotRow, gotDc)
+		if recoveredSL != sl {
+			t.Fatalf("SourceLine not invariant: orig=%d, after roundtrip=%d (vpRow=%d→%d, dc=%d→%d, pos=%+v)",
+				sl, recoveredSL, row, gotRow, dc, gotDc, pos)
+		}
+		if recoveredCol != col {
+			t.Fatalf("Column not invariant: orig=%d, after roundtrip=%d (vpRow=%d→%d, dc=%d→%d, pos=%+v)",
+				col, recoveredCol, row, gotRow, dc, gotDc, pos)
+		}
+	})
 }

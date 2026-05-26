@@ -11,6 +11,8 @@ type keyMap struct {
 	PRMode         key.Binding
 	FocusLeft      key.Binding
 	FocusRight     key.Binding
+	CursorLeft     key.Binding
+	CursorRight    key.Binding
 	FocusSidebar   key.Binding
 	FocusMain      key.Binding
 	FocusToggle    key.Binding
@@ -64,10 +66,22 @@ var keys = keyMap{
 	PRMode: key.NewBinding(
 		key.WithKeys("b", "3"),
 	),
+	// FocusLeft / FocusRight (shift+h, shift+l, shift+arrows): the
+	// pre-cursor bindings for h/l. Promoted to capital-letter keys so
+	// h/l/left/right are free for cursor motion in MainFocus.
 	FocusLeft: key.NewBinding(
-		key.WithKeys("h", "left"),
+		key.WithKeys("H", "shift+left"),
 	),
 	FocusRight: key.NewBinding(
+		key.WithKeys("L", "shift+right"),
+	),
+	// CursorLeft / CursorRight: character-grained cursor motion in
+	// MainFocus. Falls back to FocusLeft semantics (focus toggle or
+	// horizontal scroll) when in sidebar focus — see handleKey.
+	CursorLeft: key.NewBinding(
+		key.WithKeys("h", "left"),
+	),
+	CursorRight: key.NewBinding(
 		key.WithKeys("l", "right"),
 	),
 	FocusSidebar: key.NewBinding(

@@ -102,17 +102,57 @@ Stream-mode keyboard selection needs Column for the active end — extending wit
 
 **Implementation order:**
 
-1. **Name `Position` and `Range`; introduce `mainPane.visibleRange()`.** Route existing "where am I" and "what's on screen" call-sites through them. Behavior unchanged — this is a setup refactor whose payoff appears in steps 2+. The leverage comes from downstream callers taking typed values instead of bare ints. `visibleRange` lives on `mainPane` because source-line data does; callers that also need file identity pair it externally.
-2. **Convert `dragSelection` to Position-based.** Mouse handler translates `(x, y) → Position` at event time. Eliminates the `originStartY` workaround (`drag.go:26-32`) since a Position anchor survives viewport scroll natively. Existing rapid tests guard regressions.
-3. **Hunk-grain navigation.** `shift+J`/`shift+down` move active Position to next hunk start instead of next diff line. Should also fix the removal-only-hunk bug — hunk-indexed nav doesn't depend on a new-file line existing.
-4. **Hunk popover.** Clickable "hunk N/M" in the title bar opens a list; click navigates active Position.
-5. **Keyboard visual mode.** `v` (stream), `V` (line), cursor movement extends, `y` copies, `Esc` dismisses. Stream mode advances Column. Block-mode (`Ctrl-V`) deferred — weird interactions with diff gutters + mixed +/- lines.
-6. **`o` deep-link cascade.** Single-line URL when no selection, line-range URL when selection active. Falls back PR → branch → repo per `IDEAS.md`.
+1. **Name `Position` and `Range`; introduce `mainPane.visibleRange()`.** (done) Routed existing "where am I" and "what's on screen" call-sites through them. `visibleRange` lives on `mainPane` because source-line data does; callers that also need file identity pair it externally.
+2. **Convert `dragSelection` to Position-based.** (done) Mouse handler translates `(x, y) → Position` at event time via `dragGeometry.clickAt`. `originStartY` workaround eliminated; out-of-content clicks now carry an explicit `OutsideDir` on `endpoint` instead.
+3. **Hunk-grain navigation.** (done) `nextHunkStart` in `navigate.go`; removal-only-hunk bug fixed (see `BUG_REPORTS.md`).
+4. **Hunk popover.** (deprioritized) Clickable "hunk N/M" in the title bar opens a list; click navigates active Position. Independent of steps 5+; revisit after the cursor work lands.
+
+---
+
+5. **Persistent cursor and keyboard visual mode.** Introduces a `Position` cursor that exists outside any selection mode, motivated by LSP "symbol under cursor" and inline comments — both need "where am I pointing" without a modal opt-in. On top, `v`/`V`/`y`/`Esc` give vim-style selection that anchors at the cursor.
+
+   The cursor's defining invariant: **the cursor is always inside the viewport.** Cursor-driven motion (`j`/`k`/`h`/`l`, click, hunk-nav) scrolls the viewport only when the cursor would otherwise leave the visible area. Viewport-driven motion (mouse wheel, `space`/`b`) drags the cursor along the edge when scrolling would otherwise push it off-screen. One rule; LSP/comments/highlights never have to handle "cursor off-screen."
+
+   `j`/`k` move by **visual rows** (vim's `gj`/`gk` semantics), not logical source lines — wrapped lines step through each wrap row. Feels right for column behavior on wrapped lines but requires the source↔display translation in Phase A.
+
+   **Phase A (precursor) — `positionToDisplay` helper.** Add `(m *mainPane) positionToDisplay(pos Position) → (vpRow, displayCol)` to `mainpane.go`. Inverse of the existing `sourceLineAtViewportOffset` + `absoluteColumnFromDisplay`; composes existing wrap-row helpers (`sourceLineToViewportOffset`, `wrapRowSourceColRange`, `wrapRowCountAtVpRow`). Documents the wrap-boundary convention: when `pos.Column` lands exactly at a wrap-row boundary, render at the leftward row's right edge (vim convention). Required for cursor rendering; valuable wherever else "given a Position, where on screen?" is asked.
+
+   Phase A intentionally does **not** retire `endpoint.VpRow` (`drag.go:53-57`). Click context still disambiguates drag at wrap-row boundaries; we keep it until visual mode is in use and we have real signal on whether the convention is acceptable as lossy.
+
+   Tests for Phase A: rapid round-trip property `(absoluteColumnFromDisplay ∘ positionToDisplay) == id` over Positions derived from displayed content; snapshot of cursor at a wrap-row boundary as the convention's regression guard.
+
+   **5a — persistent cursor, no selection.** Own peer file `internal/ui/cursor.go` with its own struct (per CLAUDE.md: "encapsulate sub-feature state in its own type"). Fields: `pos Position`, `desiredCol int` (sticky display-column for vim-style `j`/`k` column preservation across rows of varying length). `j`/`k`/`h`/`l` move the cursor (`j`/`k` visual-row-grained); `space`/`b`/wheel scroll the viewport with cursor drag-along; click places cursor at release point. Cursor renders as a single reverse-video cell via `positionToDisplay`. Cursor `pos` persists per-file in `viewmemory` alongside scroll. Initial cursor at first hunk start (same target as `jumpToFirstDiff`).
+
+   **5b — visual mode.** `v` (stream) and `V` (line) snapshot the cursor as `Anchor`; further cursor motion updates `Active`. `y` extracts via the existing `extractSourceRange` and copies; `Esc` / file switch / mode switch / mouse-drag start all dismiss. Highlight reuses the drag renderer (already column-aware).
+
+   Cursor can land on **removed-side displayed rows** (commenting on a deleted line is a real PR gesture). That requires Position to carry `Side` (add/remove/context) so the cursor unambiguously identifies which displayed row it's on when multiple rows map to the same new-file source line. Step 6's `Side` field is pulled forward into 5b as a prerequisite.
+
+   **5c — selection unification.** Two flavors, both reasonable:
+   - *Shared interfaces* (landed). `paintHighlightClips`/`buildHighlightClips` paint either selection kind; `copyAndNotify` is the shared yank pipeline; `extractSourceRange` does text extraction the same way for both. The user-facing concept "a selection" is unified at the consumer boundaries even though `dragSelection` and `selection` remain separate structs.
+   - *Structural collapse into one Mode-tagged type* (deferred). On reflection, this is best deferred alongside Phase B: `dragSelection` carries click-time fields (`VpRow`, `OutsideDir`, `scrollDir` for auto-scroll) that don't apply to keyboard modes, and Phase B's retirement of VpRow would clean those up first. Forcing a unified shape now would mean Mode-conditional fields that the Phase B work would remove anyway.
+
+   **Phase B (deferred follow-up to 5c) — retire `endpoint.VpRow`.** Once `positionToDisplay`'s convention has been exercised by visual mode and we've seen drag behavior at wrap-row boundaries in practice, decide whether drag can drop its `VpRow` side-channel and rely on the same convention. Corner case is rare (clicks exactly at `displayCol == width`); likely acceptable as lossy but should be confirmed with real data.
+
+   **Non-diff panes (PR description, CI logs, RWX logs).** Cursor exists and visual mode works the same way — selection extracts displayed text via `extractSourceRange`. `Side` is undefined there (no add/remove dimension); cursor stays line+column. This confirms `Position` belongs to displayed text, not to git semantics.
+
+   **Tests for step 5:**
+   - Property: cursor is always inside the viewport after any sequence of motion + scroll + wheel events.
+   - Property: `desiredCol` survives vertical motion across rows of varying length — landing on a short row clamps `cursor.pos.Column`, but the next jump to a longer row restores the desired column.
+   - Property: cursor's source-space `Position` is invariant under terminal resize (only its display position changes).
+   - Property: every entry into visual mode has a dismiss path (`Esc`, `y`, mode switch, file switch, mouse drag start). [CLAUDE.md "every state has a dismiss path"]
+   - Property: visual-mode `y` copies the same text the highlight rendered (analogous to `TestProperty_DragSelectsCorrectText`).
+   - Snapshot: cursor at a wrap-row boundary (Phase A convention).
+   - Snapshot: cursor in PR description and CI logs (non-diff-pane behavior).
+
+6. **`o` deep-link cascade.** Single-line URL when no selection, line-range URL when selection active. Falls back PR → branch → repo per `IDEAS.md`. `Side` is already in place from 5b.
 
 **Open UX questions** (don't block the refactor but need answers as features land):
 
 - Once cursor diverges from viewport-top, what defines "the current hunk" for the title-bar display — cursor, viewport, or visible range? Current code uses visible range; cursor-based might feel more natural with visual mode active.
 - Whether `progressPercent` ever switches to cursor-based. Tentative answer: no, viewport-based stays — "% seen" is more useful for diff review than "where is the cursor."
+- What the cursor does when the diff content refreshes underneath it (file watcher fires mid-cursor). Tentative answer: snap to nearest valid line, same pattern as remembered scroll position.
+- Jumplist (`Ctrl-O`/`Ctrl-I`) for "wheel-scroll dragged my cursor away from where I was reading." Defer; revisit if the drag-along behavior becomes annoying in practice.
+- Phase B: whether `endpoint.VpRow` can be retired after 5c without observable regressions to drag at wrap-row boundaries. Decide with real data, not in advance.
 
 **Deferred (need design before implementation):**
 

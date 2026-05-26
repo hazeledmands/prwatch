@@ -123,6 +123,8 @@ type Model struct {
 	hoverX, hoverY     int              // last mouse position for hover highlighting
 	activity           *activityTracker // adaptive refresh-interval bookkeeping
 	drag               *dragSelection   // click-drag-release selection state
+	cursor             *cursor          // persistent pointing position in the main pane
+	selection          *selection       // vim-style visual-mode selection state
 	notification       string           // transient notification text (bottom-left)
 	notificationExpiry time.Time        // when the notification should disappear
 	loading            bool             // true until first local data load completes
@@ -253,6 +255,8 @@ func NewModel(dir string, g GitDataSource) *Model {
 		help:          newHelpOverlay(),
 		search:        newSearchOverlay(),
 		drag:          newDragSelection(),
+		cursor:        newCursor(),
+		selection:     newSelection(),
 		loading:       g != nil,
 		changes:       gitpkg.NewChangedFiles(),
 	}
@@ -1023,7 +1027,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseReleaseMsg:
 		g := m.dragGeom()
-		if m.drag.Release(g.clickAt(msg.X, msg.Y)) {
+		ep := g.clickAt(msg.X, msg.Y)
+		hadRange := m.drag.Release(ep)
+		// Place cursor at release point when the release was on real
+		// content (per PLAN.md "cursor at release point").
+		if ep.OutsideDir == 0 {
+			m.cursor.pos = ep.Pos
+			_, m.cursor.desiredCol = m.mainPane.positionToDisplay(ep.Pos)
+		}
+		if hadRange {
 			return m, m.copySelection()
 		}
 		return m, nil
@@ -1087,6 +1099,28 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.confirming = false
 		return m, nil
+	}
+
+	// Visual mode: Esc dismisses selection (preempts QuitConfirm's esc).
+	// Drag in progress also dismisses on Esc — same pattern as existing
+	// search overlay (search owns esc when active).
+	if m.selection.IsActive() && msg.Code == tea.KeyEscape {
+		m.selection.Cancel()
+		return m, nil
+	}
+
+	// Visual mode entry (v/V): take precedence over FilesMode binding
+	// (which also has "v") when main pane is focused. Ignored while a
+	// mouse drag is in progress.
+	if m.focus == MainFocus && !m.search.IsActive() && !m.help.IsOpen() && !m.drag.IsActive() {
+		switch msg.Text {
+		case "v":
+			m.selection.BeginStream(m.cursor.pos)
+			return m, nil
+		case "V":
+			m.selection.BeginLine(m.cursor.pos)
+			return m, nil
+		}
 	}
 
 	switch {
@@ -1166,6 +1200,32 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, keys.CursorLeft):
+		if m.focus == SidebarFocus {
+			return m.handleSidebarLeft()
+		}
+		if m.focus == MainFocus {
+			m.cursor.MoveLeft(m.mainPane)
+			m.cursor.EnsureVisible(m.mainPane)
+			if m.selection.IsActive() {
+				m.selection.SetActive(m.cursor.pos)
+			}
+			return m, nil
+		}
+
+	case key.Matches(msg, keys.CursorRight):
+		if m.focus == SidebarFocus {
+			return m.handleSidebarRight()
+		}
+		if m.focus == MainFocus {
+			m.cursor.MoveRight(m.mainPane)
+			m.cursor.EnsureVisible(m.mainPane)
+			if m.selection.IsActive() {
+				m.selection.SetActive(m.cursor.pos)
+			}
+			return m, nil
+		}
+
 	case key.Matches(msg, keys.FocusSidebar):
 		m.focus = SidebarFocus
 		return m, nil
@@ -1188,6 +1248,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.updateMainContent()
 		} else {
 			m.mainPane.GoToTop()
+			m.cursor.DragAlongScroll(m.mainPane)
 		}
 		return m, nil
 
@@ -1197,6 +1258,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.updateMainContent()
 		} else {
 			m.mainPane.GoToBottom()
+			m.cursor.DragAlongScroll(m.mainPane)
 		}
 		return m, nil
 
@@ -1230,6 +1292,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.YankPath):
+		// In visual mode, y yanks the selection's text; otherwise y
+		// copies the file path (existing behavior).
+		if m.selection.IsActive() {
+			cmd := m.copyVisualSelection()
+			m.selection.Cancel()
+			return m, cmd
+		}
 		return m, m.yankPath()
 
 	case key.Matches(msg, keys.Refresh):
@@ -1320,11 +1389,27 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.updateMainContent()
 			return m, nil
 		}
+		if m.focus == MainFocus {
+			m.cursor.MoveUp(m.mainPane)
+			m.cursor.EnsureVisible(m.mainPane)
+			if m.selection.IsActive() {
+				m.selection.SetActive(m.cursor.pos)
+			}
+			return m, nil
+		}
 
 	case key.Matches(msg, keys.Down):
 		if m.focus == SidebarFocus {
 			m.sidebar.SelectNext()
 			m.updateMainContent()
+			return m, nil
+		}
+		if m.focus == MainFocus {
+			m.cursor.MoveDown(m.mainPane)
+			m.cursor.EnsureVisible(m.mainPane)
+			if m.selection.IsActive() {
+				m.selection.SetActive(m.cursor.pos)
+			}
 			return m, nil
 		}
 
@@ -1352,6 +1437,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Forward unhandled keys to main pane when it has focus (scrolling, half-page, etc.)
 	if m.focus == MainFocus {
 		cmd := m.mainPane.Update(msg)
+		// If the forwarded key scrolled the viewport (space/b/PgUp/PgDn,
+		// Ctrl-D/U, etc.), drag the cursor along to maintain the
+		// always-visible invariant.
+		m.cursor.DragAlongScroll(m.mainPane)
 		return m, cmd
 	}
 
@@ -1524,10 +1613,20 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		m.updateMainContent()
 	} else {
-		// Clicked in main pane — start drag tracking for copy
+		// Clicked in main pane — start drag tracking for copy AND place
+		// the cursor at the click point. Release at zero-distance keeps
+		// the cursor here; a drag will update cursor to the release
+		// point in the release handler. Mouse drag dismisses any active
+		// visual-mode selection (mouse expresses fresh intent).
 		m.focus = MainFocus
+		m.selection.Cancel()
 		g := m.dragGeom()
-		m.drag.Begin(g.clickAt(x, y))
+		ep := g.clickAt(x, y)
+		m.drag.Begin(ep)
+		if ep.OutsideDir == 0 {
+			m.cursor.pos = ep.Pos
+			_, m.cursor.desiredCol = m.mainPane.positionToDisplay(ep.Pos)
+		}
 	}
 	return m, nil
 }
@@ -1561,6 +1660,8 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		}
 		// Vertical scrolling — forward to main pane viewport
 		cmd := m.mainPane.Update(msg)
+		// Drag cursor along if scroll pushed it off-screen.
+		m.cursor.DragAlongScroll(m.mainPane)
 		return m, cmd
 	}
 	return m, nil
@@ -1929,6 +2030,8 @@ func (m *Model) setMode(next Mode) {
 		m.updateMainContent()
 		return
 	}
+	// Mode switch dismisses any active visual-mode selection.
+	m.selection.Cancel()
 	// Save current mode's view state before switching.
 	m.saveModeState()
 	m.mode = next
@@ -1965,13 +2068,24 @@ func (m *Model) updateMainContent() {
 		if key == prevKey || key.item == "" {
 			return
 		}
+		// Switching to a new item dismisses any active visual-mode
+		// selection — selection is per-view.
+		m.selection.Cancel()
 		if line, ok := m.viewMemory.RecallMainScroll(key); ok {
 			m.mainPane.ScrollToSourceLine(line)
+			m.cursor.SetPosition(m.mainPane, Position{SourceLine: line, Column: 0})
 			return
 		}
 		if key.mode == FilesMode && len(m.mainPane.diffHunks) > 0 {
 			m.jumpToFirstDiff()
+			// Place cursor at the first hunk start.
+			if first, ok := nextHunkStart(m.mainPane.diffHunks, 0, +1); ok {
+				m.cursor.SetPosition(m.mainPane, Position{SourceLine: first, Column: 0})
+			}
+			return
 		}
+		// New item with no hunks and no scroll memory: cursor at top.
+		m.cursor.SetPosition(m.mainPane, Position{SourceLine: 1, Column: 0})
 	}
 
 	if m.git == nil {
@@ -2239,6 +2353,21 @@ func (m *Model) View() tea.View {
 	// Apply drag selection highlighting
 	if m.drag.IsActive() && m.drag.HasRange() {
 		padded = m.drag.ApplyHighlight(padded, m.dragGeom())
+	}
+
+	// Visual mode selection highlight — shares the renderer with drag
+	// but lives on m.selection (anchor/active are Position values, not
+	// click endpoints).
+	if !m.drag.IsActive() && m.selection.HasRange() {
+		padded = m.selection.ApplyHighlight(padded, m.dragGeom())
+	}
+
+	// Cursor: paint a single reverse-video cell at the cursor position.
+	// Skipped while drag or visual-mode selection is active — both
+	// already paint a reverse-video region covering the cursor cell,
+	// and overlapping the two looks weird in most terminals.
+	if !m.drag.IsActive() && !m.selection.IsActive() && m.focus == MainFocus {
+		padded = m.cursor.ApplyHighlight(padded, m.dragGeom())
 	}
 
 	v.SetContent(padded)

@@ -8,14 +8,16 @@ Keybindings:
   [c] [2]               Commits mode                                                                
   [b] [3]               PR mode (when PR exists)                                                    
                                                                                                     
-  [h] [left]            Scroll left (when wrap off)                                                 
-  [l] [right]           Scroll right (when wrap off)                                                
+  [H] [shift+left]      Scroll left / switch to sidebar (when wrap off)                             
+  [L] [shift+right]     Scroll right (when wrap off)                                                
   [,]                   Focus sidebar                                                               
   [.]                   Focus main pane                                                             
   [tab]                 Toggle focus (sidebar / main pane)                                          
                                                                                                     
-  [j] [down]            Move down / scroll down                                                     
-  [k] [up]              Move up / scroll up                                                         
+  [j] [down]            Move cursor down / select next (sidebar)                                    
+  [k] [up]              Move cursor up / select prev (sidebar)                                      
+  [h] [left]            Move cursor left (main pane)                                                
+  [l] [right]           Move cursor right (main pane)                                               
   [pgdown] [space]      Page down                                                                   
   [pgup] [shift+space]  Page up                                                                     
   [g] [home]            Go to top                                                                   
@@ -24,7 +26,5 @@ Keybindings:
   [+] [=]               Grow sidebar                                                                
   [-]                   Shrink sidebar                                                              
   [f]                   Toggle sidebar visibility                                                   
-                                                                                                    
-  [w]                   Toggle word wrap                                                            
                                                                                                     
                                                                                                     
