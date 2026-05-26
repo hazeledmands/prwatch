@@ -1030,10 +1030,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		ep := g.clickAt(msg.X, msg.Y)
 		hadRange := m.drag.Release(ep)
 		// Place cursor at release point when the release was on real
-		// content (per PLAN.md "cursor at release point").
+		// content (per PLAN.md "cursor at release point"). Past-EOL
+		// release clamps to row content via SetFromClick.
 		if ep.OutsideDir == 0 {
-			m.cursor.pos = ep.Pos
-			_, m.cursor.desiredCol = m.mainPane.positionToDisplay(ep.Pos)
+			vpRow := m.mainPane.viewport.YOffset() + (msg.Y - mainPaneContentTop(g))
+			displayCol := msg.X - (g.sidebarW + 1 + m.mainPane.gutterWidth)
+			m.cursor.SetFromClick(m.mainPane, vpRow, displayCol)
 		}
 		if hadRange {
 			return m, m.copySelection()
@@ -1124,7 +1126,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			case selectionLine:
 				m.selection.mode = selectionStream
 			default:
-				m.selection.BeginStream(m.cursor.pos)
+				m.selection.BeginStream(m.cursor.Endpoint(m.mainPane))
 			}
 			return m, nil
 		case key.Matches(msg, keys.VisualLine):
@@ -1136,7 +1138,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			case selectionStream:
 				m.selection.mode = selectionLine
 			default:
-				m.selection.BeginLine(m.cursor.pos)
+				m.selection.BeginLine(m.cursor.Endpoint(m.mainPane))
 			}
 			return m, nil
 		}
@@ -1227,7 +1229,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor.MoveLeft(m.mainPane)
 			m.cursor.EnsureVisible(m.mainPane)
 			if m.selection.IsActive() {
-				m.selection.SetActive(m.cursor.pos)
+				m.selection.SetActive(m.cursor.Endpoint(m.mainPane))
 			}
 			return m, nil
 		}
@@ -1240,7 +1242,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor.MoveRight(m.mainPane)
 			m.cursor.EnsureVisible(m.mainPane)
 			if m.selection.IsActive() {
-				m.selection.SetActive(m.cursor.pos)
+				m.selection.SetActive(m.cursor.Endpoint(m.mainPane))
 			}
 			return m, nil
 		}
@@ -1412,7 +1414,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor.MoveUp(m.mainPane)
 			m.cursor.EnsureVisible(m.mainPane)
 			if m.selection.IsActive() {
-				m.selection.SetActive(m.cursor.pos)
+				m.selection.SetActive(m.cursor.Endpoint(m.mainPane))
 			}
 			return m, nil
 		}
@@ -1427,7 +1429,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor.MoveDown(m.mainPane)
 			m.cursor.EnsureVisible(m.mainPane)
 			if m.selection.IsActive() {
-				m.selection.SetActive(m.cursor.pos)
+				m.selection.SetActive(m.cursor.Endpoint(m.mainPane))
 			}
 			return m, nil
 		}
@@ -1643,8 +1645,9 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		ep := g.clickAt(x, y)
 		m.drag.Begin(ep)
 		if ep.OutsideDir == 0 {
-			m.cursor.pos = ep.Pos
-			_, m.cursor.desiredCol = m.mainPane.positionToDisplay(ep.Pos)
+			vpRow := m.mainPane.viewport.YOffset() + (y - mainPaneContentTop(g))
+			displayCol := x - (g.sidebarW + 1 + m.mainPane.gutterWidth)
+			m.cursor.SetFromClick(m.mainPane, vpRow, displayCol)
 		}
 	}
 	return m, nil

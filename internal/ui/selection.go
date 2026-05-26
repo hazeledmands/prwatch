@@ -17,18 +17,18 @@ const (
 // drag (buildHighlightClips + paintHighlightClips) so both selection
 // kinds paint identically.
 //
-// In stream mode, the selection covers character-grained spans bounded
-// by anchor.Column / active.Column. In line mode, both ends extend to
-// cover full source lines regardless of column delta — anchor's column
-// snaps to 0 and active's column extends past the last wrap row's end.
+// Endpoints are the same shape as drag's: Position + VpRow. VpRow
+// disambiguates wrap-row-boundary anchors AND decoration rows (red
+// removed-line rows whose Position.SourceLine is most-recent-before),
+// so visual-mode selection on red rows renders correctly.
 //
 // 5c will collapse selection + dragSelection into one Mode-tagged type;
 // for now they live in parallel so the cursor/visual work can land
 // without touching drag's existing behavior.
 type selection struct {
 	mode   selectionMode
-	anchor Position
-	active Position
+	anchor endpoint
+	active endpoint
 }
 
 func newSelection() *selection {
@@ -40,11 +40,12 @@ func (s *selection) IsActive() bool { return s.mode != selectionNone }
 
 // HasRange reports whether the selection actually covers content.
 // Line mode covers at least one full line whenever active; stream mode
-// needs anchor != active.
+// needs anchor != active (by Position; VpRow ties don't count as a
+// range).
 func (s *selection) HasRange() bool {
 	switch s.mode {
 	case selectionStream:
-		return s.anchor != s.active
+		return s.anchor.Pos != s.active.Pos
 	case selectionLine:
 		return true
 	default:
@@ -52,49 +53,46 @@ func (s *selection) HasRange() bool {
 	}
 }
 
-// BeginStream starts a stream-mode selection anchored at pos.
-func (s *selection) BeginStream(pos Position) {
+// BeginStream starts a stream-mode selection anchored at ep.
+func (s *selection) BeginStream(ep endpoint) {
 	s.mode = selectionStream
-	s.anchor = pos
-	s.active = pos
+	s.anchor = ep
+	s.active = ep
 }
 
-// BeginLine starts a line-mode selection anchored at pos.
-func (s *selection) BeginLine(pos Position) {
+// BeginLine starts a line-mode selection anchored at ep.
+func (s *selection) BeginLine(ep endpoint) {
 	s.mode = selectionLine
-	s.anchor = pos
-	s.active = pos
+	s.anchor = ep
+	s.active = ep
 }
 
-// SetActive updates the live end (cursor position) as the user moves.
-func (s *selection) SetActive(pos Position) {
-	s.active = pos
+// SetActive updates the live end (cursor endpoint) as the user moves.
+func (s *selection) SetActive(ep endpoint) {
+	s.active = ep
 }
 
 // Cancel dismisses any active selection.
 func (s *selection) Cancel() {
 	s.mode = selectionNone
-	s.anchor = Position{}
-	s.active = Position{}
+	s.anchor = endpoint{}
+	s.active = endpoint{}
 }
 
-// resolveEnds returns the source-ordered (upper, lower) ends of the
-// selection paired with their viewport rows, ready for
+// resolveEnds returns the source-ordered (upper, lower) ends ready for
 // buildHighlightClips. In line mode, ends are extended to cover full
 // source lines.
 func (s *selection) resolveEnds(pane *mainPane) (upper, lower orderedEnd, ok bool) {
 	if !s.HasRange() {
 		return orderedEnd{}, orderedEnd{}, false
 	}
-	a := s.anchor
-	b := s.active
-	if !positionLess(a, b) {
+	a := orderedEnd{Position: s.anchor.Pos, VpRow: s.anchor.VpRow}
+	b := orderedEnd{Position: s.active.Pos, VpRow: s.active.VpRow}
+	if !positionLess(a.Position, b.Position) {
 		a, b = b, a
 	}
-	aVp, _ := pane.positionToDisplay(a)
-	bVp, _ := pane.positionToDisplay(b)
-	upper = orderedEnd{Position: a, VpRow: aVp}
-	lower = orderedEnd{Position: b, VpRow: bVp}
+	upper = a
+	lower = b
 
 	if s.mode == selectionLine {
 		// Extend upper to column 0 on the first wrap row of its source line,

@@ -32,8 +32,8 @@ func TestCursor_MoveDown_PreservesDesiredCol(t *testing.T) {
 	if !c.MoveDown(mp) {
 		t.Fatal("MoveDown returned false")
 	}
-	if c.pos.SourceLine != 2 {
-		t.Errorf("expected SL=2, got %d", c.pos.SourceLine)
+	if pos := c.Pos(mp); pos.SourceLine != 2 {
+		t.Errorf("expected SL=2, got %d", pos.SourceLine)
 	}
 	if c.desiredCol != 15 {
 		t.Errorf("desiredCol should stay 15 after vertical motion, got %d", c.desiredCol)
@@ -43,10 +43,10 @@ func TestCursor_MoveDown_PreservesDesiredCol(t *testing.T) {
 	if !c.MoveDown(mp) {
 		t.Fatal("MoveDown returned false")
 	}
-	if c.pos.SourceLine != 3 {
-		t.Errorf("expected SL=3, got %d", c.pos.SourceLine)
+	if pos := c.Pos(mp); pos.SourceLine != 3 {
+		t.Errorf("expected SL=3, got %d", pos.SourceLine)
 	}
-	_, dc := mp.positionToDisplay(c.pos)
+	_, dc := mp.positionToDisplay(c.Pos(mp))
 	if dc != 15 {
 		t.Errorf("expected to restore display col 15 on long line, got %d", dc)
 	}
@@ -65,16 +65,16 @@ func TestCursor_MoveLeftRight_BasicCharGrained(t *testing.T) {
 	if !c.MoveRight(mp) {
 		t.Fatal("MoveRight returned false")
 	}
-	if c.pos.Column != 6 {
-		t.Errorf("expected col 6, got %d", c.pos.Column)
+	if pos := c.Pos(mp); pos.Column != 6 {
+		t.Errorf("expected col 6, got %d", pos.Column)
 	}
 
 	// h → col 5.
 	if !c.MoveLeft(mp) {
 		t.Fatal("MoveLeft returned false")
 	}
-	if c.pos.Column != 5 {
-		t.Errorf("expected col 5, got %d", c.pos.Column)
+	if pos := c.Pos(mp); pos.Column != 5 {
+		t.Errorf("expected col 5, got %d", pos.Column)
 	}
 }
 
@@ -89,8 +89,8 @@ func TestCursor_MoveLeft_StopsAtColumn0(t *testing.T) {
 	if c.MoveLeft(mp) {
 		t.Error("MoveLeft should return false at col 0")
 	}
-	if c.pos.Column != 0 {
-		t.Errorf("col should stay 0, got %d", c.pos.Column)
+	if pos := c.Pos(mp); pos.Column != 0 {
+		t.Errorf("col should stay 0, got %d", pos.Column)
 	}
 }
 
@@ -105,8 +105,8 @@ func TestCursor_MoveRight_StopsAtEOL(t *testing.T) {
 	if c.MoveRight(mp) {
 		t.Error("MoveRight should return false past EOL")
 	}
-	if c.pos.Column != 1 {
-		t.Errorf("col should stay 1, got %d", c.pos.Column)
+	if pos := c.Pos(mp); pos.Column != 1 {
+		t.Errorf("col should stay 1, got %d", pos.Column)
 	}
 }
 
@@ -134,18 +134,17 @@ func TestCursor_MoveDown_VisualRowGrained_WrappedLine(t *testing.T) {
 
 	c := newCursor()
 	c.SetPosition(mp, Position{SourceLine: 1, Column: 0})
-	startVp, _ := mp.positionToDisplay(c.pos)
+	startVp := c.vpRow
 
 	// First j should step to next wrap row of source line 1, NOT to source line 2.
 	if !c.MoveDown(mp) {
 		t.Fatal("MoveDown returned false")
 	}
-	newVp, _ := mp.positionToDisplay(c.pos)
-	if newVp != startVp+1 {
-		t.Errorf("MoveDown should step one visual row (from %d to %d), got %d", startVp, startVp+1, newVp)
+	if c.vpRow != startVp+1 {
+		t.Errorf("MoveDown should step one visual row (from %d to %d), got %d", startVp, startVp+1, c.vpRow)
 	}
-	if c.pos.SourceLine != 1 {
-		t.Errorf("after first j on wrapped line, should still be on source line 1, got %d", c.pos.SourceLine)
+	if pos := c.Pos(mp); pos.SourceLine != 1 {
+		t.Errorf("after first j on wrapped line, should still be on source line 1, got %d", pos.SourceLine)
 	}
 }
 
@@ -157,11 +156,11 @@ func TestCursor_SetFromClick(t *testing.T) {
 
 	c := newCursor()
 	c.SetFromClick(mp, 1, 3) // row 1 (source line 2), col 3
-	if c.pos.SourceLine != 2 {
-		t.Errorf("expected SL=2, got %d", c.pos.SourceLine)
+	if pos := c.Pos(mp); pos.SourceLine != 2 {
+		t.Errorf("expected SL=2, got %d", pos.SourceLine)
 	}
-	if c.pos.Column != 3 {
-		t.Errorf("expected col=3, got %d", c.pos.Column)
+	if pos := c.Pos(mp); pos.Column != 3 {
+		t.Errorf("expected col=3, got %d", pos.Column)
 	}
 	if c.desiredCol != 3 {
 		t.Errorf("expected desiredCol=3, got %d", c.desiredCol)
@@ -183,12 +182,12 @@ func TestCursor_Integration_JKMoveAndRender(t *testing.T) {
 	// Force plain content with several rows so MoveDown has somewhere to go.
 	m.mainPane.SetPlainContent("line one\nline two\nline three\nline four")
 
-	startPos := m.cursor.pos
+	startVp := m.cursor.vpRow
 	// Press j (Down): should move cursor down one visual row.
 	res, _ := m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
 	m = res.(*Model)
-	if m.cursor.pos == startPos {
-		t.Errorf("j should move cursor; pos unchanged at %+v", m.cursor.pos)
+	if m.cursor.vpRow == startVp {
+		t.Errorf("j should move cursor; vpRow unchanged at %d", m.cursor.vpRow)
 	}
 
 	// View should contain at least one reverse-video sequence somewhere
@@ -217,15 +216,82 @@ func TestCursor_Integration_HLMoveCursor(t *testing.T) {
 	// l: cursor right.
 	res, _ := m.Update(tea.KeyPressMsg{Text: "l", Code: 'l'})
 	m = res.(*Model)
-	if m.cursor.pos.Column != 1 {
-		t.Errorf("l should advance cursor to column 1, got %d", m.cursor.pos.Column)
+	if pos := m.cursor.Pos(m.mainPane); pos.Column != 1 {
+		t.Errorf("l should advance cursor to column 1, got %d", pos.Column)
 	}
 
 	// h: cursor left.
 	res, _ = m.Update(tea.KeyPressMsg{Text: "h", Code: 'h'})
 	m = res.(*Model)
-	if m.cursor.pos.Column != 0 {
-		t.Errorf("h should retreat cursor to column 0, got %d", m.cursor.pos.Column)
+	if pos := m.cursor.Pos(m.mainPane); pos.Column != 0 {
+		t.Errorf("h should retreat cursor to column 0, got %d", pos.Column)
+	}
+}
+
+// TestCursor_SetFromClick_ClampsPastEOL verifies that clicking past
+// the end of a row's content clamps the cursor to end-of-line rather
+// than placing it on padding cells.
+func TestCursor_SetFromClick_ClampsPastEOL(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 10)
+	mp.SetWordWrap(false)
+	mp.SetPlainContent("hi") // 2-char line
+
+	c := newCursor()
+	// Click far past EOL.
+	c.SetFromClick(mp, 0, 50)
+	// Row "hi" has content width 2; expect clamp to col 1 (last char).
+	if c.desiredCol != 1 {
+		t.Errorf("click past EOL on 2-char row should clamp desiredCol to 1, got %d", c.desiredCol)
+	}
+}
+
+// TestCursor_NavigatesDecorationRows is the regression test for the
+// "cursor stuck on red diff" bug: removed-line decoration rows have no
+// source-line mapping of their own (sourceLineAtViewportOffset returns
+// the most-recent-before source line), so a cursor stored as
+// source-space Position couldn't navigate past them. Now the cursor's
+// canonical state is vpRow, and j/k step through each viewport row
+// regardless of whether it's a decoration or a source line.
+func TestCursor_NavigatesDecorationRows(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 20)
+	mp.SetWordWrap(false)
+	// A diff with line 2 changed from "old1\nold2\nold3" to "new". The
+	// "large diff" branch produces 2 removed-line decoration rows then
+	// an added row.
+	mp.diffAnnotations = map[int]diffAnnotation{
+		2: {kind: diffLineChanged, removedLines: []string{"old1", "old2", "old3"}},
+	}
+	mp.SetPlainContent("context1\nnew\ncontext3")
+
+	startRows := viewportContentRowCount(mp)
+	if startRows < 4 {
+		t.Fatalf("expected at least 4 viewport rows (context+removed+changed+context), got %d (vpContent=%q)", startRows, mp.viewport.GetContent())
+	}
+
+	c := newCursor()
+	c.vpRow = 0
+	c.desiredCol = 0
+
+	// j should step through every viewport row in order, including
+	// the decoration rows. Before the fix, vpRow could get stuck.
+	visited := make([]int, 0, startRows)
+	visited = append(visited, c.vpRow)
+	for c.MoveDown(mp) {
+		visited = append(visited, c.vpRow)
+		if len(visited) > startRows+1 {
+			t.Fatalf("MoveDown looped past viewport row count; visited=%v", visited)
+		}
+	}
+	// We should have visited every row from 0 to startRows-1.
+	if len(visited) != startRows {
+		t.Errorf("expected to visit %d rows, got %d (%v)", startRows, len(visited), visited)
+	}
+	for i, vp := range visited {
+		if vp != i {
+			t.Errorf("visited[%d] = %d, expected %d (decoration rows must be reachable)", i, vp, i)
+		}
 	}
 }
 
@@ -264,11 +330,11 @@ func TestCursor_Integration_NoMotionOnSidebarFocus(t *testing.T) {
 	}
 	m := initModel(mock, FilesMode, 100, 30)
 	m.focus = SidebarFocus
-	startPos := m.cursor.pos
+	startVp := m.cursor.vpRow
 	res, _ := m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
 	m = res.(*Model)
-	if m.cursor.pos != startPos {
-		t.Errorf("cursor should not move on sidebar focus; got %+v (was %+v)", m.cursor.pos, startPos)
+	if m.cursor.vpRow != startVp {
+		t.Errorf("cursor should not move on sidebar focus; vpRow now %d (was %d)", m.cursor.vpRow, startVp)
 	}
 }
 
@@ -298,10 +364,10 @@ func TestProperty_Cursor_AlwaysVisible(t *testing.T) {
 		c.SetPosition(mp, Position{SourceLine: 1, Column: 0})
 
 		ensureVisible := func(label string, step int) {
-			if c.pos.SourceLine == 0 {
+			if !c.IsPlaced() {
 				return
 			}
-			vp, _ := mp.positionToDisplay(c.pos)
+			vp := c.vpRow
 			vpOff := mp.viewport.YOffset()
 			vpH := mp.viewport.Height()
 			if vpH <= 0 {
@@ -364,7 +430,7 @@ func TestProperty_Cursor_MoveDownThenUp_Idempotent(t *testing.T) {
 		// Start at top-left.
 		c := newCursor()
 		c.SetPosition(mp, Position{SourceLine: 1, Column: 0})
-		startVp, _ := mp.positionToDisplay(c.pos)
+		startVp := c.vpRow
 
 		steps := rapid.IntRange(0, 20).Draw(t, "steps")
 		moved := 0
@@ -376,9 +442,8 @@ func TestProperty_Cursor_MoveDownThenUp_Idempotent(t *testing.T) {
 		for range moved {
 			c.MoveUp(mp)
 		}
-		endVp, _ := mp.positionToDisplay(c.pos)
-		if endVp != startVp {
-			t.Fatalf("after %d down + %d up, expected return to vp=%d, got vp=%d", moved, moved, startVp, endVp)
+		if c.vpRow != startVp {
+			t.Fatalf("after %d down + %d up, expected return to vp=%d, got vp=%d", moved, moved, startVp, c.vpRow)
 		}
 	})
 }

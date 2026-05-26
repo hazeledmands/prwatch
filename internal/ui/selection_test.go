@@ -23,8 +23,8 @@ func TestSelection_BeginStream_AnchorsAtCursor(t *testing.T) {
 	if m.selection.mode != selectionStream {
 		t.Errorf("v should enter stream mode, got %d", m.selection.mode)
 	}
-	if m.selection.anchor != (Position{SourceLine: 2, Column: 3}) {
-		t.Errorf("anchor should be at cursor; got %+v", m.selection.anchor)
+	if m.selection.anchor.Pos != (Position{SourceLine: 2, Column: 3}) {
+		t.Errorf("anchor should be at cursor; got %+v", m.selection.anchor.Pos)
 	}
 	if m.selection.active != m.selection.anchor {
 		t.Errorf("active should equal anchor at start, got %+v vs %+v", m.selection.active, m.selection.anchor)
@@ -63,8 +63,8 @@ func TestSelection_DownExtendsSelection(t *testing.T) {
 	if m.selection.active == anchorBefore {
 		t.Errorf("active should follow cursor after j; still at anchor %+v", m.selection.active)
 	}
-	if m.selection.active != m.cursor.pos {
-		t.Errorf("active should equal cursor; active=%+v, cursor=%+v", m.selection.active, m.cursor.pos)
+	if cursorEp := m.cursor.Endpoint(m.mainPane); m.selection.active != cursorEp {
+		t.Errorf("active should equal cursor endpoint; active=%+v, cursor=%+v", m.selection.active, cursorEp)
 	}
 }
 
