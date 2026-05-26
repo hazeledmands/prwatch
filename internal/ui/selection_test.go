@@ -68,6 +68,52 @@ func TestSelection_DownExtendsSelection(t *testing.T) {
 	}
 }
 
+// TestSelection_HighlightCoversDecorationRowsBetweenEnds is the
+// regression test for "visual selection over red+green diff does
+// weird things". The old buildHighlightClips iterated source lines
+// and skipped any row that didn't have a sourceToFormatLine entry,
+// so removed-line decoration rows (red) between the selection's
+// upper and lower ends were left un-painted — selection appeared
+// to "skip" them. Now buildHighlightClips iterates vp rows directly
+// and emits a clip for every row between upper.VpRow and lower.VpRow,
+// including decoration rows.
+func TestSelection_HighlightCoversDecorationRowsBetweenEnds(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(80, 20)
+	mp.SetWordWrap(false)
+	mp.diffAnnotations = map[int]diffAnnotation{
+		2: {kind: diffLineChanged, removedLines: []string{"old1", "old2"}},
+	}
+	mp.SetPlainContent("context1\nnew\ncontext3")
+
+	// Build a selection spanning the full content (context1 ... context3).
+	// Upper at row 0 col 0 (context1); lower at the last viewport row.
+	rowCount := viewportContentRowCount(mp)
+	if rowCount < 4 {
+		t.Fatalf("expected at least 4 rows (context+removed×2+new+context); got %d", rowCount)
+	}
+	upper := orderedEnd{Position: Position{SourceLine: 1, Column: 0}, VpRow: 0}
+	lastVp := rowCount - 1
+	_, lastEnd := mp.wrapRowSourceColRange(lastVp)
+	lower := orderedEnd{Position: Position{SourceLine: 3, Column: lastEnd}, VpRow: lastVp}
+
+	clips := buildHighlightClips(mp, upper, lower)
+	if len(clips) != rowCount {
+		t.Fatalf("expected one clip per vp row (%d), got %d", rowCount, len(clips))
+	}
+	// Every viewport row in [0, lastVp] must have a clip — including
+	// decoration rows (the removed lines).
+	seen := make(map[int]bool, len(clips))
+	for _, c := range clips {
+		seen[c.vpRow] = true
+	}
+	for vp := 0; vp <= lastVp; vp++ {
+		if !seen[vp] {
+			t.Errorf("row %d not in highlight clips; decoration row was skipped", vp)
+		}
+	}
+}
+
 // TestSelection_StreamLineToggle_PreservesEnds verifies that toggling
 // between stream and line mode (V from v, v from V) keeps the original
 // anchor and active positions so the character range survives the

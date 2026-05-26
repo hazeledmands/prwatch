@@ -257,33 +257,28 @@ type highlightClip struct {
 // upper.Column on row K+1's left edge equals lower.Column on row K's
 // right edge, but the click was on a specific row.
 func buildHighlightClips(pane *mainPane, upper, lower orderedEnd) []highlightClip {
+	if lower.VpRow < upper.VpRow {
+		return nil
+	}
 	var clips []highlightClip
-	for sl := upper.SourceLine; sl <= lower.SourceLine; sl++ {
-		if _, mapped := pane.sourceToFormatLine[sl]; !mapped {
+	for vpRow := upper.VpRow; vpRow <= lower.VpRow; vpRow++ {
+		rowSrcStart, rowSrcEnd := pane.wrapRowSourceColRange(vpRow)
+		selStart := rowSrcStart
+		selEnd := rowSrcEnd
+		if vpRow == upper.VpRow && upper.Column > selStart {
+			selStart = upper.Column
+		}
+		if vpRow == lower.VpRow && lower.Column < selEnd {
+			selEnd = lower.Column
+		}
+		if selStart > selEnd {
 			continue
 		}
-		firstVpRow, rowCount := selectionRowRange(pane, sl, upper, lower)
-		for k := 0; k < rowCount; k++ {
-			vpRow := firstVpRow + k
-			rowSrcStart, rowSrcEnd := pane.wrapRowSourceColRange(vpRow)
-
-			selStart := rowSrcStart
-			selEnd := rowSrcEnd
-			if sl == upper.SourceLine && upper.VpRow == vpRow && upper.Column > selStart {
-				selStart = upper.Column
-			}
-			if sl == lower.SourceLine && lower.VpRow == vpRow && lower.Column < selEnd {
-				selEnd = lower.Column
-			}
-			if selStart > selEnd {
-				continue
-			}
-			clips = append(clips, highlightClip{
-				vpRow:          vpRow,
-				fromDisplayCol: selStart - rowSrcStart,
-				toDisplayCol:   selEnd - rowSrcStart,
-			})
-		}
+		clips = append(clips, highlightClip{
+			vpRow:          vpRow,
+			fromDisplayCol: selStart - rowSrcStart,
+			toDisplayCol:   selEnd - rowSrcStart,
+		})
 	}
 	return clips
 }
