@@ -1101,24 +1101,43 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Visual mode: Esc dismisses selection (preempts QuitConfirm's esc).
-	// Drag in progress also dismisses on Esc — same pattern as existing
-	// search overlay (search owns esc when active).
-	if m.selection.IsActive() && msg.Code == tea.KeyEscape {
+	// Visual mode dismissal: Esc cancels the selection. Preempts the
+	// QuitConfirm binding (which also has "esc") when a selection is
+	// active.
+	if m.selection.IsActive() && key.Matches(msg, keys.VisualDismiss) {
 		m.selection.Cancel()
 		return m, nil
 	}
 
-	// Visual mode entry (v/V): take precedence over FilesMode binding
-	// (which also has "v") when main pane is focused. Ignored while a
-	// mouse drag is in progress.
+	// Visual mode entry / mode toggle (v/V). Ignored while a mouse
+	// drag is in progress.
 	if m.focus == MainFocus && !m.search.IsActive() && !m.help.IsOpen() && !m.drag.IsActive() {
-		switch msg.Text {
-		case "v":
-			m.selection.BeginStream(m.cursor.pos)
+		switch {
+		case key.Matches(msg, keys.VisualStream):
+			// v in stream mode: dismiss. v in line mode: switch to
+			// stream, preserving anchor/active so the original
+			// character range is recovered. Otherwise: enter stream
+			// mode anchored at cursor.
+			switch m.selection.mode {
+			case selectionStream:
+				m.selection.Cancel()
+			case selectionLine:
+				m.selection.mode = selectionStream
+			default:
+				m.selection.BeginStream(m.cursor.pos)
+			}
 			return m, nil
-		case "V":
-			m.selection.BeginLine(m.cursor.pos)
+		case key.Matches(msg, keys.VisualLine):
+			// V mirrors v's toggle semantics: V in line mode dismisses;
+			// V in stream mode switches to line, preserving anchor/active.
+			switch m.selection.mode {
+			case selectionLine:
+				m.selection.Cancel()
+			case selectionStream:
+				m.selection.mode = selectionLine
+			default:
+				m.selection.BeginLine(m.cursor.pos)
+			}
 			return m, nil
 		}
 	}

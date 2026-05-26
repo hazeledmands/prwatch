@@ -105,8 +105,13 @@ func helpContentLines() []string {
 			{bindings: []key.Binding{keys.PrevLeaf}, desc: "Jump to previous leaf"},
 		},
 		{
+			{bindings: []key.Binding{keys.VisualStream}, desc: "Visual mode (character selection, main pane)"},
+			{bindings: []key.Binding{keys.VisualLine}, desc: "Visual mode (line selection, main pane)"},
+			{bindings: []key.Binding{keys.VisualDismiss}, desc: "Dismiss visual selection"},
+			{bindings: []key.Binding{keys.YankPath}, desc: "Yank selection (visual mode) / copy path (otherwise)"},
+		},
+		{
 			{bindings: []key.Binding{keys.Enter}, desc: "Open file in $EDITOR / switch to main pane"},
-			{bindings: []key.Binding{keys.YankPath}, desc: "Copy file path (sidebar) or path:lines (main pane)"},
 			{bindings: []key.Binding{keys.Search}, desc: "Search (type to match, enter to confirm)"},
 			{bindings: []key.Binding{keys.SearchNext}, desc: "Next search result (after search confirmed)"},
 			{bindings: []key.Binding{keys.SearchPrev}, desc: "Previous search result (after search confirmed)"},

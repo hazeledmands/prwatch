@@ -41,6 +41,9 @@ type keyMap struct {
 	PrevLeaf       key.Binding
 	YankPath       key.Binding
 	PRBrowse       key.Binding
+	VisualStream   key.Binding
+	VisualLine     key.Binding
+	VisualDismiss  key.Binding
 
 	ScopeExtendBack      key.Binding
 	ScopeContractForward key.Binding
@@ -57,14 +60,17 @@ var keys = keyMap{
 	ToggleMode: key.NewBinding(
 		key.WithKeys("m"),
 	),
+	// Mode switches: numeric keys only. The letter aliases (v/c/b) were
+	// removed once v became visual-mode entry; c and b followed for
+	// consistency. Cycle via [m].
 	FilesMode: key.NewBinding(
-		key.WithKeys("v", "1"),
+		key.WithKeys("1"),
 	),
 	CommitsMode: key.NewBinding(
-		key.WithKeys("c", "2"),
+		key.WithKeys("2"),
 	),
 	PRMode: key.NewBinding(
-		key.WithKeys("b", "3"),
+		key.WithKeys("3"),
 	),
 	// FocusLeft / FocusRight (shift+h, shift+l, shift+arrows): the
 	// pre-cursor bindings for h/l. Promoted to capital-letter keys so
@@ -167,6 +173,19 @@ var keys = keyMap{
 	),
 	PRBrowse: key.NewBinding(
 		key.WithKeys("o"),
+	),
+	// Visual mode: v for stream (char-grained) selection, V for line
+	// selection, Esc dismisses. Vim convention. y (YankPath) does
+	// double duty — yanks the selection text in visual mode and the
+	// path otherwise.
+	VisualStream: key.NewBinding(
+		key.WithKeys("v"),
+	),
+	VisualLine: key.NewBinding(
+		key.WithKeys("V"),
+	),
+	VisualDismiss: key.NewBinding(
+		key.WithKeys("esc"),
 	),
 	ScopeExtendBack: key.NewBinding(
 		key.WithKeys("]"),

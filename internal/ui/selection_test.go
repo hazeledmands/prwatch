@@ -68,6 +68,67 @@ func TestSelection_DownExtendsSelection(t *testing.T) {
 	}
 }
 
+// TestSelection_StreamLineToggle_PreservesEnds verifies that toggling
+// between stream and line mode (V from v, v from V) keeps the original
+// anchor and active positions so the character range survives the
+// round-trip. Vim semantics: `v` in line mode and `V` in stream mode
+// just flip the mode flag, they don't reset the range.
+func TestSelection_StreamLineToggle_PreservesEnds(t *testing.T) {
+	m := newVisualModeTestModel(t)
+	m.cursor.SetPosition(m.mainPane, Position{SourceLine: 1, Column: 0})
+
+	// Enter stream mode and extend.
+	res, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = res.(*Model)
+	res, _ = m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
+	m = res.(*Model)
+	res, _ = m.Update(tea.KeyPressMsg{Text: "l", Code: 'l'})
+	m = res.(*Model)
+	anchorAfterExtend := m.selection.anchor
+	activeAfterExtend := m.selection.active
+	if anchorAfterExtend == activeAfterExtend {
+		t.Fatal("expected non-trivial range after j+l")
+	}
+
+	// V: switch to line mode. Anchor/active must not change.
+	res, _ = m.Update(tea.KeyPressMsg{Text: "V", Code: 'V'})
+	m = res.(*Model)
+	if m.selection.mode != selectionLine {
+		t.Errorf("V should switch to line mode, got %d", m.selection.mode)
+	}
+	if m.selection.anchor != anchorAfterExtend || m.selection.active != activeAfterExtend {
+		t.Errorf("V should preserve anchor/active; got %+v/%+v, want %+v/%+v",
+			m.selection.anchor, m.selection.active, anchorAfterExtend, activeAfterExtend)
+	}
+
+	// v: switch back to stream mode. Anchor/active still preserved.
+	res, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = res.(*Model)
+	if m.selection.mode != selectionStream {
+		t.Errorf("v should switch back to stream mode, got %d", m.selection.mode)
+	}
+	if m.selection.anchor != anchorAfterExtend || m.selection.active != activeAfterExtend {
+		t.Errorf("v should preserve anchor/active across toggle; got %+v/%+v, want %+v/%+v",
+			m.selection.anchor, m.selection.active, anchorAfterExtend, activeAfterExtend)
+	}
+}
+
+// TestSelection_SecondVDismisses verifies that pressing v while already
+// in stream mode dismisses (vim convention).
+func TestSelection_SecondVDismisses(t *testing.T) {
+	m := newVisualModeTestModel(t)
+	res, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = res.(*Model)
+	if !m.selection.IsActive() {
+		t.Fatal("first v should activate")
+	}
+	res, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = res.(*Model)
+	if m.selection.IsActive() {
+		t.Errorf("second v should dismiss; mode=%d", m.selection.mode)
+	}
+}
+
 // TestSelection_EscDismisses verifies Esc cancels the selection.
 func TestSelection_EscDismisses(t *testing.T) {
 	m := newVisualModeTestModel(t)

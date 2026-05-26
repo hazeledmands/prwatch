@@ -1128,20 +1128,8 @@ func TestModeSwitching(t *testing.T) {
 		t.Errorf("after second m, mode should be FilesMode (skips PR when no PR), got %d", m.mode)
 	}
 
-	// Direct mode keys
-	result, _ = m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
-	m = result.(*Model)
-	if m.mode != CommitsMode {
-		t.Error("after c, mode should be CommitsMode")
-	}
-
-	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
-	m = result.(*Model)
-	if m.mode != FilesMode {
-		t.Error("after v, mode should be FilesMode")
-	}
-
-	// [1], [2], [3] map to files/commits/pr respectively. [d] no longer a mode key.
+	// [1], [2], [3] map to files/commits/pr respectively. The letter
+	// aliases (v/c/b) were removed once v became visual-mode entry.
 	result, _ = m.Update(tea.KeyPressMsg{Text: "2", Code: '2'})
 	m = result.(*Model)
 	if m.mode != CommitsMode {
@@ -1225,7 +1213,7 @@ func TestModeSwitching_RetainsPerModeViewState(t *testing.T) {
 	}
 
 	// Switch to commits mode and pick a specific commit.
-	result, _ := m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
+	result, _ := m.Update(tea.KeyPressMsg{Text: "2", Code: '2'})
 	m = result.(*Model)
 	if m.mode != CommitsMode {
 		t.Fatalf("expected CommitsMode, got %d", m.mode)
@@ -1244,7 +1232,7 @@ func TestModeSwitching_RetainsPerModeViewState(t *testing.T) {
 	}
 
 	// Switch back to files mode — beta.go should still be selected.
-	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	result, _ = m.Update(tea.KeyPressMsg{Text: "1", Code: '1'})
 	m = result.(*Model)
 	if m.mode != FilesMode {
 		t.Fatal("should be back in FilesMode")
@@ -1254,7 +1242,7 @@ func TestModeSwitching_RetainsPerModeViewState(t *testing.T) {
 	}
 
 	// Switch back to commits — 'second' commit should still be selected.
-	result, _ = m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
+	result, _ = m.Update(tea.KeyPressMsg{Text: "2", Code: '2'})
 	m = result.(*Model)
 	if m.mode != CommitsMode {
 		t.Fatal("should be back in CommitsMode")
@@ -3135,12 +3123,12 @@ func TestModeSwitching_FilesCommitsRoundTrip(t *testing.T) {
 	}
 
 	// Switch to commits, then back to files — beta.go should still be selected.
-	result, _ := m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
+	result, _ := m.Update(tea.KeyPressMsg{Text: "2", Code: '2'})
 	m = result.(*Model)
 	if m.mode != CommitsMode {
 		t.Fatalf("should be in CommitsMode, got %d", m.mode)
 	}
-	result, _ = m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	result, _ = m.Update(tea.KeyPressMsg{Text: "1", Code: '1'})
 	m = result.(*Model)
 	if m.mode != FilesMode {
 		t.Fatal("should be back in FilesMode")
@@ -4458,7 +4446,7 @@ func TestToggleIgnored(t *testing.T) {
 	}
 
 	// Switch to commits mode — [i] should not toggle there.
-	result, _ = m.Update(tea.KeyPressMsg{Text: "c", Code: 'c'})
+	result, _ = m.Update(tea.KeyPressMsg{Text: "2", Code: '2'})
 	m = result.(*Model)
 	prev := m.showIgnored
 	result, _ = m.Update(tea.KeyPressMsg{Text: "i", Code: 'i'})
@@ -6544,11 +6532,11 @@ func TestPRMode_ModeSwitch(t *testing.T) {
 		t.Fatal("should start in PRMode")
 	}
 
-	// Press [b] to switch to PR mode (already there — should stay)
-	result, _ := m.Update(tea.KeyPressMsg{Text: "b", Code: 'b'})
+	// Press [3] to switch to PR mode (already there — should stay)
+	result, _ := m.Update(tea.KeyPressMsg{Text: "3", Code: '3'})
 	m = result.(*Model)
 	if m.mode != PRMode {
-		t.Error("[b] should keep PR mode")
+		t.Error("[3] should keep PR mode")
 	}
 
 	// Cycle through modes with [m]
@@ -6729,11 +6717,11 @@ func TestPRMode_NotAvailableWithoutPR(t *testing.T) {
 	m.updateLayout()
 	m.mode = FilesMode
 
-	// Press [b] — should not switch to PR mode without a PR
-	result, _ := m.Update(tea.KeyPressMsg{Text: "b", Code: 'b'})
+	// Press [3] — should not switch to PR mode without a PR
+	result, _ := m.Update(tea.KeyPressMsg{Text: "3", Code: '3'})
 	m = result.(*Model)
 	if m.mode == PRMode {
-		t.Error("[b] should not switch to PR mode when no PR exists")
+		t.Error("[3] should not switch to PR mode when no PR exists")
 	}
 }
 

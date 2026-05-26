@@ -4,9 +4,9 @@
 Keybindings:                                                                                        
                                                                                                     
   [m]                   Cycle mode (files → commits → pr)                                           
-  [v] [1]               Files mode                                                                  
-  [c] [2]               Commits mode                                                                
-  [b] [3]               PR mode (when PR exists)                                                    
+  [1]                   Files mode                                                                  
+  [2]                   Commits mode                                                                
+  [3]                   PR mode (when PR exists)                                                    
                                                                                                     
   [H] [shift+left]      Scroll left / switch to sidebar (when wrap off)                             
   [L] [shift+right]     Scroll right (when wrap off)                                                
