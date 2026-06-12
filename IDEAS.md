@@ -1,8 +1,3 @@
-# HUNKS & THE FILES VIEW
-
-1. I would prefer that shift+J or shift+down navigated between *hunks* instead of *diff lines*. given that the number of hunks are shown in the main pane's title bar, I imagine that there's a divergence in the definition of "hunk" and maybe something can be extracted here
-2. It would be very nice to be able to click on "hunk 1/2" to open a little UI popover that lets me navigate the hunks by mouse
-
 # FILES SIDEBAR
 
 1. I would like more context of the *magnitude* of additions/removals. We should update the right-justified + / - icons to also show counts.
@@ -18,8 +13,7 @@
 
 # KEYBOARD SELECTION
 
-1. We have mouse drag-to-copy, but I'd love to be able to make selections by keyboard too — vim-style visual mode. `v` for stream selection, `V` for line selection, cursor movement extends the selection, `y` copies. Line-mode is probably the most useful in a diff context — "select N lines, copy without gutter prefixes". Block-mode (vim's Ctrl-V) is interesting but has weird edge cases with diff gutters and mixed +/- lines; probably defer.
-2. A selection (a pair of line positions) has the same shape as a PR comment range, so there's room to unify — the same primitive that powers "select to copy" could also power "select to leave a comment".
+1. A selection (a pair of line positions) has the same shape as a PR comment range, so there's room to unify — the same primitive that powers "select to copy" could also power "select to leave a comment".
 
 # SESSION / PR COMMENTS
 
@@ -29,3 +23,8 @@
 # SEMANTIC BROWSING
 
 1. It would be very nice if prwatch had some kind of LSP-derived understanding of the code syntax, so the user could click on identifiers to go-to-definition, find usages, look at documentation, etc.
+
+# HUNKS & THE FILES VIEW
+
+!. It would be very nice to be able to click on "hunk 1/2" to open a little UI popover that lets me navigate the hunks by mouse
+
