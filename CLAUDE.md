@@ -84,3 +84,50 @@ point of the encapsulation is unit-level testability.
 Invariants worth looking for: index bounds (`idx ∈ [0, len)`), idempotence
 (`f(f(x)) == f(x)`), reversibility (save→restore is identity), every state
 has a dismiss path.
+
+## Layout geometry comes from one function
+
+Any geometry value consumed by more than one of {render, layout,
+hit-testing} must come from a single shared function — never re-derived
+inline. The status-bar row count has diverged three separate times
+(`statusBarLines` vs `updateLayout` vs `View`'s `prLoading` formula;
+earlier `prError`; quit-confirm height), each causing off-by-one click
+targeting.
+
+Need a layout value somewhere new? Call the existing function. None
+exists? Extract one and convert the existing call sites in the same
+change.
+
+## `tea.Cmd` closures must not read Model state
+
+Bubbletea runs Cmds on their own goroutines; a Cmd that reads `m.*`
+races with `Update` and computes against state that may be gone when the
+result lands. Inside `Update`, snapshot every input into locals; the
+closure captures only those locals; the result msg carries the inputs it
+was computed from; the handler discards the result when they no longer
+match current state.
+
+`rwxFetcher.Cmd` (rwx.go) is the pattern to copy —
+`loadLocalGitData`/`loadMoreCommits` are the counterexamples being
+fixed.
+
+## Normalize tabs at the content boundary
+
+Expand tabs to 4 spaces once, where content enters `mainPane`
+(`SetContent`/`SetPlainContent`). Downstream code must never
+special-case `\t`. Width 4 matches what lipgloss was already rendering,
+so on-screen appearance is unchanged.
+
+History: three tab widths were in play (wrap math: 8-column stops;
+runewidth: 0; lipgloss render: 4), silently breaking wrap, gutter,
+cursor-column, and copy math on tab-indented files.
+
+## Don't loosen tests to pass; don't reimplement logic in tests
+
+A tolerance added to make an assertion pass (`<= expected+10 // allow
+some tolerance`) or an expected value derived by the same helper the
+production code uses means the test is hiding a bug — stop and
+investigate instead of shipping the loosened test.
+
+When a test asserts an error is swallowed or a fallback fires, confirm
+that's specified behavior, not the current bug being enshrined.
