@@ -1003,6 +1003,7 @@ func TestWrapLinesWithContinuationMap_WithIndent(t *testing.T) {
 //   I7. Setting/clearing the title does not change the dimensions of View.
 
 func TestRenderTitleRow_AlwaysExactWidth(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		left := rapid.StringN(0, 60, 200).Draw(t, "left")
 		right := rapid.StringN(0, 60, 200).Draw(t, "right")
@@ -1018,6 +1019,7 @@ func TestRenderTitleRow_AlwaysExactWidth(t *testing.T) {
 }
 
 func TestRenderTitleRow_RightFlushedWhenFits(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		// ASCII-only generator so we can compare exact suffix bytes.
 		left := rapid.StringMatching(`[a-zA-Z0-9 _.-]{0,40}`).Draw(t, "left")
@@ -1042,6 +1044,7 @@ func TestRenderTitleRow_RightFlushedWhenFits(t *testing.T) {
 }
 
 func TestRenderTitleRow_LeftTruncatesBeforeRight(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		// Pick a right that always fits, and a left long enough to force collision.
 		right := rapid.StringMatching(`[a-zA-Z0-9 ]{1,30}`).Draw(t, "right")
@@ -1315,6 +1318,7 @@ func TestSourceLineAtViewportOffset_IndentedWrap(t *testing.T) {
 }
 
 func TestProperty_PositionToDisplay_RoundTrip(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(20, 120).Draw(t, "width")
 		height := rapid.IntRange(10, 40).Draw(t, "height")

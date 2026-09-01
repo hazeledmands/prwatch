@@ -345,6 +345,7 @@ func TestCursor_Integration_NoMotionOnSidebarFocus(t *testing.T) {
 // cursor along the edge (DragAlongScroll). Both contribute to keeping the
 // cursor visible.
 func TestProperty_Cursor_AlwaysVisible(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(30, 120).Draw(t, "width")
 		paneH := rapid.IntRange(5, 25).Draw(t, "paneH")
@@ -413,6 +414,7 @@ func TestProperty_Cursor_AlwaysVisible(t *testing.T) {
 // AND to a column whose display value matches desiredCol (clamped per
 // row). This is the structural test for "vertical motion is symmetric."
 func TestProperty_Cursor_MoveDownThenUp_Idempotent(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(20, 120).Draw(t, "width")
 		nLines := rapid.IntRange(2, 10).Draw(t, "nLines")
@@ -452,6 +454,7 @@ func TestProperty_Cursor_MoveDownThenUp_Idempotent(t *testing.T) {
 // invariant: after any sequence of pure j/k motions (no h/l/click),
 // desiredCol does not change.
 func TestProperty_Cursor_DesiredColPreserved(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(20, 120).Draw(t, "width")
 		nLines := rapid.IntRange(2, 12).Draw(t, "nLines")

@@ -21,6 +21,7 @@ func TestActivityInitialActive(t *testing.T) {
 // Property: when UI is recent and server is recent, PR interval is active.
 // When either is past its threshold, interval is idle.
 func TestActivityComputePRInterval(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		now := time.Now()
 		uiAgo := time.Duration(rapid.IntRange(0, 30).Draw(t, "uiAgoMin")) * time.Minute
@@ -46,6 +47,7 @@ func TestActivityComputePRInterval(t *testing.T) {
 
 // Property: git interval is active when EITHER UI or FS is recent.
 func TestActivityComputeGitInterval(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		now := time.Now()
 		uiAgo := time.Duration(rapid.IntRange(0, 30).Draw(t, "uiAgoMin")) * time.Minute
@@ -71,6 +73,7 @@ func TestActivityComputeGitInterval(t *testing.T) {
 
 // Property: BumpRateLimited at most doubles, capped at prRefreshMax.
 func TestActivityBumpRateLimited(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		startMult := rapid.IntRange(1, 32).Draw(t, "startMult")
 		start := time.Duration(startMult) * prRefreshActive

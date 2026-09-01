@@ -11,6 +11,7 @@ import (
 // Precedence is encoded in Class (renamed > deleted > added > modified),
 // established at construction time by buildChangedFiles.
 func TestChangeBadgePriority(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		file := rapid.SampledFrom([]string{"a.go", "b.go", "c.go", "x.go"}).Draw(t, "file")
 		class := gitpkg.Class(rapid.IntRange(0, 3).Draw(t, "class"))

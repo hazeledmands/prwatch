@@ -75,6 +75,7 @@ func genDeployments(t *rapid.T) []gitpkg.PRDeployment {
 
 // Property: output is idempotent (same inputs → same output).
 func TestPRDescriptionIdempotent(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		pr := genPRInfo(t)
 		reviews := genReviews(t)
@@ -91,6 +92,7 @@ func TestPRDescriptionIdempotent(t *testing.T) {
 
 // Property: header line always contains "PR #N: title".
 func TestPRDescriptionHeader(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		pr := genPRInfo(t)
 		out := renderPRDescription(pr, genReviews(t), genDeployments(t), 80)
@@ -103,6 +105,7 @@ func TestPRDescriptionHeader(t *testing.T) {
 
 // Property: Reviewers: line appears iff reviews non-empty.
 func TestPRDescriptionReviewersLine(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		pr := genPRInfo(t)
 		reviews := genReviews(t)
@@ -116,6 +119,7 @@ func TestPRDescriptionReviewersLine(t *testing.T) {
 
 // Property: Deployments: section appears iff deployments non-empty.
 func TestPRDescriptionDeploymentsSection(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		pr := genPRInfo(t)
 		deployments := genDeployments(t)
@@ -129,6 +133,7 @@ func TestPRDescriptionDeploymentsSection(t *testing.T) {
 
 // Property: [DRAFT] and [MERGED]/[CLOSED] tags reflect pr state.
 func TestPRDescriptionStateTags(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		pr := genPRInfo(t)
 		out := renderPRDescription(pr, nil, nil, 80)

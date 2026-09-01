@@ -90,6 +90,7 @@ func TestStatusBarRows_RenderMatchesLayout(t *testing.T) {
 // TestProperty_StatusBarRenderRowsMatchLayoutRows fuzzes the whole
 // loading × prLoadedOnce × git × confirming × error × PR state space.
 func TestProperty_StatusBarRenderRowsMatchLayoutRows(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		s := statusBarState{
 			hasGit:       rapid.Bool().Draw(t, "hasGit"),

@@ -113,6 +113,7 @@ diff --git a/b.txt b/b.txt
 // header-shaped text and checks that the shared classifier and every
 // consumer agree on the counts.
 func TestProperty_DiffBodyLinesAreNeverHeaders(t *testing.T) {
+	t.Parallel()
 	bodyTexts := []string{"plain", "++i;", "-- comment", "--- three", "+++ three", "@ at", " leading space"}
 
 	rapid.Check(t, func(t *rapid.T) {

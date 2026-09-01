@@ -874,6 +874,7 @@ func applyTicks(m *Model, hasGit bool) {
 // ---------------------------------------------------------------------------
 
 func TestProperty_ClickSidebarSelectsItem(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 160).Draw(t, "width")
 		height := rapid.IntRange(15, 50).Draw(t, "height")
@@ -961,6 +962,7 @@ func TestProperty_ClickSidebarSelectsItem(t *testing.T) {
 }
 
 func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 160).Draw(t, "width")
 		height := rapid.IntRange(15, 50).Draw(t, "height")
@@ -1082,6 +1084,7 @@ func TestProperty_ClickCommitSelectsCommit(t *testing.T) {
 // Randomizes terminal size, line numbers on/off, word wrap on/off, and the
 // drag start/end positions within the main pane content area.
 func TestProperty_DragSelectsCorrectText(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 160).Draw(t, "width")
 		height := rapid.IntRange(15, 50).Draw(t, "height")
@@ -1493,6 +1496,7 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 // regardless of mode, scroll position, or drag coordinates. Also checks that
 // selectedText() only contains characters present in the viewport content.
 func TestProperty_DragAcrossModesNoPanic(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		mock, mode := genScenario(t)
 		width := rapid.IntRange(40, 200).Draw(t, "width")
@@ -1964,6 +1968,7 @@ func checkIgnoredInvariants(t *rapid.T, m *Model, ignoredSet map[string]bool, co
 }
 
 func TestProperty_TreeModeNavigation(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 160).Draw(t, "width")
 		height := rapid.IntRange(15, 50).Draw(t, "height")
@@ -2311,6 +2316,7 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 }
 
 func TestProperty_InteractionInvariants(t *testing.T) {
+	t.Parallel()
 	type itemKey struct {
 		mode Mode
 		item string
@@ -2450,6 +2456,7 @@ func actionMayChangeScroll(msg tea.Msg) bool {
 // paths (with the same kinds). Selection isn't required to round-trip
 // because the selectable index can shift if the visible item count changes.
 func TestProperty_ToggleIgnoredSymmetry(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		mock := genMockGit(t)
 		width := rapid.IntRange(60, 160).Draw(t, "width")
@@ -2498,6 +2505,7 @@ func TestProperty_ToggleIgnoredSymmetry(t *testing.T) {
 // when present the cutline is the item immediately preceding the Base header.
 // This holds across arbitrary user interactions including scope-handle keys.
 func TestProperty_ScopeCutlineMatchesBaseSection(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		mock, _ := genScenario(t)
 		if mock == nil {
@@ -2565,6 +2573,7 @@ func TestProperty_ScopeCutlineMatchesBaseSection(t *testing.T) {
 // (`@<sha7>`) iff scope.IsScrubbed(). This is the visible signal that the
 // user is scrubbed away from default scope.
 func TestProperty_ScopeIndicatorMatchesScrub(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		mock, mode := genScenario(t)
 		if mock == nil {
@@ -2625,6 +2634,7 @@ func genProgressMainPane(t *rapid.T) *mainPane {
 // TestProperty_ProgressPercent_Bounds asserts that progressPercent is always
 // in [0, 100] for any valid scroll offset.
 func TestProperty_ProgressPercent_Bounds(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		mp := genProgressMainPane(t)
 		// Try a random scroll offset within the viewport's allowed range.
@@ -2643,6 +2653,7 @@ func TestProperty_ProgressPercent_Bounds(t *testing.T) {
 // offsets A ≤ B, progressPercent(A) ≤ progressPercent(B). Scrolling down
 // must never decrease the value.
 func TestProperty_ProgressPercent_Monotonic(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		mp := genProgressMainPane(t)
 
@@ -2667,6 +2678,7 @@ func TestProperty_ProgressPercent_Monotonic(t *testing.T) {
 // TestProperty_ProgressPercent_BottomIs100 asserts that GotoBottom() always
 // produces 100% for any non-empty content.
 func TestProperty_ProgressPercent_BottomIs100(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		mp := genProgressMainPane(t)
 		mp.viewport.GotoBottom()
@@ -2685,6 +2697,7 @@ func TestProperty_ProgressPercent_BottomIs100(t *testing.T) {
 // INCONSISTENCIES.md case where 18 trailing `-` lines never reached the
 // main pane).
 func TestProperty_ParseDiffAnnotations_PreservesAllRemovedLines(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		diff, _ := genUnifiedDiff(t)
 		if diff == "" {
@@ -2742,6 +2755,7 @@ func stringSlicesEqual(a, b []string) bool {
 // output, which interleaves old/new content and isn't a substring match —
 // those are exempt and tracked separately.
 func TestProperty_FileViewRender_PreservesAllRemovedLines(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		diff, newContent := genUnifiedDiff(t)
 		if diff == "" {

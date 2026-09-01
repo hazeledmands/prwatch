@@ -14,4 +14,18 @@
 set -euo pipefail
 checks="${1:-200}"
 shift || true
-PRWATCH_RAPID_CHECKS="$checks" exec go test -race -count=1 ./internal/ui/... "$@"
+
+# go test's default -timeout is 10m, which heavy sweeps (e.g. 200+ checks
+# with -race) can blow past. Default to 60m, but let an explicit -timeout
+# in the forwarded args win.
+timeout_args=(-timeout 60m)
+for arg in "$@"; do
+	case "$arg" in
+	-timeout | -timeout=*)
+		timeout_args=()
+		break
+		;;
+	esac
+done
+
+PRWATCH_RAPID_CHECKS="$checks" exec go test -race -count=1 "${timeout_args[@]}" ./internal/ui/... "$@"

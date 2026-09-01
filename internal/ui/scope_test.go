@@ -69,6 +69,7 @@ func (linearGit) FirstChildToward(base, _ string) (string, error) {
 
 // Property: Len() always equals oldOffset - newOffset, and is never negative.
 func TestScope_LenInvariant(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		s := arbitraryScope(t)
 		if s.Len() != s.oldOffset-s.newOffset {
@@ -82,6 +83,7 @@ func TestScope_LenInvariant(t *testing.T) {
 
 // Property: IsScrubbed is the disjunction of offset-mismatches.
 func TestScope_IsScrubbedConditions(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		s := arbitraryScope(t)
 		want := s.oldOffset != s.naturalOldOffset || s.newOffset != s.naturalNewOffset
@@ -94,6 +96,7 @@ func TestScope_IsScrubbedConditions(t *testing.T) {
 
 // Property: Handle() is non-nil iff IsScrubbed() and oldBase != "".
 func TestScope_HandleNilCondition(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		s := arbitraryScope(t)
 		want := s.IsScrubbed() && s.oldBase != ""
@@ -107,6 +110,7 @@ func TestScope_HandleNilCondition(t *testing.T) {
 
 // Property: Handle().sha7 is the first 7 chars of oldBase (or all of it).
 func TestScope_HandleSha7Truncation(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		s := arbitraryScope(t)
 		h := s.Handle()
@@ -128,6 +132,7 @@ func TestScope_HandleSha7Truncation(t *testing.T) {
 
 // Property: Handle().headOffset is oldOffset.
 func TestScope_HandleHeadOffset(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		s := arbitraryScope(t)
 		h := s.Handle()
@@ -143,6 +148,7 @@ func TestScope_HandleHeadOffset(t *testing.T) {
 // Property: ContractForward on an empty range is a no-op (the working tree
 // is the floor and can't be crossed by the outer endpoint).
 func TestScope_ContractForwardEmptyIsNoOp(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		// Build a scope with Len() == 0: oldOffset == newOffset.
 		off := rapid.IntRange(0, 20).Draw(t, "off")
@@ -167,6 +173,7 @@ func TestScope_ContractForwardEmptyIsNoOp(t *testing.T) {
 // Property: ExtendBack followed by ContractForward returns to the original
 // state (on a linear history, with the range non-empty after the back).
 func TestScope_ExtendBackThenContractForwardIsIdentity(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		// Start anywhere on the linear chain with a non-empty range so
 		// ContractForward isn't a no-op.
@@ -196,6 +203,7 @@ func TestScope_ExtendBackThenContractForwardIsIdentity(t *testing.T) {
 
 // Property: ExtendBack always increments oldOffset by 1 and walks oldBase.
 func TestScope_ExtendBackIncrementsOffset(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		oldOff := rapid.IntRange(0, linearRoot-1).Draw(t, "oldOff")
 		s := scope{
@@ -218,6 +226,7 @@ func TestScope_ExtendBackIncrementsOffset(t *testing.T) {
 
 // Property: Reset is idempotent and snaps to the natural endpoints.
 func TestScope_ResetIdempotent(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		s := arbitraryScope(t)
 		s.Reset()
@@ -271,6 +280,7 @@ func TestScope_ExtendBackUnloaded(t *testing.T) {
 // Property: SyncFromLoad at the natural position adopts loaded values;
 // when scrubbed, preserves the scrubbed endpoints.
 func TestScope_SyncFromLoadPreservesScrub(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		s := arbitraryScope(t)
 		wasScrubbed := s.IsScrubbed()

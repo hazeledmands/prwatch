@@ -103,6 +103,7 @@ func TestChangedFiles_HasRenameOldPath(t *testing.T) {
 
 // Property: All() returns one entry per unique input path, in sorted order.
 func TestProperty_ChangedFiles_AllUniqueSorted(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		n := rapid.IntRange(0, 50).Draw(t, "n")
 		c := NewChangedFiles()
@@ -126,6 +127,7 @@ func TestProperty_ChangedFiles_AllUniqueSorted(t *testing.T) {
 
 // Property: InSection partitions All — every file appears in exactly one section's list.
 func TestProperty_ChangedFiles_SectionPartition(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		n := rapid.IntRange(0, 30).Draw(t, "n")
 		c := NewChangedFiles()
@@ -162,6 +164,7 @@ func TestProperty_ChangedFiles_SectionPartition(t *testing.T) {
 // section, the section assignment is consistent with the input slices, and
 // rename targets are classified as ClassRenamed with non-empty OldPath.
 func TestProperty_BuildChangedFiles_Invariants(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		// Disjoint section buckets — committed/staged/uncommitted use
 		// non-overlapping name prefixes the way git.ChangedFiles produces

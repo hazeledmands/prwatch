@@ -12,6 +12,7 @@ import (
 // goes to hunk K+1's start (not to a different line within K) — this is
 // what makes nav "hunk-grain": repeated presses advance one hunk per press.
 func TestNextHunkStartForward(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		hunks := drawHunks(t, "hunks")
 		current := rapid.IntRange(0, 250).Draw(t, "current")
@@ -44,6 +45,7 @@ func TestNextHunkStartForward(t *testing.T) {
 // be revisited by a forward press). From the middle of hunk K, backward
 // goes to K's start (vim-style "jump to start of current chunk").
 func TestNextHunkStartBackward(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		hunks := drawHunks(t, "hunks")
 		current := rapid.IntRange(0, 250).Draw(t, "current")

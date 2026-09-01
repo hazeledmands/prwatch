@@ -32,6 +32,7 @@ func drawEndpoint(t *rapid.T, tag string) endpoint {
 // Property: Begin activates the drag, clears scrollDir, and places both
 // endpoints at the click position so HasRange is false until the mouse moves.
 func TestDragSelection_BeginInitializesState(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		e := drawEndpoint(t, "click")
 		d := newDragSelection()
@@ -56,6 +57,7 @@ func TestDragSelection_BeginInitializesState(t *testing.T) {
 // Property: MoveEnd updates the active end but never the anchor; HasRange
 // becomes true iff the active end differs from the anchor.
 func TestDragSelection_MoveEndUpdatesRange(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		e1 := drawEndpoint(t, "begin")
 		e2 := drawEndpoint(t, "move")
@@ -79,6 +81,7 @@ func TestDragSelection_MoveEndUpdatesRange(t *testing.T) {
 // Property: Release returns true iff the drag was active; it always
 // deactivates and zeroes scrollDir, and records the release endpoint.
 func TestDragSelection_ReleaseDeactivates(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		e1 := drawEndpoint(t, "begin")
 		e2 := drawEndpoint(t, "release")
@@ -108,6 +111,7 @@ func TestDragSelection_ReleaseDeactivates(t *testing.T) {
 
 // Property: Cancel deactivates from any state and is idempotent.
 func TestDragSelection_CancelIdempotent(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		startActive := rapid.Bool().Draw(t, "startActive")
 		e := drawEndpoint(t, "click")
@@ -164,6 +168,7 @@ func dragModel(t *rapid.T, width, height, nLines int) *Model {
 // characters (after stripping ANSI for width) are unchanged. This is the
 // "round-trip through reverse-video is lossless" invariant from §6.
 func TestDragApplyHighlight_PreservesStrippedContent(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 140).Draw(t, "width")
 		height := rapid.IntRange(15, 40).Draw(t, "height")
@@ -205,6 +210,7 @@ func TestDragApplyHighlight_PreservesStrippedContent(t *testing.T) {
 // clamps the start to the gutter offset — no reverse-video escape ever
 // appears at a display column inside the gutter region.
 func TestDragApplyHighlight_NeverHighlightsGutter(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 140).Draw(t, "width")
 		height := rapid.IntRange(15, 40).Draw(t, "height")
@@ -260,6 +266,7 @@ func TestDragApplyHighlight_NeverHighlightsGutter(t *testing.T) {
 // coords are scroll-invariant) or stops by setting scrollDir to 0.
 // Repeated calls therefore terminate.
 func TestDragAdvanceAutoScroll_Terminates(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		width := rapid.IntRange(60, 140).Draw(t, "width")
 		height := rapid.IntRange(20, 40).Draw(t, "height")
