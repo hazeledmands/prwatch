@@ -12,6 +12,65 @@
 
 ## Fixed Bugs
 
+### CODE_REVIEW.md A2 — async `tea.Cmd` plumbing patched one-off instead of by convention
+
+- Data race: the git loads were dispatched as bound method values
+  (`m.loadLocalGitData`, `m.loadGitData`, `m.loadMoreCommits`), so their
+  bodies ran on bubbletea Cmd goroutines while reading `m.scope.IsScrubbed()`
+  / `m.scope.OldBase()`, `m.commitsLoaded` and `m.prInfo.BaseRef` — all of
+  which `Update` mutates on the main goroutine. `go test -race` reports it:
+  read at `scope.IsScrubbed()` (`scope.go:62`) from
+  `(*Model).loadLocalGitData` vs. previous write at `scope.ExtendBack()`
+  (`scope.go:88`) from `(*Model).handleKey` — i.e. a periodic git tick
+  overlapping a `[` / `]` keypress, which is the ordinary interactive case,
+  not a corner. Fixed by establishing the convention CLAUDE.md already
+  describes: `gitLoadRequest` is a dispatch-time snapshot of every field a
+  load reads, `m.gitLoadCmd(withPR)` / `m.loadMoreCommitsCmd()` build it on
+  the Update goroutine, and the closure captures the snapshot only. The
+  other Cmd-producing paths (`loadPRStatusCmd`, `loadNonGitFilesCmd`,
+  `expandIgnoredDirCmd`) were converted from
+  `m.`-reading methods/closures to free functions over explicit parameters
+  so the convention is uniform rather than a special case for the three
+  racy ones. Regression: `TestGitLoadCmd_NoModelStateRace`,
+  `TestGitLoadCmd_PRVariantNoModelStateRace`,
+  `TestLoadMoreCommitsCmd_NoModelStateRace` (each drives the real Cmd on a
+  goroutine while `Update` scrubs the scope for 30ms, so `-race` observes
+  the overlap).
+
+- `moreCommitsMsg` had no stale guard: the handler appended
+  unconditionally. A scrub landing mid-flight appended a page computed
+  against a different base, and the two "load more" trigger paths (click,
+  `model.go` mouse handler; enter, `handleEnter`) could both fire before
+  either result landed, appending the same page twice (observed: 200
+  commits where 150 exist). Fixed by carrying the dispatch-time `base` and
+  `skip` in the msg and appending only when both still match current state,
+  plus a `moreCommitsPending` marker so the second dispatch returns a nil
+  Cmd instead of running a duplicate git query. The marker is cleared on
+  every `moreCommitsMsg` including the error case (the msg now carries
+  `err` rather than the Cmd returning nil), so one failed page can't wedge
+  pagination for the session. Regression:
+  `TestMoreCommits_DiscardedWhenScopeMovedMidFlight`,
+  `TestMoreCommits_DuplicateDispatchAppendsOnce`,
+  `TestMoreCommits_ErrorClearsInFlightMarker`.
+
+- Stale-load guard misfired on legitimate base movement: it compared
+  `msg.queryOldBase` against `m.scope.OldBase()`, so when the natural base
+  moved (rebase, base branch advanced) the load that *detected* the new
+  base — and queried against it — had its own results discarded. `scope`
+  then adopted the new natural base via `SyncFromLoad` while the commit
+  list, changed files and base commits stayed at the old base, so counts
+  and sidebar disagreed until the next poll. Fixed by making the guard ask
+  "is this answer still an answer to a question I'm asking?" instead of
+  "does this base match?": the msg carries `reqScrubbedBase`, the
+  dispatcher's snapshot of the *user's* pin (`scope.OldBase()` when
+  scrubbed, `""` when natural), and the handler discards only when the
+  current pin differs. Natural-base movement leaves the pin at `""` on both
+  sides, so the fresh data is applied; a scrub, un-scrub, or re-scrub
+  mid-flight still discards. Regression:
+  `TestGitData_AcceptedWhenNaturalBaseMoves` (failed pre-fix with
+  "commits = 100, want 7"), `TestGitData_DiscardedWhenUserScrubsMidFlight`,
+  `TestGitData_DiscardedWhenUserUnscrubsMidFlight`.
+
 ### CODE_REVIEW.md A1 — paired computations maintained in N places
 
 - Status-bar height computed three ways: `View()` used

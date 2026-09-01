@@ -100,6 +100,7 @@ type Model struct {
 	loadedIgnoredDirs  map[string]bool      // ignored dirs whose contents have been lazy-loaded
 	commits            []gitpkg.Commit
 	commitsLoaded      int                   // how many commits have been loaded so far
+	moreCommitsPending bool                  // a load-more page is dispatched and hasn't landed yet
 	behindCount        int                   // how many commits behind base
 	baseCommits        []gitpkg.Commit       // commits from the base branch (for commit mode category 4)
 	prComments         []gitpkg.PRComment    // PR comments for PR-view mode
@@ -162,11 +163,21 @@ type gitDataMsg struct {
 	ciStatus       gitpkg.CIStatusResult
 	prReviews      []gitpkg.PRReview
 	prCommentCount int
-	// queryOldBase is the scope.OldBase() the load actually queried against.
-	// Used by the stale-load guard: if the user scrubbed between dispatch and
-	// return, this won't match the model's current scope and the scope-dependent
-	// fields (commits, baseCommits, changed files) get discarded.
+	// queryOldBase is the base SHA the load actually queried against: the
+	// user's scrubbed endpoint when scrubbed, otherwise the natural base the
+	// load itself just detected. Informational — the guard uses
+	// reqScrubbedBase, not this.
 	queryOldBase string
+	// reqScrubbedBase is the dispatch-time snapshot of the *user's* scope pin:
+	// scope.OldBase() when the scope was scrubbed, "" when it sat at its
+	// natural position. It is the stale-load guard's key. On receipt the
+	// handler recomputes the same value from current scope state and discards
+	// the load only when they differ — i.e. only when the user moved the scope
+	// underneath the load. A load that merely observes the *natural* base
+	// moving (rebase, base branch advanced) still answers the question that
+	// was asked ("give me the natural range"), so it is applied: it is the
+	// source of the base movement and its data is the freshest available.
+	reqScrubbedBase string
 	// natural{Old,New}Base / natural{Old,New}Offset describe the freshly-detected
 	// natural endpoints at load time. Passed to scope.SyncFromLoad, which either
 	// adopts them (when not scrubbed) or only updates the natural fields (when
@@ -195,6 +206,16 @@ type RefreshMsg struct{}
 
 type moreCommitsMsg struct {
 	commits []gitpkg.Commit
+	// base and skip are the dispatch-time snapshot the page was computed
+	// from: the scope endpoint it was queried against and the number of
+	// commits already loaded when it was requested. The handler appends only
+	// when both still match current state — which discards a page computed
+	// against a base the user has since scrubbed away from, and makes a
+	// duplicate dispatch (click + enter) idempotent rather than
+	// double-appending.
+	base string
+	skip int
+	err  error
 }
 
 type prRefreshMsg struct {
@@ -264,9 +285,9 @@ func NewModel(dir string, g GitDataSource) *Model {
 
 func (m *Model) Init() tea.Cmd {
 	if m.git == nil {
-		return m.loadNonGitFiles
+		return loadNonGitFilesCmd(m.dir)
 	}
-	return tea.Batch(m.loadLocalGitData, m.loadPRStatus, schedulePRTick(m.activity.PRInterval()), scheduleGitTick(m.activity.GitInterval()))
+	return tea.Batch(m.gitLoadCmd(false), loadPRStatusCmd(m.git), schedulePRTick(m.activity.PRInterval()), scheduleGitTick(m.activity.GitInterval()))
 }
 
 func schedulePRTick(interval time.Duration) tea.Cmd {
@@ -281,17 +302,26 @@ func scheduleGitTick(interval time.Duration) tea.Cmd {
 	})
 }
 
-func (m *Model) loadNonGitFiles() tea.Msg {
+// loadNonGitFilesCmd walks dir in the background. Closes over dir only.
+func loadNonGitFilesCmd(dir string) tea.Cmd {
+	return func() tea.Msg { return walkNonGitFiles(dir) }
+}
+
+// loadNonGitFiles runs the walk synchronously against the current model.
+// Update-goroutine callers only (RenderOnce, tests).
+func (m *Model) loadNonGitFiles() tea.Msg { return walkNonGitFiles(m.dir) }
+
+func walkNonGitFiles(dir string) tea.Msg {
 	var files []string
-	err := filepath.WalkDir(m.dir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			if path == m.dir {
+			if path == dir {
 				return err
 			}
 			return nil
 		}
 		if !d.IsDir() {
-			rel, err := filepath.Rel(m.dir, path)
+			rel, err := filepath.Rel(dir, path)
 			if err != nil {
 				return nil
 			}
@@ -311,15 +341,24 @@ func (m *Model) loadNonGitFiles() tea.Msg {
 	}
 }
 
-func (m *Model) loadPRStatus() tea.Msg {
-	prAll, err := m.git.PRAll()
+// loadPRStatusCmd fetches PR state in the background. Closes over the git
+// source only — that's the whole of the Model state this load depends on.
+func loadPRStatusCmd(g GitDataSource) tea.Cmd {
+	return func() tea.Msg { return fetchPRStatus(g) }
+}
+
+// loadPRStatus runs the PR fetch synchronously. Update-goroutine callers only.
+func (m *Model) loadPRStatus() tea.Msg { return fetchPRStatus(m.git) }
+
+func fetchPRStatus(g GitDataSource) tea.Msg {
+	prAll, err := g.PRAll()
 	if err != nil {
 		// Any PR fetch error (rate limit, network, auth) — signal to preserve old data
 		return prRefreshMsg{rateLimited: true}
 	}
 	var checksResult gitpkg.PRChecksResult
 	if prAll.Info.Number > 0 {
-		checksResult, _ = m.git.PRChecksAll()
+		checksResult, _ = g.PRChecksAll()
 	}
 	return prRefreshMsg{
 		prInfo:         prAll.Info,
@@ -421,17 +460,22 @@ type ignoredDirLoadedMsg struct {
 	files []string // recursive ignored contents under dir
 }
 
-// expandIgnoredDir returns a Cmd that fetches the contents of an ignored
-// directory in the background and posts an ignoredDirLoadedMsg.
-func (m *Model) expandIgnoredDir(dir string) tea.Cmd {
+// expandIgnoredDirCmd returns a Cmd that fetches the contents of an ignored
+// directory in the background and posts an ignoredDirLoadedMsg. Closes over
+// the git source and the dir name only.
+func expandIgnoredDirCmd(g GitDataSource, dir string) tea.Cmd {
 	return func() tea.Msg {
-		files, _ := m.git.IgnoredFilesInDir(dir)
+		files, _ := g.IgnoredFilesInDir(dir)
 		return ignoredDirLoadedMsg{dir: dir, files: files}
 	}
 }
 
-func (m *Model) reloadAllFiles() tea.Msg {
-	files, _ := m.git.AllFiles()
+// reloadAllFiles runs the file-list fetch synchronously. Update-goroutine
+// callers only.
+func (m *Model) reloadAllFiles() tea.Msg { return fetchAllFiles(m.git) }
+
+func fetchAllFiles(g GitDataSource) tea.Msg {
+	files, _ := g.AllFiles()
 	return allFilesMsg{files: files}
 }
 
@@ -454,54 +498,124 @@ func loadIgnoredSet(g GitDataSource) (files map[string]bool, dirs map[string]boo
 	return files, dirs
 }
 
-func (m *Model) loadGitData() tea.Msg {
-	info, err := m.git.RepoInfo()
+// gitLoadRequest is the dispatch-time snapshot of every piece of Model state an
+// async git load depends on. Cmd closures capture a gitLoadRequest and nothing
+// else — never the *Model — so the load runs against a frozen view of the world
+// while Update stays free to keep mutating. See CLAUDE.md, "tea.Cmd closures
+// must not read Model state".
+type gitLoadRequest struct {
+	git GitDataSource
+	// withPR: also fetch GitHub PR data (PRAll / PRChecksAll). When false the
+	// load is local-only and the handler preserves existing PR data.
+	withPR bool
+	// scrubbedBase is the scope endpoint the *user* pinned: scope.OldBase()
+	// when scope.IsScrubbed(), "" when the scope sits at its natural position.
+	// It is both a query input and the guard key carried back in
+	// gitDataMsg.reqScrubbedBase.
+	scrubbedBase string
+	// commitsLoaded is m.commitsLoaded at dispatch. The load re-fetches at
+	// least that many commits so a refresh tick doesn't drop pagination.
+	commitsLoaded int
+	// prBaseRef is m.prInfo.BaseRef at dispatch. Consulted only when !withPR;
+	// a withPR load uses the BaseRef it just fetched.
+	prBaseRef string
+}
+
+// gitLoadRequest snapshots the Model state a git load reads. Must be called on
+// the Update goroutine.
+func (m *Model) gitLoadRequest(withPR bool) gitLoadRequest {
+	req := gitLoadRequest{
+		git:           m.git,
+		withPR:        withPR,
+		commitsLoaded: m.commitsLoaded,
+		prBaseRef:     m.prInfo.BaseRef,
+	}
+	if m.scope.IsScrubbed() {
+		req.scrubbedBase = m.scope.OldBase()
+	}
+	return req
+}
+
+// gitLoadCmd is the only supported way to dispatch a git load. It snapshots on
+// the Update goroutine and returns a closure over the snapshot alone.
+func (m *Model) gitLoadCmd(withPR bool) tea.Cmd {
+	req := m.gitLoadRequest(withPR)
+	return func() tea.Msg { return runGitLoad(req) }
+}
+
+// loadGitData runs a full (PR-inclusive) load synchronously against the
+// current model state. Update-goroutine callers only — RenderOnce,
+// RenderWithKeys and tests. Interactive dispatch goes through gitLoadCmd.
+func (m *Model) loadGitData() tea.Msg { return runGitLoad(m.gitLoadRequest(true)) }
+
+// loadLocalGitData runs a local-only load synchronously. Same contract as
+// loadGitData: synchronous callers only.
+func (m *Model) loadLocalGitData() tea.Msg { return runGitLoad(m.gitLoadRequest(false)) }
+
+// runGitLoad performs a git load against a frozen request. It touches no
+// Model state, so it is safe to run on a Cmd goroutine.
+func runGitLoad(req gitLoadRequest) tea.Msg {
+	g := req.git
+	info, err := g.RepoInfo()
 	if err != nil {
 		return gitDataMsg{err: err}
 	}
 
 	// Empty repo (no commits yet): skip diff/commit operations that require HEAD
 	if info.IsEmpty {
-		allFiles, _ := m.git.AllFiles()
+		allFiles, _ := g.AllFiles()
 		changes := gitpkg.NewChangedFiles()
 		for _, p := range allFiles {
 			changes.Add(gitpkg.ChangedFile{Path: p, Section: gitpkg.SectionUncommitted, Class: gitpkg.ClassAdded})
 		}
 		return gitDataMsg{
-			repoInfo: info,
-			allFiles: allFiles,
-			changes:  changes,
+			repoInfo:        info,
+			allFiles:        allFiles,
+			changes:         changes,
+			reqScrubbedBase: req.scrubbedBase,
+			localOnly:       !req.withPR,
 		}
 	}
 
-	prAll, prErr := m.git.PRAll()
-	prFetchFailed := prErr != nil
-	prInfo := prAll.Info
-
-	// Fetch CI checks if a PR exists (and fetch succeeded)
-	var ciStatus gitpkg.CIStatusResult
-	var ciChecks []gitpkg.CICheck
-	if prInfo.Number > 0 {
-		checksResult, _ := m.git.PRChecksAll()
-		ciStatus = checksResult.Status
-		ciChecks = checksResult.Checks
+	// PR data, when this load is the PR-inclusive variant. A failure is
+	// reported via prFetchFailed rather than erroring the whole load, so the
+	// local half still refreshes.
+	var (
+		prAll         gitpkg.PRAllResult
+		prFetchFailed bool
+		ciStatus      gitpkg.CIStatusResult
+		ciChecks      []gitpkg.CICheck
+	)
+	prBaseRef := req.prBaseRef
+	if req.withPR {
+		var prErr error
+		prAll, prErr = g.PRAll()
+		prFetchFailed = prErr != nil
+		prBaseRef = prAll.Info.BaseRef
+		if prAll.Info.Number > 0 {
+			checksResult, _ := g.PRChecksAll()
+			ciStatus = checksResult.Status
+			ciChecks = checksResult.Checks
+		}
 	}
 
-	// Detect the natural scope base. Prefer the PR-reported base when
-	// available; fall back to local detection.
-	naturalOldBase, berr := detectNaturalBase(m.git, prInfo.BaseRef)
-	if berr != nil {
-		return gitDataMsg{err: berr}
+	// Detect the natural scope base. Prefers the PR-reported base ref when
+	// one is known — freshly fetched for a withPR load, the dispatch-time
+	// snapshot otherwise. (When PR data arrives later, prRefreshMsg
+	// re-dispatches a local load so the natural base upgrades to match.)
+	naturalOldBase, err := detectNaturalBase(g, prBaseRef)
+	if err != nil {
+		return gitDataMsg{err: err}
 	}
 
-	// Pick the base used for queries: if the user has scrubbed the scope
-	// handle, that's the scrubbed outer endpoint; otherwise the natural one.
+	// Pick the base used for queries: the user's scrubbed outer endpoint when
+	// scrubbed, the freshly-detected natural one otherwise.
 	queryOldBase := naturalOldBase
-	if m.scope.IsScrubbed() && m.scope.OldBase() != "" {
-		queryOldBase = m.scope.OldBase()
+	if req.scrubbedBase != "" {
+		queryOldBase = req.scrubbedBase
 	}
 
-	files, err := m.git.ChangedFiles(queryOldBase)
+	files, err := g.ChangedFiles(queryOldBase)
 	if err != nil {
 		return gitDataMsg{err: err}
 	}
@@ -509,39 +623,36 @@ func (m *Model) loadGitData() tea.Msg {
 	// In-scope commits + count are always range-relative now. On main / detached
 	// HEAD the range is empty (queryOldBase == HEAD), so commits = []; the full
 	// repo history is rendered below the cutline via BaseCommits.
-	pageSize := max(commitPageSize, m.commitsLoaded)
-	commits, err := m.git.Commits(queryOldBase, 0, pageSize)
+	pageSize := max(commitPageSize, req.commitsLoaded)
+	commits, err := g.Commits(queryOldBase, 0, pageSize)
 	if err != nil {
 		return gitDataMsg{err: err}
 	}
-	naturalOldOffset, _ := m.git.CommitCountRange(naturalOldBase)
+	naturalOldOffset, _ := g.CommitCountRange(naturalOldBase)
 
 	// Compute behind count: how many commits on the base branch we don't have
 	var behindCount int
 	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
-		behindCount = m.git.BehindCount(baseRefForBehind(prInfo.BaseRef, info.Branch, info.Upstream))
+		behindCount = g.BehindCount(baseRefForBehind(prBaseRef, info.Branch, info.Upstream))
 	}
 
 	// Below-cutline commits (out-of-scope context). On non-detached-HEAD this
 	// is what the commits-mode "Base" section renders.
 	var baseCommits []gitpkg.Commit
 	if !info.IsDetachedHead {
-		baseCommits, _ = m.git.BaseCommits(queryOldBase, 50)
+		baseCommits, _ = g.BaseCommits(queryOldBase, 50)
 	}
 
 	// Fetch tracked + untracked files (no ignored — those come from the
 	// dedicated --directory query so giant ignored trees like node_modules/
 	// don't blow up the file list).
-	allFiles, _ := m.git.AllFiles()
-	ignoredSet, ignoredDirSet := loadIgnoredSet(m.git)
+	allFiles, _ := g.AllFiles()
+	ignoredSet, ignoredDirSet := loadIgnoredSet(g)
 
-	return gitDataMsg{
+	msg := gitDataMsg{
 		repoInfo:         info,
-		prInfo:           prInfo,
-		ciStatus:         ciStatus,
-		prReviews:        prAll.Reviews,
-		prCommentCount:   prAll.CommentCount,
 		queryOldBase:     queryOldBase,
+		reqScrubbedBase:  req.scrubbedBase,
 		naturalOldBase:   naturalOldBase,
 		naturalOldOffset: naturalOldOffset,
 		changes:          files.ToChangedFiles(),
@@ -551,12 +662,20 @@ func (m *Model) loadGitData() tea.Msg {
 		commits:          commits,
 		baseCommits:      baseCommits,
 		behindCount:      behindCount,
-		prComments:       prAll.Comments,
-		prDeployments:    prAll.Deployments,
-		ciChecks:         ciChecks,
-		reviewRequests:   prAll.ReviewRequests,
-		prFetchFailed:    prFetchFailed,
+		localOnly:        !req.withPR, // preserve existing PR data
 	}
+	if req.withPR {
+		msg.prInfo = prAll.Info
+		msg.ciStatus = ciStatus
+		msg.ciChecks = ciChecks
+		msg.prReviews = prAll.Reviews
+		msg.prCommentCount = prAll.CommentCount
+		msg.prComments = prAll.Comments
+		msg.prDeployments = prAll.Deployments
+		msg.reviewRequests = prAll.ReviewRequests
+		msg.prFetchFailed = prFetchFailed
+	}
+	return msg
 }
 
 // detectNaturalBase resolves the natural outer endpoint of the scope range
@@ -572,105 +691,30 @@ func detectNaturalBase(g GitDataSource, prBaseRef string) (string, error) {
 	return g.DetectBaseLocal()
 }
 
-// detectBase returns the merge-base SHA to use for diff computations,
-// preferring the PR-reported base when available and falling back to
-// local detection. Never invokes gh.
-func (m *Model) detectBase() (string, error) {
-	if m.prInfo.BaseRef != "" {
-		if sha, err := m.git.DetectBaseFromPR(m.prInfo.BaseRef); err == nil {
-			return sha, nil
-		}
-	}
-	return m.git.DetectBaseLocal()
-}
-
-// loadLocalGitData refreshes only local git state (no GitHub API calls).
-// Existing PR data in the model is preserved via prFetchFailed.
-func (m *Model) loadLocalGitData() tea.Msg {
-	info, err := m.git.RepoInfo()
-	if err != nil {
-		return gitDataMsg{err: err}
-	}
-
-	// Empty repo (no commits yet): skip diff/commit operations that require HEAD
-	if info.IsEmpty {
-		allFiles, _ := m.git.AllFiles()
-		changes := gitpkg.NewChangedFiles()
-		for _, p := range allFiles {
-			changes.Add(gitpkg.ChangedFile{Path: p, Section: gitpkg.SectionUncommitted, Class: gitpkg.ClassAdded})
-		}
-		return gitDataMsg{
-			repoInfo:  info,
-			allFiles:  allFiles,
-			changes:   changes,
-			localOnly: true,
-		}
-	}
-
-	// Detect the natural scope base. Prefer the PR-reported base if PR data
-	// has loaded; fall back to local detection. When PR data arrives later,
-	// prRefreshMsg re-dispatches loadLocalGitData so the natural base upgrades
-	// to match the PR's baseRefName.
-	naturalOldBase, err := m.detectBase()
-	if err != nil {
-		return gitDataMsg{err: err}
-	}
-
-	// Pick the base used for queries: scrubbed outer endpoint when scrubbed,
-	// natural base otherwise.
-	queryOldBase := naturalOldBase
-	if m.scope.IsScrubbed() && m.scope.OldBase() != "" {
-		queryOldBase = m.scope.OldBase()
-	}
-
-	files, err := m.git.ChangedFiles(queryOldBase)
-	if err != nil {
-		return gitDataMsg{err: err}
-	}
-
-	pageSize := max(commitPageSize, m.commitsLoaded)
-	commits, err := m.git.Commits(queryOldBase, 0, pageSize)
-	if err != nil {
-		return gitDataMsg{err: err}
-	}
-	naturalOldOffset, _ := m.git.CommitCountRange(naturalOldBase)
-
-	var behindCount int
-	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
-		behindCount = m.git.BehindCount(baseRefForBehind(m.prInfo.BaseRef, info.Branch, info.Upstream))
-	}
-
-	var baseCommits []gitpkg.Commit
-	if !info.IsDetachedHead {
-		baseCommits, _ = m.git.BaseCommits(queryOldBase, 50)
-	}
-
-	allFiles, _ := m.git.AllFiles()
-	ignoredSet, ignoredDirSet := loadIgnoredSet(m.git)
-
-	return gitDataMsg{
-		repoInfo:         info,
-		queryOldBase:     queryOldBase,
-		naturalOldBase:   naturalOldBase,
-		naturalOldOffset: naturalOldOffset,
-		changes:          files.ToChangedFiles(),
-		allFiles:         allFiles,
-		ignoredFiles:     ignoredSet,
-		ignoredDirs:      ignoredDirSet,
-		commits:          commits,
-		baseCommits:      baseCommits,
-		behindCount:      behindCount,
-		localOnly:        true, // preserve existing PR data
-	}
-}
-
-func (m *Model) loadMoreCommits() tea.Msg {
-	skip := m.commitsLoaded
-	commits, err := m.git.Commits(m.scope.OldBase(), skip, commitPageSize)
-	if err != nil {
+// loadMoreCommitsCmd dispatches the next page of in-scope commits, snapshotting
+// the base and offset it is computed from. Returns nil when a page is already
+// in flight, so the click and enter paths can't both fire one.
+func (m *Model) loadMoreCommitsCmd() tea.Cmd {
+	if m.moreCommitsPending {
 		return nil
 	}
-	return moreCommitsMsg{commits: commits}
+	m.moreCommitsPending = true
+	g := m.git
+	base := m.scope.OldBase()
+	skip := m.commitsLoaded
+	return func() tea.Msg { return fetchMoreCommits(g, base, skip) }
+}
+
+// loadMoreCommits runs a load-more page synchronously against current state.
+// Update-goroutine callers only (tests); interactive dispatch goes through
+// loadMoreCommitsCmd.
+func (m *Model) loadMoreCommits() tea.Msg {
+	return fetchMoreCommits(m.git, m.scope.OldBase(), m.commitsLoaded)
+}
+
+func fetchMoreCommits(g GitDataSource, base string, skip int) tea.Msg {
+	commits, err := g.Commits(base, skip, commitPageSize)
+	return moreCommitsMsg{commits: commits, base: base, skip: skip, err: err}
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -773,14 +817,24 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sortPRData()
 			}
 		}
-		// Stale-load guard. If a periodic tick's load was already in flight
-		// when the user scrubbed the scope handle, msg.queryOldBase reflects
-		// the pre-scrub state and msg.commits / committedFiles / baseCommits
-		// describe the wrong slice of history. Sync the natural endpoints so
-		// scope-reset still snaps correctly, then discard the rest. The next
-		// load (re-dispatched by the scope command) is authoritative.
-		currentOld := m.scope.OldBase()
-		if currentOld != "" && msg.queryOldBase != "" && msg.queryOldBase != currentOld {
+		// Stale-load guard. A load answers exactly one question, fixed at
+		// dispatch: "the range pinned at <reqScrubbedBase>", or — for the empty
+		// string — "the natural range, wherever it is now". Discard only when
+		// the user's pin has moved underneath the load, i.e. when the question
+		// this msg answers is no longer one we're asking. Sync the natural
+		// endpoints first so scope-reset still snaps correctly, then discard
+		// the rest; the load re-dispatched by the scope command is
+		// authoritative.
+		//
+		// Crucially this does NOT discard on natural base movement (rebase,
+		// base branch advanced): the load that detected the new base queried
+		// against it, so its results are the freshest available. Comparing
+		// against scope.OldBase() instead threw exactly those away.
+		currentPin := ""
+		if m.scope.IsScrubbed() {
+			currentPin = m.scope.OldBase()
+		}
+		if msg.reqScrubbedBase != currentPin {
 			m.scope.SyncFromLoad(msg.naturalOldBase, msg.naturalNewBase, msg.naturalOldOffset, msg.naturalNewOffset)
 			m.updateLayout()
 			m.updateSidebarItems()
@@ -851,6 +905,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case moreCommitsMsg:
+		// Always clear the marker, including on error — otherwise one failed
+		// page wedges pagination for the rest of the session.
+		m.moreCommitsPending = false
+		if msg.err != nil {
+			return m, nil
+		}
+		// The page continues msg.skip commits after msg.base. If the scope has
+		// moved it describes the wrong slice of history; if the commit list is
+		// no longer exactly msg.skip long, a page covering this range already
+		// landed and appending would duplicate it.
+		if msg.base != m.scope.OldBase() || msg.skip != m.commitsLoaded {
+			return m, nil
+		}
 		m.commits = append(m.commits, msg.commits...)
 		m.commitsLoaded = len(m.commits)
 		m.updateSidebarItems()
@@ -927,7 +994,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateSidebarItems()
 		m.updateMainContent()
 		if baseRefChanged && m.git != nil {
-			return m, m.loadLocalGitData
+			return m, m.gitLoadCmd(false)
 		}
 		return m, nil
 
@@ -942,7 +1009,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.git == nil {
 			return m, schedulePRTick(m.activity.PRInterval())
 		}
-		return m, tea.Batch(m.loadPRStatus, schedulePRTick(m.activity.PRInterval()))
+		return m, tea.Batch(loadPRStatusCmd(m.git), schedulePRTick(m.activity.PRInterval()))
 
 	case notificationExpiredMsg:
 		m.notification = ""
@@ -953,19 +1020,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.git == nil {
 			return m, scheduleGitTick(m.activity.GitInterval())
 		}
-		return m, tea.Batch(m.loadLocalGitData, scheduleGitTick(m.activity.GitInterval()))
+		return m, tea.Batch(m.gitLoadCmd(false), scheduleGitTick(m.activity.GitInterval()))
 
 	case RefreshMsg:
 		// Any fs-watcher event means the working directory is active;
 		// stamp lastGitChange so computeGitInterval keeps us on the fast poll.
 		m.activity.MarkFSEvent(time.Now())
 		if m.git == nil {
-			return m, m.loadNonGitFiles
+			return m, loadNonGitFilesCmd(m.dir)
 		}
 		// Use local-only refresh (no GitHub API calls). File watcher
 		// events fire frequently and should not hit the network.
 		// Full PR data is refreshed on the PR tick cycle instead.
-		return m, m.loadLocalGitData
+		return m, m.gitLoadCmd(false)
 
 	case ipcMsg:
 		return m.handleIPC(msg)
@@ -1313,9 +1380,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.Refresh):
 		if m.git == nil {
-			return m, m.loadNonGitFiles
+			return m, loadNonGitFilesCmd(m.dir)
 		}
-		return m, tea.Batch(m.loadLocalGitData, m.loadPRStatus)
+		return m, tea.Batch(m.gitLoadCmd(false), loadPRStatusCmd(m.git))
 
 	case key.Matches(msg, keys.ScopeReset):
 		if !m.scope.IsScrubbed() {
@@ -1325,7 +1392,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.git == nil {
 			return m, nil
 		}
-		return m, m.loadLocalGitData
+		return m, m.gitLoadCmd(false)
 
 	case key.Matches(msg, keys.ScopeExtendBack):
 		if m.git == nil {
@@ -1335,7 +1402,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// At root commit, unloaded, or other failure — no-op.
 			return m, nil
 		}
-		return m, m.loadLocalGitData
+		return m, m.gitLoadCmd(false)
 
 	case key.Matches(msg, keys.ScopeContractForward):
 		if m.git == nil {
@@ -1346,7 +1413,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// case is handled inside scope.ContractForward as a silent no-op.)
 			return m, nil
 		}
-		return m, m.loadLocalGitData
+		return m, m.gitLoadCmd(false)
 
 	case key.Matches(msg, keys.PRBrowse):
 		if m.prInfo.Number == 0 || m.prInfo.URL == "" {
@@ -1641,7 +1708,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		m.sidebar.SelectIndex(itemIdx)
 		// "Load more" in commit mode triggers pagination
 		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
-			return m, m.loadMoreCommits
+			return m, m.loadMoreCommitsCmd()
 		}
 		// If a directory was clicked, toggle collapse — except for an
 		// unloaded ignored dir, where clicking should fire the lazy-load
@@ -1651,7 +1718,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			dir := m.sidebar.SelectedItem()
 			key := m.sidebar.SelectedCollapseKey()
 			if m.ignoredDirs[dir] && !m.loadedIgnoredDirs[dir] {
-				return m, m.expandIgnoredDir(dir)
+				return m, expandIgnoredDirCmd(m.git, dir)
 			}
 			if key != "" {
 				m.collapsedDirs[key] = !m.collapsedDirs[key]
@@ -1726,7 +1793,7 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.focus == SidebarFocus {
 		// "Load more" in commit mode triggers pagination
 		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
-			return m, m.loadMoreCommits
+			return m, m.loadMoreCommitsCmd()
 		}
 		// Enter behaves like Right
 		return m.handleSidebarRight()
@@ -1785,7 +1852,7 @@ func (m *Model) handleSidebarRight() (tea.Model, tea.Cmd) {
 		dir := m.sidebar.SelectedItem()
 		key := m.sidebar.SelectedCollapseKey()
 		if m.ignoredDirs[dir] && !m.loadedIgnoredDirs[dir] {
-			return m, m.expandIgnoredDir(dir)
+			return m, expandIgnoredDirCmd(m.git, dir)
 		}
 		if key != "" && m.collapsedDirs[key] {
 			// Expand the directory

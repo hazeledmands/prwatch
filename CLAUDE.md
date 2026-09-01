@@ -107,9 +107,10 @@ closure captures only those locals; the result msg carries the inputs it
 was computed from; the handler discards the result when they no longer
 match current state.
 
-`rwxFetcher.Cmd` (rwx.go) is the pattern to copy —
-`loadLocalGitData`/`loadMoreCommits` are the counterexamples being
-fixed.
+`rwxFetcher.Cmd` (rwx.go) and `gitLoadCmd`/`loadMoreCommitsCmd`
+(model.go) are the pattern to copy. The synchronous `m.load*` methods
+are for Update-goroutine callers (RenderOnce, tests) only — never
+dispatch one as a Cmd.
 
 ## Normalize tabs at the content boundary
 

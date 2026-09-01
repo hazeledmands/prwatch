@@ -52,7 +52,7 @@ antipattern. Method per antipattern: regression test observed failing first,
 then the fix, then full-suite + rapid verification; each fixed bug logged in
 `BUG_REPORTS.md`.
 
-**A1 — paired computations that drift** (in progress). Fix = one source of
+**A1 — paired computations that drift** (done, committed 4902d15). Fix = one source of
 truth per value, all call sites converted, per the "Layout geometry comes from
 one function" CLAUDE.md rule:
 1. Status-bar height: `statusBarLines()` is the sole row-count authority;
@@ -75,18 +75,28 @@ one function" CLAUDE.md rule:
 6. PR item identity: `openPRItemURL` uses `matchNumberedItem` like
    `updatePRModeContent` does.
 
-**Interlude — parallelize rapid property tests** (queued, lands right after
-the A1 commit): add `t.Parallel()` to the `TestProperty_*` tests (after
+**Interlude — parallelize rapid property tests** (done, committed c639927): add `t.Parallel()` to the `TestProperty_*` tests (after
 checking for shared mutable globals, e.g. lipgloss profile/styles) so heavy
 sweeps use all cores. Also from A1 on, verification regimen changes: new/
 affected properties at high count + full suite at moderate count as the gate,
 with the full `./scripts/rapid 200` sweep run in the background overlapping
 review rather than blocking the implementing agent.
 
-**A2 — async tea.Cmd convention** (queued): snapshot inputs at dispatch,
-carry in result msg, compare on receipt; fixes the loadLocalGitData/
-loadGitData/loadMoreCommits races, moreCommitsMsg stale guard, and the
-stale-load guard misfire.
+**A2 — async tea.Cmd convention** (done, uncommitted): snapshot inputs at
+dispatch, carry in result msg, compare on receipt. `gitLoadRequest` +
+`m.gitLoadCmd(withPR)` replace the `m.loadLocalGitData` / `m.loadGitData`
+bound-method Cmds and merge the two 110-line near-duplicate loaders into one
+`runGitLoad(req)`; `m.loadMoreCommitsCmd()` snapshots base+skip and holds a
+`moreCommitsPending` marker; `loadPRStatusCmd` / `loadNonGitFilesCmd` /
+`expandIgnoredDirCmd` converted to free functions over
+explicit parameters so no Cmd closure reads `m.*`. `gitDataMsg` gained
+`reqScrubbedBase` (the user's scope pin at dispatch) and the stale-load guard
+now compares pins rather than bases, so a load that detects legitimate natural-
+base movement is applied instead of discarded. The synchronous
+`m.loadGitData()` / `m.loadLocalGitData()` / `m.loadPRStatus()` /
+`m.loadNonGitFiles()` / `m.loadMoreCommits()` methods remain for
+Update-goroutine callers (RenderOnce, RenderWithKeys, tests) and are documented
+as never-dispatch.
 
 **A3 — error-path conflation** (queued): clear `m.err` on success; classify
 PR-fetch errors via `isRateLimited()`; make rate-limit backoff actually
