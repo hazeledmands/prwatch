@@ -246,8 +246,8 @@ func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, chec
 	items = append(items, sidebarItem{label: fmt.Sprintf("Comments (%d)", len(comments)), kind: itemHeader})
 	for i, c := range comments {
 		items = append(items, sidebarItem{
-			prefix: fmt.Sprintf("#%d ", len(comments)-i),
-			label:  fmt.Sprintf("@%s", c.Author),
+			prefix: prCommentPrefix(i, len(comments)),
+			label:  prCommentLabel(c),
 			suffix: " " + relativeTime(c.CreatedAt),
 			kind:   itemNormal,
 		})
@@ -259,20 +259,9 @@ func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, chec
 	items = append(items, sidebarItem{kind: itemSeparator})
 	items = append(items, sidebarItem{label: fmt.Sprintf("Reviews (%d)", len(reviews)), kind: itemHeader})
 	for i, r := range reviews {
-		var emoji string
-		switch r.State {
-		case "APPROVED":
-			emoji = "✓ "
-		case "CHANGES_REQUESTED":
-			emoji = "✗ "
-		case "COMMENTED":
-			emoji = "c "
-		default:
-			emoji = "… "
-		}
 		items = append(items, sidebarItem{
-			prefix: fmt.Sprintf("#%d %s", len(reviews)-i, emoji),
-			label:  fmt.Sprintf("@%s", r.Author),
+			prefix: prReviewPrefix(i, len(reviews), r),
+			label:  prReviewLabel(r),
 			suffix: " " + relativeTime(r.SubmittedAt),
 			kind:   itemNormal,
 		})
@@ -284,26 +273,14 @@ func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, chec
 	items = append(items, sidebarItem{kind: itemSeparator})
 	items = append(items, sidebarItem{label: fmt.Sprintf("CI (%d)", len(checks)), kind: itemHeader})
 	for _, check := range checks {
-		var indicator string
-		switch check.Bucket {
-		case "pass":
-			indicator = "[✓] "
-		case "fail", "cancel":
-			indicator = "[✗] "
-		case "pending":
-			indicator = "[…] "
-		case "skipping":
-			indicator = "[-] "
-		default:
-			indicator = "    "
-		}
+		indicator := ciCheckPrefix(check)
 		ts := check.CompletedAt
 		if ts.IsZero() {
 			ts = check.StartedAt
 		}
 		items = append(items, sidebarItem{
 			prefix: indicator,
-			label:  check.Name,
+			label:  ciCheckLabel(check),
 			suffix: " " + relativeTime(ts),
 			kind:   itemNormal,
 		})

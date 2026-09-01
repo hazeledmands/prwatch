@@ -12,7 +12,7 @@ import (
 type searchView interface {
 	FindMatches(query string) []int
 	SetSearchQuery(query string)
-	ScrollToLine(line int)
+	ScrollToSourceLine(sourceLine int)
 }
 
 // searchOverlay owns the global search input state machine that lives at the
@@ -75,7 +75,9 @@ func (s *searchOverlay) navigateToCurrent(view searchView) {
 	if len(s.matches) == 0 {
 		return
 	}
-	view.ScrollToLine(s.matches[s.matchIdx])
+	// FindMatches returns 0-indexed content lines; ScrollToSourceLine takes
+	// 1-indexed source lines and maps them through formatting + wrapping.
+	view.ScrollToSourceLine(s.matches[s.matchIdx] + 1)
 }
 
 // HandleInputKey processes a key while the user is typing into the search

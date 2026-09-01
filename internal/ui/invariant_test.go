@@ -2104,7 +2104,9 @@ func TestProperty_TreeModeNavigation(t *testing.T) {
 
 			// Exit help/confirm to keep exercising tree navigation
 			if m.confirming {
-				m.confirming = false
+				// Use the setter so the panes are relaid out for the
+				// restored (multi-row) status bar, as the real key path does.
+				m.setConfirming(false)
 			}
 			if m.help.IsOpen() {
 				m.help.Close()
@@ -2361,7 +2363,9 @@ func TestProperty_InteractionInvariants(t *testing.T) {
 			// If the model entered confirming or help, exit them so we keep
 			// exercising the main UI. This avoids getting stuck.
 			if m.confirming {
-				m.confirming = false
+				// Use the setter so the panes are relaid out for the
+				// restored (multi-row) status bar, as the real key path does.
+				m.setConfirming(false)
 			}
 			if m.help.IsOpen() {
 				m.help.Close()
@@ -2510,7 +2514,9 @@ func TestProperty_ScopeCutlineMatchesBaseSection(t *testing.T) {
 			msg := genAction(t, m, step)
 			m = applyAction(m, msg)
 			if m.confirming {
-				m.confirming = false
+				// Use the setter so the panes are relaid out for the
+				// restored (multi-row) status bar, as the real key path does.
+				m.setConfirming(false)
 			}
 			if m.help.IsOpen() {
 				m.help.Close()
@@ -2574,7 +2580,9 @@ func TestProperty_ScopeIndicatorMatchesScrub(t *testing.T) {
 			msg := genAction(t, m, step)
 			m = applyAction(m, msg)
 			if m.confirming {
-				m.confirming = false
+				// Use the setter so the panes are relaid out for the
+				// restored (multi-row) status bar, as the real key path does.
+				m.setConfirming(false)
 			}
 			if m.help.IsOpen() {
 				m.help.Close()

@@ -203,7 +203,9 @@ func TestMainPane_ScrollToLine(t *testing.T) {
 	mp.SetSize(80, 3)
 	mp.SetContent("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8")
 
-	mp.ScrollToLine(4)
+	// Source line 5 (1-indexed) is viewport row 4 here: short diff lines,
+	// no wrapping, so the mapping is 1:1.
+	mp.ScrollToSourceLine(5)
 	if mp.ScrollTop() != 4 {
 		t.Errorf("expected scroll to line 4, got %d", mp.ScrollTop())
 	}

@@ -1,0 +1,43 @@
+# 2026/08/31 16:13:10.236564 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw nOps: 6
+# 2026/08/31 16:13:10.236581 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw kind0: "context"
+# 2026/08/31 16:13:10.236592 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw text0: "plain"
+# 2026/08/31 16:13:10.236605 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw kind1: "context"
+# 2026/08/31 16:13:10.236613 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw text1: "plain"
+# 2026/08/31 16:13:10.236625 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw kind2: "context"
+# 2026/08/31 16:13:10.236632 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw text2: "plain"
+# 2026/08/31 16:13:10.236643 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw kind3: "context"
+# 2026/08/31 16:13:10.236650 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw text3: "plain"
+# 2026/08/31 16:13:10.236659 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw kind4: "context"
+# 2026/08/31 16:13:10.236669 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw text4: "plain"
+# 2026/08/31 16:13:10.236676 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw kind5: "removed"
+# 2026/08/31 16:13:10.236683 [TestProperty_DiffBodyLinesAreNeverHeaders] [rapid] draw text5: "-- comment"
+# 2026/08/31 16:13:10.236699 [TestProperty_DiffBodyLinesAreNeverHeaders] shortstatFromDiff("diff --git a/f b/f\nindex 111..222 100644\n--- a/f\n+++ b/f\n@@ -1,6 +1,5 @@\n plain\n plain\n plain\n plain\n plain\n--- comment\n") = "1 file changed", want "1 file changed, 1 deletion(-)"
+# 
+v0.4.8#18326438547691238541
+0x0
+0x6b74f03291620
+0x5
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x38e38e38e38e4
+0x2

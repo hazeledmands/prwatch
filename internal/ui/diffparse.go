@@ -5,6 +5,60 @@ import (
 	"strings"
 )
 
+// diffRowKind classifies one line of a unified diff.
+type diffRowKind int
+
+const (
+	rowMeta       diffRowKind = iota // "index ", "new file mode", … outside a hunk
+	rowDiffHeader                    // "diff --git a/x b/x"
+	rowFileHeader                    // "--- a/x" / "+++ b/x", outside any hunk
+	rowHunkHeader                    // "@@ -a,b +c,d @@"
+	rowAdd                           // added body line
+	rowRemove                        // removed body line
+	rowContext                       // unchanged body line
+	rowNoNewline                     // "\ No newline at end of file"
+)
+
+// diffScanner is the single source of truth for what a unified-diff line
+// is. It must be fed every line of the diff in order, because the answer
+// is positional: `---`/`+++` are file headers only *before* a file's first
+// `@@`. Inside a hunk body the same prefixes are ordinary content —
+// `+++i;` adds `++i;`, and `--- comment` removes a SQL/Lua `-- comment` —
+// so checking for a trailing space is not sufficient to tell them apart.
+//
+// Every consumer (shortstatFromDiff, parseDiffHunks, parseDiffAnnotations,
+// colorDiff) classifies through this type; four independent predicates is
+// how the misparse got in.
+type diffScanner struct {
+	inHunk bool
+}
+
+// classify advances the scanner over one line and reports its kind.
+func (s *diffScanner) classify(line string) diffRowKind {
+	switch {
+	case strings.HasPrefix(line, "@@"):
+		s.inHunk = true
+		return rowHunkHeader
+	case strings.HasPrefix(line, "diff "):
+		// New file section: anything until its first @@ is header material.
+		s.inHunk = false
+		return rowDiffHeader
+	case !s.inHunk:
+		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
+			return rowFileHeader
+		}
+		return rowMeta
+	case strings.HasPrefix(line, "\\"):
+		return rowNoNewline
+	case strings.HasPrefix(line, "+"):
+		return rowAdd
+	case strings.HasPrefix(line, "-"):
+		return rowRemove
+	default:
+		return rowContext
+	}
+}
+
 // shortstatFromDiff produces a one-line summary like
 // "3 files changed, 42 insertions(+), 11 deletions(-)" from a unified diff.
 func shortstatFromDiff(diff string) string {
@@ -12,21 +66,14 @@ func shortstatFromDiff(diff string) string {
 		return ""
 	}
 	files, ins, del := 0, 0, 0
-	inHunk := false
+	var sc diffScanner
 	for _, line := range strings.Split(diff, "\n") {
-		switch {
-		case strings.HasPrefix(line, "diff --git "):
+		switch sc.classify(line) {
+		case rowDiffHeader:
 			files++
-			inHunk = false
-		case strings.HasPrefix(line, "@@"):
-			inHunk = true
-		case !inHunk:
-			// Skip headers between files.
-		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
-			// File header markers, not insertions/deletions.
-		case strings.HasPrefix(line, "+"):
+		case rowAdd:
 			ins++
-		case strings.HasPrefix(line, "-"):
+		case rowRemove:
 			del++
 		}
 	}

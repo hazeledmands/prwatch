@@ -71,7 +71,14 @@ type line3Label struct {
 }
 
 // statusBarLineCount returns how many lines the status bar will occupy.
+// Every branch here must mirror a branch in renderStatusBar — the two are
+// the layout and render halves of the same geometry.
 func statusBarLineCount(data statusBarData) int {
+	if data.confirming {
+		// renderStatusBar replaces the whole bar with the single-line
+		// quit prompt.
+		return 1
+	}
 	count := 1 // line 1 always shown
 	if data.info.RepoName != "" || data.info.Branch != "" {
 		count++ // line 2: git status
@@ -250,16 +257,10 @@ func renderLine2(width int, data statusBarData) (string, []line2Label) {
 		branchDisplay = info.Branch
 	}
 
-	// Show "branch -> base" if not on main/master
+	// Show "branch -> base" if not on main/master. The base comes from the
+	// same chain the behind-count is measured against.
 	if info.Branch != "main" && info.Branch != "master" && !info.IsDetachedHead {
-		// Extract base branch name from upstream or default to "main"
-		base := "main"
-		if info.Upstream != "" {
-			parts := strings.Split(info.Upstream, "/")
-			if len(parts) > 1 {
-				base = parts[len(parts)-1]
-			}
-		}
+		base := baseBranchName(data.pr.BaseRef, info.Branch, info.Upstream)
 		if base != info.Branch {
 			branchDisplay = info.Branch + " → " + base
 		}

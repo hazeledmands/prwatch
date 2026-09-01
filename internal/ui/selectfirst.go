@@ -57,6 +57,9 @@ func firstCIFailureIndex(items []sidebarItem, ciChecks []gitpkg.CICheck) int {
 		return -1
 	}
 	return firstSidebarMatch(items, func(it sidebarItem) bool {
-		return strings.Contains(it.label, targetName)
+		// Exact identity: buildPRSidebar puts the check name in `label`
+		// verbatim (see ciCheckLabel), so a substring test here would let
+		// check "build" select the "build-arm" row.
+		return it.label == targetName
 	})
 }

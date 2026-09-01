@@ -181,18 +181,14 @@ func (m *Model) updatePRModeContent(setItem itemSetter) {
 		m.mainPane.SetPlainContent(m.renderPRDescription())
 		m.mainPane.SetTitle("Description", "")
 	default:
-		if matched, i := matchNumberedItem(selected, m.prComments, func(j int, c gitpkg.PRComment) string {
-			return fmt.Sprintf("#%d @%s", len(m.prComments)-j, c.Author)
-		}); matched {
+		if matched, i := matchPRComment(selected, m.prComments); matched {
 			c := m.prComments[i]
 			m.mainPane.SetPlainContent(buildCommentContent(c, m.mainPane.width))
 			m.mainPane.SetTitle(
 				fmt.Sprintf("comment #%d", len(m.prComments)-i),
 				formatAuthorAndTime(c.Author, c.CreatedAt),
 			)
-		} else if matched, i := matchNumberedItem(selected, m.prReviews, func(j int, r gitpkg.PRReview) string {
-			return fmt.Sprintf("#%d %s@%s", len(m.prReviews)-j, reviewStateEmoji(r.State), r.Author)
-		}); matched {
+		} else if matched, i := matchPRReview(selected, m.prReviews); matched {
 			r := m.prReviews[i]
 			m.mainPane.SetPlainContent(buildReviewContent(r, m.mainPane.width))
 			m.mainPane.SetTitle(
@@ -213,10 +209,8 @@ func (m *Model) updatePRModeContent(setItem itemSetter) {
 // memory: saving visible.Start.SourceLine while showing a different
 // item's content gives a value that can't round-trip on return.
 func (m *Model) applyCICheckContent(selected string) {
-	for _, check := range m.ciChecks {
-		if !strings.Contains(selected, check.Name) {
-			continue
-		}
+	if matched, i := matchCICheck(selected, m.ciChecks); matched {
+		check := m.ciChecks[i]
 		status := check.Bucket
 		if status == "" {
 			status = check.State

@@ -12,6 +12,108 @@
 
 ## Fixed Bugs
 
+### CODE_REVIEW.md A1 — paired computations maintained in N places
+
+- Status-bar height computed three ways: `View()` used
+  `m.loading && m.git != nil` for `prLoading` while `statusBarLines()` and
+  `updateLayout()` used `(m.loading || !m.prLoadedOnce) && m.git != nil`. In
+  the startup window after local git data lands but before PR data, layout
+  reserved 3 rows while render emitted 2, putting every click/hover/drag one
+  row off; and because `View()` early-returns on `m.loading`, the
+  "Loading from GitHub…" line was unreachable. Fixed by making
+  `Model.statusBarData()` the one place the bar's inputs are assembled —
+  `View()` renders from it, `statusBarLines()` counts from it, and
+  `updateLayout()` calls `statusBarLines()`. The loading row was revived
+  rather than deleted (PROMPT.md: show what we have, say "loading from
+  github" on the GitHub header), so it now renders during the
+  `!prLoadedOnce` window that layout was already sizing for. Regression:
+  `TestStatusBarRows_RenderMatchesLayout`,
+  `TestProperty_StatusBarRenderRowsMatchLayoutRows`,
+  `TestView_UsesSharedStatusBarData`.
+
+- Quit-confirm height: `renderStatusBar` replaces the whole bar with a
+  single line while `confirming`, but `statusBarLineCount` ignored
+  `confirming` and still reported 2–3. The panes were sized 1–2 rows short
+  (visible as dead rows at the bottom of the golden snapshot), and clicks at
+  y=1/y=2 routed to status-bar handlers — the line-2 fallback could switch
+  to commits mode mid-confirm. Fixed by returning 1 from
+  `statusBarLineCount` when `confirming`. Covered by the same two tests;
+  `testdata/golden/confirm_quit.txt` regenerated (panes now reach the
+  bottom of the screen).
+  Follow-up found in review: making the count depend on `confirming` also
+  made every *toggle* of it a layout change, and the three toggle sites in
+  `handleKey` assigned the field directly — so pressing `q` left the panes
+  sized for the old 2–3-row bar until the next data-driven relayout.
+  `TestSnapshot_ConfirmQuit` couldn't catch it because it sets the field
+  before `RenderOnce`, which lays out fresh. Fixed by routing all three
+  through `Model.setConfirming`, which relayouts. Regression:
+  `TestConfirmQuit_RelayoutsOnKeypress`, driving the real key path (`q`,
+  cancel, `esc` in, `esc` out).
+
+- Search and `$EDITOR +N` used raw viewport offsets as line numbers.
+  `searchOverlay.navigateToCurrent` called `ScrollToLine` (a bare
+  `SetYOffset`) with a content-line index, and `currentLineNumber` returned
+  `ScrollTop() + 1`. With word wrap on (the default) or removed-line rows
+  present, both are off by the number of wrap rows above the target: search
+  landed well above the match and the editor opened at the wrong line.
+  Fixed by routing search through `ScrollToSourceLine`, `currentLineNumber`
+  through `viewportToSourceLine`, and deleting `ScrollToLine` so there is no
+  raw "scroll to row N" entry point left to misuse. The wrap-walk in both
+  converters was extracted to `formatLineToViewportRow` /
+  `viewportRowToFormatLine` and now also applies to diff content (which has
+  no source→format map and so previously skipped wrap handling entirely).
+  Regression: `TestSearch_NavigatesToSourceLine_Wrapped` (plain + diff
+  content), `TestCurrentLineNumber_WrapAware`.
+
+- Behind-count base resolved three different ways: `loadGitData` fell back
+  to `info.Upstream` (the branch's *own* remote ref, so it counted how far
+  behind the branch was from its own remote copy), `loadLocalGitData`
+  hardcoded `origin/main` and ignored the upstream entirely, and
+  `renderLine2` displayed a third answer derived from `Upstream`'s last path
+  segment — so the status bar could read `feature → develop` while the
+  behind count was measured against `origin/main`. Fixed by extracting
+  `baseRefForBehind` / `baseBranchName` (`internal/ui/basebranch.go`),
+  following PROMPT.md's detection chain with what the model already knows:
+  PR baseRefName → tracked upstream when it names a *different* branch →
+  `origin/main`. All three call sites converted. The remote-prefix strip
+  takes off the FIRST path segment only: `--abbrev-ref @{upstream}` returns
+  `<remote>/<branch>`, and branch names routinely contain slashes, so a
+  last-segment strip read `origin/hazel/ui/foo` as branch "foo" — which
+  both made step 2 fire against the branch's own remote ref (the exact case
+  step 2 exists to skip) and displayed a `release/1.2` base as "1.2".
+  Regression: `TestBaseRefChain_SingleSource`, including slashed-branch and
+  slashed-PR-base rows.
+
+- Diff `+++`/`---` file headers detected four ways, three of them wrong.
+  `parseDiffHunks`, `parseDiffAnnotations` and `shortstatFromDiff` skipped
+  any line with a `+++`/`---` prefix even inside a hunk body, so `+++i;`
+  (adding `++i;`) was dropped from the insertion count and every later
+  annotation in the hunk shifted; `colorDiff` used `"+++ "`, which is also
+  insufficient because removing a SQL/Lua `-- comment` produces the body
+  line `--- comment`, trailing space included. Fixed by recognising headers
+  *positionally*: the new `diffScanner` (`internal/ui/diffparse.go`) is fed
+  every line in order and treats `---`/`+++` as headers only before a file
+  section's first `@@`. All four consumers classify through it. The dead
+  first parse loop in `parseDiffAnnotations` (results discarded, and
+  carrying yet another header-skip set) was removed — it was a drift seed
+  for exactly this bug. Regression: `TestDiffHeaderDetection_BodyLines`,
+  `TestDiffHeaderDetection_MultiFile`,
+  `TestProperty_DiffBodyLinesAreNeverHeaders`.
+
+- `openPRItemURL` matched PR sidebar rows by substring
+  (`strings.Contains(label, author)` / check name), so two comments by one
+  author both opened the newest one, a review row could resolve to a
+  comment, and CI check "build" claimed the "build-arm" row.
+  `applyCICheckContent` had the same substring bug for CI checks. Fixed by
+  giving the PR rows one set of label builders (`internal/ui/pritems.go`)
+  that `buildPRSidebar` renders from and that `matchPRComment` /
+  `matchPRReview` / `matchCICheck` match against exactly; `openPRItemURL`
+  is now a thin wrapper over the pure `prItemURL`. `firstCIFailureIndex`
+  (`selectfirst.go`) had the same substring match — "jump to first failing
+  check" selected the "build-arm" row when "build" was the failing check —
+  and is now an exact label comparison. Regression:
+  `TestPRItemURL_ExactIdentity`.
+
 - Scrolling to next/prev hunk skipped removal-only hunks. Root cause:
   `parseDiffHunks` dropped hunks with `count == 0` (the `+A,0` headers
   for pure deletions), so `diffHunks` had no entry to jump to and

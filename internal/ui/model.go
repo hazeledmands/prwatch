@@ -519,14 +519,7 @@ func (m *Model) loadGitData() tea.Msg {
 	// Compute behind count: how many commits on the base branch we don't have
 	var behindCount int
 	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
-		// Use PR base ref if available, otherwise infer from upstream
-		baseRef := "origin/main"
-		if prInfo.BaseRef != "" {
-			baseRef = "origin/" + prInfo.BaseRef
-		} else if info.Upstream != "" {
-			baseRef = info.Upstream
-		}
-		behindCount = m.git.BehindCount(baseRef)
+		behindCount = m.git.BehindCount(baseRefForBehind(prInfo.BaseRef, info.Branch, info.Upstream))
 	}
 
 	// Below-cutline commits (out-of-scope context). On non-detached-HEAD this
@@ -644,14 +637,7 @@ func (m *Model) loadLocalGitData() tea.Msg {
 
 	var behindCount int
 	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
-		// Prefer the PR's base branch when available. Without a PR, fall back
-		// to origin/main; BehindCount returns 0 cleanly if that ref doesn't
-		// exist (e.g. master-default repos or no remote).
-		baseRef := "origin/main"
-		if m.prInfo.BaseRef != "" {
-			baseRef = "origin/" + m.prInfo.BaseRef
-		}
-		behindCount = m.git.BehindCount(baseRef)
+		behindCount = m.git.BehindCount(baseRefForBehind(m.prInfo.BaseRef, info.Branch, info.Upstream))
 	}
 
 	var baseCommits []gitpkg.Commit
@@ -1090,16 +1076,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleHelpKey(msg)
 	}
 
-	// Quit confirmation handling
+	// Quit confirmation handling. The confirm prompt replaces the whole
+	// status bar with one line, so entering and leaving it changes the
+	// bar's row count — relayout at each toggle or the panes stay sized
+	// for the old bar until the next data refresh.
 	if m.confirming {
 		if msg.Code == tea.KeyEscape {
-			m.confirming = false
+			m.setConfirming(false)
 			return m, nil
 		}
 		if key.Matches(msg, keys.QuitConfirm) || key.Matches(msg, keys.QuitImmediate) {
 			return m, tea.Quit
 		}
-		m.confirming = false
+		m.setConfirming(false)
 		return m, nil
 	}
 
@@ -1149,7 +1138,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case key.Matches(msg, keys.QuitConfirm):
-		m.confirming = true
+		m.setConfirming(true)
 		return m, nil
 
 	case key.Matches(msg, keys.Help):
@@ -1480,13 +1469,57 @@ func (m *Model) clearSearch() {
 	m.search.Clear(m.mainPane)
 }
 
+// setConfirming toggles the quit-confirm prompt. It exists so the
+// relayout can't be forgotten at a call site: `confirming` feeds
+// statusBarLineCount, so every toggle changes the status bar's height and
+// must resize the panes underneath it.
+func (m *Model) setConfirming(on bool) {
+	if m.confirming == on {
+		return
+	}
+	m.confirming = on
+	m.updateLayout()
+}
+
+// statusBarData assembles every input the status bar needs, from model
+// state. It is the single source of truth for what the bar shows: both the
+// render path (View) and the layout path (statusBarLines → updateLayout)
+// build from this one value, so the rows rendered and the rows reserved
+// can never disagree. See CLAUDE.md, "Layout geometry comes from one
+// function".
+func (m *Model) statusBarData() statusBarData {
+	return statusBarData{
+		info:             m.repoInfo,
+		pr:               m.prInfo,
+		ciStatus:         m.ciStatus,
+		reviews:          m.prReviews,
+		reviewRequests:   m.prReviewRequests,
+		prError:          m.prError,
+		commentCount:     m.prCommentCount,
+		mode:             m.mode,
+		confirming:       m.confirming,
+		uncommitCount:    m.changes.Len() - len(m.changes.InSection(gitpkg.SectionCommitted)),
+		commitCount:      m.scope.Len(),
+		behindCount:      m.behindCount,
+		changedFileCount: m.changes.Len(),
+		// PR data is still in flight either during the initial synchronous
+		// load or in the window after local git data lands but before the
+		// first PR fetch completes. Both render the "Loading from GitHub…"
+		// row, and both must be reflected in the layout — see PROMPT.md's
+		// "display the data it _does_ have immediately" rule.
+		prLoading:   (m.loading || !m.prLoadedOnce) && m.git != nil,
+		showHelp:    m.help.IsOpen(),
+		hoverX:      m.hoverX,
+		hoverY:      m.hoverY,
+		scopeHandle: m.scope.Handle(),
+	}
+}
+
+// statusBarLines returns the number of terminal rows the status bar
+// occupies. Sole row-count authority: every layout and hit-testing call
+// site goes through here.
 func (m *Model) statusBarLines() int {
-	return statusBarLineCount(statusBarData{
-		info:      m.repoInfo,
-		pr:        m.prInfo,
-		prError:   m.prError,
-		prLoading: (m.loading || !m.prLoadedOnce) && m.git != nil,
-	})
+	return statusBarLineCount(m.statusBarData())
 }
 
 func (m *Model) sidebarPixelWidth() int {
@@ -1788,53 +1821,32 @@ func (m *Model) openEditor() tea.Cmd {
 // openPRItemURL opens the URL for the currently selected PR sidebar item in the browser.
 // Handles: PR description, comments, reviews, and CI checks.
 func (m *Model) openPRItemURL() tea.Cmd {
-	selected := m.sidebar.SelectedItem()
-	if selected == "" {
-		return nil
-	}
-
-	var url string
-
-	// Check if it's the Description item
-	if selected == "Description" {
-		url = m.prInfo.URL
-	}
-
-	// Check comments
-	if url == "" {
-		for _, c := range m.prComments {
-			if strings.Contains(selected, c.Author) && c.URL != "" {
-				url = c.URL
-				break
-			}
-		}
-	}
-
-	// Check reviews
-	if url == "" {
-		for _, r := range m.prReviews {
-			if strings.Contains(selected, r.Author) && r.URL != "" {
-				url = r.URL
-				break
-			}
-		}
-	}
-
-	// Check CI checks
-	if url == "" {
-		for _, check := range m.ciChecks {
-			if strings.Contains(selected, check.Name) && check.URL != "" {
-				url = check.URL
-				break
-			}
-		}
-	}
-
+	url := prItemURL(m.sidebar.SelectedItem(), m.prInfo, m.prComments, m.prReviews, m.ciChecks)
 	if url == "" {
 		return nil
 	}
-
 	return m.openInBrowser(url)
+}
+
+// prItemURL resolves the sidebar item label a user activated to the URL it
+// points at.
+func prItemURL(selected string, pr gitpkg.PRInfoResult, comments []gitpkg.PRComment, reviews []gitpkg.PRReview, checks []gitpkg.CICheck) string {
+	if selected == "" {
+		return ""
+	}
+	if selected == "Description" {
+		return pr.URL
+	}
+	if ok, i := matchPRComment(selected, comments); ok {
+		return comments[i].URL
+	}
+	if ok, i := matchPRReview(selected, reviews); ok {
+		return reviews[i].URL
+	}
+	if ok, i := matchCICheck(selected, checks); ok {
+		return checks[i].URL
+	}
+	return ""
 }
 
 // openInBrowser opens a URL in the default system browser.
@@ -1870,12 +1882,13 @@ func (m *Model) buildEditorCmd(file string) (string, []string) {
 	return editor, args
 }
 
-// currentLineNumber finds the source line at the viewport top. Files mode
-// displays raw file content, so the line at the viewport top is just
-// scroll offset + 1. This is only meaningful in files mode — callers in
-// other modes should gate accordingly.
+// currentLineNumber finds the source line at the viewport top, mapping
+// through the gutter/removed-line formatting and word wrapping that make
+// the viewport row differ from the file line. Feeds `$EDITOR +N`, so it
+// must be the file's line number, not a screen row. Only meaningful in
+// files mode — callers in other modes should gate accordingly.
 func (m *Model) currentLineNumber() int {
-	return m.mainPane.ScrollTop() + 1
+	return m.mainPane.viewportToSourceLine()
 }
 
 func (m *Model) isUncommittedFile(file string) bool {
@@ -2139,12 +2152,7 @@ func (m *Model) computeGitInterval() time.Duration {
 }
 
 func (m *Model) updateLayout() {
-	statusBarHeight := statusBarLineCount(statusBarData{
-		info:      m.repoInfo,
-		pr:        m.prInfo,
-		prError:   m.prError,
-		prLoading: (m.loading || !m.prLoadedOnce) && m.git != nil,
-	})
+	statusBarHeight := m.statusBarLines()
 	sidebarW, mainW, contentH := layoutDimensions(m.width, m.height, statusBarHeight, m.sidebarPct, m.sidebarHidden)
 	m.sidebar.SetSize(sidebarW, contentH)
 	m.mainPane.SetSize(mainW, contentH)
@@ -2312,26 +2320,7 @@ func (m *Model) View() tea.View {
 		return v
 	}
 
-	bar, labels, l2Labels, l3Labels := renderStatusBar(m.width, statusBarData{
-		info:             m.repoInfo,
-		pr:               m.prInfo,
-		ciStatus:         m.ciStatus,
-		reviews:          m.prReviews,
-		reviewRequests:   m.prReviewRequests,
-		prError:          m.prError,
-		commentCount:     m.prCommentCount,
-		mode:             m.mode,
-		confirming:       m.confirming,
-		uncommitCount:    m.changes.Len() - len(m.changes.InSection(gitpkg.SectionCommitted)),
-		commitCount:      m.scope.Len(),
-		behindCount:      m.behindCount,
-		changedFileCount: m.changes.Len(),
-		prLoading:        m.loading && m.git != nil,
-		showHelp:         m.help.IsOpen(),
-		hoverX:           m.hoverX,
-		hoverY:           m.hoverY,
-		scopeHandle:      m.scope.Handle(),
-	})
+	bar, labels, l2Labels, l3Labels := renderStatusBar(m.width, m.statusBarData())
 	m.modeLabels = labels
 	m.line2Labels = l2Labels
 	m.line3Labels = l3Labels

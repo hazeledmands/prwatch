@@ -44,6 +44,67 @@ prwatch/
 
 ---
 
+## In Progress: Code-review remediation (CODE_REVIEW.md A1–A6)
+
+Working through the six systemic antipatterns from `CODE_REVIEW.md` (2026-06-12,
+findings verified against `main` @ c6c9260) in order, one commit per
+antipattern. Method per antipattern: regression test observed failing first,
+then the fix, then full-suite + rapid verification; each fixed bug logged in
+`BUG_REPORTS.md`.
+
+**A1 — paired computations that drift** (in progress). Fix = one source of
+truth per value, all call sites converted, per the "Layout geometry comes from
+one function" CLAUDE.md rule:
+1. Status-bar height: `statusBarLines()` is the sole row-count authority;
+   `View()` and `updateLayout()` consume it; the loading-line predicate is one
+   shared expression (also resolves the dead "Loading from GitHub…" render
+   path — revive or delete deliberately).
+2. Quit-confirm height: `statusBarLineCount` accounts for `confirming`.
+   Guard for 1+2: property test that rendered status-bar row count ==
+   layout row count across the model state space (loading × prLoadedOnce ×
+   git nil × confirming × error × pr states).
+3. Wrap-aware line mapping: search uses `ScrollToSourceLine` (not raw
+   `ScrollToLine`); `currentLineNumber` uses `viewportToSourceLine`.
+4. Behind-count base: one function for the base-ref fallback chain, used by
+   `loadGitData`, `loadLocalGitData`, `renderLine2`.
+5. Diff header detection: one shared predicate for `+++`/`---` file headers
+   used by `parseDiffHunks`, `parseDiffAnnotations`, `shortstatFromDiff`,
+   `colorDiff`. Trailing-space check alone is insufficient (`--- comment`
+   removing a `-- comment` line still has the space) — headers must be
+   recognized positionally (outside hunks only).
+6. PR item identity: `openPRItemURL` uses `matchNumberedItem` like
+   `updatePRModeContent` does.
+
+**Interlude — parallelize rapid property tests** (queued, lands right after
+the A1 commit): add `t.Parallel()` to the `TestProperty_*` tests (after
+checking for shared mutable globals, e.g. lipgloss profile/styles) so heavy
+sweeps use all cores. Also from A1 on, verification regimen changes: new/
+affected properties at high count + full suite at moderate count as the gate,
+with the full `./scripts/rapid 200` sweep run in the background overlapping
+review rather than blocking the implementing agent.
+
+**A2 — async tea.Cmd convention** (queued): snapshot inputs at dispatch,
+carry in result msg, compare on receipt; fixes the loadLocalGitData/
+loadGitData/loadMoreCommits races, moreCommitsMsg stale guard, and the
+stale-load guard misfire.
+
+**A3 — error-path conflation** (queued): clear `m.err` on success; classify
+PR-fetch errors via `isRateLimited()`; make rate-limit backoff actually
+schedule; stop `PRChecksAll`/`BehindCount` swallowing errors.
+
+**A4 — tests that encode bugs** (queued): fix the loosened/coincidental/dead-
+copy tests and the bugs they hide.
+
+**A5 — broken seams** (queued): cursor-visibility at model-level call sites,
+visual-mode selection on paging/wheel, sidebar restore identity, scope
+scrubbed-ness by SHA, branch-switch scope reset, reflow re-clamp.
+
+**A6 — ungenerated inputs** (queued): NUL-delimited git output, tab
+normalization at content boundary, ANSI-safe search highlighting, blank-line
+drag-copy, help-overlay mouse, sidebar release.
+
+---
+
 ## In Progress: Position-based diff addressing
 
 **Goal:** Introduce explicit `Position` and `Range` values naming "where the user is pointing in a diff" and "what window is currently visible." Several planned features (hunk-grain navigation, line-aware deep-links, inline comments, keyboard selection, LSP) all need to ask "what am I looking at right now?" Today this is derived ad-hoc from viewport state each time. Naming it unblocks the rest.

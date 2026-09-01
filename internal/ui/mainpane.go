@@ -206,8 +206,17 @@ func parseDiffHunks(unifiedDiff string) []diffHunk {
 		hunks = append(hunks, diffHunk{StartLine: firstChange, EndLine: lastChange})
 	}
 
+	var sc diffScanner
 	for _, line := range strings.Split(unifiedDiff, "\n") {
-		if strings.HasPrefix(line, "@@") {
+		kind := sc.classify(line)
+		if kind == rowDiffHeader {
+			// File boundary in a multi-file diff: close the open hunk so
+			// the next file's header lines can't extend it.
+			finish()
+			inHunk = false
+			continue
+		}
+		if kind == rowHunkHeader {
 			finish()
 			inHunk = false
 			start, count := parseHunkHeader(line)
@@ -233,23 +242,23 @@ func parseDiffHunks(unifiedDiff string) []diffHunk {
 		if !inHunk {
 			continue
 		}
-		switch {
-		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
-			// File header inside a multi-file diff; not a body line.
-		case strings.HasPrefix(line, "+"):
+		switch kind {
+		case rowAdd:
 			if firstChange == 0 {
 				firstChange = newLineNo
 			}
 			lastChange = newLineNo
 			newLineNo++
-		case strings.HasPrefix(line, "-"):
+		case rowRemove:
 			if firstChange == 0 {
 				firstChange = newLineNo
 			}
 			lastChange = newLineNo
 			// removed lines don't advance newLineNo
-		case strings.HasPrefix(line, " "):
-			newLineNo++
+		case rowContext:
+			if strings.HasPrefix(line, " ") {
+				newLineNo++
+			}
 		}
 	}
 	finish()
@@ -272,37 +281,12 @@ func parseDiffAnnotations(unifiedDiff string) map[int]diffAnnotation {
 
 	lines := strings.Split(unifiedDiff, "\n")
 	var pendingRemoved []string
-
-	for _, line := range lines {
-		if strings.HasPrefix(line, "@@") {
-			// Parse hunk header: @@ -old,count +new,count @@
-			newStart := parseHunkNewStart(line)
-			if newStart > 0 {
-				// Flush any pending removed lines to the start of this hunk
-				if len(pendingRemoved) > 0 {
-					ann := annotations[newStart]
-					ann.removedLines = append(ann.removedLines, pendingRemoved...)
-					annotations[newStart] = ann
-					pendingRemoved = nil
-				}
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "diff ") || strings.HasPrefix(line, "index ") ||
-			strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
-			continue
-		}
-		// We need to track the current new-file line number
-		// This simplified parser re-scans from hunk headers
-	}
-
-	// Better approach: iterate through hunks tracking line numbers
-	annotations = make(map[int]diffAnnotation)
 	newLineNo := 0
-	pendingRemoved = nil
 
+	var sc diffScanner
 	for _, line := range lines {
-		if strings.HasPrefix(line, "@@") {
+		kind := sc.classify(line)
+		if kind == rowHunkHeader {
 			newLineNo = parseHunkNewStart(line)
 			if newLineNo < 1 {
 				newLineNo = 1
@@ -319,12 +303,12 @@ func parseDiffAnnotations(unifiedDiff string) map[int]diffAnnotation {
 		if newLineNo == 0 {
 			continue // before first hunk
 		}
-		if strings.HasPrefix(line, "diff ") || strings.HasPrefix(line, "index ") ||
-			strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") ||
-			strings.HasPrefix(line, "\\") {
+		switch kind {
+		case rowDiffHeader, rowFileHeader, rowMeta, rowNoNewline:
+			// Header/metadata between files, and the no-newline marker.
 			continue
 		}
-		if strings.HasPrefix(line, "+") {
+		if kind == rowAdd {
 			ann := annotations[newLineNo]
 			switch {
 			case len(pendingRemoved) == 1:
@@ -347,7 +331,7 @@ func parseDiffAnnotations(unifiedDiff string) map[int]diffAnnotation {
 			}
 			annotations[newLineNo] = ann
 			newLineNo++
-		} else if strings.HasPrefix(line, "-") {
+		} else if kind == rowRemove {
 			pendingRemoved = append(pendingRemoved, line[1:]) // strip the "-"
 		} else {
 			// Context line
@@ -990,14 +974,11 @@ func (m *mainPane) FindMatches(query string) []int {
 	return matches
 }
 
-// ScrollToLine scrolls the viewport to show the given line.
-func (m *mainPane) ScrollToLine(line int) {
-	m.viewport.SetYOffset(line)
-}
-
-// ScrollToSourceLine scrolls the viewport to show the given source file line number.
-// Unlike ScrollToLine, this accounts for formatting (gutter, removed lines) and
-// word wrapping that may change the viewport line count.
+// ScrollToSourceLine scrolls the viewport so the given 1-indexed source
+// line sits at the top. This is the only scroll-to-a-line entry point:
+// there is deliberately no raw "scroll to viewport row N" method, because
+// every caller means a *content* line, and formatting (gutter, removed
+// lines) plus word wrapping make row ≠ line.
 func (m *mainPane) ScrollToSourceLine(sourceLine int) {
 	m.viewport.SetYOffset(m.sourceLineToViewportOffset(sourceLine))
 }
@@ -1067,31 +1048,57 @@ func (m *mainPane) viewportBottomSourceLine() int {
 // it undercounted wrap rows for indented content (gutter present) and
 // returned the wrong source line for rows past the predicted count.
 func (m *mainPane) sourceLineAtViewportOffset(target int) int {
-	target = max(target, 0)
+	formattedIdx := m.viewportRowToFormatLine(target)
 	if len(m.sourceToFormatLine) == 0 {
-		return target + 1
+		// Diff content: formatted lines are the source lines, 1:1.
+		return formattedIdx + 1
 	}
-	reverseMap := m.buildReverseSourceMap()
+	return mostRecentSourceLineAtOrBefore(m.buildReverseSourceMap(), formattedIdx)
+}
 
+// viewportRowToFormatLine converts a 0-indexed viewport row to the
+// 0-indexed pre-wrap formatted line that owns it. Inverse of
+// formatLineToViewportRow. With wrap off, the two are the same number.
+func (m *mainPane) viewportRowToFormatLine(row int) int {
+	row = max(row, 0)
 	if !m.wordWrap || m.width <= 0 || len(m.wrapContinuation) == 0 {
-		// viewport row == formatted line index
-		return mostRecentSourceLineAtOrBefore(reverseMap, target)
+		return row
 	}
-
 	// Walk wrapContinuation: each false entry marks the first row of a
-	// new formatted line. Count false entries up through `target` to
-	// find the formatted-line index that row belongs to.
+	// new formatted line. Count false entries up through `row` to find
+	// the formatted-line index that row belongs to.
 	formattedIdx := -1
-	for i := 0; i <= target && i < len(m.wrapContinuation); i++ {
+	for i := 0; i <= row && i < len(m.wrapContinuation); i++ {
 		if !m.wrapContinuation[i] {
 			formattedIdx++
 		}
 	}
-	if formattedIdx < 0 {
-		formattedIdx = 0
-	}
 	// Past end of content: stick with the last formatted index we counted.
-	return mostRecentSourceLineAtOrBefore(reverseMap, formattedIdx)
+	return max(formattedIdx, 0)
+}
+
+// formatLineToViewportRow converts a 0-indexed pre-wrap formatted line to
+// the 0-indexed viewport row where it starts. Inverse of
+// viewportRowToFormatLine.
+func (m *mainPane) formatLineToViewportRow(formattedIdx int) int {
+	formattedIdx = max(formattedIdx, 0)
+	if !m.wordWrap || m.width <= 0 || len(m.wrapContinuation) == 0 {
+		return formattedIdx
+	}
+	// Find the formattedIdx-th false entry (0-indexed); that entry's index
+	// is the first viewport row of the target formatted line.
+	seen := -1
+	for i, cont := range m.wrapContinuation {
+		if !cont {
+			seen++
+			if seen == formattedIdx {
+				return i
+			}
+		}
+	}
+	// Formatted index is past the end of wrapped content (shouldn't
+	// normally happen). Return the last row.
+	return len(m.wrapContinuation)
 }
 
 // sourceLineToViewportOffset returns the 0-indexed viewport row at which
@@ -1102,29 +1109,14 @@ func (m *mainPane) sourceLineAtViewportOffset(target int) int {
 // positions back to screen rows for rendering.
 func (m *mainPane) sourceLineToViewportOffset(sourceLine int) int {
 	if len(m.sourceToFormatLine) == 0 {
-		return max(sourceLine-1, 0)
+		// Diff content: formatted lines are the source lines, 1:1.
+		return m.formatLineToViewportRow(sourceLine - 1)
 	}
 	formattedIdx, ok := m.sourceToFormatLine[sourceLine]
 	if !ok {
 		return 0
 	}
-	if !m.wordWrap || m.width <= 0 || len(m.wrapContinuation) == 0 {
-		return formattedIdx
-	}
-	// Walk wrapContinuation: find the formattedIdx-th false entry (0-indexed).
-	// That entry's index is the first viewport row of the target formatted line.
-	seen := -1
-	for i, cont := range m.wrapContinuation {
-		if !cont {
-			seen++
-			if seen == formattedIdx {
-				return i
-			}
-		}
-	}
-	// Source line's formatted index is past the end of wrapped content
-	// (shouldn't normally happen). Return last row.
-	return len(m.wrapContinuation)
+	return m.formatLineToViewportRow(formattedIdx)
 }
 
 // buildReverseSourceMap returns formattedIndex → sourceLine, the inverse
@@ -1738,17 +1730,16 @@ func truncateLinesWithOffset(content string, width, offset, stickyPrefix int) st
 // colorDiff applies syntax coloring to unified diff output.
 func colorDiff(content string) string {
 	lines := strings.Split(content, "\n")
+	var sc diffScanner
 	for i, line := range lines {
-		switch {
-		case strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- "):
+		switch sc.classify(line) {
+		case rowFileHeader, rowDiffHeader:
 			lines[i] = diffHeaderStyle.Render(line)
-		case strings.HasPrefix(line, "diff "):
-			lines[i] = diffHeaderStyle.Render(line)
-		case strings.HasPrefix(line, "@@"):
+		case rowHunkHeader:
 			lines[i] = diffHunkStyle.Render(line)
-		case strings.HasPrefix(line, "+"):
+		case rowAdd:
 			lines[i] = diffAddStyle.Render(line)
-		case strings.HasPrefix(line, "-"):
+		case rowRemove:
 			lines[i] = diffRemoveStyle.Render(line)
 		}
 	}
