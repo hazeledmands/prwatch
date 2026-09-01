@@ -802,12 +802,16 @@ func TestChangedLine_SplitWhenLarge(t *testing.T) {
 	}
 }
 
+// The TestWrapLines_* tests target wrapLinesWithContinuationMap — the wrap
+// implementation the viewport actually uses (mainpane.go refreshViewport). They
+// previously asserted against wrapLinesWordBoundary, a duplicate copy with no
+// non-test callers, so they proved nothing about rendered output.
 func TestWrapLines_BreaksAtWordBoundaries(t *testing.T) {
 	// Spec: "word-wrap should break at word boundaries"
 	// "abcdef ghijkl" is 13 chars. At width 10, character-boundary wrapping
 	// would split "ghijkl" into "ghij" and "kl". Word-boundary wrapping
 	// should break before "ghijkl".
-	result := wrapLines("abcdef ghijkl", 10)
+	result, _ := wrapLinesWithContinuationMap("abcdef ghijkl", 10, 0)
 	lines := strings.Split(result, "\n")
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines, got %d: %v", len(lines), lines)
@@ -826,7 +830,7 @@ func TestWrapLines_BreaksMidWordWhenTooLong(t *testing.T) {
 	// Spec: "words longer than 1/8 of the screen width should be broken mid-word"
 	// With width=80, 1/8 = 10. A 15-char word exceeds that threshold.
 	longWord := strings.Repeat("x", 15)
-	result := wrapLines("short "+longWord+" end", 20)
+	result, contMap := wrapLinesWithContinuationMap("short "+longWord+" end", 20, 0)
 	lines := strings.Split(result, "\n")
 	// "short " is 6 chars. The long word (15 chars) starts at position 6.
 	// 6 + 15 = 21 > 20, so the word wraps. But since 15 > 10 (1/8 of 80),
@@ -834,11 +838,28 @@ func TestWrapLines_BreaksMidWordWhenTooLong(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatal("expected wrapping to occur")
 	}
+	if len(contMap) != len(lines) {
+		t.Fatalf("contMap length %d != lines %d", len(contMap), len(lines))
+	}
+	// Mid-word break: the run of x's must be split across the boundary rather
+	// than pushed whole onto the next line.
+	if strings.Contains(lines[1], longWord) {
+		t.Errorf("long word should be broken mid-word, got line 2 = %q", lines[1])
+	}
+	if !strings.HasSuffix(strings.TrimRight(lines[0], " "), "x") {
+		t.Errorf("first line should end inside the long word, got %q", lines[0])
+	}
+	// Every visual line must fit the width.
+	for i, ln := range lines {
+		if w := runewidth.StringWidth(stripANSIForWidth(ln)); w > 20 {
+			t.Errorf("line %d exceeds width 20 (%d): %q", i, w, ln)
+		}
+	}
 }
 
 func TestWrapLines_PreservesShortWords(t *testing.T) {
 	// Words shorter than 1/8 of width should never be split
-	result := wrapLines("aa bb cc dd ee ff gg hh ii jj", 10)
+	result, _ := wrapLinesWithContinuationMap("aa bb cc dd ee ff gg hh ii jj", 10, 0)
 	lines := strings.Split(result, "\n")
 	for i, line := range lines {
 		stripped := strings.TrimSpace(line)

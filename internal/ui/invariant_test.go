@@ -1094,7 +1094,31 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		nLines := rapid.IntRange(3, 20).Draw(t, "nLines")
 		var srcLines []string
 		for i := range nLines {
-			srcLines = append(srcLines, fmt.Sprintf("source line %d with some content for testing", i+1))
+			kinds := []func(int) string{
+				// Original uniform ASCII line.
+				func(n int) string { return fmt.Sprintf("source line %d with some content for testing", n) },
+				// Blank line — the case the old generator could never produce,
+				// and the one that leaked the gutter into copied text.
+				func(int) string { return "" },
+				// Whitespace-only line.
+				func(int) string { return "   " },
+				// Short line.
+				func(n int) string { return fmt.Sprintf("l%d", n) },
+				// Long line (forces wrapping / truncation).
+				func(n int) string {
+					return fmt.Sprintf("line %d ", n) + strings.Repeat("verylongtokenwithoutspaces ", 8)
+				},
+				// Leading whitespace.
+				func(n int) string { return fmt.Sprintf("        indented body %d", n) },
+				// Trailing whitespace.
+				func(n int) string { return fmt.Sprintf("trailing space body %d      ", n) },
+				// Mixed-width (wide CJK) body.
+				func(n int) string { return fmt.Sprintf("日本語のテキスト %d です", n) },
+				// Mixed ASCII + wide + combining marks.
+				func(n int) string { return fmt.Sprintf("café ünïcode %d 漢字 mixed", n) },
+			}
+			k := rapid.IntRange(0, len(kinds)-1).Draw(t, fmt.Sprintf("lineKind%d", i))
+			srcLines = append(srcLines, kinds[k](i+1))
 		}
 		srcContent := strings.Join(srcLines, "\n")
 
@@ -1124,14 +1148,15 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		// to determine the valid drag area and expected characters.
 		vpContent := m.mainPane.viewport.View()
 		vpLines := strings.Split(vpContent, "\n")
+		// Note: this calls the production stripGutterText rather than
+		// re-deriving the strip/trim logic inline. The old inline copy
+		// replicated production's (buggy) trim-then-strip order, which meant
+		// the harness agreed with the bug instead of catching it. The
+		// source-of-truth check is invariant 1 below, which compares against
+		// srcLines, not against re-derived rendered text.
 		var contentRows int
 		for _, vl := range vpLines {
-			stripped := stripANSIForWidth(vl)
-			stripped = strings.TrimRight(stripped, " ")
-			if gw > 0 && len(stripped) > gw {
-				stripped = stripped[gw:]
-			}
-			if stripped != "" {
+			if stripGutterText(vl, gw) != "" {
 				contentRows++
 			}
 		}
@@ -1219,25 +1244,23 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			if vpRow < 0 || vpRow >= len(vpLines) {
 				continue
 			}
-			line := stripANSIForWidth(vpLines[vpRow])
-			line = strings.TrimRight(line, " ")
-			if gw > 0 && len(line) > gw {
-				line = line[gw:]
-			}
+			line := stripGutterText(vpLines[vpRow], gw)
 
+			// Display-column addressing, matching extractLineFragment.
+			lineW := displayWidthOf(line)
 			fromX := 0
-			toX := len(line)
+			toX := lineW
 			if row == hlStartY {
 				fromX = max(0, hlStartX-gutterOffset)
 			}
 			if row == hlEndY {
-				toX = min(len(line), hlEndX+1-gutterOffset)
+				toX = min(lineW, hlEndX+1-gutterOffset)
 			}
-			if fromX > len(line) {
-				fromX = len(line)
+			if fromX > lineW {
+				fromX = lineW
 			}
 			if fromX < toX {
-				hlText.WriteString(line[fromX:toX])
+				hlText.WriteString(sliceByDisplayCol(line, fromX, toX))
 			}
 			if row < hlEndY {
 				absY := vpRow + vpOffset
@@ -1271,25 +1294,40 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 				hlJoined, gotJoined, wordWrap, lineNumbers, x1, y1, x2, y2)
 		}
 
-		// Helper: get the gutter-stripped, ANSI-stripped character at a
-		// screen position from the viewport content.
-		charAt := func(screenX, screenY int) (rune, bool) {
+		// Helper: get the gutter-stripped, ANSI-stripped character occupying a
+		// screen position in the viewport content.
+		//
+		// Screen columns are *display* columns, so the body is addressed by
+		// display width — rune index and display column diverge as soon as
+		// the body holds wide runes, which the generator now produces.
+		//
+		// onBoundary reports whether the column is the *first* cell of the
+		// rune. When a click lands on the trailing cell of a wide glyph, the
+		// copy path's start and end clips disagree about whether that glyph is
+		// inside the selection (sliceByDisplayCol rounds the start up to the
+		// next rune boundary but lets a straddling rune through at the end),
+		// so the endpoint invariants below only assert on boundary columns.
+		// See BUG_REPORTS.md — the half-cell click case is an open question,
+		// not something these tests should silently bless either way.
+		charAt := func(screenX, screenY int) (r rune, onBoundary, ok bool) {
 			row := screenY - contentStartY
 			if row < 0 || row >= len(vpLines) {
-				return 0, false
+				return 0, false, false
 			}
-			line := stripANSIForWidth(vpLines[row])
-			line = strings.TrimRight(line, " ")
-			col := screenX - contentStartX
-			if col < 0 || col >= len(line) {
-				return 0, false
+			body := stripGutterText(vpLines[row], gw)
+			charCol := screenX - contentStartX - gw
+			if charCol < 0 || charCol >= displayWidthOf(body) {
+				return 0, false, false
 			}
-			runes := []rune(line[gw:])
-			charCol := col - gw
-			if charCol < 0 || charCol >= len(runes) {
-				return 0, false
+			col := 0
+			for _, rr := range body {
+				w := runewidth.RuneWidth(rr)
+				if charCol < col+w {
+					return rr, charCol == col, true
+				}
+				col += w
 			}
-			return runes[charCol], true
+			return 0, false, false
 		}
 
 		// Invariant 1: every logical line in the copied text is a subsequence
@@ -1320,27 +1358,65 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			}
 			return true
 		}
-		for _, gotLine := range strings.Split(got, "\n") {
-			gotLine = strings.TrimRight(gotLine, " ")
-			if gotLine == "" {
-				continue
+		// Invariant 1a (source-of-truth mapping): extractSourceRange emits
+		// exactly one logical line per mapped source line in
+		// [upper.SourceLine, lower.SourceLine]. With plain content and no
+		// diff annotations every source line is mapped, so the i-th copied
+		// line must come from srcLines[upper.SourceLine-1+i] specifically —
+		// not merely from "some" source line. Checking against srcLines (the
+		// content we handed the pane) rather than against text re-derived
+		// from the rendered viewport is what makes this able to catch a
+		// gutter leak: a blank source line must copy as "".
+		upper, lower, endsOK := m.drag.resolveSelectionEnds(m.dragGeom())
+		if endsOK {
+			gotLines := strings.Split(got, "\n")
+			if want := lower.SourceLine - upper.SourceLine + 1; want != len(gotLines) {
+				t.Fatalf("selectedText() produced %d logical lines, want %d for source range [%d,%d]\nfull: %q\nwrap=%v lineNums=%v",
+					len(gotLines), want, upper.SourceLine, lower.SourceLine, got, wordWrap, lineNumbers)
 			}
-			found := false
-			for _, sl := range srcLines {
-				if isSubseq(sl, gotLine) {
-					found = true
-					break
+			for i, gotLine := range gotLines {
+				srcIdx := upper.SourceLine - 1 + i
+				if srcIdx < 0 || srcIdx >= len(srcLines) {
+					t.Fatalf("copied line %d maps to source line %d, out of range [1,%d]\nfull: %q",
+						i, srcIdx+1, len(srcLines), got)
 				}
-			}
-			if !found {
-				t.Fatalf("selectedText() line %q is not a subsequence of any source line\nfull: %q\nwrap=%v lineNums=%v gw=%d drag=(%d,%d)->(%d,%d)",
-					gotLine, got, wordWrap, lineNumbers, gw, x1, y1, x2, y2)
+				src := strings.TrimRight(srcLines[srcIdx], " ")
+				gotLine = strings.TrimRight(gotLine, " ")
+				if src == "" && gotLine != "" {
+					t.Fatalf("blank source line %d copied as %q (gutter leak?)\nfull: %q\nwrap=%v lineNums=%v gw=%d drag=(%d,%d)->(%d,%d)",
+						srcIdx+1, gotLine, got, wordWrap, lineNumbers, gw, x1, y1, x2, y2)
+				}
+				if !isSubseq(src, gotLine) {
+					t.Fatalf("copied line %d = %q is not a subsequence of source line %d = %q\nfull: %q\nwrap=%v lineNums=%v gw=%d drag=(%d,%d)->(%d,%d)",
+						i, gotLine, srcIdx+1, src, got, wordWrap, lineNumbers, gw, x1, y1, x2, y2)
+				}
+
+				// Invariant 1b (exactness on unclipped middle lines).
+				// Subsequence alone is a one-sided check: dropping leading
+				// characters preserves it, so a stripGutterText that ate one
+				// column too many would still satisfy 1a — and invariants
+				// 2/3 route through the same helper, so they'd agree with it.
+				// A *middle* line of a multi-line selection has no column
+				// clipping (only the first and last lines carry
+				// upper.Column / lower.Column), and a source line whose
+				// display width fits inside the pane's content columns is
+				// neither wrapped nor horizontally truncated. Under those
+				// two conditions the copied line must equal the source line
+				// exactly, character for character.
+				isMiddle := i > 0 && i < len(gotLines)-1
+				fitsPane := displayWidthOf(src) <= m.mainPane.width-gw
+				if isMiddle && fitsPane && gotLine != src {
+					t.Fatalf("copied middle line %d = %q, want exactly source line %d = %q\n"+
+						"(unclipped, unwrapped, untruncated — any difference means the extract path added or dropped characters)\n"+
+						"full: %q\nwrap=%v lineNums=%v gw=%d paneW=%d drag=(%d,%d)->(%d,%d)",
+						i, gotLine, srcIdx+1, src, got, wordWrap, lineNumbers, gw, m.mainPane.width, x1, y1, x2, y2)
+				}
 			}
 		}
 
 		// Invariant 2: first character matches drag start position
 		gotRunes := []rune(got)
-		if startChar, ok := charAt(x1, y1); ok {
+		if startChar, onBoundary, ok := charAt(x1, y1); ok && onBoundary {
 			if gotRunes[0] != startChar {
 				t.Fatalf("first char: selectedText() starts with %q, but screen position (%d,%d) has %q",
 					string(gotRunes[0]), x1, y1, string(startChar))
@@ -1348,7 +1424,7 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		}
 
 		// Invariant 3: last character matches drag end position
-		if endChar, ok := charAt(x2, y2); ok {
+		if endChar, onBoundary, ok := charAt(x2, y2); ok && onBoundary {
 			lastGot := gotRunes[len(gotRunes)-1]
 			// The last rune might be a newline if we selected to end of line;
 			// in that case compare against the last non-newline rune.

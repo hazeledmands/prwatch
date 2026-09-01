@@ -351,3 +351,95 @@ func setDragRect(m *Model, x1, y1, x2, y2 int) {
 	m.drag.active = g.clickAt(x2, y2)
 	m.drag.inProgress = true
 }
+
+// TestExtractLineFragment_GutterStrippedBeforeTrim pins the gutter/trim
+// ordering. Trimming trailing whitespace *before* removing the gutter leaves
+// a blank source line's gutter ("  12   " → "  12") shorter than the gutter
+// width, so the length guard declines to strip it and the line-number digits
+// leak into copied text — while the on-screen highlight correctly shows
+// nothing. Stripping the gutter first makes blank lines copy as "".
+func TestExtractLineFragment_GutterStrippedBeforeTrim(t *testing.T) {
+	tests := []struct {
+		name    string
+		line    string
+		gw      int
+		fromCol int
+		toCol   int
+		want    string
+	}{
+		{
+			name: "blank body with line-number gutter",
+			line: " 12   ", gw: 6, fromCol: 0, toCol: maxColumn, want: "",
+		},
+		{
+			name: "blank body, gutter mark only",
+			line: "   ", gw: 3, fromCol: 0, toCol: maxColumn, want: "",
+		},
+		{
+			name: "whitespace-only body",
+			line: " 12      ", gw: 6, fromCol: 0, toCol: maxColumn, want: "",
+		},
+		{
+			name: "blank body, wide column range",
+			line: "  7   ", gw: 6, fromCol: 0, toCol: 40, want: "",
+		},
+		{
+			name: "non-blank body still extracted",
+			line: " 12   hello", gw: 6, fromCol: 0, toCol: maxColumn, want: "hello",
+		},
+		{
+			name: "leading whitespace in body preserved",
+			line: " 12     indented", gw: 6, fromCol: 0, toCol: maxColumn, want: "  indented",
+		},
+		{
+			name: "trailing whitespace in body trimmed",
+			line: " 12   hello   ", gw: 6, fromCol: 0, toCol: maxColumn, want: "hello",
+		},
+		{
+			name: "column clip inside body",
+			line: " 12   hello world", gw: 6, fromCol: 6, toCol: 11, want: "world",
+		},
+		{
+			name: "no gutter, blank line",
+			line: "     ", gw: 0, fromCol: 0, toCol: maxColumn, want: "",
+		},
+		{
+			name: "wide runes in body",
+			line: " 12   日本語", gw: 6, fromCol: 0, toCol: maxColumn, want: "日本語",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractLineFragment(tt.line, tt.fromCol, tt.toCol, tt.gw)
+			if got != tt.want {
+				t.Errorf("extractLineFragment(%q, %d, %d, %d) = %q, want %q",
+					tt.line, tt.fromCol, tt.toCol, tt.gw, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestStripGutterDisplayWidth_BlankLine is the cursor-column half of the same
+// ordering bug: a blank line's residual gutter reported a non-zero content
+// width, letting the cursor sit in columns that hold no content.
+func TestStripGutterDisplayWidth_BlankLine(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		gw   int
+		want int
+	}{
+		{"blank body with line number", " 12   ", 6, 0},
+		{"blank body, gutter mark only", "   ", 3, 0},
+		{"non-blank body", " 12   hello", 6, 5},
+		{"wide runes", " 12   日本語", 6, 6},
+		{"no gutter", "hello", 0, 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stripGutterDisplayWidth(tt.line, tt.gw); got != tt.want {
+				t.Errorf("stripGutterDisplayWidth(%q, %d) = %d, want %d", tt.line, tt.gw, got, tt.want)
+			}
+		})
+	}
+}

@@ -1,5 +1,22 @@
 ## New Bugs
 
+- Drag selection disagrees with itself when a click lands on the *trailing*
+  cell of a wide glyph. Endpoint `Column`s are display columns, and the
+  clips run through `sliceByDisplayCol` (`ansiwidth.go`), which rounds the
+  *start* up to the next rune boundary but lets a rune straddling the *end*
+  through. So clicking the second cell of `日` excludes it when it is the
+  start of the selection and includes it when it is the end — the two edges
+  round in opposite directions. Surfaced by widening
+  `TestProperty_DragSelectsCorrectText`'s generator to emit CJK-width line
+  bodies (A4): `last char: selectedText() ends with "の", but screen
+  position (31,5) has "テ"`. Not fixed here — it is A6 mixed-width
+  territory and wants a product decision (a terminal treats the whole cell
+  as the glyph, so clicking either half should arguably include it, which
+  means the start clip should round *down*). The property's first/last-char
+  invariants currently assert only on rune-boundary columns and say so
+  inline, so the ambiguous case is skipped rather than blessed either way.
+
+
 - `isRateLimited` (`model.go`) classifies on substrings and treats *any*
   `"403"` in the error text as a rate limit — so a SAML-enforcement or
   permission 403 (`gh` on an SSO-protected org, a token missing `repo`
@@ -25,6 +42,143 @@
   bandwidth.
 
 ## Fixed Bugs
+
+### CODE_REVIEW.md A4 — tests that encoded or masked bugs
+
+Five items. Two were live bugs the tests were hiding (marked **fixed**);
+three were test-infrastructure gaps where production behavior is unchanged
+(marked **hardened**).
+
+- **Fixed — horizontal scroll clamped `gutterWidth` columns early.**
+  `mainPane.ScrollRight` (`mainpane.go`) computed
+  `maxWidth := m.maxContentWidth() - m.gutterWidth`, but `maxContentWidth()`
+  measures `m.content`, which is the *unformatted* source — the gutter has
+  not been added yet. Subtracting the gutter from both the content and the
+  viewport term cancelled it out, so the clamp landed at
+  `maxContentWidth - width` instead of `maxContentWidth - (width - gutter)`
+  and the last `gutterWidth` columns (4-6 in practice) of the widest line
+  could never be scrolled into view. `TestScrollRight_Clamping`
+  (`model_test.go`) had been loosened around it with
+  `xOffset <= maxExpected+10 // allow some tolerance for gutter`, which
+  admitted both the correct and the buggy value. Fixed by dropping the
+  gutter from the content term. The tolerance is gone (the assertion is now
+  exact) and `TestScrollRight_RightmostColumnReachable` states the contract
+  observably — with and without line numbers, the tail of the widest line
+  must appear in `View()` after scrolling fully right, and scrolling
+  further must not move the offset.
+
+- **Fixed — a blank line's gutter leaked into copied text.**
+  `extractLineFragment` (`drag.go`) and `stripGutterDisplayWidth`
+  (`mainpane.go`) both stripped ANSI, then trimmed trailing whitespace,
+  then removed the gutter prefix — guarded by `len(stripped) > gw`. For a
+  blank source line the rendered row is nothing *but* gutter (`"  12   "`),
+  so the trim shrank it below `gw`, the guard declined to strip, and the
+  line-number digits survived as if they were content: dragging across a
+  blank line copied `"12"` while the on-screen highlight correctly showed
+  nothing, and the cursor could sit in gutter columns on blank lines.
+  Fixed by extracting `stripGutterText` (`mainpane.go`) as the single
+  source of truth for "the visible body of a rendered viewport line" and
+  reversing the order — strip the gutter first, then trim. Both call sites
+  now go through it. Regressions:
+  `TestExtractLineFragment_GutterStrippedBeforeTrim` and
+  `TestStripGutterDisplayWidth_BlankLine` (`drag_test.go`), table-driven
+  over blank/whitespace-only/leading-whitespace/wide-rune bodies.
+
+- **Hardened — `TestWrapLines_*` asserted against a dead copy of the wrap
+  implementation.** `wrapLinesWordBoundary` (~130 lines) and its two
+  wrappers `wrapLines` / `wrapLinesWithIndent` had no non-test callers;
+  production wraps through `wrapLinesWithContinuationMap`. The tests were
+  green regardless of what the live copy did. All three dead functions are
+  deleted and the tests (`TestWrapLines_BreaksAtWordBoundaries`,
+  `_BreaksMidWordWhenTooLong`, `_PreservesShortWords`,
+  `TestWrapLinesWithIndent_ZeroIndent`, `_SmallWidth`, `_WithIndent`) now
+  call `wrapLinesWithContinuationMap` directly, with the assertions
+  strengthened rather than relaxed (mid-word break actually verified, every
+  emitted line checked against the width, `contMap` checked alongside the
+  indent). No behavioral difference was found between the two copies: the
+  dead one was textually identical apart from the continuation-map
+  bookkeeping and having its `width <= indent` normalization done by the
+  `wrapLinesWithIndent` wrapper instead of inline. The duplication had not
+  yet drifted; it was removed before it could.
+
+- **Hardened — `TestProperty_DragSelectsCorrectText` could not see the
+  blank-line bug.** Two independent reasons. Its generator emitted only
+  uniform, non-blank, pure-ASCII lines, and its harness re-derived the
+  expected text from the rendered viewport using the same trim-then-strip
+  order as the production bug — so the test agreed with the bug instead of
+  catching it. The generator now draws per line from blank, whitespace-
+  only, short, long (wrap-forcing), leading-whitespace, trailing-
+  whitespace, CJK-width and mixed-accent shapes. The harness's three
+  inline re-derivations are replaced by calls to the production
+  `stripGutterText`, and a new **invariant 1a** asserts against
+  source-of-truth: `extractSourceRange` emits one logical line per mapped
+  source line, so the i-th copied line is checked against
+  `srcLines[upper.SourceLine-1+i]` specifically — including "a blank source
+  line must copy as empty" — rather than against "some source line" or
+  against text re-derived from the render. Verified by reintroducing the
+  trim-then-strip order and watching the property fail with
+  `blank source line 2 copied as "2" (gutter leak?)`.
+
+  A subsequence check alone is one-sided — dropping *leading* characters
+  preserves it, and invariants 2/3 route through the same
+  `stripGutterText`, so a helper that ate one column too many would have
+  gone unnoticed by every assertion except the drag_test.go unit literals.
+  **Invariant 1b** closes that: a *middle* line of a multi-line selection
+  carries no column clipping (only the first and last lines take
+  `upper.Column` / `lower.Column`), and a source line whose display width
+  fits the pane's content columns is neither wrapped nor horizontally
+  truncated — so under those two conditions the copied line must equal the
+  source line exactly. Verified by making `stripGutterText` strip `gw+1`
+  columns: `copied middle line 4 = "railing space body 5", want exactly
+  source line 5 = "trailing space body 5"`.
+
+  **Deleted seeds.** Widening the generator changed the property's draw
+  sequence, so five pre-existing replays no longer decode against the new
+  signature — rapid reports each as `fail file "…" is no longer valid`,
+  which is the one case CLAUDE.md sanctions deleting a `.fail` for.
+  Removed:
+
+  - `TestProperty_DragSelectsCorrectText-20260510113158-43696.fail`
+  - `TestProperty_DragSelectsCorrectText-20260515122504-4472.fail`
+  - `TestProperty_DragSelectsCorrectText-20260520161647-83995.fail`
+  - `TestProperty_DragSelectsCorrectText-20260520162703-48030.fail`
+  - `TestProperty_DragSelectsCorrectText-20260520200620-2229.fail`
+
+  These guarded highlight/selection-boundary and UTF-8-slicing regressions,
+  all of which the widened generator now reaches far more often than the
+  old uniform-ASCII one did, backed by invariants 1a/1b and by the two
+  seeds captured during this work
+  (`…-20260831203552-95794.fail`, `…-20260831203634-98636.fail`). The five
+  seeds that still decode (`…20260414164021`, `…20260509230432`,
+  `…20260509233230`, `…20260510160329`, `…20260520145748`) were kept and
+  replay green.
+
+- **Hardened — mock `gh` JSON fixtures omitted fields the real queries
+  request.** `TestPRAll_WithMockGH` supplied 8 of the 20 fields in the
+  `gh pr view --json` list; timestamps, labels, assignees, milestone,
+  mergedBy, body, isDraft and reviewDecision were all absent, so a field
+  added to the query or a mistyped struct tag changed nothing observable.
+  Added `TestPRAll_FixtureCoversEveryRequestedField` and
+  `TestPRChecksAll_FixtureCoversEveryRequestedField` (`git_test.go`), which
+  record the actual gh argv, parse the `--json` list out of it, and fail if
+  the fixture omits any requested field — then assert the parsed value of
+  every previously-missing field, including the nested review/comment
+  timestamps and the `link`→`URL` remapping on `CICheck`.
+
+- **Hardened — three zero-coverage parsers.** `parseRenameNameStatus`,
+  `parsePorcelainV2Renames` and `parseCommitLog` had no dedicated tests,
+  only incidental exercise through happy-path integration. Added
+  `internal/git/parsers_test.go`: table-driven behavior tests (input string
+  → parsed value) covering empty and malformed input, rename-score
+  variants, copies-vs-renames, R in either XY position, spaces in
+  filenames, CRLF, unparseable dates and truncated records. These are the
+  safety net for A6's planned `-z`/NUL-delimited conversion, so cases where
+  current behavior is plainly wrong for exotic input are recorded as
+  `CURRENT BEHAVIOR:` with an `// A6:` note rather than fixed here — most
+  notably git's default `core.quotePath` octal-escaping, which makes
+  `café.txt` arrive as `"caf\303\251.txt"` and pass through the parsers
+  verbatim into the UI.
+
 
 ### CODE_REVIEW.md A3 — error paths collapsed into adjacent-but-wrong states
 

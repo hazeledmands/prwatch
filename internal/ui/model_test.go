@@ -5741,11 +5741,48 @@ func TestScrollRight_Clamping(t *testing.T) {
 		t.Error("scroll right should increase xOffset for wide content")
 	}
 
-	// Scroll far right — should clamp
+	// Scroll far right — should clamp so that the last content column is
+	// exactly at the right edge of the available (non-gutter) width.
 	mp.ScrollRight(1000)
-	maxExpected := 100 - 40
-	if mp.xOffset > maxExpected+10 { // allow some tolerance for gutter
-		t.Errorf("xOffset should be clamped, got %d", mp.xOffset)
+	maxExpected := 100 - (40 - mp.gutterWidth)
+	if mp.xOffset != maxExpected {
+		t.Errorf("xOffset should clamp to %d, got %d", maxExpected, mp.xOffset)
+	}
+}
+
+// TestScrollRight_RightmostColumnReachable is the observable form of the clamp
+// contract: scrolling all the way right must bring the final column of the
+// widest line into view. A clamp that stops gutterWidth columns early leaves
+// the tail permanently off-screen.
+func TestScrollRight_RightmostColumnReachable(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		lineNumbers bool
+	}{
+		{"with line numbers", true},
+		{"without line numbers", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mp := newMainPane()
+			mp.SetSize(40, 10)
+			mp.SetWordWrap(false)
+			mp.SetLineNumbers(tc.lineNumbers)
+			mp.SetPlainContent(strings.Repeat("x", 95) + "END")
+
+			mp.ScrollRight(1000)
+
+			view := mp.View(true)
+			if !strings.Contains(view, "END") {
+				t.Errorf("rightmost columns unreachable: xOffset=%d gutter=%d view lacks the line tail\n%s",
+					mp.xOffset, mp.gutterWidth, view)
+			}
+			// Scrolling further must not move past the end.
+			before := mp.xOffset
+			mp.ScrollRight(10)
+			if mp.xOffset != before {
+				t.Errorf("xOffset kept growing past the clamp: %d -> %d", before, mp.xOffset)
+			}
+		})
 	}
 }
 
@@ -5810,24 +5847,42 @@ func TestNavigateToCurrentMatch_Empty(t *testing.T) {
 	m.search.navigateToCurrent(m.mainPane) // should not panic
 }
 
+// These previously exercised wrapLinesWithIndent, a wrapper over the dead
+// wrapLinesWordBoundary copy. They now target the live wrap function.
 func TestWrapLinesWithIndent_ZeroIndent(t *testing.T) {
-	result := wrapLinesWithIndent("hello world testing now", 15, 0)
+	result, _ := wrapLinesWithContinuationMap("hello world testing now", 15, 0)
 	lines := strings.Split(result, "\n")
 	if len(lines) < 2 {
 		t.Fatal("expected wrapping")
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], " ") {
+			t.Errorf("zero indent: continuation line %d should not be indented, got %q", i, lines[i])
+		}
 	}
 }
 
 func TestWrapLinesWithIndent_SmallWidth(t *testing.T) {
 	// width <= indent should fall back to no-indent wrapping
-	result := wrapLinesWithIndent("hello world", 3, 5)
+	result, contMap := wrapLinesWithContinuationMap("hello world", 3, 5)
 	if result == "" {
 		t.Error("should not return empty")
+	}
+	lines := strings.Split(result, "\n")
+	if len(contMap) != len(lines) {
+		t.Fatalf("contMap length %d != lines %d", len(contMap), len(lines))
+	}
+	// The indent is wider than the width, so no indent may be applied —
+	// otherwise every continuation line would be pure padding.
+	for i := 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "     ") {
+			t.Errorf("indent >= width should be dropped, line %d = %q", i, lines[i])
+		}
 	}
 }
 
 func TestWrapLinesWithIndent_WithIndent(t *testing.T) {
-	result := wrapLinesWithIndent("aaa bbb ccc ddd eee fff ggg", 15, 4)
+	result, contMap := wrapLinesWithContinuationMap("aaa bbb ccc ddd eee fff ggg", 15, 4)
 	lines := strings.Split(result, "\n")
 	if len(lines) < 2 {
 		t.Fatal("expected wrapping")
@@ -5836,6 +5891,9 @@ func TestWrapLinesWithIndent_WithIndent(t *testing.T) {
 	for i := 1; i < len(lines); i++ {
 		if !strings.HasPrefix(lines[i], "    ") {
 			t.Errorf("continuation line %d should be indented, got %q", i, lines[i])
+		}
+		if !contMap[i] {
+			t.Errorf("continuation line %d should be flagged in contMap", i)
 		}
 	}
 }

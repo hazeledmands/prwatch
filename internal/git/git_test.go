@@ -2,11 +2,13 @@ package git_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hazeledmands/prwatch/internal/command"
 	"github.com/hazeledmands/prwatch/internal/git"
@@ -1818,4 +1820,256 @@ func TestRWXTestResults(t *testing.T) {
 			t.Errorf("expected 0 results, got %d", len(results))
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// gh fixture completeness
+//
+// The mock `gh` fixtures used to carry only the handful of fields each test
+// looked at, so a field added to a query (or renamed on a parsing struct)
+// changed nothing observable: the fixture simply didn't have it and every
+// assertion still passed. These tests close that gap from both ends —
+// assertFixtureCoversQuery proves the fixture supplies every field the
+// production query asks for, and the value assertions prove the parsing
+// structs actually pick those fields up.
+// ---------------------------------------------------------------------------
+
+// recordingGHFactory stubs gh and records every gh argv it sees.
+func recordingGHFactory(ghResponse string, ghErr error, calls *[][]string) command.Factory {
+	return func(name string, args ...string) command.Command {
+		if name == "gh" {
+			*calls = append(*calls, args)
+			return command.StubCommand(ghResponse, ghErr)
+		}
+		return command.DefaultFactory(name, args...)
+	}
+}
+
+// ghJSONFields returns the comma-separated field list passed to `--json` in a
+// recorded gh argv, or nil if the call didn't use --json.
+func ghJSONFields(args []string) []string {
+	for i, a := range args {
+		if a == "--json" && i+1 < len(args) {
+			return strings.Split(args[i+1], ",")
+		}
+	}
+	return nil
+}
+
+// assertFixtureCoversQuery fails when the production query requests a field
+// that the fixture object does not supply. This is the schema-drift tripwire:
+// add a field to the `--json` list and this test fails until the fixture (and
+// therefore the parsing struct) accounts for it.
+func assertFixtureCoversQuery(t *testing.T, fixture map[string]any, requested []string) {
+	t.Helper()
+	if len(requested) == 0 {
+		t.Fatal("no --json field list recorded; the query changed shape")
+	}
+	for _, f := range requested {
+		if _, ok := fixture[f]; !ok {
+			t.Errorf("gh query requests %q but the test fixture omits it — "+
+				"fixture is incomplete, so drift between the query and the parsing struct is invisible", f)
+		}
+	}
+}
+
+// prAllFixture is a complete `gh pr view` response: every field the PRAll
+// query asks for, with a distinguishable value.
+func prAllFixture() map[string]any {
+	return map[string]any{
+		"number":         42,
+		"title":          "Test PR",
+		"url":            "https://github.com/test/repo/pull/42",
+		"state":          "MERGED",
+		"baseRefName":    "main",
+		"isDraft":        true,
+		"reviewDecision": "CHANGES_REQUESTED",
+		"body":           "PR body text",
+		"labels":         []any{map[string]any{"name": "bug"}, map[string]any{"name": "storage"}},
+		"assignees":      []any{map[string]any{"login": "hazel"}, map[string]any{"login": "akahn"}},
+		"milestone":      map[string]any{"title": "v1.2.0"},
+		"mergedBy":       map[string]any{"login": "ianwilkes"},
+		"reviews": []any{map[string]any{
+			"author":      map[string]any{"login": "alice"},
+			"state":       "APPROVED",
+			"body":        "looks good",
+			"submittedAt": "2026-08-30T10:00:00Z",
+		}},
+		"reviewRequests": []any{map[string]any{"__typename": "User", "login": "bob"}},
+		"comments": []any{map[string]any{
+			"author":    map[string]any{"login": "carol"},
+			"body":      "lgtm",
+			"createdAt": "2026-08-30T11:00:00Z",
+			"url":       "https://github.com/test/repo/pull/42#issuecomment-1",
+		}},
+		"createdAt": "2026-08-29T09:00:00Z",
+		"updatedAt": "2026-08-30T12:00:00Z",
+		"mergedAt":  "2026-08-31T13:00:00Z",
+		"closedAt":  "2026-08-31T13:00:01Z",
+	}
+}
+
+func TestPRAll_FixtureCoversEveryRequestedField(t *testing.T) {
+	dir := setupTestRepo(t)
+	fixture := prAllFixture()
+	blob, err := json.Marshal(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls [][]string
+	g := git.NewWithFactory(dir, recordingGHFactory(string(blob), nil, &calls))
+
+	result, err := g.PRAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The `gh pr view` call is the first gh invocation.
+	var prViewArgs []string
+	for _, c := range calls {
+		if len(c) >= 2 && c[0] == "pr" && c[1] == "view" {
+			prViewArgs = c
+			break
+		}
+	}
+	if prViewArgs == nil {
+		t.Fatalf("no `gh pr view` call recorded, got %v", calls)
+	}
+	assertFixtureCoversQuery(t, fixture, ghJSONFields(prViewArgs))
+
+	// Value assertions for the fields the old fixture omitted entirely —
+	// these are what catch a struct/tag mismatch on a field the fixture now
+	// supplies.
+	info := result.Info
+	if info.IsDraft != true {
+		t.Errorf("IsDraft = %v, want true", info.IsDraft)
+	}
+	if info.State != "MERGED" {
+		t.Errorf("State = %q, want MERGED", info.State)
+	}
+	if info.ReviewDecision != "CHANGES_REQUESTED" {
+		t.Errorf("ReviewDecision = %q, want CHANGES_REQUESTED", info.ReviewDecision)
+	}
+	if info.Body != "PR body text" {
+		t.Errorf("Body = %q", info.Body)
+	}
+	wantLabels := []string{"bug", "storage"}
+	if len(info.Labels) != len(wantLabels) {
+		t.Errorf("Labels = %+v, want %v", info.Labels, wantLabels)
+	} else {
+		for i, w := range wantLabels {
+			if info.Labels[i].Name != w {
+				t.Errorf("Labels[%d].Name = %q, want %q", i, info.Labels[i].Name, w)
+			}
+		}
+	}
+	wantAssignees := []string{"hazel", "akahn"}
+	if len(info.Assignees) != len(wantAssignees) {
+		t.Errorf("Assignees = %+v, want %v", info.Assignees, wantAssignees)
+	} else {
+		for i, w := range wantAssignees {
+			if info.Assignees[i].Login != w {
+				t.Errorf("Assignees[%d].Login = %q, want %q", i, info.Assignees[i].Login, w)
+			}
+		}
+	}
+	if info.Milestone.Title != "v1.2.0" {
+		t.Errorf("Milestone.Title = %q, want v1.2.0", info.Milestone.Title)
+	}
+	if info.MergedBy == nil || info.MergedBy.Login != "ianwilkes" {
+		t.Errorf("MergedBy = %+v, want {ianwilkes}", info.MergedBy)
+	}
+	for _, tc := range []struct {
+		name string
+		got  time.Time
+		want string
+	}{
+		{"CreatedAt", info.CreatedAt, "2026-08-29T09:00:00Z"},
+		{"UpdatedAt", info.UpdatedAt, "2026-08-30T12:00:00Z"},
+		{"MergedAt", info.MergedAt, "2026-08-31T13:00:00Z"},
+		{"ClosedAt", info.ClosedAt, "2026-08-31T13:00:01Z"},
+	} {
+		want, err := time.Parse(time.RFC3339, tc.want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !tc.got.Equal(want) {
+			t.Errorf("%s = %v, want %v", tc.name, tc.got, want)
+		}
+	}
+	// Review / comment timestamps travel through their own nested structs.
+	if len(result.Reviews) != 1 {
+		t.Fatalf("Reviews = %+v, want 1", result.Reviews)
+	}
+	wantSubmitted, _ := time.Parse(time.RFC3339, "2026-08-30T10:00:00Z")
+	if !result.Reviews[0].SubmittedAt.Equal(wantSubmitted) {
+		t.Errorf("Reviews[0].SubmittedAt = %v, want %v", result.Reviews[0].SubmittedAt, wantSubmitted)
+	}
+	if result.Reviews[0].Body != "looks good" {
+		t.Errorf("Reviews[0].Body = %q", result.Reviews[0].Body)
+	}
+	if len(result.Comments) != 1 {
+		t.Fatalf("Comments = %+v, want 1", result.Comments)
+	}
+	wantCreated, _ := time.Parse(time.RFC3339, "2026-08-30T11:00:00Z")
+	if !result.Comments[0].CreatedAt.Equal(wantCreated) {
+		t.Errorf("Comments[0].CreatedAt = %v, want %v", result.Comments[0].CreatedAt, wantCreated)
+	}
+	if result.Comments[0].URL != "https://github.com/test/repo/pull/42#issuecomment-1" {
+		t.Errorf("Comments[0].URL = %q", result.Comments[0].URL)
+	}
+}
+
+func TestPRChecksAll_FixtureCoversEveryRequestedField(t *testing.T) {
+	dir := setupTestRepo(t)
+	check := map[string]any{
+		"name":        "build",
+		"state":       "SUCCESS",
+		"bucket":      "pass",
+		"link":        "https://github.com/test/repo/actions/runs/1",
+		"startedAt":   "2026-08-31T10:00:00Z",
+		"completedAt": "2026-08-31T10:05:00Z",
+	}
+	blob, err := json.Marshal([]any{check})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls [][]string
+	g := git.NewWithFactory(dir, recordingGHFactory(string(blob), nil, &calls))
+
+	result, err := g.PRChecksAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var checksArgs []string
+	for _, c := range calls {
+		if len(c) >= 2 && c[0] == "pr" && c[1] == "checks" {
+			checksArgs = c
+			break
+		}
+	}
+	if checksArgs == nil {
+		t.Fatalf("no `gh pr checks` call recorded, got %v", calls)
+	}
+	assertFixtureCoversQuery(t, check, ghJSONFields(checksArgs))
+
+	if len(result.Checks) != 1 {
+		t.Fatalf("Checks = %+v, want 1", result.Checks)
+	}
+	got := result.Checks[0]
+	if got.Name != "build" || got.State != "SUCCESS" || got.Bucket != "pass" {
+		t.Errorf("check = %+v", got)
+	}
+	if got.URL != "https://github.com/test/repo/actions/runs/1" {
+		t.Errorf("check URL = %q (the JSON key is `link`, not `url`)", got.URL)
+	}
+	wantStart, _ := time.Parse(time.RFC3339, "2026-08-31T10:00:00Z")
+	if !got.StartedAt.Equal(wantStart) {
+		t.Errorf("StartedAt = %v, want %v", got.StartedAt, wantStart)
+	}
+	wantDone, _ := time.Parse(time.RFC3339, "2026-08-31T10:05:00Z")
+	if !got.CompletedAt.Equal(wantDone) {
+		t.Errorf("CompletedAt = %v, want %v", got.CompletedAt, wantDone)
+	}
 }

@@ -514,16 +514,12 @@ func extractSourceRange(pane *mainPane, upper, lower orderedEnd) string {
 }
 
 // extractLineFragment pulls the [fromCol, toCol) gutter-relative slice
-// out of a single rendered line, after stripping ANSI codes, trimming
-// trailing whitespace, and removing the gutter prefix. A toCol of -1
-// means "to end of line." Returns empty string when the range is empty
-// or past the line's content.
+// out of a single rendered line, after stripping ANSI codes, removing
+// the gutter prefix, and trimming trailing whitespace (in that order —
+// see stripGutterText). A toCol of -1 means "to end of line." Returns
+// empty string when the range is empty or past the line's content.
 func extractLineFragment(line string, fromCol, toCol, gw int) string {
-	stripped := stripANSIForWidth(line)
-	stripped = strings.TrimRight(stripped, " ")
-	if gw > 0 && len(stripped) > gw {
-		stripped = stripped[gw:]
-	}
+	stripped := stripGutterText(line, gw)
 	lineWidth := displayWidthOf(stripped)
 	if toCol < 0 || toCol > lineWidth {
 		toCol = lineWidth

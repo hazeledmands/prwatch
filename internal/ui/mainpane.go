@@ -1264,12 +1264,27 @@ func (m *mainPane) positionToDisplay(pos Position) (vpRow, displayCol int) {
 // viewport row's main content — ANSI stripped, trailing spaces trimmed,
 // gutter (first gw chars) removed.
 func stripGutterDisplayWidth(line string, gw int) int {
+	return displayWidthOf(stripGutterText(line, gw))
+}
+
+// stripGutterText is the single source of truth for "the visible body of a
+// rendered viewport line": ANSI codes removed, the gutter prefix removed, and
+// trailing padding trimmed — in that order.
+//
+// Order matters. Trimming first shrinks a blank line ("  12   ") below the
+// gutter width, so the length guard declines to strip and the line-number
+// digits survive as if they were content — leaking the gutter into copied text
+// and into cursor-column math. The gutter is pure ASCII, so gw (a display
+// width) is also a valid byte offset.
+func stripGutterText(line string, gw int) string {
 	stripped := stripANSIForWidth(line)
-	stripped = strings.TrimRight(stripped, " ")
-	if gw > 0 && len(stripped) > gw {
+	if gw > 0 {
+		if len(stripped) <= gw {
+			return ""
+		}
 		stripped = stripped[gw:]
 	}
-	return displayWidthOf(stripped)
+	return strings.TrimRight(stripped, " ")
 }
 
 // visibleRange returns the [top, bottom] source-line range currently
@@ -1364,161 +1379,6 @@ func ansiAwareIterate(line string, fn func(r rune, displayW int)) int {
 		totalW += w
 	}
 	return totalW
-}
-
-// wrapLines wraps each line at the given width, respecting ANSI escape codes.
-// Spec: "word-wrap should break at word boundaries, except words longer than
-// 1/8 of the screen width should be broken mid-word."
-func wrapLines(content string, width int) string {
-	return wrapLinesWordBoundary(content, width, 0)
-}
-
-// wrapLinesWordBoundary wraps lines at word boundaries with optional indent
-// for continuation lines.
-func wrapLinesWordBoundary(content string, width, indent int) string {
-	if width <= 0 {
-		return content
-	}
-	maxWordWidth := max(10, width/8)
-	lines := strings.Split(content, "\n")
-	var result []string
-	indentStr := ""
-	if indent > 0 {
-		indentStr = strings.Repeat(" ", indent)
-	}
-
-	for _, line := range lines {
-		lineW := ansiAwareIterate(line, func(r rune, w int) {})
-		if lineW <= width {
-			result = append(result, line)
-			continue
-		}
-
-		// Build a list of "tokens" from the line: each token is either a
-		// word (sequence of non-space runes) or whitespace (sequence of space runes).
-		// ANSI escapes are attached to whichever token they precede/follow.
-		type token struct {
-			text     string
-			displayW int
-			isSpace  bool
-		}
-		var tokens []token
-		var cur strings.Builder
-		curW := 0
-		curIsSpace := false
-		inEscape := false
-
-		for _, r := range line {
-			if inEscape {
-				cur.WriteRune(r)
-				if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-					inEscape = false
-				}
-				continue
-			}
-			if r == '\x1b' {
-				cur.WriteRune(r)
-				inEscape = true
-				continue
-			}
-			isSpace := r == ' ' || r == '\t'
-			if cur.Len() > 0 && isSpace != curIsSpace {
-				tokens = append(tokens, token{text: cur.String(), displayW: curW, isSpace: curIsSpace})
-				cur.Reset()
-				curW = 0
-			}
-			curIsSpace = isSpace
-			cur.WriteRune(r)
-			if r == '\t' {
-				curW += 8 - (curW % 8)
-			} else {
-				curW += runewidth.RuneWidth(r)
-			}
-		}
-		if cur.Len() > 0 {
-			tokens = append(tokens, token{text: cur.String(), displayW: curW, isSpace: curIsSpace})
-		}
-
-		// Now greedily fill lines from tokens
-		var curLine strings.Builder
-		lineWidth := 0
-		first := true
-
-		flush := func() {
-			result = append(result, curLine.String())
-			curLine.Reset()
-			if indent > 0 {
-				curLine.WriteString(indentStr)
-				lineWidth = indent
-			} else {
-				lineWidth = 0
-			}
-			first = false
-		}
-
-		currentMax := width
-		for _, tok := range tokens {
-			if tok.isSpace {
-				if lineWidth+tok.displayW <= currentMax {
-					curLine.WriteString(tok.text)
-					lineWidth += tok.displayW
-				} else {
-					// Space at end of line — flush without the trailing space
-					flush()
-					currentMax = width
-				}
-				continue
-			}
-
-			// Word token
-			if tok.displayW > maxWordWidth {
-				// Long word — break mid-word at width boundary
-				for _, r := range tok.text {
-					if r == '\x1b' || inEscape {
-						curLine.WriteRune(r)
-						if inEscape && ((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')) {
-							inEscape = false
-						} else if r == '\x1b' {
-							inEscape = true
-						}
-						continue
-					}
-					rw := runewidth.RuneWidth(r)
-					if lineWidth+rw > currentMax {
-						flush()
-						currentMax = width
-					}
-					curLine.WriteRune(r)
-					lineWidth += rw
-				}
-			} else {
-				// Normal word — break before it if it doesn't fit
-				if lineWidth+tok.displayW > currentMax {
-					flush()
-					currentMax = width
-				}
-				curLine.WriteString(tok.text)
-				lineWidth += tok.displayW
-			}
-			_ = first
-		}
-		if curLine.Len() > 0 {
-			result = append(result, curLine.String())
-		}
-	}
-	return strings.Join(result, "\n")
-}
-
-// wrapLinesWithIndent wraps lines like wrapLines but indents continuation lines
-// by the given indent width (for gutter alignment).
-func wrapLinesWithIndent(content string, width, indent int) string {
-	if indent <= 0 {
-		return wrapLinesWordBoundary(content, width, 0)
-	}
-	if width <= indent {
-		return wrapLinesWordBoundary(content, width, 0)
-	}
-	return wrapLinesWordBoundary(content, width, indent)
 }
 
 // wrapLinesWithContinuationMap wraps content and returns a boolean slice where
@@ -1670,8 +1530,12 @@ func (m *mainPane) ScrollLeft(n int) {
 // Caps at the max content width minus viewport width.
 func (m *mainPane) ScrollRight(n int) {
 	m.xOffset += n
-	// Cap at max content width minus gutter (gutter is always shown)
-	maxWidth := m.maxContentWidth() - m.gutterWidth
+	// m.content is the *unformatted* source, so maxContentWidth() already
+	// excludes the gutter — only the on-screen width has the gutter taken out
+	// of it. Subtracting the gutter from both terms (as this once did) clamps
+	// gutterWidth columns early and makes the tail of the widest line
+	// permanently unreachable.
+	maxWidth := m.maxContentWidth()
 	availableWidth := m.width - m.gutterWidth
 	if maxWidth > availableWidth && m.xOffset > maxWidth-availableWidth {
 		m.xOffset = maxWidth - availableWidth

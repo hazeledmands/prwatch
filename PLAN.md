@@ -124,8 +124,30 @@ Display policy for GitHub errors is deliberately unchanged — the
 INCONSISTENCIES.md adjudication about API errors being invisible once PR data
 exists stays open.
 
-**A4 — tests that encode bugs** (queued): fix the loosened/coincidental/dead-
-copy tests and the bugs they hide.
+**A4 — tests that encode bugs** (done, uncommitted): `ScrollRight`'s clamp
+subtracted the gutter from `maxContentWidth()`, which measures the unformatted
+source and so never had one — the last `gutterWidth` columns of the widest line
+were unreachable, and `TestScrollRight_Clamping`'s `+10 // allow some tolerance
+for gutter` admitted both answers. Clamp fixed, assertion now exact, and
+`TestScrollRight_RightmostColumnReachable` states it observably.
+`extractLineFragment`/`stripGutterDisplayWidth` trimmed before stripping the
+gutter, so a blank line's own gutter survived the length guard and was copied as
+content; both now go through one `stripGutterText` helper that strips first.
+The dead `wrapLinesWordBoundary` copy (plus `wrapLines`/`wrapLinesWithIndent`)
+is deleted and the `TestWrapLines_*` tests retargeted at the live
+`wrapLinesWithContinuationMap` — the two copies had not actually diverged yet.
+`TestProperty_DragSelectsCorrectText` now generates blank, whitespace-only,
+short, long, leading/trailing-whitespace and CJK-width line bodies, calls the
+production `stripGutterText` instead of re-deriving it, and adds invariant 1a
+(the i-th copied line maps to a *specific* source line, so a blank source line
+must copy as empty). `gh` fixtures are complete relative to the `--json` lists,
+with a tripwire that reads the recorded argv and fails on any omitted field.
+`parseRenameNameStatus`/`parsePorcelainV2Renames`/`parseCommitLog` get
+table-driven behavior tests as the safety net for A6's `-z` conversion, with
+today's `core.quotePath` mishandling recorded as `CURRENT BEHAVIOR:` rather
+than fixed. Two A4 bullets are deliberately left to A5
+(`TestScope_IsScrubbedConditions`, `TestModeSwitching_RetainsPerModeViewState`);
+one new wide-glyph drag bug found and logged in BUG_REPORTS.md.
 
 **A5 — broken seams** (queued): cursor-visibility at model-level call sites,
 visual-mode selection on paging/wheel, sidebar restore identity, scope
