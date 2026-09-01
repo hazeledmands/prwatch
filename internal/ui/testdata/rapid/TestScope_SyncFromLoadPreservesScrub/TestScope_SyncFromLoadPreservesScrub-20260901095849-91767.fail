@@ -1,0 +1,38 @@
+# 2026/09/01 09:58:49.955247 [TestScope_SyncFromLoadPreservesScrub] [rapid] draw newOff: 0
+# 2026/09/01 09:58:49.955261 [TestScope_SyncFromLoadPreservesScrub] [rapid] draw oldOff: 1
+# 2026/09/01 09:58:49.955269 [TestScope_SyncFromLoadPreservesScrub] [rapid] draw natNewOff: 0
+# 2026/09/01 09:58:49.955277 [TestScope_SyncFromLoadPreservesScrub] [rapid] draw natOldOff: 0
+# 2026/09/01 09:58:49.955288 [TestScope_SyncFromLoadPreservesScrub] [rapid] draw nob: 0
+# 2026/09/01 09:58:49.955301 [TestScope_SyncFromLoadPreservesScrub] [rapid] draw newOff: 0
+# 2026/09/01 09:58:49.955308 [TestScope_SyncFromLoadPreservesScrub] [rapid] draw oldOff: 0
+# 2026/09/01 09:58:49.955315 [TestScope_SyncFromLoadPreservesScrub] [rapid] draw pinnedOff: 0
+# 2026/09/01 09:58:49.955322 [TestScope_SyncFromLoadPreservesScrub] [rapid] draw pinnedBase: "some-other-sha"
+# 2026/09/01 09:58:49.955332 [TestScope_SyncFromLoadPreservesScrub] oldOffset=0 changed to a distance measured against "some-other-sha", not the pin "c1"; want the cached 1
+# 
+v0.4.8#7426978255052739447
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1

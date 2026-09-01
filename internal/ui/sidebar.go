@@ -355,11 +355,12 @@ func (s *sidebar) SelectedItem() string {
 	if len(s.items) == 0 {
 		return ""
 	}
-	item := s.items[s.selected]
-	if item.filePath != "" {
-		return item.filePath
+	if s.selected < 0 || s.selected >= len(s.items) {
+		return ""
 	}
-	return item.prefix + item.label
+	// Same canonical key as itemID — one definition, so save/restore and
+	// SetItems all compare apples to apples.
+	return itemID(s.items[s.selected])
 }
 
 // SelectedCollapseKey returns the section-qualified collapse-state key of

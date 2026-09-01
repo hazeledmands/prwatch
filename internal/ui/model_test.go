@@ -126,7 +126,26 @@ func (m *mockGit) Commits(base string, skip, limit int) ([]git.Commit, error) {
 	}
 	return m.commits[skip:end], m.commitsErr
 }
-func (m *mockGit) CommitCountRange(base string) (int, error) { return len(m.commits), m.commitsErr }
+
+// CommitCountRange counts commits in base..HEAD. The natural base (m.base)
+// has len(m.commits) commits ahead of it; each further hop back through
+// m.parents adds one. Being base-aware is what lets a scrubbed scope's
+// HEAD~N indicator be measured — a base-blind mock reported the pinned
+// endpoint as zero commits from HEAD.
+func (m *mockGit) CommitCountRange(base string) (int, error) {
+	if m.commitsErr != nil {
+		return 0, m.commitsErr
+	}
+	n := len(m.commits)
+	cur := m.base
+	for hops := 0; hops < 1000 && cur != ""; hops++ {
+		if cur == base {
+			return n + hops, nil
+		}
+		cur = m.parents[cur]
+	}
+	return n, nil
+}
 func (m *mockGit) FileDiffCommitted(base, file string) (string, error) {
 	return m.fileDiff, m.fileDiffErr
 }
@@ -709,6 +728,228 @@ func TestScope_StaleLoadDoesNotOverwriteScrubbedBase(t *testing.T) {
 	}
 }
 
+// TestScope_ResetsOnBranchSwitch states PROMPT.md:232 — "the scope resets to
+// default on branch switch". A scrubbed scope pins a *commit* (A5 sub-item 4);
+// that commit was chosen relative to the branch that was checked out, and
+// after a checkout it is either absent from the new branch or means something
+// unrelated. Without the reset, every later load kept passing the old
+// branch's SHA as the range's outer endpoint.
+func TestScope_ResetsOnBranchSwitch(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:        "natural-sha",
+		parents:     map[string]string{"natural-sha": "parent-sha"},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if !m.scope.IsScrubbed() {
+		t.Fatalf("setup: scope not scrubbed after ]")
+	}
+	pin := m.scope.OldBase()
+	if pin != "parent-sha" {
+		t.Fatalf("setup: scope.OldBase()=%q, want parent-sha", pin)
+	}
+
+	// The user checks out a different branch. The load in flight was
+	// dispatched while the pin was still set, so it carries reqScrubbedBase —
+	// but it observed the new branch.
+	_, cmd := m.Update(gitDataMsg{
+		repoInfo:        git.RepoInfoResult{Branch: "other", Upstream: "origin/main"},
+		queryOldBase:    pin,
+		reqScrubbedBase: pin,
+		naturalOldBase:  "other-natural",
+		changes:         git.NewChangedFiles(),
+		localOnly:       true,
+	})
+
+	if m.scope.IsScrubbed() {
+		t.Errorf("scope still scrubbed after branch switch (OldBase=%q)", m.scope.OldBase())
+	}
+	if got := m.scope.OldBase(); got != "other-natural" {
+		t.Errorf("scope.OldBase()=%q after branch switch, want the new branch's natural base %q",
+			got, "other-natural")
+	}
+	if m.scope.Handle() != nil {
+		t.Errorf("scrub indicator still shown after branch switch: %+v", m.scope.Handle())
+	}
+	// The discarded payload must be replaced promptly rather than at the next
+	// 5s tick, so the reset re-dispatches — the same pairing the ScopeReset key
+	// uses.
+	if cmd == nil {
+		t.Error("branch-switch reset returned no command; the un-pinned range is never loaded")
+	}
+}
+
+// TestScope_SurvivesRefreshOnSameBranch is the negative half: a plain refresh
+// (or a new commit) on the same branch must NOT be mistaken for a branch
+// switch. Keying branch identity off HEAD's SHA would reset the scope on every
+// commit, which is the same offset-vs-identity mistake A5 removed from
+// `scope`.
+func TestScope_SurvivesRefreshOnSameBranch(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "feature", Upstream: "origin/main", HeadSHA: "head-1"},
+		base:        "natural-sha",
+		parents:     map[string]string{"natural-sha": "parent-sha"},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	pin := m.scope.OldBase()
+
+	// A commit lands: same branch, new HEAD.
+	m.Update(gitDataMsg{
+		repoInfo:        git.RepoInfoResult{Branch: "feature", Upstream: "origin/main", HeadSHA: "head-2"},
+		queryOldBase:    pin,
+		reqScrubbedBase: pin,
+		naturalOldBase:  "natural-sha",
+		pinnedOldOffset: 2,
+		changes:         git.NewChangedFiles(),
+		localOnly:       true,
+	})
+
+	if !m.scope.IsScrubbed() {
+		t.Errorf("a commit on the same branch un-scrubbed the scope")
+	}
+	if got := m.scope.OldBase(); got != pin {
+		t.Errorf("scope.OldBase()=%q after same-branch refresh, want the pin %q", got, pin)
+	}
+}
+
+// TestScope_StalePinnedOffsetNotAppliedToNewerPin: the pinned-distance
+// measurement a load carries is a fact about one specific commit, so it must
+// not be stamped onto a *different* pin. Scrub twice in quick succession and
+// the first load — measured against the first pin — arrives while the second
+// pin is in force; before the pinnedBase check it set the second pin's
+// distance to the first pin's, so the HEAD~N indicator read one commit short
+// until the next load landed.
+func TestScope_StalePinnedOffsetNotAppliedToNewerPin(t *testing.T) {
+	mock := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:     "c0",
+		parents: map[string]string{
+			"c0": "c1",
+			"c1": "c2",
+		},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+
+	// Scrub back twice: the pin walks c0 -> c1 -> c2, so it now sits at HEAD~2.
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	firstPin := m.scope.OldBase()
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if got := m.scope.OldBase(); got != "c2" {
+		t.Fatalf("setup: scope.OldBase()=%q, want c2", got)
+	}
+	if h := m.scope.Handle(); h == nil || h.headOffset != 2 {
+		t.Fatalf("setup: indicator=%+v, want headOffset=2", h)
+	}
+
+	// The load dispatched by the FIRST scrub returns. It measured the distance
+	// of c1 (its own pin), not of c2.
+	m.Update(gitDataMsg{
+		repoInfo:        git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		queryOldBase:    firstPin,
+		reqScrubbedBase: firstPin,
+		naturalOldBase:  "c0",
+		pinnedOldOffset: 1,
+		changes:         git.NewChangedFiles(),
+		localOnly:       true,
+	})
+
+	if got := m.scope.OldBase(); got != "c2" {
+		t.Errorf("pin moved: scope.OldBase()=%q, want c2", got)
+	}
+	h := m.scope.Handle()
+	if h == nil {
+		t.Fatal("Handle() nil while scrubbed")
+	}
+	if h.headOffset != 2 {
+		t.Errorf("indicator says HEAD~%d after a load measured against the previous pin %q; want HEAD~2, c2's own distance",
+			h.headOffset, firstPin)
+	}
+}
+
+// TestScope_StaleCrossCheckoutLoadDoesNotResetNewerScrub: git loads can finish
+// out of order. A slow load dispatched on branch A lands after a fast load has
+// already adopted branch B and the user has scrubbed there. Without the
+// dispatch-sequence guard, branchIdentity read A-vs-B as a fresh checkout,
+// reset the brand-new B scrub, and adopted stale branch-A repoInfo.
+func TestScope_StaleCrossCheckoutLoadDoesNotResetNewerScrub(t *testing.T) {
+	mock := &mockGit{
+		repoInfo:    git.RepoInfoResult{Branch: "branch-a", Upstream: "origin/main"},
+		base:        "a-natural",
+		parents:     map[string]string{"a-natural": "a-parent", "b-natural": "b-parent"},
+		fileContent: "package main\n",
+		allFiles:    []string{"file.go"},
+	}
+
+	m := NewModel("/tmp/test-repo", mock)
+	m.width = 120
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+	staleSeq := m.gitDispatchSeq // the dispatch that is about to be overtaken
+
+	// The user checks out branch B; a load dispatched afterwards lands first.
+	mock.repoInfo = git.RepoInfoResult{Branch: "branch-b", Upstream: "origin/main"}
+	mock.base = "b-natural"
+	m.Update(m.loadLocalGitData())
+	if got := m.repoInfo.Branch; got != "branch-b" {
+		t.Fatalf("setup: repoInfo.Branch=%q, want branch-b", got)
+	}
+
+	// They scrub on branch B.
+	m.Update(tea.KeyPressMsg{Text: "]", Code: ']'})
+	if !m.scope.IsScrubbed() {
+		t.Fatalf("setup: scope not scrubbed on branch-b")
+	}
+	pin := m.scope.OldBase()
+	if pin != "b-parent" {
+		t.Fatalf("setup: scope.OldBase()=%q, want b-parent", pin)
+	}
+
+	// Only now does the branch-A load, dispatched before all of that, return.
+	m.Update(gitDataMsg{
+		seq:            staleSeq,
+		repoInfo:       git.RepoInfoResult{Branch: "branch-a", Upstream: "origin/main"},
+		queryOldBase:   "a-natural",
+		naturalOldBase: "a-natural",
+		changes:        git.NewChangedFiles(),
+		localOnly:      true,
+	})
+
+	if !m.scope.IsScrubbed() {
+		t.Errorf("a stale branch-a load reset the scrub made on branch-b")
+	}
+	if got := m.scope.OldBase(); got != pin {
+		t.Errorf("scope.OldBase()=%q after the stale load, want the branch-b pin %q", got, pin)
+	}
+	if got := m.repoInfo.Branch; got != "branch-b" {
+		t.Errorf("repoInfo.Branch=%q; a stale load overwrote the current checkout", got)
+	}
+}
+
 // TestScope_DoubleExtendBackWalksTwoSteps verifies pressing ] twice in a
 // row, with a synchronous reload between them (matching the IPC flow),
 // walks m.base through two parent steps. Catches regressions where the
@@ -1190,13 +1431,24 @@ func TestModeSwitching_RetainsPerModeViewState(t *testing.T) {
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 		base:     "abc",
 		changedFiles: git.ChangedFilesResult{
-			Committed:   []string{"alpha.go", "beta.go", "gamma.go"},
+			// Nested so the sidebar's tree labels carry indentation and
+			// differ from the item's filePath identity — the restore path
+			// compared against the label and so never matched files.
+			Committed:   []string{"src/deep/alpha.go", "src/deep/beta.go", "gamma.go"},
 			Uncommitted: []string{"wip.go"},
 		},
+		// Enough commits that the target commit's sidebar index cannot
+		// coincide with the target file's index in files mode; the old
+		// version of this test passed purely on that coincidence.
 		commits: []git.Commit{
-			{SHA: "abc", Subject: "first"},
-			{SHA: "def", Subject: "second"},
-			{SHA: "ghi", Subject: "third"},
+			{SHA: "c00", Subject: "first"},
+			{SHA: "c01", Subject: "second"},
+			{SHA: "c02", Subject: "third"},
+			{SHA: "c03", Subject: "fourth"},
+			{SHA: "c04", Subject: "fifth"},
+			{SHA: "c05", Subject: "sixth"},
+			{SHA: "c06", Subject: "seventh"},
+			{SHA: "c07", Subject: "eighth"},
 		},
 		fileDiff:    "+new",
 		fileContent: "content",
@@ -1210,15 +1462,21 @@ func TestModeSwitching_RetainsPerModeViewState(t *testing.T) {
 	m.mode = FilesMode
 	m.updateSidebarItems()
 
-	// Select "beta.go" in files mode.
+	// Select the nested "src/deep/beta.go" in files mode.
+	const wantFile = "src/deep/beta.go"
+	filesIdx := -1
 	for i, item := range m.sidebar.items {
-		if item.filePath == "beta.go" {
+		if item.filePath == wantFile {
 			m.sidebar.SelectIndex(i)
+			filesIdx = i
 			break
 		}
 	}
-	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Fatalf("expected beta.go selected in files mode, got %q", m.sidebar.SelectedItem())
+	if filesIdx < 0 {
+		t.Fatalf("could not find %s in files sidebar", wantFile)
+	}
+	if m.sidebar.SelectedItem() != wantFile {
+		t.Fatalf("expected %s selected in files mode, got %q", wantFile, m.sidebar.SelectedItem())
 	}
 
 	// Switch to commits mode and pick a specific commit.
@@ -1227,30 +1485,41 @@ func TestModeSwitching_RetainsPerModeViewState(t *testing.T) {
 	if m.mode != CommitsMode {
 		t.Fatalf("expected CommitsMode, got %d", m.mode)
 	}
-	// Find "second" in the commit sidebar.
+	// Find "seventh" in the commit sidebar.
 	commitsSelection := ""
+	commitsIdx := -1
 	for i, item := range m.sidebar.items {
-		if strings.Contains(item.label, "second") {
+		if strings.Contains(item.label, "seventh") {
 			m.sidebar.SelectIndex(i)
-			commitsSelection = item.label
+			commitsSelection = m.sidebar.SelectedItem()
+			commitsIdx = i
 			break
 		}
 	}
 	if commitsSelection == "" {
-		t.Fatal("could not find 'second' commit in sidebar")
+		t.Fatal("could not find 'seventh' commit in sidebar")
+	}
+	// The whole point of restore-by-identity: the two modes' selections must
+	// sit at different indices, so a raw index fallback would restore the
+	// wrong item.
+	if commitsIdx == filesIdx {
+		t.Fatalf("fixture is not asymmetric: both selections at index %d", filesIdx)
 	}
 
-	// Switch back to files mode — beta.go should still be selected.
+	// Switch back to files mode — the nested file should still be selected.
 	result, _ = m.Update(tea.KeyPressMsg{Text: "1", Code: '1'})
 	m = result.(*Model)
 	if m.mode != FilesMode {
 		t.Fatal("should be back in FilesMode")
 	}
-	if m.sidebar.SelectedItem() != "beta.go" {
-		t.Errorf("files mode should restore beta.go selection, got %q", m.sidebar.SelectedItem())
+	if m.sidebar.SelectedItem() != wantFile {
+		t.Errorf("files mode should restore %s selection, got %q", wantFile, m.sidebar.SelectedItem())
 	}
 
-	// Switch back to commits — 'second' commit should still be selected.
+	// Switch back to commits — the 'seventh' commit selected above should
+	// still be selected. (It is deliberately not the commit at the index the
+	// files-mode selection occupies: restore has to match on identity, and
+	// this test used to pass on index coincidence alone.)
 	result, _ = m.Update(tea.KeyPressMsg{Text: "2", Code: '2'})
 	m = result.(*Model)
 	if m.mode != CommitsMode {
@@ -1700,7 +1969,7 @@ func TestUpdateMainContent_FilesMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
 	m.height = 24
-	m.scope.SyncFromLoad("HEAD", "", 0, 0)
+	m.scope.SyncFromLoad("HEAD", "", 0, 0, "", -1)
 	m.updateLayout()
 
 	// With no files, should set empty content
@@ -1713,7 +1982,7 @@ func TestUpdateMainContent_CommitMode(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.width = 80
 	m.height = 24
-	m.scope.SyncFromLoad("HEAD", "", 0, 0)
+	m.scope.SyncFromLoad("HEAD", "", 0, 0, "", -1)
 	m.updateLayout()
 
 	m.mode = CommitsMode
@@ -2967,7 +3236,7 @@ func TestUpdateMainContent_EmptySidebarSelection(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.scope.SyncFromLoad("HEAD", "", 0, 0)
+	m.scope.SyncFromLoad("HEAD", "", 0, 0, "", -1)
 
 	// FilesMode empty sidebar
 	m.mode = FilesMode
@@ -2989,7 +3258,7 @@ func TestUpdateMainContent_CommitMode_OutOfBounds(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.scope.SyncFromLoad("HEAD", "", 0, 0)
+	m.scope.SyncFromLoad("HEAD", "", 0, 0, "", -1)
 	m.mode = CommitsMode
 	m.commits = nil // empty commits
 	m.updateSidebarItems()
@@ -3230,7 +3499,7 @@ func TestUpdateMainContent_FileView_WithGitAndError(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.updateLayout()
-	m.scope.SyncFromLoad("HEAD", "", 0, 0)
+	m.scope.SyncFromLoad("HEAD", "", 0, 0, "", -1)
 	m.mode = FilesMode
 	putChanges(m, git.SectionCommitted, git.ClassModified, "nonexistent_file.go")
 	m.updateSidebarItems()
@@ -3329,7 +3598,7 @@ func TestUpdateMainContent_WithMockGit_CommitPatchError(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width = 80
 	m.height = 24
-	m.scope.SyncFromLoad("abc", "", 0, 0)
+	m.scope.SyncFromLoad("abc", "", 0, 0, "", -1)
 	m.updateLayout()
 	m.mode = CommitsMode
 	m.commits = []git.Commit{{SHA: "def", Subject: "test"}}
@@ -3349,7 +3618,7 @@ func TestUpdateMainContent_WithMockGit_FileContentError(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width = 80
 	m.height = 24
-	m.scope.SyncFromLoad("abc", "", 0, 0)
+	m.scope.SyncFromLoad("abc", "", 0, 0, "", -1)
 	m.updateLayout()
 	m.mode = FilesMode
 	putChanges(m, git.SectionCommitted, git.ClassModified, "file.go")
@@ -3369,7 +3638,7 @@ func TestUpdateMainContent_WithMockGit_FileViewSuccess(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width = 80
 	m.height = 24
-	m.scope.SyncFromLoad("abc", "", 0, 0)
+	m.scope.SyncFromLoad("abc", "", 0, 0, "", -1)
 	m.updateLayout()
 	m.mode = FilesMode
 	putChanges(m, git.SectionCommitted, git.ClassModified, "main.go")
@@ -3389,7 +3658,7 @@ func TestUpdateMainContent_WithMockGit_CommitPatchSuccess(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width = 80
 	m.height = 24
-	m.scope.SyncFromLoad("abc", "", 0, 0)
+	m.scope.SyncFromLoad("abc", "", 0, 0, "", -1)
 	m.updateLayout()
 	m.mode = CommitsMode
 	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}

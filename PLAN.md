@@ -149,9 +149,49 @@ than fixed. Two A4 bullets are deliberately left to A5
 (`TestScope_IsScrubbedConditions`, `TestModeSwitching_RetainsPerModeViewState`);
 one new wide-glyph drag bug found and logged in BUG_REPORTS.md.
 
-**A5 — broken seams** (queued): cursor-visibility at model-level call sites,
-visual-mode selection on paging/wheel, sidebar restore identity, scope
-scrubbed-ness by SHA, branch-switch scope reset, reflow re-clamp.
+**A5 — broken seams** (done, uncommitted): all six sub-items fixed; details
+per-bug in BUG_REPORTS.md. The structural change is `internal/ui/mainnav.go`,
+a `mainNav` seam owning every Model-level main-pane scroll, cursor move, and
+change to the row↔source mapping, so cursor visibility, visual-mode selection
+and cursor re-derivation are restored at one choke point rather than remembered
+at each call site. Hunk nav, search nav and `setItem`'s fallback now pair their
+scroll with a cursor placement; `syncSelection` in the shared fixups covers
+g/G, the forwarded page keys and the wheel. `sidebar.SelectedItem()` and
+`viewMemory.RestoreSidebar` share one canonical key (`itemID`), the same one
+`SetItems` uses. `scope` gained an explicit `pinned` flag re-evaluated against
+endpoint *SHAs*, and `SyncFromLoad` takes the load's own measurement of the
+pinned commit's distance from HEAD (`gitDataMsg.pinnedOldOffset`, snapshotted
+at dispatch per A2), so a new commit neither un-pins the scope nor staleens the
+`HEAD~N` indicator. The `gitDataMsg` handler resets the scope on branch switch
+(PROMPT.md:232) via `branchIdentity`, keyed on branch rather than HeadSHA so a
+commit is not mistaken for a checkout, and re-dispatches — running before the
+A2 pin guard, which then discards the payload computed against the stale pin.
+`mainNav.Reflow` re-derives the cursor (new `cursor.seq` to honour deliberate
+re-placements, new `cursor.ClampToContent`) and the selection (new
+`selection.Reflow`) across content refreshes, the `w`/`n`/`D` toggles and
+resize; `mainPane.SetSize` now re-wraps on a width change, which it never did.
+`TestSeam_MainPaneNavigationGoesThroughNav` is the drift guard for the seam.
+Step 5's resize-invariance property is `TestProperty_Model_CursorSurvivesReflow`
+— it needed its own generator, since `genScenario`'s ~20-column diff lines fit
+at every generated width and made the property vacuous. Both A4-deferred tests
+(`TestScope_IsScrubbedConditions`, `TestModeSwitching_RetainsPerModeViewState`)
+are resolved here. One unsound assertion in
+`TestProperty_Model_VisualYankMatchesHighlight` corrected against PROMPT.md:162
+(inline `~` rows deliberately render the pre-image, so a copied row can contain
+text that is not in the new-file content) — it now asserts against the pane's
+pre-wrap rendered rows (`formattedContent`) rather than skipping decorated
+files.
+
+Review round on A5 turned up two further bugs in the new code, both fixed:
+`SyncFromLoad` applied a pinned-distance measurement without checking which pin
+it was measured against (wrong `HEAD~N` on a rapid double-scrub), now keyed on
+the SHA via the existing `reqScrubbedBase`; and the branch-switch reset could
+be triggered by an out-of-order load, wiping a fresh scrub on the new branch
+and adopting stale `repoInfo` — the A2 snapshot convention now carries a
+monotonic `seq` (`gitLoadRequest` → `gitDataMsg`) compared against
+`Model.gitAdoptedSeq`. The seam's scope is documented in mainnav.go: it owns
+the vertical axis only, and horizontal scroll stays deliberately outside the
+contract this round.
 
 **A6 — ungenerated inputs** (queued): NUL-delimited git output, tab
 normalization at content boundary, ANSI-safe search highlighting, blank-line

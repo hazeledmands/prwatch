@@ -29,6 +29,12 @@ import (
 type cursor struct {
 	vpRow      int // -1 = unplaced
 	desiredCol int
+
+	// seq counts explicit placements (SetPosition / SetFromClick). It lets
+	// mainNav.Reflow tell "the mutation re-placed the cursor deliberately"
+	// (e.g. setItem's scroll-memory restore) from "the mutation moved the
+	// cursor's row out from under it", so only the latter is undone.
+	seq int
 }
 
 func newCursor() *cursor {
@@ -73,6 +79,27 @@ func (c *cursor) SetPosition(pane *mainPane, pos Position) {
 	vp, dc := pane.positionToDisplay(pos)
 	c.vpRow = vp
 	c.desiredCol = dc
+	c.seq++
+	c.ClampToContent(pane)
+}
+
+// ClampToContent bounds vpRow to the rows the pane currently renders.
+// Content that shrank under the cursor (a refresh, a `D` toggle hiding
+// removed-line rows, a narrower terminal) would otherwise leave vpRow past
+// the end, where MoveDown is a permanent no-op and ApplyHighlight paints
+// into the pane's padding.
+func (c *cursor) ClampToContent(pane *mainPane) {
+	if c.vpRow < 0 {
+		return
+	}
+	rows := viewportContentRowCount(pane)
+	if rows <= 0 {
+		c.vpRow = 0
+		return
+	}
+	if c.vpRow >= rows {
+		c.vpRow = rows - 1
+	}
 }
 
 // SetFromClick places cursor at viewport (vpRow, displayCol). Clamps
@@ -81,6 +108,8 @@ func (c *cursor) SetPosition(pane *mainPane, pos Position) {
 func (c *cursor) SetFromClick(pane *mainPane, vpRow, displayCol int) {
 	c.vpRow = vpRow
 	c.desiredCol = clampDisplayCol(pane, vpRow, displayCol)
+	c.seq++
+	c.ClampToContent(pane)
 }
 
 // MoveDown advances cursor to the next viewport row. Returns false at

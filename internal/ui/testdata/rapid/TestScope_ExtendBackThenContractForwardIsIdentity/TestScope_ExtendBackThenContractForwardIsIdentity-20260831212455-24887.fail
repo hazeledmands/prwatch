@@ -1,0 +1,13 @@
+# 2026/08/31 21:24:55.854012 [TestScope_ExtendBackThenContractForwardIsIdentity] [rapid] draw oldOff: 1
+# 2026/08/31 21:24:55.854026 [TestScope_ExtendBackThenContractForwardIsIdentity] [rapid] draw newOff: 0
+# 2026/08/31 21:24:55.854053 [TestScope_ExtendBackThenContractForwardIsIdentity] Extend then Contract changed state:
+# before={oldBase:c1 newBase:c0 oldOffset:1 newOffset:0 pinned:false naturalOldBase:c1 naturalNewBase: naturalOldOffset:1 naturalNewOffset:0}
+# after ={oldBase:c1 newBase:c0 oldOffset:1 newOffset:0 pinned:true naturalOldBase:c1 naturalNewBase: naturalOldOffset:1 naturalNewOffset:0}
+# 
+v0.4.8#8639650846337980363
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

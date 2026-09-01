@@ -370,11 +370,19 @@ func (m *mainPane) SetLineNumbers(on bool) {
 	m.refreshViewport()
 }
 
+// SetSize resizes the pane. A width change re-wraps the content: without
+// the refresh the viewport kept rows wrapped at the old width until the
+// next content-setting tick, so a resize left stale wrap points (and a
+// stale row↔source mapping) on screen. Height doesn't affect wrapping.
 func (m *mainPane) SetSize(w, h int) {
+	widthChanged := m.width != w
 	m.width = w
 	m.height = h
 	m.viewport.SetWidth(w)
 	m.viewport.SetHeight(viewportHeightFor(h))
+	if widthChanged {
+		m.refreshViewport()
+	}
 }
 
 // SetTitle sets the sticky title bar content. Left is shown left-aligned, right

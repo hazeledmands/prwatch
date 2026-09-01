@@ -87,8 +87,15 @@ type Model struct {
 	// scope describes the commit range currently in view: (oldBase, newBase].
 	// It owns the scope-extend / scope-contract / scope-reset state and feeds
 	// the in-scope commit/file queries below. See scope.go.
-	scope              *scope
-	repoInfo           gitpkg.RepoInfoResult
+	scope    *scope
+	repoInfo gitpkg.RepoInfoResult
+	// gitDispatchSeq is the last dispatch number handed to a git load;
+	// gitAdoptedSeq is the highest one whose repo identity has been adopted.
+	// Together they let the handler recognise a load that finished out of
+	// order and refuse to let its stale answer overwrite a newer one. See
+	// gitLoadRequest.seq.
+	gitDispatchSeq     int
+	gitAdoptedSeq      int
 	prInfo             gitpkg.PRInfoResult
 	ciStatus           gitpkg.CIStatusResult
 	prReviews          []gitpkg.PRReview
@@ -189,17 +196,25 @@ type gitDataMsg struct {
 	naturalNewBase   string
 	naturalOldOffset int
 	naturalNewOffset int
-	changes          *gitpkg.ChangedFiles
-	allFiles         []string
-	ignoredFiles     map[string]bool
-	ignoredDirs      map[string]bool // subset of ignoredFiles whose entries are directories
-	commits          []gitpkg.Commit
-	baseCommits      []gitpkg.Commit
-	prComments       []gitpkg.PRComment
-	prDeployments    []gitpkg.PRDeployment
-	ciChecks         []gitpkg.CICheck
-	reviewRequests   []gitpkg.PRReviewRequest
-	behindCount      int
+	// pinnedOldOffset is this load's measurement of how far the user's pinned
+	// outer endpoint (reqScrubbedBase) sits from HEAD, or -1 when the load
+	// carried no pin. The scrubbed-ness is anchored to the SHA, so the
+	// `HEAD~N` indicator needs a fresh distance on every load — otherwise it
+	// goes stale the moment a new commit lands.
+	pinnedOldOffset int
+	// seq echoes gitLoadRequest.seq — the dispatch this msg is answering.
+	seq            int
+	changes        *gitpkg.ChangedFiles
+	allFiles       []string
+	ignoredFiles   map[string]bool
+	ignoredDirs    map[string]bool // subset of ignoredFiles whose entries are directories
+	commits        []gitpkg.Commit
+	baseCommits    []gitpkg.Commit
+	prComments     []gitpkg.PRComment
+	prDeployments  []gitpkg.PRDeployment
+	ciChecks       []gitpkg.CICheck
+	reviewRequests []gitpkg.PRReviewRequest
+	behindCount    int
 	// behindKnown: behindCount was actually measured. False means the count is
 	// unknown (rev-list failed, base ref missing) and must not be rendered —
 	// an unknown count is not "0 behind".
@@ -537,6 +552,24 @@ func loadIgnoredSet(g GitDataSource) (files map[string]bool, dirs map[string]boo
 	return files, dirs
 }
 
+// branchIdentity names the checkout the scope's default range is relative to.
+// PROMPT.md:232 requires a scrubbed scope to reset when that changes.
+//
+// It is deliberately *not* keyed on HeadSHA: HeadSHA moves on every commit, and
+// resetting the scope on every commit is the same distance-vs-identity mistake
+// A5 removed from `scope`. A detached HEAD is therefore one bucket — moving
+// between two detached commits keeps the scrub, which is the conservative
+// choice (the user's pin is still reachable) and matches the spec's wording.
+//
+// The empty string means "no repo info observed yet", which is why the caller
+// treats it as "not a switch" rather than as a distinct branch.
+func branchIdentity(info gitpkg.RepoInfoResult) string {
+	if info.IsDetachedHead {
+		return "\x00detached"
+	}
+	return info.Branch
+}
+
 // gitLoadRequest is the dispatch-time snapshot of every piece of Model state an
 // async git load depends on. Cmd closures capture a gitLoadRequest and nothing
 // else — never the *Model — so the load runs against a frozen view of the world
@@ -558,16 +591,25 @@ type gitLoadRequest struct {
 	// prBaseRef is m.prInfo.BaseRef at dispatch. Consulted only when !withPR;
 	// a withPR load uses the BaseRef it just fetched.
 	prBaseRef string
+	// seq is a monotonic dispatch number, assigned on the Update goroutine and
+	// echoed back in gitDataMsg.seq. Loads can finish out of order (a slow
+	// cross-checkout load landing after a fast local one), and "which checkout
+	// are we on" is last-writer-wins state that an older answer must not be
+	// allowed to overwrite. seq 0 means "not from a tracked dispatch" — a
+	// hand-built msg in a test — and is never treated as stale.
+	seq int
 }
 
 // gitLoadRequest snapshots the Model state a git load reads. Must be called on
 // the Update goroutine.
 func (m *Model) gitLoadRequest(withPR bool) gitLoadRequest {
+	m.gitDispatchSeq++
 	req := gitLoadRequest{
 		git:           m.git,
 		withPR:        withPR,
 		commitsLoaded: m.commitsLoaded,
 		prBaseRef:     m.prInfo.BaseRef,
+		seq:           m.gitDispatchSeq,
 	}
 	if m.scope.IsScrubbed() {
 		req.scrubbedBase = m.scope.OldBase()
@@ -612,6 +654,8 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 			allFiles:        allFiles,
 			changes:         changes,
 			reqScrubbedBase: req.scrubbedBase,
+			pinnedOldOffset: -1,
+			seq:             req.seq,
 			localOnly:       !req.withPR,
 		}
 	}
@@ -674,6 +718,15 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 		return gitDataMsg{err: err}
 	}
 	naturalOldOffset, _ := g.CommitCountRange(naturalOldBase)
+	// Measure the pinned endpoint's own distance from HEAD in the same load.
+	// -1 means "no pin in this request", which SyncFromLoad reads as "leave
+	// the cached distance alone".
+	pinnedOldOffset := -1
+	if req.scrubbedBase != "" {
+		if n, err := g.CommitCountRange(req.scrubbedBase); err == nil {
+			pinnedOldOffset = n
+		}
+	}
 
 	// Compute behind count: how many commits on the base branch we don't have.
 	// A failure leaves it unknown rather than 0 — the base ref may simply not
@@ -703,8 +756,10 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 		repoInfo:         info,
 		queryOldBase:     queryOldBase,
 		reqScrubbedBase:  req.scrubbedBase,
+		seq:              req.seq,
 		naturalOldBase:   naturalOldBase,
 		naturalOldOffset: naturalOldOffset,
+		pinnedOldOffset:  pinnedOldOffset,
 		changes:          files.ToChangedFiles(),
 		allFiles:         allFiles,
 		ignoredFiles:     ignoredSet,
@@ -858,7 +913,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// failed both prove the local half worked, and the PR failure has its
 		// own display (prError).
 		m.err = nil
-		m.repoInfo = msg.repoInfo
+		// Which checkout we are on is last-writer-wins state, so an answer from
+		// an older dispatch must not overwrite a newer one. Loads do finish out
+		// of order: a slow cross-checkout load dispatched on branch A can land
+		// after a fast load has already adopted branch B and the user has
+		// scrubbed there — and the branch-switch reset below would then read
+		// A-vs-B as a fresh checkout and throw away the B scrub, while adopting
+		// stale branch-A repoInfo. Anything at or above the high-water mark is
+		// fresh; seq 0 (a hand-built msg, never a real dispatch) always is.
+		staleDispatch := msg.seq != 0 && msg.seq < m.gitAdoptedSeq
+		branchSwitched := false
+		if !staleDispatch {
+			m.gitAdoptedSeq = msg.seq
+			branchSwitched = branchIdentity(m.repoInfo) != "" &&
+				branchIdentity(m.repoInfo) != branchIdentity(msg.repoInfo)
+			m.repoInfo = msg.repoInfo
+		}
 		// Local-only refresh: preserve all existing PR data and error state
 		// PR fetch failed: preserve PR data but flag the error
 		// Otherwise: update PR data normally
@@ -908,19 +978,40 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// base branch advanced): the load that detected the new base queried
 		// against it, so its results are the freshest available. Comparing
 		// against scope.OldBase() instead threw exactly those away.
+		// PROMPT.md:232 — "the scope resets to default on branch switch." The
+		// scrub is a pinned *commit* (see scope.pinned); it was chosen relative
+		// to the branch that was checked out, so after a checkout it is either
+		// absent from the new branch or names something unrelated, while every
+		// later load kept passing it as the range's outer endpoint. Reset
+		// before the pin guard below, which then discards this msg's local
+		// payload — it was computed against the now-stale pin — and re-dispatch
+		// a load for the default range, the same reset+reload pairing the
+		// ScopeReset key uses.
+		if branchSwitched && m.scope.IsScrubbed() {
+			m.scope.Reset()
+			m.scope.SyncFromLoad(msg.naturalOldBase, msg.naturalNewBase, msg.naturalOldOffset, msg.naturalNewOffset, msg.reqScrubbedBase, msg.pinnedOldOffset)
+			m.updateLayout()
+			m.updateSidebarItems()
+			m.updateMainContent()
+			if m.git == nil {
+				return m, nil
+			}
+			return m, m.gitLoadCmd(false)
+		}
+
 		currentPin := ""
 		if m.scope.IsScrubbed() {
 			currentPin = m.scope.OldBase()
 		}
 		if msg.reqScrubbedBase != currentPin {
-			m.scope.SyncFromLoad(msg.naturalOldBase, msg.naturalNewBase, msg.naturalOldOffset, msg.naturalNewOffset)
+			m.scope.SyncFromLoad(msg.naturalOldBase, msg.naturalNewBase, msg.naturalOldOffset, msg.naturalNewOffset, msg.reqScrubbedBase, msg.pinnedOldOffset)
 			m.updateLayout()
 			m.updateSidebarItems()
 			m.updateMainContent()
 			return m, nil
 		}
 
-		m.scope.SyncFromLoad(msg.naturalOldBase, msg.naturalNewBase, msg.naturalOldOffset, msg.naturalNewOffset)
+		m.scope.SyncFromLoad(msg.naturalOldBase, msg.naturalNewBase, msg.naturalOldOffset, msg.naturalNewOffset, msg.reqScrubbedBase, msg.pinnedOldOffset)
 		m.changes = msg.changes
 		if m.changes == nil {
 			m.changes = gitpkg.NewChangedFiles()
@@ -1197,7 +1288,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if ep.OutsideDir == 0 {
 			vpRow := m.mainPane.viewport.YOffset() + (msg.Y - mainPaneContentTop(g))
 			displayCol := msg.X - (g.sidebarW + 1 + m.mainPane.gutterWidth)
-			m.cursor.SetFromClick(m.mainPane, vpRow, displayCol)
+			m.nav().PlaceCursorFromClick(vpRow, displayCol)
 		}
 		if hadRange {
 			return m, m.copySelection()
@@ -1208,7 +1299,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.drag.IsActive() || m.drag.ScrollDir() == 0 {
 			return m, nil
 		}
-		return m, m.drag.AdvanceAutoScroll(m.dragGeom())
+		return m, m.nav().AdvanceDragAutoScroll(m.dragGeom())
 	}
 
 	return m, nil
@@ -1230,18 +1321,18 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Forward to viewport for page up
-		return m, m.mainPane.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+		return m, m.nav().ForwardKey(tea.KeyPressMsg{Code: tea.KeyPgUp})
 	}
 
 	// Search input mode
 	if m.search.IsSearching() {
-		m.search.HandleInputKey(msg, m.mainPane)
+		m.search.HandleInputKey(msg, m.nav())
 		return m, nil
 	}
 
 	// Search confirmed mode (n/p navigation)
 	if m.search.IsConfirmed() {
-		if m.search.HandleNavKey(msg, m.mainPane) {
+		if m.search.HandleNavKey(msg, m.nav()) {
 			return m, nil
 		}
 		return m.handleKey(msg)
@@ -1291,7 +1382,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			case selectionLine:
 				m.selection.mode = selectionStream
 			default:
-				m.selection.BeginStream(m.cursor.Endpoint(m.mainPane))
+				m.nav().BeginVisualStream()
 			}
 			return m, nil
 		case key.Matches(msg, keys.VisualLine):
@@ -1303,7 +1394,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			case selectionStream:
 				m.selection.mode = selectionLine
 			default:
-				m.selection.BeginLine(m.cursor.Endpoint(m.mainPane))
+				m.nav().BeginVisualLine()
 			}
 			return m, nil
 		}
@@ -1391,11 +1482,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.handleSidebarLeft()
 		}
 		if m.focus == MainFocus {
-			m.cursor.MoveLeft(m.mainPane)
-			m.cursor.EnsureVisible(m.mainPane)
-			if m.selection.IsActive() {
-				m.selection.SetActive(m.cursor.Endpoint(m.mainPane))
-			}
+			m.nav().CursorLeft()
 			return m, nil
 		}
 
@@ -1404,11 +1491,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.handleSidebarRight()
 		}
 		if m.focus == MainFocus {
-			m.cursor.MoveRight(m.mainPane)
-			m.cursor.EnsureVisible(m.mainPane)
-			if m.selection.IsActive() {
-				m.selection.SetActive(m.cursor.Endpoint(m.mainPane))
-			}
+			m.nav().CursorRight()
 			return m, nil
 		}
 
@@ -1433,8 +1516,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.sidebar.SelectFirst()
 			m.updateMainContent()
 		} else {
-			m.mainPane.GoToTop()
-			m.cursor.DragAlongScroll(m.mainPane)
+			m.nav().GoToTop()
 		}
 		return m, nil
 
@@ -1443,8 +1525,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.sidebar.SelectLast()
 			m.updateMainContent()
 		} else {
-			m.mainPane.GoToBottom()
-			m.cursor.DragAlongScroll(m.mainPane)
+			m.nav().GoToBottom()
 		}
 		return m, nil
 
@@ -1540,17 +1621,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.wordWrap {
 			m.mainPane.xOffset = 0 // reset horizontal scroll when enabling wrap
 		}
-		m.mainPane.SetWordWrap(m.wordWrap)
+		m.nav().Reflow(func(p *mainPane) { p.SetWordWrap(m.wordWrap) })
 		return m, nil
 
 	case key.Matches(msg, keys.ToggleLineNums):
 		m.lineNumbers = !m.lineNumbers
-		m.mainPane.SetLineNumbers(m.lineNumbers)
+		m.nav().Reflow(func(p *mainPane) { p.SetLineNumbers(m.lineNumbers) })
 		return m, nil
 
 	case key.Matches(msg, keys.ToggleRemoved):
 		if m.mode == FilesMode {
-			m.mainPane.ToggleShowRemoved()
+			m.nav().Reflow((*mainPane).ToggleShowRemoved)
 		}
 		return m, nil
 
@@ -1576,11 +1657,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.focus == MainFocus {
-			m.cursor.MoveUp(m.mainPane)
-			m.cursor.EnsureVisible(m.mainPane)
-			if m.selection.IsActive() {
-				m.selection.SetActive(m.cursor.Endpoint(m.mainPane))
-			}
+			m.nav().CursorUp()
 			return m, nil
 		}
 
@@ -1591,11 +1668,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.focus == MainFocus {
-			m.cursor.MoveDown(m.mainPane)
-			m.cursor.EnsureVisible(m.mainPane)
-			if m.selection.IsActive() {
-				m.selection.SetActive(m.cursor.Endpoint(m.mainPane))
-			}
+			m.nav().CursorDown()
 			return m, nil
 		}
 
@@ -1622,12 +1695,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Forward unhandled keys to main pane when it has focus (scrolling, half-page, etc.)
 	if m.focus == MainFocus {
-		cmd := m.mainPane.Update(msg)
-		// If the forwarded key scrolled the viewport (space/b/PgUp/PgDn,
-		// Ctrl-D/U, etc.), drag the cursor along to maintain the
-		// always-visible invariant.
-		m.cursor.DragAlongScroll(m.mainPane)
-		return m, cmd
+		// The forwarded key may scroll the viewport (space/b/PgUp/PgDn,
+		// Ctrl-D/U, …); the seam drags the cursor along and re-syncs any
+		// visual-mode selection.
+		return m, m.nav().ForwardKey(msg)
 	}
 
 	return m, nil
@@ -1642,7 +1713,7 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // that already exist (mode switches, etc.). New code should call
 // m.search.Clear directly.
 func (m *Model) clearSearch() {
-	m.search.Clear(m.mainPane)
+	m.search.Clear(m.nav())
 }
 
 // setConfirming toggles the quit-confirm prompt. It exists so the
@@ -1857,7 +1928,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if ep.OutsideDir == 0 {
 			vpRow := m.mainPane.viewport.YOffset() + (y - mainPaneContentTop(g))
 			displayCol := x - (g.sidebarW + 1 + m.mainPane.gutterWidth)
-			m.cursor.SetFromClick(m.mainPane, vpRow, displayCol)
+			m.nav().PlaceCursorFromClick(vpRow, displayCol)
 		}
 	}
 	return m, nil
@@ -1891,10 +1962,7 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// Vertical scrolling — forward to main pane viewport
-		cmd := m.mainPane.Update(msg)
-		// Drag cursor along if scroll pushed it off-screen.
-		m.cursor.DragAlongScroll(m.mainPane)
-		return m, cmd
+		return m, m.nav().ForwardKey(msg)
 	}
 	return m, nil
 }
@@ -2096,13 +2164,13 @@ func (m *Model) selectFirstCIFailure() {
 
 func (m *Model) jumpToFirstDiff() {
 	if line, ok := nextHunkStart(m.mainPane.diffHunks, 0, +1); ok {
-		m.mainPane.scrollToHunkStart(line)
+		m.nav().JumpToHunkStart(line)
 	}
 }
 
 func (m *Model) jumpToNextDiff(direction int) {
 	if line, ok := nextHunkStart(m.mainPane.diffHunks, m.mainPane.hunkNavCursor(), direction); ok {
-		m.mainPane.scrollToHunkStart(line)
+		m.nav().JumpToHunkStart(line)
 	}
 }
 
@@ -2284,38 +2352,43 @@ func (m *Model) updateMainContent() {
 		// selection — selection is per-view.
 		m.selection.Cancel()
 		if line, ok := m.viewMemory.RecallMainScroll(key); ok {
-			m.mainPane.ScrollToSourceLine(line)
-			m.cursor.SetPosition(m.mainPane, Position{SourceLine: line, Column: 0})
+			m.nav().ScrollToSourceLine(line)
 			return
 		}
 		if key.mode == FilesMode && len(m.mainPane.diffHunks) > 0 {
+			// jumpToFirstDiff scrolls *and* places the cursor on the hunk.
 			m.jumpToFirstDiff()
-			// Place cursor at the first hunk start.
-			if first, ok := nextHunkStart(m.mainPane.diffHunks, 0, +1); ok {
-				m.cursor.SetPosition(m.mainPane, Position{SourceLine: first, Column: 0})
-			}
 			return
 		}
-		// New item with no hunks and no scroll memory: cursor at top.
-		m.cursor.SetPosition(m.mainPane, Position{SourceLine: 1, Column: 0})
+		// New item with no hunks and no scroll memory: cursor at top. Goes
+		// through the seam so the viewport follows — the fallback used to
+		// leave the cursor at row 0 while the viewport kept the previous
+		// item's offset.
+		m.nav().PlaceCursorAt(Position{SourceLine: 1, Column: 0})
 	}
 
-	if m.git == nil {
-		m.updateNonGitFilesMode(setItem)
-		return
-	}
-	if m.scope.OldBase() == "" {
+	if m.scope.OldBase() == "" && m.git != nil {
 		return // preserve current main panel content (and lastMainItem)
 	}
 
-	switch m.mode {
-	case FilesMode:
-		m.updateFilesModeContent(setItem)
-	case CommitsMode:
-		m.updateCommitsModeContent(setItem)
-	case PRMode:
-		m.updatePRModeContent(setItem)
-	}
+	// The per-mode builders install new content, which re-derives the
+	// row↔source mapping the cursor's canonical vpRow is expressed in.
+	// Reflow re-derives the cursor across that — unless a builder's setItem
+	// placed it deliberately, in which case that placement wins.
+	m.nav().Reflow(func(*mainPane) {
+		if m.git == nil {
+			m.updateNonGitFilesMode(setItem)
+			return
+		}
+		switch m.mode {
+		case FilesMode:
+			m.updateFilesModeContent(setItem)
+		case CommitsMode:
+			m.updateCommitsModeContent(setItem)
+		case PRMode:
+			m.updatePRModeContent(setItem)
+		}
+	})
 }
 
 // computePRInterval returns the appropriate PR refresh interval based on
@@ -2332,7 +2405,10 @@ func (m *Model) updateLayout() {
 	statusBarHeight := m.statusBarLines()
 	sidebarW, mainW, contentH := layoutDimensions(m.width, m.height, statusBarHeight, m.sidebarPct, m.sidebarHidden)
 	m.sidebar.SetSize(sidebarW, contentH)
-	m.mainPane.SetSize(mainW, contentH)
+	// SetSize re-wraps content at the new width, which moves every row —
+	// go through the seam so the cursor keeps pointing at the same source
+	// position (only its display position changes).
+	m.nav().Reflow(func(p *mainPane) { p.SetSize(mainW, contentH) })
 }
 
 // RenderOnce synchronously loads data, applies the given terminal size,

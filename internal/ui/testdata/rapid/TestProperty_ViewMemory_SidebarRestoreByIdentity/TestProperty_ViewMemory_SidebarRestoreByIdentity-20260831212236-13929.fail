@@ -1,0 +1,28 @@
+# 2026/08/31 21:22:36.234809 [TestProperty_ViewMemory_SidebarRestoreByIdentity] [rapid] draw items_n: 2
+# 2026/08/31 21:22:36.234824 [TestProperty_ViewMemory_SidebarRestoreByIdentity] [rapid] draw items_kind0: "file"
+# 2026/08/31 21:22:36.234836 [TestProperty_ViewMemory_SidebarRestoreByIdentity] [rapid] draw items_depth0: 0
+# 2026/08/31 21:22:36.234848 [TestProperty_ViewMemory_SidebarRestoreByIdentity] [rapid] draw items_kind1: "file"
+# 2026/08/31 21:22:36.234857 [TestProperty_ViewMemory_SidebarRestoreByIdentity] [rapid] draw items_depth1: 1
+# 2026/08/31 21:22:36.234870 [TestProperty_ViewMemory_SidebarRestoreByIdentity] [rapid] draw selected: 1
+# 2026/08/31 21:22:36.234879 [TestProperty_ViewMemory_SidebarRestoreByIdentity] [rapid] draw shift: 0
+# 2026/08/31 21:22:36.234886 [TestProperty_ViewMemory_SidebarRestoreByIdentity] restore selected "f0.go", want "d0/f1.go" (shift=0)
+# 
+v0.4.8#9081858511786024499
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x1
+0x0
+0x0
+0x0

@@ -262,7 +262,11 @@ func TestSnapshot_MidScrollMultiHunk(t *testing.T) {
 	// hunkTitleRight transitions between hunks. With viewport height ~26
 	// content rows after status bar / borders, an offset of 10 should put
 	// us in or just past the second hunk.
+	// The cursor moves with the viewport (A5 sub-item 1) — a raw SetYOffset
+	// alone leaves the cursor behind and the next layout pass pulls the
+	// viewport back to it, so place the cursor on the new top row too.
 	m.mainPane.viewport.SetYOffset(10)
+	m.nav().PlaceCursorFromClick(10, 0)
 
 	out := stripANSI(m.RenderOnce(100, 30))
 	assertGolden(t, "midscroll_multihunk", out)

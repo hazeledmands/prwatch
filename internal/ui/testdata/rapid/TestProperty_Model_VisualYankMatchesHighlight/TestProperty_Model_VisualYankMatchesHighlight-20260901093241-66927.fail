@@ -1,0 +1,93 @@
+# 2026/09/01 09:32:41.517900 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw isGit: 1
+# 2026/09/01 09:32:41.518093 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nCommitted: 0
+# 2026/09/01 09:32:41.518123 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nUncommitted: 1
+# 2026/09/01 09:32:41.518135 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nStaged: 0
+# 2026/09/01 09:32:41.518143 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nCommits: 0
+# 2026/09/01 09:32:41.518173 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_u_new0.go: 1
+# 2026/09/01 09:32:41.518204 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nOtherFiles: 0
+# 2026/09/01 09:32:41.518216 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nIgnored: 0
+# 2026/09/01 09:32:41.518226 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw branch: "main"
+# 2026/09/01 09:32:41.518240 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw detached: false
+# 2026/09/01 09:32:41.518248 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw prNum: 0
+# 2026/09/01 09:32:41.518256 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw aheadCount: 0
+# 2026/09/01 09:32:41.518262 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_nHunks: 0
+# 2026/09/01 09:32:41.518272 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commitPatch_emoji: 1
+# 2026/09/01 09:32:41.518281 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw hasAPIError: false
+# 2026/09/01 09:32:41.518289 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw hasBaseCommits: false
+# 2026/09/01 09:32:41.518295 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw mode: 0
+# 2026/09/01 09:32:41.518301 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw width: 60
+# 2026/09/01 09:32:41.518312 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw height: 16
+# 2026/09/01 09:32:41.524836 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw steps: 1
+# 2026/09/01 09:32:41.524851 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav0_kind: "motion"
+# 2026/09/01 09:32:41.524860 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav0_motion: "j"
+# 2026/09/01 09:32:41.528910 [TestProperty_Model_VisualYankMatchesHighlight] yanked line "oldline1" is not in pane content
+# 
+v0.4.8#5622852941576616037
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

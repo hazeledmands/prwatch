@@ -34,9 +34,15 @@ func (v *viewMemory) RestoreSidebar(mode Mode, sb *sidebar, currentFocus Focus) 
 	if !ok {
 		return currentFocus
 	}
+	// Match on the same canonical key SaveSidebar stored (sb.SelectedItem(),
+	// i.e. itemID): filePath for files, prefix+label for everything else.
+	// Comparing against item.label instead meant the lookup never matched a
+	// file (label carries tree indentation and no prefix) or a PR item
+	// (label lacks its prefix), and restore silently fell through to the
+	// saved raw index — restoring whatever happened to occupy that slot.
 	if state.sidebarSelected != "" {
 		for i, item := range sb.items {
-			if item.kind.selectable() && item.label == state.sidebarSelected {
+			if item.kind.selectable() && itemID(item) == state.sidebarSelected {
 				sb.SelectIndex(i)
 				break
 			}

@@ -72,6 +72,27 @@ func (s *selection) SetActive(ep endpoint) {
 	s.active = ep
 }
 
+// Reflow re-derives the endpoints' viewport rows after a change to the
+// row↔source mapping (content refresh, wrap/line-number/removed toggle,
+// resize). The endpoints' source-space Positions are the durable part; the
+// VpRow side-channel is display state and goes stale with the mapping,
+// which would leave the highlight painting over unrelated rows.
+func (s *selection) Reflow(pane *mainPane) {
+	if s.mode == selectionNone {
+		return
+	}
+	reflow := func(ep endpoint) endpoint {
+		if ep.OutsideDir != 0 {
+			return ep
+		}
+		vp, _ := pane.positionToDisplay(ep.Pos)
+		ep.VpRow = vp
+		return ep
+	}
+	s.anchor = reflow(s.anchor)
+	s.active = reflow(s.active)
+}
+
 // Cancel dismisses any active selection.
 func (s *selection) Cancel() {
 	s.mode = selectionNone

@@ -43,6 +43,198 @@
 
 ## Fixed Bugs
 
+### CODE_REVIEW.md A5 — well-encapsulated units, broken seams between them
+
+Six items. The structural fix is `internal/ui/mainnav.go`: a `mainNav` seam
+that owns every Model-level main-pane scroll, cursor move, and change to the
+row↔source mapping, so the three things that must move together (cursor
+visibility, visual-mode selection, cursor re-derivation across reflow) are
+restored at one choke point instead of remembered at each call site.
+`TestSeam_MainPaneNavigationGoesThroughNav` is the drift guard: it fails if
+`model.go`, `maincontent.go` or `search.go` names `m.cursor`, a raw viewport
+scroll, an unpaired pane reflow primitive, `selection.SetActive`, or
+`drag.AdvanceAutoScroll`.
+
+- **Fixed — the cursor-always-visible invariant was violated at three
+  Model-level call sites.** PLAN.md states "the cursor is always inside the
+  viewport" and `TestProperty_Cursor_AlwaysVisible` proves it — but only by
+  driving the `cursor` struct with the correct paired calls. Hunk nav
+  (`jumpToFirstDiff` / `jumpToNextDiff`), search navigation, and `setItem`'s
+  no-scroll-memory fallback scrolled the viewport (or placed the cursor)
+  without the other half, so `J` across a 140-row gap left the cursor
+  offscreen. Fixed by routing all three through `mainNav.JumpToHunkStart` /
+  `ScrollToSourceLine` / `PlaceCursorAt`, each of which pairs the scroll with
+  the placement. Regression tests: `TestHunkNav_KeepsCursorVisible`,
+  `TestSearchNav_KeepsCursorVisible`, and the model-level property
+  `TestProperty_Model_CursorAlwaysVisible` (which drives the real dispatcher,
+  not the struct). Observed pre-fix:
+  `after J: cursor vpRow=0 outside viewport [5,24)` and
+  `after search-next #0: cursor vpRow=0 outside viewport [1,20)`.
+
+- **Fixed — visual-mode selection was not updated on paging, g/G or the
+  wheel.** The j/k/h/l arms called `selection.SetActive` after moving the
+  cursor; `g`/`G`, the forwarded page keys and `MouseWheelMsg` called
+  `cursor.DragAlongScroll` and stopped there. The highlight stayed where it
+  was while the cursor moved, and `y` copied a range that did not match the
+  cursor. Fixed by making `syncSelection` part of `mainNav`'s shared fixups,
+  so every path that moves the cursor updates the selection's active end.
+  Regression tests: `TestVisualMode_SelectionFollowsViewportMotion`
+  (table-driven over G/g/pgdn/pgup/wheel/J) and the property
+  `TestProperty_Model_VisualSelectionTracksCursor`. Observed pre-fix, on `G`:
+  `selection.active={Pos:{SourceLine:11 …} VpRow:10}, cursor endpoint={Pos:{SourceLine:183 …} VpRow:182}`.
+
+- **Fixed — mode-switch sidebar restore matched the wrong identity.**
+  `SaveSidebar` stored `sb.SelectedItem()` (filePath, else prefix+label) while
+  `RestoreSidebar` compared against `item.label`, which carries tree
+  indentation and no prefix. Restore-by-identity therefore never matched a
+  file or a PR item; it fell through to the saved raw *index* and selected
+  whatever occupied that slot. Fixed by giving both sides one canonical key:
+  `SelectedItem()` now returns `itemID(item)` — the same function `SetItems`
+  uses for identity preservation — and `RestoreSidebar` compares `itemID`.
+  `SelectedItem()` also gained the missing bounds check on `s.selected`.
+  Regression tests: the property `TestProperty_ViewMemory_SidebarRestoreByIdentity`
+  (which shifts the item list between save and restore, so index coincidence
+  cannot pass it) plus `TestModeSwitching_RetainsPerModeViewState`, which A4
+  deferred here because it had been passing by index coincidence (beta.go sat
+  at index 5 in both fixtures). Observed pre-fix:
+  `restore selected "f0.go", want "d0/f1.go" (shift=0)` and
+  `files mode should restore src/deep/beta.go selection, got "gamma.go"`.
+
+- **Fixed — scope scrubbed-ness was keyed by offset, not by SHA.**
+  `IsScrubbed()` was `oldOffset != naturalOldOffset || newOffset != naturalNewOffset`.
+  Scrub back one commit and then make a commit: HEAD moves, `naturalOldOffset`
+  catches up with `oldOffset`, and the scope silently un-pinned itself and
+  snapped back to the default range with no user action. The `HEAD~N`
+  indicator went stale on any new commit for the same reason. Fixed by making
+  the pin explicit: `scope.pinned` is the authority, maintained by the
+  endpoint movers and re-evaluated against the *SHAs* (`repin`), and
+  `SyncFromLoad` takes a `pinnedOldOffset` — the same load's measurement of
+  the pinned commit's distance from HEAD — so the indicator tracks the pinned
+  commit instead of a cached distance. `gitDataMsg.pinnedOldOffset` carries it,
+  measured in `runGitLoad` alongside the natural offsets (`-1` = no pin), which
+  keeps it inside the A2 snapshot-at-dispatch convention. A pin the natural
+  endpoint catches up with (rebase, base advanced onto it) is dropped, since it
+  no longer describes anything different from the default.
+  `TestScope_IsScrubbedConditions` — the A4 bullet deferred here, which had
+  codified the offset disjunction, i.e. the bug — now states the SHA-anchored
+  contract, and `arbitraryScope` generates `pinned` via `repin` so properties
+  describe reachable states. New: `TestScope_ScrubSurvivesNewCommit`,
+  `TestScope_PinSurvivesCommitsAndIndicatorTracksSHA`,
+  `TestScope_ContractBackToNaturalUnpins`,
+  `TestScope_NaturalCatchingUpToPinUnpins`.
+
+- **Fixed — a pinned-distance measurement was applied to the wrong pin.**
+  Found in review of the fix above. `SyncFromLoad` adopted `pinnedOldOffset`
+  whenever it was `>= 0`, but that number is a fact about one specific commit —
+  the pin as it stood *when the load was dispatched*. Scrub twice in quick
+  succession (or scrub while a load is in flight) and the earlier load's
+  measurement was stamped onto the newer pin, so the `HEAD~N` indicator read a
+  commit short until the next load landed. The same path is taken in the
+  stale-load discard branch of the `gitDataMsg` handler, which called
+  `SyncFromLoad` with the outgoing pin's offset. Fixed by carrying the SHA the
+  measurement was taken against — `msg.reqScrubbedBase`, which already existed
+  as the A2 guard key, so no new field was needed — and applying the offset
+  only when it still equals `s.oldBase`. This is the robust option rather than
+  passing `-1` at the one call site: it fixes every path that can deliver a
+  measurement against a superseded pin, not just the branch the review found.
+  Regression test: `TestScope_StalePinnedOffsetNotAppliedToNewerPin`; the
+  property `TestScope_SyncFromLoadPreservesScrub` now draws `pinnedBase` from
+  {the real pin, another SHA, ""} and `pinnedOff` from `[-1, …]` so both the
+  no-pin and wrong-pin branches are covered. Observed pre-fix:
+  `indicator says HEAD~1 after a load measured against the previous pin "c1"; want HEAD~2, c2's own distance`
+  and, from the property,
+  `oldOffset=0 changed to a distance measured against "some-other-sha", not the pin "c1"; want the cached 1`.
+
+- **Fixed — a stale cross-checkout load could wipe a fresh scrub.** Also found
+  in review. Git loads finish out of order, and the branch-switch reset below
+  had no way to tell a *new* checkout from an *old* load reporting the previous
+  one: a slow load dispatched on branch A, arriving after a faster load had
+  adopted branch B and the user had scrubbed there, read A-vs-B as a fresh
+  checkout, reset the brand-new B scrub, and adopted stale branch-A `repoInfo`.
+  Fixed by extending the A2 snapshot convention with a monotonic dispatch
+  number: `gitLoadRequest.seq` is assigned on the Update goroutine, echoed back
+  as `gitDataMsg.seq`, and compared against the `Model.gitAdoptedSeq`
+  high-water mark. A msg below the mark leaves both the repo identity and the
+  branch-switch reset alone. `seq == 0` means "not from a tracked dispatch" (a
+  hand-built msg in a test) and is never treated as stale, which keeps the
+  existing literal-msg tests meaningful. Regression test:
+  `TestScope_StaleCrossCheckoutLoadDoesNotResetNewerScrub`, which drives the
+  real out-of-order arrival. Observed pre-fix, all three assertions:
+  `a stale branch-a load reset the scrub made on branch-b`,
+  `scope.OldBase()="a-natural" after the stale load, want the branch-b pin "b-parent"`,
+  `repoInfo.Branch="branch-a"; a stale load overwrote the current checkout`.
+
+- **Fixed — the scope did not reset on branch switch** (spec PROMPT.md:232,
+  "the scope resets to default on branch switch"). The `gitDataMsg` handler
+  never compared the incoming branch against the current one, so after a
+  checkout a scrubbed scope kept passing the old branch's pinned SHA as the
+  range's outer endpoint — a commit that is typically absent from the new
+  branch. Fixed by comparing `branchIdentity(m.repoInfo)` against
+  `branchIdentity(msg.repoInfo)` before adopting the new repo info and, on a
+  change, resetting the scope and re-dispatching a load — the same reset+reload
+  pairing the `ScopeReset` key uses. The reset runs *before* the A2 pin guard,
+  which then correctly discards this msg's payload (it was computed against the
+  now-stale pin). `branchIdentity` is deliberately not keyed on `HeadSHA`:
+  that moves on every commit, and resetting per commit would re-introduce the
+  distance-vs-identity mistake above; a detached HEAD is one bucket.
+  Regression tests: `TestScope_ResetsOnBranchSwitch` and its negative half
+  `TestScope_SurvivesRefreshOnSameBranch`. Observed pre-fix:
+  `scope still scrubbed after branch switch (OldBase="parent-sha")` /
+  `scope.OldBase()="parent-sha" after branch switch, want the new branch's natural base "other-natural"`.
+
+- **Fixed — the vpRow-canonical cursor was never re-derived across reflow, and
+  resize never reflowed the pane at all.** The cursor's canonical state is a
+  viewport row (design from c4914bc), so a content refresh, a `w`/`n`/`D`
+  toggle, or a resize moved it to a different source line — or off the end of
+  shrunken content, where `MoveDown` is a permanent no-op and `ApplyHighlight`
+  paints into the pane's padding. Separately, `updateLayout` called
+  `mainPane.SetSize`, which resized the viewport without re-wrapping, so after
+  a resize the rows on screen stayed wrapped at the *old* width until the next
+  content-setting tick. Fixed with `mainNav.Reflow`, which snapshots the
+  cursor's source-space `Position`, runs the mutation, restores the position
+  (unless the mutation deliberately re-placed the cursor — tracked by the new
+  `cursor.seq`), clamps to the content via the new `cursor.ClampToContent`, and
+  re-derives the selection's endpoints via the new `selection.Reflow`; plus
+  `SetSize` now calls `refreshViewport` when the width changes. Every reflowing
+  call site (`updateMainContent`, `updateLayout`, the three toggles,
+  `SetSearchQuery`) goes through it. Regression tests: the property
+  `TestProperty_Model_CursorSurvivesReflow` — this is PLAN.md's step-5
+  resize-invariance item ("the cursor's source-space Position is invariant
+  under terminal resize; only its display position changes"), generalized to
+  the toggles — and the deterministic `TestResize_RewrapsMainPaneContent`.
+  Note the property needed its own generator (`genReflowMock`): `genScenario`
+  produces a handful of ~20-column diff lines that fit at every generated pane
+  width, so a resize left the mapping untouched and the invariance was
+  vacuously true — with the fix reverted the test still passed until the
+  generator produced line widths straddling the whole 40..200 width range.
+  Observed pre-fix, once it did:
+  `reflow0 step 0 moved the cursor's source line: 20 -> 19 (w=40 h=10 wrap=true nums=true)`
+  and `content rows after narrowing 200 -> 60 = 6, was 6 at the wider size`.
+
+One test-assertion correction, not a product bug:
+`TestProperty_Model_VisualYankMatchesHighlight` closed with "every non-empty
+yanked line must appear in `mainPane.content`", which contradicts
+PROMPT.md:162 — a `~` row renders the old text inline beside the new when the
+inline diff is small, and `D` shows removed-only content as its own row, so the
+copied row legitimately contains text that is not in the new-file content.
+Observed at 50 rapid checks: `yanked line "oldline1" is not in pane content`,
+where the row on screen really is `1 ~ ` + `old` + `line1` and the copy matches
+it exactly — i.e. the property the test is named for held.
+
+The first attempt skipped any scenario whose file had a removed-line
+annotation, which review correctly rejected: the skip was file-scoped rather
+than selection-scoped, and since the `nHunks == 0` fallback diff always carries
+one, it left the assertion effectively dead in FilesMode — the loosened-test
+pattern CLAUDE.md forbids. The assertion now compares against
+`mainPane.formattedContent`, the pane's own pre-wrap rendered rows (gutter and
+diff decoration applied, wrapping not yet), which is what the property is
+actually named for and holds for decorated rows too. Pre-wrap is the
+load-bearing detail: a yanked line is one logical row, so it matches a whole
+formatted row even when the screen split it across several — which is why
+comparing against the post-wrap viewport rows was not viable. Confirmed live
+rather than vacuous by pointing it back at `content`, which still fails on the
+recorded `oldline1` seed.
+
 ### CODE_REVIEW.md A4 — tests that encoded or masked bugs
 
 Five items. Two were live bugs the tests were hiding (marked **fixed**);

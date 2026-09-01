@@ -241,7 +241,7 @@ func newTitleTestModel(t *testing.T, mock *mockGit, mode Mode) *Model {
 	m := NewModel("/tmp", mock)
 	m.width = 100
 	m.height = 30
-	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.scope.SyncFromLoad("origin/main", "", 0, 0, "", -1)
 	m.mode = mode
 	m.updateLayout()
 	return m
@@ -324,7 +324,7 @@ func TestTitle_FilesMode_NoDiff_UntrackedShowsMtime(t *testing.T) {
 	m := NewModel(dir, mock)
 	m.width = 100
 	m.height = 30
-	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.scope.SyncFromLoad("origin/main", "", 0, 0, "", -1)
 	m.mode = FilesMode
 	m.updateLayout()
 	m.allFiles = []string{"fresh.txt"}
@@ -363,7 +363,7 @@ func TestTitle_FilesMode_BinaryUntracked(t *testing.T) {
 	m := NewModel(dir, mock)
 	m.width = 100
 	m.height = 30
-	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.scope.SyncFromLoad("origin/main", "", 0, 0, "", -1)
 	m.mode = FilesMode
 	m.updateLayout()
 	m.allFiles = []string{"logo.png"}
@@ -505,7 +505,7 @@ func TestTitle_FilesMode_Diff_Uncommitted_PrependsMtime(t *testing.T) {
 	m := NewModel(dir, mock)
 	m.width = 100
 	m.height = 30
-	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.scope.SyncFromLoad("origin/main", "", 0, 0, "", -1)
 	m.mode = FilesMode
 	m.updateLayout()
 	putChanges(m, git.SectionUncommitted, git.ClassAdded, "edited.go")
@@ -587,7 +587,7 @@ func TestTitle_FilesMode_Rename_WorkingTree_PureNoEdits(t *testing.T) {
 	m := NewModel(dir, mock)
 	m.width = 100
 	m.height = 30
-	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.scope.SyncFromLoad("origin/main", "", 0, 0, "", -1)
 	m.mode = FilesMode
 	m.updateLayout()
 	addChange(m, git.ChangedFile{Path: "new.go", Section: git.SectionUncommitted, Class: git.ClassRenamed, OldPath: "old.go", PureRename: true})
@@ -641,7 +641,7 @@ func TestTitle_FilesMode_Rename_WorkingTree_HeaderOnlyDiff(t *testing.T) {
 	m := NewModel(dir, mock)
 	m.width = 100
 	m.height = 30
-	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.scope.SyncFromLoad("origin/main", "", 0, 0, "", -1)
 	m.mode = FilesMode
 	m.updateLayout()
 	addChange(m, git.ChangedFile{Path: "new.go", Section: git.SectionUncommitted, Class: git.ClassRenamed, OldPath: "old.go", PureRename: true})
@@ -732,7 +732,7 @@ rename to new.go
 	m := NewModel(dir, mock)
 	m.width = 100
 	m.height = 30
-	m.scope.SyncFromLoad("origin/main", "", 0, 0)
+	m.scope.SyncFromLoad("origin/main", "", 0, 0, "", -1)
 	m.mode = FilesMode
 	m.updateLayout()
 	addChange(m, git.ChangedFile{Path: "new.go", Section: git.SectionUncommitted, Class: git.ClassRenamed, OldPath: "old.go"})
