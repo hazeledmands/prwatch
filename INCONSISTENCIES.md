@@ -14,6 +14,10 @@ updated to drop `v`/`c`/`b` and add visual mode, or should the aliases be
 restored under different keys? Deliberate change, but never logged against
 the spec.
 
+**Resolved — spec updated.** The alias removal was intentional; PROMPT.md's
+mode-switching table now lists only `1`/`2`/`3` and a new `### visual mode`
+section documents `v`/`V`/`esc` and the yank semantics. No code change.
+
 ## GitHub API errors hidden once PR data exists
 
 Spec: PROMPT.md:83 — "if the github API is returning errors, then put the
@@ -27,6 +31,12 @@ Open question: is silently keeping stale-but-last-known-good PR data on
 screen (instead of surfacing the new error) the intended behavior, or should
 errors always take priority on line 3 regardless of whether PR data is
 already loaded?
+
+**Resolved — both.** PROMPT.md:83 is taken at face value: an active API
+error is surfaced on line 3 even when PR data already exists, while the
+last-known-good PR data stays rendered elsewhere. Fix pending — queued for
+the error-path work thread alongside the `isRateLimited` 403
+misclassification (BUG_REPORTS.md, New Bugs).
 
 ## Drag-copy drops the space at word-wrap breaks
 
@@ -69,6 +79,14 @@ policy for `stripGutterText` that distinguishes *content* spaces from
 *render padding* spaces, which the rendered row does not currently
 distinguish. Needs a decision before changing anything.
 
+**Resolved — split by selection kind.** Line-wise `V` selections are
+source-text operations and reproduce lines exactly, trailing whitespace
+included; cell-wise selections (drag, `v`) are screen operations and keep
+the trim. Now specified in PROMPT.md (`### visual mode` and the mouse
+copy bullets). Fix pending — same content-boundary bookkeeping pattern as
+the wrap-break-space fix (record trailing-space counts, re-append at
+line-yank join).
+
 ## Hover highlight only implemented for one element
 
 Spec: PROMPT.md:361 — "hovering over clickable elements highlights them with
@@ -82,6 +100,10 @@ Open question: is background-color hover highlighting meant to be rolled out
 to all clickable elements, or was line-1-only, underline-style hover a
 deliberate simplification?
 
+**Resolved — simplification blessed.** PROMPT.md's hover bullet now
+describes the actual behavior (underline on line-1 mode labels only) and
+marks it deliberate. No code change.
+
 ## Commits-mode pseudo-entry body content (staged/unstaged/untracked)
 
 Spec: doesn't specify what each commits-mode pseudo-entry's *body* should
@@ -93,3 +115,9 @@ Code: current behavior renders identical bodies for all three pseudo-entries
 Open question: what should each pseudo-entry's body actually show (e.g.
 staged diff, unstaged diff, untracked file listing/contents)? Needs a
 decision before this can be fixed.
+
+**Resolved — semantics defined.** Staged → the staged diff
+(`git diff --cached`); new changes → the working-tree diff against the
+index; untracked → each file's contents rendered as a new-file diff. Now
+specified in PROMPT.md's commits-mode section. Fix pending — queued after
+the error-path thread.

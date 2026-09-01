@@ -56,6 +56,15 @@ while loading, data (such as data from github or a CI system), the display shoul
 
 the UI should update when the size of its bounding box changes. e.g. if the terminal window it is in is resized. wrapped content should re-wrap when the bounding box changes.
 
+### unicode width accounting
+
+the terminal cell grid is ground truth; grapheme clusters are atoms; all geometry comes from one width oracle.
+
+- all display-width math comes from one shared grapheme-cluster-aware width function — the same measurement the renderer uses — always applied to whole strings, never computed by summing the widths of parts (cluster merging makes width non-additive across concatenation).
+- grapheme clusters are indivisible: no cursor position, selection endpoint, wrap break, or string slice may land inside a cluster. a cluster includes both cells of a wide glyph and a base character together with its combining marks.
+- rows that promise a width (title bars, status bar, padded rows) must measure exactly that width under the oracle for any input, zero-width and combining characters included.
+- the guarantee is internal self-consistency: every subsystem agrees with the one oracle. terminal emulators disagree with each other on exotic scripts and emoji sequences; that residual variance is accepted and out of scope.
+
 ## status bar
 
 the "status bar" should be divided into three sections, one line per each.
@@ -180,6 +189,11 @@ if this list is very long, we should paginate it. load the first 100 commits ini
 
 title bar: for a real commit, left shows `<sha7> · <subject>` and right shows `@<author> · <relative-time>`. for the "new changes" or "staged changes" pseudo-entries, right shows the diff shortstat (e.g. `3 files changed, 42 insertions(+), 11 deletions(-)`).
 
+pseudo-entry bodies (main pane content) each show their own distinct diff:
+- **staged** — the staged diff (`git diff --cached`).
+- **new changes (unstaged)** — the working-tree diff against the index.
+- **untracked files** — each untracked file's contents rendered as a new-file diff.
+
 
 ### pr mode
 
@@ -284,9 +298,25 @@ each command maps to one or more keys. keys listed on the same row are interchan
 | command | default key(s) | action |
 |---------|----------------|--------|
 | `toggle-mode` | `m` | cycle modes: files → commits → pr → files (skips pr if no PR) |
-| `files-mode` | `v`, `1` | jump to files mode |
-| `commits-mode` | `c`, `2` | jump to commits mode |
-| `pr-mode` | `b`, `3` | jump to pr mode (no-op if no PR) |
+| `files-mode` | `1` | jump to files mode |
+| `commits-mode` | `2` | jump to commits mode |
+| `pr-mode` | `3` | jump to pr mode (no-op if no PR) |
+
+single-letter mode aliases (`v`/`c`/`b`) were deliberately retired when `v` became the visual-mode entry key; `1`/`2`/`3` are the only direct mode keys.
+
+### visual mode
+
+vim-style keyboard selection in the main pane (only when the main pane is focused, no search input, help overlay, or mouse drag active):
+
+| command | default key(s) | action |
+|---------|----------------|--------|
+| `visual-stream` | `v` | enter character-grained visual mode anchored at the cursor. in stream mode: dismiss. in line mode: switch to stream, preserving the anchor/active range. |
+| `visual-line` | `V` | enter line-grained visual mode anchored at the cursor. in line mode: dismiss. in stream mode: switch to line, preserving the anchor/active range. |
+| `visual-dismiss` | `esc` | cancel the selection (preempts quit-confirm while a selection is active) |
+
+- cursor motion extends the selection; the highlight shares the drag-selection renderer and follows the same copy-hygiene rules (PROMPT.md `## mouse behavior`).
+- `y` yanks the selection (see `yank-path` — the key does double duty).
+- copy semantics by selection kind: **line-wise selections (`V`) are source-text operations** — the copied text reproduces each selected source line exactly, including its trailing whitespace. **cell-wise selections (`v`, mouse drag) are screen operations** — they copy what the highlight covers, and trailing render padding is excluded.
 
 ### focus & navigation
 | command | default key(s) | action |
@@ -358,11 +388,13 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 - clicking on files or commits in the sidebar opens them in the main view. clicking a directory toggles its expand/collapse state without changing the main panel.
 - scrolling independently scrolls the focused view, keeping selections the same.
 - when text is not wrapped, horizontal mouse scroll works too.
-- hovering over clickable elements highlights them with a different background color.
+- hovering over the mode labels in the status bar highlights them (underline style). other clickable elements have no hover treatment — a deliberate simplification.
 - dragging over text highlights it, and finishing a drag copies to the system clipboard.
   - selecting stays within the boundaries of the pane being dragged in.
+  - selection endpoints round *outward* to grapheme-cluster boundaries, symmetrically at both edges: an endpoint on any cell of a wide glyph includes the whole glyph (see "unicode width accounting" under layout). a cursor placed by click snaps to the start of the cluster it lands on.
   - the highlight should only cover the relevant content that will be copied — not TUI glyphs, border characters, or gutter content.
-  - copied text should be the same as the text from the file (or diff) that is being copied - it should not carry over extra newlines when the text in the UI wraps
+  - copied text should be the same as the text from the file (or diff) that is being copied - it should not carry over extra newlines when the text in the UI wraps, and spaces consumed at wrap breaks are restored in the copy.
+  - a drag (like a `v` visual selection) is a *screen* operation: it copies what the highlight covers, and trailing render padding is excluded. line-wise `V` selections are *source-text* operations and reproduce lines exactly, trailing whitespace included (see `### visual mode`).
   - copied text should not include TUI glyphs, gutter characters, or ANSI codes.
   - on release, a transient toast appears in the bottom-left in the form `copied selection (N lines, M bytes)` (same toast style as `yank-path`).
   - when dragging past the top line or past the bottom line, the view should scroll, making it possible to copy content larger than the view on the screen.
