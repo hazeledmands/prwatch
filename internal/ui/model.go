@@ -66,7 +66,9 @@ type GitDataSource interface {
 	IgnoredEntries() ([]gitpkg.IgnoredEntry, error)
 	IgnoredFilesInDir(dir string) ([]string, error)
 	BaseCommits(base string, limit int) ([]gitpkg.Commit, error)
-	BehindCount(baseRef string) int
+	// BehindCount returns how many commits baseRef has that HEAD doesn't. An
+	// error means unknown — callers must not treat it as 0 ("up to date").
+	BehindCount(baseRef string) (int, error)
 	Parent(sha string) (string, error)
 	FirstChildToward(base, head string) (string, error)
 	RWXResults(runID string) (*gitpkg.RWXResult, error)
@@ -102,6 +104,7 @@ type Model struct {
 	commitsLoaded      int                   // how many commits have been loaded so far
 	moreCommitsPending bool                  // a load-more page is dispatched and hasn't landed yet
 	behindCount        int                   // how many commits behind base
+	behindKnown        bool                  // behindCount was measured; false = unknown, don't render
 	baseCommits        []gitpkg.Commit       // commits from the base branch (for commit mode category 4)
 	prComments         []gitpkg.PRComment    // PR comments for PR-view mode
 	prDeployments      []gitpkg.PRDeployment // PR deployments for PR-view mode
@@ -197,9 +200,19 @@ type gitDataMsg struct {
 	ciChecks         []gitpkg.CICheck
 	reviewRequests   []gitpkg.PRReviewRequest
 	behindCount      int
-	prFetchFailed    bool // true if PR fetch errored (e.g. rate limit) — preserve old PR data
-	localOnly        bool // true if this was a local-only refresh (no API calls attempted)
-	err              error
+	// behindKnown: behindCount was actually measured. False means the count is
+	// unknown (rev-list failed, base ref missing) and must not be rendered —
+	// an unknown count is not "0 behind".
+	behindKnown   bool
+	prFetchFailed bool // true if PR fetch errored — preserve old PR data
+	// prRateLimited: prFetchFailed *and* the error classified as a GitHub rate
+	// limit, so this load feeds the backoff exactly like a PR-tick fetch would.
+	prRateLimited bool
+	// checksFailed: PR fetch succeeded but the checks fetch didn't — preserve
+	// the CI data we already have instead of applying zeros.
+	checksFailed bool
+	localOnly    bool // true if this was a local-only refresh (no API calls attempted)
+	err          error
 }
 
 type RefreshMsg struct{}
@@ -227,7 +240,16 @@ type prRefreshMsg struct {
 	ciChecks       []gitpkg.CICheck
 	prComments     []gitpkg.PRComment
 	prDeployments  []gitpkg.PRDeployment
-	rateLimited    bool
+	// fetchFailed: the PR fetch itself failed, so every PR field on this msg is
+	// zero and the handler must preserve what it already has.
+	fetchFailed bool
+	// rateLimited: fetchFailed *and* the error was classified as a GitHub rate
+	// limit, which additionally backs the poll interval off.
+	rateLimited bool
+	// checksFailed: the PR fetch succeeded but the checks fetch didn't, so
+	// ciStatus/ciChecks are zero and the handler must keep the previous CI data
+	// rather than blanking the panel.
+	checksFailed bool
 }
 
 type prTickMsg struct{}
@@ -287,13 +309,23 @@ func (m *Model) Init() tea.Cmd {
 	if m.git == nil {
 		return loadNonGitFilesCmd(m.dir)
 	}
+	m.activity.MarkPRFetch(time.Now())
 	return tea.Batch(m.gitLoadCmd(false), loadPRStatusCmd(m.git), schedulePRTick(m.activity.PRInterval()), scheduleGitTick(m.activity.GitInterval()))
 }
 
-func schedulePRTick(interval time.Duration) tea.Cmd {
+// prTickScheduler builds the delayed prTickMsg command. Indirected through a
+// var so tests can observe the interval the loop actually schedules at.
+// A test that stubs this must NOT call t.Parallel(): the var is process-wide,
+// and Go only defers parallel tests past serial ones, so a parallel stubber
+// would race every other test's ticks.
+var prTickScheduler = func(interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return prTickMsg{}
 	})
+}
+
+func schedulePRTick(interval time.Duration) tea.Cmd {
+	return prTickScheduler(interval)
 }
 
 func scheduleGitTick(interval time.Duration) tea.Cmd {
@@ -353,14 +385,21 @@ func (m *Model) loadPRStatus() tea.Msg { return fetchPRStatus(m.git) }
 func fetchPRStatus(g GitDataSource) tea.Msg {
 	prAll, err := g.PRAll()
 	if err != nil {
-		// Any PR fetch error (rate limit, network, auth) — signal to preserve old data
-		return prRefreshMsg{rateLimited: true}
+		// Every fetch error preserves the PR data we already have, but only a
+		// genuine rate limit backs the poll off — reporting expired auth or a
+		// DNS failure as "rate limited" both lies to the user and slows the
+		// poll down for a condition that retrying won't fix.
+		return prRefreshMsg{fetchFailed: true, rateLimited: isRateLimited(err)}
 	}
 	var checksResult gitpkg.PRChecksResult
+	var checksFailed bool
 	if prAll.Info.Number > 0 {
-		checksResult, _ = g.PRChecksAll()
+		var checksErr error
+		checksResult, checksErr = g.PRChecksAll()
+		checksFailed = checksErr != nil
 	}
 	return prRefreshMsg{
+		checksFailed:   checksFailed,
 		prInfo:         prAll.Info,
 		ciStatus:       checksResult.Status,
 		reviews:        prAll.Reviews,
@@ -583,6 +622,8 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 	var (
 		prAll         gitpkg.PRAllResult
 		prFetchFailed bool
+		prRateLimited bool
+		checksFailed  bool
 		ciStatus      gitpkg.CIStatusResult
 		ciChecks      []gitpkg.CICheck
 	)
@@ -591,9 +632,13 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 		var prErr error
 		prAll, prErr = g.PRAll()
 		prFetchFailed = prErr != nil
+		// Classified here, exactly as fetchPRStatus does, so the handler can
+		// back off on a rate limit and report anything else generically.
+		prRateLimited = isRateLimited(prErr)
 		prBaseRef = prAll.Info.BaseRef
 		if prAll.Info.Number > 0 {
-			checksResult, _ := g.PRChecksAll()
+			checksResult, checksErr := g.PRChecksAll()
+			checksFailed = checksErr != nil
 			ciStatus = checksResult.Status
 			ciChecks = checksResult.Checks
 		}
@@ -630,10 +675,15 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 	}
 	naturalOldOffset, _ := g.CommitCountRange(naturalOldBase)
 
-	// Compute behind count: how many commits on the base branch we don't have
+	// Compute behind count: how many commits on the base branch we don't have.
+	// A failure leaves it unknown rather than 0 — the base ref may simply not
+	// exist locally, and rendering that as "up to date" is a wrong claim.
 	var behindCount int
+	var behindKnown bool
 	if !info.IsDetachedHead && info.Branch != "main" && info.Branch != "master" {
-		behindCount = g.BehindCount(baseRefForBehind(prBaseRef, info.Branch, info.Upstream))
+		var behindErr error
+		behindCount, behindErr = g.BehindCount(baseRefForBehind(prBaseRef, info.Branch, info.Upstream))
+		behindKnown = behindErr == nil
 	}
 
 	// Below-cutline commits (out-of-scope context). On non-detached-HEAD this
@@ -662,6 +712,7 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 		commits:          commits,
 		baseCommits:      baseCommits,
 		behindCount:      behindCount,
+		behindKnown:      behindKnown,
 		localOnly:        !req.withPR, // preserve existing PR data
 	}
 	if req.withPR {
@@ -674,6 +725,8 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 		msg.prDeployments = prAll.Deployments
 		msg.reviewRequests = prAll.ReviewRequests
 		msg.prFetchFailed = prFetchFailed
+		msg.prRateLimited = prRateLimited
+		msg.checksFailed = checksFailed
 	}
 	return msg
 }
@@ -776,7 +829,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case moreCommitsMsg:
 			m.debugLog.Printf("[data] moreCommitsMsg commits=%d", len(msg.commits))
 		case prRefreshMsg:
-			m.debugLog.Printf("[data] prRefreshMsg rateLimited=%v", msg.rateLimited)
+			m.debugLog.Printf("[data] prRefreshMsg fetchFailed=%v rateLimited=%v checksFailed=%v",
+				msg.fetchFailed, msg.rateLimited, msg.checksFailed)
 		case rwxLogMsg:
 			m.debugLog.Printf("[data] rwxLogMsg")
 		}
@@ -796,24 +850,48 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 			return m, nil
 		}
+		// This load's local half succeeded, so whatever previous failure is on
+		// screen is over. Without this the error screen was terminal: one
+		// index.lock collision during a rebase wedged the UI for the session
+		// while the 5s tick kept loading good data behind it. Every non-error
+		// gitDataMsg clears it — a local-only refresh and a load whose PR half
+		// failed both prove the local half worked, and the PR failure has its
+		// own display (prError).
+		m.err = nil
 		m.repoInfo = msg.repoInfo
 		// Local-only refresh: preserve all existing PR data and error state
 		// PR fetch failed: preserve PR data but flag the error
 		// Otherwise: update PR data normally
 		if !msg.localOnly {
 			m.prLoadedOnce = true
+			// This load talked to GitHub, so it feeds the same rate-limit state
+			// machine as the PR tick: classify the failure, or let a success
+			// clear a backoff the tick loop is still sitting in.
+			m.activity.MarkPRFetch(time.Now())
 			if msg.prFetchFailed {
-				m.prError = "GitHub API error"
+				if msg.prRateLimited {
+					m.activity.BumpRateLimited(time.Now())
+					m.prError = "GitHub API rate limited"
+				} else {
+					m.prError = "GitHub API error"
+				}
 			} else {
+				m.activity.MarkPRSuccess(time.Now())
 				m.prError = ""
+				// Preserving CI data across a checks failure is only right while
+				// it describes the same PR — under a different PR number it would
+				// render the previous PR's checks beneath the new PR's header.
+				keepChecks := msg.checksFailed && msg.prInfo.Number == m.prInfo.Number
 				m.prInfo = msg.prInfo
-				m.ciStatus = msg.ciStatus
+				if !keepChecks {
+					m.ciStatus = msg.ciStatus
+					m.ciChecks = msg.ciChecks
+				}
 				m.prReviews = msg.prReviews
 				m.prReviewRequests = msg.reviewRequests
 				m.prCommentCount = msg.prCommentCount
 				m.prComments = msg.prComments
 				m.prDeployments = msg.prDeployments
-				m.ciChecks = msg.ciChecks
 				m.sortPRData()
 			}
 		}
@@ -894,6 +972,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.commitsLoaded = len(msg.commits)
 		m.baseCommits = msg.baseCommits
 		m.behindCount = msg.behindCount
+		m.behindKnown = msg.behindKnown
 		// On first load, default to PR mode if a PR exists and mode hasn't been changed
 		if wasLoading && m.prInfo.Number > 0 && m.mode == FilesMode {
 			m.mode = PRMode
@@ -952,18 +1031,33 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prRefreshMsg:
-		if msg.rateLimited {
-			m.activity.BumpRateLimited()
-			m.prError = "GitHub API rate limited"
+		// rateLimited implies fetchFailed; both are accepted so the two flags
+		// can't disagree about whether there is any data to apply.
+		if msg.fetchFailed || msg.rateLimited {
+			// Preserve the PR data we have either way; only a real rate limit
+			// backs the interval off (PROMPT.md:21). The bump is latched in the
+			// tracker, so neither the next tick's ResetPRInterval nor the tick
+			// already in flight at the old interval can undo it — see the
+			// prTickMsg arm's PRFetchDue gate.
+			if msg.rateLimited {
+				m.activity.BumpRateLimited(time.Now())
+				m.prError = "GitHub API rate limited"
+			} else {
+				m.activity.ResetPRInterval(time.Now())
+				m.prError = "GitHub API error"
+			}
 			m.updateLayout()
 			return m, nil
 		}
-		// Track whether the server data actually changed
+		// Track whether the server data actually changed. The CI state only
+		// counts when we actually fetched it — a failed checks call reports a
+		// zero state, which would otherwise read as a change every time.
+		ciStateChanged := !msg.checksFailed && msg.ciStatus.State != m.ciStatus.State
 		if msg.prInfo.Number != m.prInfo.Number ||
 			msg.prInfo.Title != m.prInfo.Title ||
 			msg.prInfo.State != m.prInfo.State ||
 			msg.prInfo.ReviewDecision != m.prInfo.ReviewDecision ||
-			msg.ciStatus.State != m.ciStatus.State ||
+			ciStateChanged ||
 			msg.commentCount != m.prCommentCount ||
 			len(msg.reviews) != len(m.prReviews) {
 			m.activity.MarkServerChange(time.Now())
@@ -973,15 +1067,23 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// git refresh so diffs/commits/changed-files recompute against the new
 		// base.
 		baseRefChanged := msg.prInfo.BaseRef != m.prInfo.BaseRef && msg.prInfo.BaseRef != ""
-		// Successful fetch — reset interval based on activity and clear error
-		m.activity.ResetPRInterval(time.Now())
+		// Successful fetch — clear any rate-limit backoff, return the interval
+		// to whatever activity implies, and clear the error.
+		m.activity.MarkPRSuccess(time.Now())
 		m.prError = ""
+		// A checks-fetch failure leaves ciStatus/ciChecks zero on the msg; keep
+		// the CI data we have rather than blanking the panel — but only while it
+		// still describes this PR. Under a new PR number the old checks would
+		// render beneath the new PR's header, so clear them instead.
+		keepChecks := msg.checksFailed && msg.prInfo.Number == m.prInfo.Number
 		m.prInfo = msg.prInfo
-		m.ciStatus = msg.ciStatus
+		if !keepChecks {
+			m.ciStatus = msg.ciStatus
+			m.ciChecks = msg.ciChecks
+		}
 		m.prReviews = msg.reviews
 		m.prReviewRequests = msg.reviewRequests
 		m.prCommentCount = msg.commentCount
-		m.ciChecks = msg.ciChecks
 		m.prComments = msg.prComments
 		m.prDeployments = msg.prDeployments
 		m.sortPRData()
@@ -1004,12 +1106,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prTickMsg:
-		// Recompute interval on each tick based on current activity state
-		m.activity.ResetPRInterval(time.Now())
-		if m.git == nil {
-			return m, schedulePRTick(m.activity.PRInterval())
+		// Recompute interval on each tick based on current activity state. A
+		// latched rate-limit backoff survives this (activityTracker.ResetPRInterval).
+		now := time.Now()
+		m.activity.ResetPRInterval(now)
+		// This tick may have been scheduled before a rate limit came back, in
+		// which case it is due sooner than the backoff allows: re-arm for the
+		// remainder of the backoff instead of fetching. Without this the first
+		// retry after a 403 still went out at the un-bumped interval.
+		if m.git == nil || !m.activity.PRFetchDue(now) {
+			return m, schedulePRTick(m.activity.PRTickDelay(now))
 		}
-		return m, tea.Batch(loadPRStatusCmd(m.git), schedulePRTick(m.activity.PRInterval()))
+		m.activity.MarkPRFetch(now)
+		return m, tea.Batch(loadPRStatusCmd(m.git), schedulePRTick(m.activity.PRTickDelay(now)))
 
 	case notificationExpiredMsg:
 		m.notification = ""
@@ -1568,6 +1677,7 @@ func (m *Model) statusBarData() statusBarData {
 		uncommitCount:    m.changes.Len() - len(m.changes.InSection(gitpkg.SectionCommitted)),
 		commitCount:      m.scope.Len(),
 		behindCount:      m.behindCount,
+		behindKnown:      m.behindKnown,
 		changedFileCount: m.changes.Len(),
 		// PR data is still in flight either during the initial synchronous
 		// load or in the window after local git data lands but before the

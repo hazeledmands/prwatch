@@ -1104,16 +1104,39 @@ func TestPRChecksAll_Pending(t *testing.T) {
 	}
 }
 
+// TestPRChecksAll_Error covers CODE_REVIEW A3: PRChecksAll used to swallow
+// every failure and return a zero PRChecksResult with a nil error, so the
+// caller applied the zeros and blanked the CI panel on a transient failure.
+// A failure with no parseable output must now be reported.
 func TestPRChecksAll_Error(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := git.NewWithFactory(dir, mockGHFactory("", fmt.Errorf("no PR")))
 
 	result, err := g.PRChecksAll()
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatalf("expected an error, got %+v, nil", result)
 	}
 	if result.Status.State != "" {
 		t.Errorf("expected empty state, got %q", result.Status.State)
+	}
+}
+
+// `gh pr checks` exits nonzero when checks are failing or still pending, but
+// still writes the requested JSON. That's data, not an error: parse it.
+func TestPRChecksAll_NonZeroExitWithOutput(t *testing.T) {
+	dir := setupTestRepo(t)
+	checksJSON := `[{"name":"build","state":"FAILURE","bucket":"fail","link":"https://ci.example.com/2"}]`
+	g := git.NewWithFactory(dir, mockGHFactory(checksJSON, fmt.Errorf("exit status 1")))
+
+	result, err := g.PRChecksAll()
+	if err != nil {
+		t.Fatalf("nonzero exit with valid JSON should not error: %v", err)
+	}
+	if result.Status.State != "FAILURE" {
+		t.Errorf("state = %q, want FAILURE", result.Status.State)
+	}
+	if len(result.Checks) != 1 {
+		t.Errorf("checks = %d, want 1", len(result.Checks))
 	}
 }
 
@@ -1122,8 +1145,8 @@ func TestPRChecksAll_InvalidJSON(t *testing.T) {
 	g := git.NewWithFactory(dir, mockGHFactory("not json", nil))
 
 	result, err := g.PRChecksAll()
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatalf("expected an error for unparseable output, got %+v, nil", result)
 	}
 	if result.Status.State != "" {
 		t.Errorf("expected empty state for invalid json, got %q", result.Status.State)
@@ -1446,7 +1469,10 @@ func TestBehindCount(t *testing.T) {
 	g := noGH(dir)
 
 	// Feature branch is 0 commits behind main (main has only initial commit)
-	count := g.BehindCount("main")
+	count, err := g.BehindCount("main")
+	if err != nil {
+		t.Fatalf("BehindCount: %v", err)
+	}
 	if count != 0 {
 		t.Errorf("expected 0 behind, got %d", count)
 	}
@@ -1458,9 +1484,28 @@ func TestBehindCount(t *testing.T) {
 	runGit(t, dir, "commit", "-m", "extra on main")
 	runGit(t, dir, "checkout", "hazel/test/feature")
 
-	count = g.BehindCount("main")
+	count, err = g.BehindCount("main")
+	if err != nil {
+		t.Fatalf("BehindCount: %v", err)
+	}
 	if count != 1 {
 		t.Errorf("expected 1 behind, got %d", count)
+	}
+}
+
+// TestBehindCount_UnknownRef covers CODE_REVIEW A3: a rev-list failure
+// (ref doesn't exist, not a repo, ...) used to be reported as 0 — the same
+// value that means "up to date". Callers must be able to tell them apart.
+func TestBehindCount_UnknownRef(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	count, err := g.BehindCount("origin/does-not-exist")
+	if err == nil {
+		t.Fatalf("expected an error for a nonexistent ref, got count=%d, nil", count)
+	}
+	if count != 0 {
+		t.Errorf("count on error = %d, want 0", count)
 	}
 }
 

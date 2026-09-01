@@ -98,9 +98,31 @@ base movement is applied instead of discarded. The synchronous
 Update-goroutine callers (RenderOnce, RenderWithKeys, tests) and are documented
 as never-dispatch.
 
-**A3 — error-path conflation** (queued): clear `m.err` on success; classify
-PR-fetch errors via `isRateLimited()`; make rate-limit backoff actually
-schedule; stop `PRChecksAll`/`BehindCount` swallowing errors.
+**A3 — error-path conflation** (done, uncommitted): `m.err` clears on every
+non-error `gitDataMsg` (a local-only refresh and a PR-half failure both prove
+the local half recovered). `fetchPRStatus` classifies via `isRateLimited()`:
+`prRefreshMsg` now carries `fetchFailed` (preserve PR data, generic
+"GitHub API error") separately from `rateLimited` (also back off). Backoff is
+latched in `activityTracker.rateLimitBackoff` as a *floor* on the interval
+(`effectivePRInterval = max(activity, backoff)`, so going idle mid-backoff
+still slows down instead of speeding up), which `ResetPRInterval` reads and
+only `MarkPRSuccess` clears; `MarkPRFetch`/`PRFetchDue`/`PRTickDelay`
+refuse a tick that was armed before the bump and re-arm it for the remainder of
+the backoff, so the bump governs the next fetch rather than taking effect a
+cycle late. (Self-clocking from the `prRefreshMsg` handler was tried and
+rejected — `invariant_test.go`'s `execSafeCmd` runs returned commands, so a
+handler returning a real `tea.Tick` hangs the property suite.)
+`PRChecksAll` returns its errors (parsing output first, since `gh pr checks`
+exits nonzero on failing/pending checks while still emitting JSON) and a
+`checksFailed` msg flag makes both handlers keep the CI data already on screen
+while the PR number is unchanged (cleared across a PR switch). The PR-inclusive
+git load feeds the same state machine as the tick: it classifies its own PR
+error (`prRateLimited`) and bumps, and a success on that path clears the latch.
+`BehindCount` returns `(int, error)`; `behindKnown` flows to the status bar,
+which hides an unmeasured count rather than rendering it as 0.
+Display policy for GitHub errors is deliberately unchanged — the
+INCONSISTENCIES.md adjudication about API errors being invisible once PR data
+exists stays open.
 
 **A4 — tests that encode bugs** (queued): fix the loosened/coincidental/dead-
 copy tests and the bugs they hide.

@@ -1,0 +1,11 @@
+# 2026/08/31 18:40:59.713231 [TestActivityRateLimitBackoffProperties] [rapid] draw ops: []string{"bump", "tick"}
+# 2026/08/31 18:40:59.713264 [TestActivityRateLimitBackoffProperties] op 1 (tick): backoff recomputed away 1m0s → 30s
+# 
+v0.4.8#12013483977638740690
+0x0
+0x0
+0x0
+0x5555555555555
+0x0
+0x1
+0x0

@@ -1,0 +1,20 @@
+# 2026/08/31 19:26:35.845442 [TestActivityRateLimitBackoffProperties] [rapid] draw ops: []string{"advance", "tick", "ui", "bump"}
+# 2026/08/31 19:26:35.845476 [TestActivityRateLimitBackoffProperties] [rapid] draw step: 660000000000
+# 2026/08/31 19:26:35.845493 [TestActivityRateLimitBackoffProperties] op 3 (bump): interval decreased 10m0s → 1m0s
+# 
+v0.4.8#14113347045051163794
+0x0
+0x6b74f03291620
+0x5
+0x5555555555555
+0x0
+0x1
+0x5555555555555
+0x38e38e38e38e4
+0x3
+0x5555555555555
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2

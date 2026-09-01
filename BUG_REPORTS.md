@@ -1,5 +1,19 @@
 ## New Bugs
 
+- `isRateLimited` (`model.go`) classifies on substrings and treats *any*
+  `"403"` in the error text as a rate limit — so a SAML-enforcement or
+  permission 403 (`gh` on an SSO-protected org, a token missing `repo`
+  scope) is reported as "GitHub API rate limited" and, since the A3 fix,
+  now also drives the backoff: the poll doubles out to the 15m cap for a
+  condition no amount of waiting fixes, and the status bar names the wrong
+  cause. The classifier predates A3; A3 made it load-bearing, which is why
+  it's worth fixing now rather than later. A fix wants the real signal
+  rather than the substring: `x-ratelimit-remaining: 0` / the
+  `RATE_LIMITED` GraphQL error type / "secondary rate limit" text, with a
+  bare 403 treated as an auth-or-permission error (message, no backoff).
+  Deliberately not fixed in the A3 pass — out of the reviewed scope, and it
+  wants a decision about how much of the `gh` error surface to parse.
+
 - Flaky `viewWithTimeout` assertion in `TestProperty_DragSelectsCorrectText`:
   occasional "View() hung for >1s" under stress (300+ iter), but the
   captured seed replays cleanly at default check count. Seed at
@@ -11,6 +25,121 @@
   bandwidth.
 
 ## Fixed Bugs
+
+### CODE_REVIEW.md A3 — error paths collapsed into adjacent-but-wrong states
+
+- `m.err` was set by a failed git load and never cleared anywhere in the
+  codebase, so the error screen was terminal: one transient failure (an
+  `index.lock` collision during a concurrent rebase, a momentary
+  permission error) wedged the UI on "Error: … Press q to quit." for the
+  rest of the session while the 5s git tick kept loading good data behind
+  it. Fixed by clearing `m.err` on every non-error `gitDataMsg`. All of
+  them qualify: the msg only exists because `RepoInfo`/`ChangedFiles`/
+  `Commits` all succeeded, so a local-only refresh, a load whose *PR* half
+  failed (that failure has its own display, `prError`), and a load the
+  stale-scope guard discards each prove the local half recovered.
+  Regression: `TestErr_ClearedBySuccessfulLoad` (table over all four
+  follow-up msg shapes; asserts both the field and that `View()` stops
+  rendering the error screen).
+
+- Every PR-fetch error was reported as a rate limit: `fetchPRStatus`
+  mapped *any* `PRAll()` error to `prRefreshMsg{rateLimited: true}` while
+  `isRateLimited()` — which exists precisely to classify — was referenced
+  only from its own unit test. Expired `gh` auth, a DNS failure or a
+  branch with no PR all displayed "GitHub API rate limited" forever, and
+  each one also doubled the poll interval for a condition that backing off
+  can't fix. Fixed by classifying through `isRateLimited()`: rate limits
+  keep the rate-limit path (message + backoff), everything else takes the
+  generic path, which sets the same `"GitHub API error"` the PR-inclusive
+  git load already used and leaves the interval alone. Both paths still
+  preserve the PR data already on screen. **Recurrence:** this is the same
+  conflation class logged as fixed in "CRITICAL: App thought there was no
+  active PR even when one existed" (below) — that fix made `PRInfo()`
+  return errors instead of swallowing them, but the UI layer then flattened
+  every returned error back into one state, re-losing the distinction one
+  level up. Regression: `TestFetchPRStatus_ClassifiesErrors` (table over
+  primary/secondary rate limit, 403, expired auth, network, no-PR),
+  `TestPRRefresh_NonRateLimitErrorTakesGenericPath`.
+
+- Rate-limit backoff was a no-op end to end, so under sustained rate
+  limiting the app kept hammering GitHub every 30s — violating PROMPT.md:21
+  ("respond to rate limits appropriately, backing off as needed"). Two
+  independent causes: (1) `BumpRateLimited` doubled `prInterval`, but the
+  next `prTickMsg` called `ResetPRInterval`, which recomputed the interval
+  from activity state and overwrote the bump; (2) the tick that delivered
+  the 403 had *already* scheduled the next tick, at the un-bumped interval,
+  before the result existed — so even a surviving bump governed nothing.
+  Both halves are fixed inside the state machine: `activityTracker` latches
+  `rateLimitBackoff` as a *floor* on the interval —
+  `effectivePRInterval = max(ComputePRInterval(now), rateLimitBackoff)`,
+  which `ResetPRInterval`/`PRFetchDue`/`PRTickDelay` all read, so going idle
+  mid-backoff still slows to the idle rate instead of speeding a
+  rate-limited app back up to 60s (found in review; the latch had been
+  *replacing* the computed interval) — and only
+  `MarkPRSuccess` (a fetch that actually returned) clears it and decays the
+  interval back to the activity-derived value; `MarkPRFetch` + `PRFetchDue`
+  hold back a tick that was armed before the bump existed and comes due
+  sooner than the backoff allows, and `PRTickDelay` re-arms it for the
+  remainder of the backoff so the held-back fetch goes out as soon as the
+  backoff permits rather than a whole cycle later. (Making the poll
+  self-clocking — arming the next tick from the `prRefreshMsg` handler —
+  was tried first and rejected: `invariant_test.go`'s `execSafeCmd`
+  executes returned commands, so a handler returning a real `tea.Tick`
+  blocks the property suite on a live 30s timer.) The old
+  `TestRateLimitBackoff` asserted the doubling without ever interleaving a
+  tick, which is why it stayed green across both bugs; it is kept and
+  joined by `TestRateLimitBackoff_TickLoop`, which walks the real loop
+  (tick → fetch → 403 → bump to 60s → the already-armed tick fires and is
+  refused a fetch, re-armed for the remainder → backoff elapses → fetch,
+  next tick at 60s → second 403 → 120s → success → back to 30s) through a
+  stubbed `prTickScheduler`, and by `TestActivityRateLimitBackoffProperties`, a
+  rapid property over arbitrary bump/tick/success/ui/fetch/advance/goIdle
+  interleavings — time is an explicit op, so idle-vs-backoff is reachable
+  (monotonic under consecutive failures, cap respected, never below the
+  activity interval while backed off, cleared only by success).
+  `TestActivityBackoffNeverBelowActivityInterval` pins the idle case
+  directly. The PR-inclusive git load participates in the same state
+  machine: it classifies its own `PRAll` error (`gitDataMsg.prRateLimited`)
+  and bumps, and a success on that path clears the latch — otherwise a
+  manual refresh that proved GitHub had recovered still left the tick loop
+  backed off for up to 15 minutes, and a rate limit on that path rendered
+  as a generic error with no backoff. Regression:
+  `TestGitLoadPRPath_ParticipatesInBackoff` (success / rate limit / other
+  error), `TestGitLoad_ClassifiesPRError`.
+
+- `PRChecksAll` swallowed every failure, returning a zero `PRChecksResult`
+  with a nil error, and both callers applied the zeros — so a transient
+  failure on the checks call silently blanked the CI panel and reset the
+  CI status to empty. Worse, `gh pr checks` exits nonzero precisely when
+  checks are *failing or pending* while still writing the requested JSON,
+  so the swallow was also discarding perfectly good data for the case
+  users care most about. Fixed by parsing the output first (nonzero exit
+  with parseable JSON is data, not an error) and returning the error when
+  nothing parseable came back. UI decision: a checks-fetch failure keeps
+  the checks already on screen (`checksFailed` on both `prRefreshMsg` and
+  `gitDataMsg` suppresses the CI assignments) rather than blanking or
+  raising a banner — stale CI beats no CI, and the display policy for
+  GitHub errors is still open in INCONSISTENCIES.md. Preservation is gated
+  on the PR number being unchanged: across a branch switch or a recreated
+  PR the old checks would otherwise render beneath the new PR's header, so
+  those are cleared and the panel waits for a fetch that succeeds
+  (`TestChecksError_ClearedWhenPRChanged`). The failed fetch also
+  no longer counts as a server-side CI-state change for the adaptive
+  refresh. `TestPRChecksAll_Error` asserted the swallowing as desired
+  behavior — the test encoded the bug — and now asserts the error;
+  `TestPRChecksAll_InvalidJSON` likewise. New:
+  `TestPRChecksAll_NonZeroExitWithOutput`,
+  `TestChecksError_PreservesPreviousChecks` (prRefreshMsg + gitDataMsg),
+  `TestGitLoad_ReportsChecksFailure`.
+
+- `BehindCount` returned 0 on any error, conflating "up to date" with "we
+  couldn't tell" — a base ref that isn't fetched locally reported the
+  branch as caught up. Fixed by returning `(int, error)`; `runGitLoad`
+  records `behindKnown`, and the status bar renders the "N behind" segment
+  only for a count that was actually measured, so an unknown count is
+  hidden rather than shown as a wrong number. Regression:
+  `TestBehindCount_UnknownRef` (git), `TestBehindCount_UnknownIsHidden`
+  (model + `renderStatusBar`).
 
 ### CODE_REVIEW.md A2 — async `tea.Cmd` plumbing patched one-off instead of by convention
 

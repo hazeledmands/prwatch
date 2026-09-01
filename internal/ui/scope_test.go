@@ -33,7 +33,7 @@ func (linearGit) AllFiles() ([]string, error)                        { return ni
 func (linearGit) IgnoredEntries() ([]git.IgnoredEntry, error)        { return nil, nil }
 func (linearGit) IgnoredFilesInDir(string) ([]string, error)         { return nil, nil }
 func (linearGit) BaseCommits(string, int) ([]git.Commit, error)      { return nil, nil }
-func (linearGit) BehindCount(string) int                             { return 0 }
+func (linearGit) BehindCount(string) (int, error)                    { return 0, nil }
 func (linearGit) RWXResults(string) (*git.RWXResult, error)          { return nil, nil }
 func (linearGit) RWXTaskLog(string) (string, error)                  { return "", nil }
 func (linearGit) RWXTestResults(string) ([]git.RWXFailedTest, error) { return nil, nil }

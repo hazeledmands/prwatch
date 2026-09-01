@@ -309,14 +309,20 @@ func (g *Git) DetectBaseFromPR(baseRefName string) (string, error) {
 
 // BehindCount returns the number of commits the current branch is behind the
 // given base ref (e.g. "origin/main"). Returns 0 if not applicable.
-func (g *Git) BehindCount(baseRef string) int {
+// BehindCount reports how many commits baseRef has that HEAD does not.
+// An error means the count is *unknown* (the ref doesn't exist, the fetch
+// hasn't happened yet, git failed) — distinct from a known 0, which means
+// "up to date". Callers must not render an unknown count as 0.
+func (g *Git) BehindCount(baseRef string) (int, error) {
 	out, err := g.run("rev-list", "--count", "HEAD.."+baseRef)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	var count int
-	fmt.Sscanf(out, "%d", &count)
-	return count
+	if _, err := fmt.Sscanf(out, "%d", &count); err != nil {
+		return 0, fmt.Errorf("parsing rev-list count %q: %w", out, err)
+	}
+	return count, nil
 }
 
 // Rename describes a file that was renamed from Old to New. The New path
@@ -1283,14 +1289,19 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
 // PRChecksAll fetches CI checks in a single gh pr checks call, returning
 // both the individual checks and an aggregated status summary.
 func (g *Git) PRChecksAll() (PRChecksResult, error) {
-	out, err := g.runExternal("gh", "pr", "checks", "--json", "name,state,bucket,link,completedAt,startedAt")
-	if err != nil {
-		return PRChecksResult{}, nil
-	}
+	// `gh pr checks` exits nonzero when checks are failing or pending while
+	// still writing the requested JSON, so the output is authoritative and the
+	// exit status is only consulted when nothing parseable came back. A real
+	// failure (no PR, auth, network) is reported: the caller must be able to
+	// keep the checks it already has rather than blanking the CI panel.
+	out, runErr := g.runExternal("gh", "pr", "checks", "--json", "name,state,bucket,link,completedAt,startedAt")
 
 	var checks []CICheck
 	if err := json.Unmarshal([]byte(out), &checks); err != nil {
-		return PRChecksResult{}, nil
+		if runErr != nil {
+			return PRChecksResult{}, runErr
+		}
+		return PRChecksResult{}, fmt.Errorf("parsing gh pr checks output: %w", err)
 	}
 
 	// Aggregate: if any failed, overall is FAILURE; if any pending, PENDING; else SUCCESS

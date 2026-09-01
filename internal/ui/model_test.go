@@ -73,6 +73,7 @@ type mockGit struct {
 	baseCommitsErr error
 	behindRefs     []string          // refs passed to BehindCount, in call order
 	behindCount    int               // value BehindCount returns
+	behindErr      error             // error BehindCount returns
 	parents        map[string]string // sha → parent sha; empty entry / missing key → "no parent" (root)
 	firstChildren  map[string]string // sha → first-parent child sha toward HEAD; missing key → no child
 	prComments     []git.PRComment
@@ -189,9 +190,12 @@ func (m *mockGit) IgnoredFilesInDir(dir string) ([]string, error) {
 func (m *mockGit) BaseCommits(base string, limit int) ([]git.Commit, error) {
 	return m.baseCommits, m.baseCommitsErr
 }
-func (m *mockGit) BehindCount(baseRef string) int {
+func (m *mockGit) BehindCount(baseRef string) (int, error) {
 	m.behindRefs = append(m.behindRefs, baseRef)
-	return m.behindCount
+	if m.behindErr != nil {
+		return 0, m.behindErr
+	}
+	return m.behindCount, nil
 }
 func (m *mockGit) Parent(sha string) (string, error) {
 	parent, ok := m.parents[sha]

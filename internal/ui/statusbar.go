@@ -22,6 +22,7 @@ type statusBarData struct {
 	uncommitCount    int
 	commitCount      int
 	behindCount      int  // commits behind base branch
+	behindKnown      bool // behindCount was measured; when false it is unknown and not rendered
 	changedFileCount int  // total changed files (committed + uncommitted)
 	prLoading        bool // true if PR data is still being fetched
 	showHelp         bool
@@ -296,7 +297,7 @@ func renderLine2(width int, data statusBarData) (string, []line2Label) {
 	if data.changedFileCount > 0 {
 		parts = append(parts, part{fmt.Sprintf("%d changed files", data.changedFileCount), line2FilesMode})
 	}
-	if data.behindCount > 0 {
+	if data.behindKnown && data.behindCount > 0 {
 		parts = append(parts, part{fmt.Sprintf("%d behind", data.behindCount), line2CommitsMode})
 	}
 	if data.pr.Number == 0 && data.prError == "" {
