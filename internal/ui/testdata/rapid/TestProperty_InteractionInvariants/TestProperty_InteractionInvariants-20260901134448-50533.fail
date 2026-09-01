@@ -1,0 +1,700 @@
+# 2026/09/01 13:44:48.868686 [TestProperty_InteractionInvariants] [rapid] draw isGit: 1
+# 2026/09/01 13:44:48.868690 [TestProperty_InteractionInvariants] [rapid] draw nCommitted: 18
+# 2026/09/01 13:44:48.868691 [TestProperty_InteractionInvariants] [rapid] draw nUncommitted: 10
+# 2026/09/01 13:44:48.868692 [TestProperty_InteractionInvariants] [rapid] draw nStaged: 3
+# 2026/09/01 13:44:48.868692 [TestProperty_InteractionInvariants] [rapid] draw nCommits: 5
+# 2026/09/01 13:44:48.868695 [TestProperty_InteractionInvariants] [rapid] draw changeType_file0.go: 1
+# 2026/09/01 13:44:48.868696 [TestProperty_InteractionInvariants] [rapid] draw changeType_file1_café.go: 1
+# 2026/09/01 13:44:48.868696 [TestProperty_InteractionInvariants] [rapid] draw changeType_file 2.go: 1
+# 2026/09/01 13:44:48.868697 [TestProperty_InteractionInvariants] [rapid] draw changeType_file3_日本.go: 1
+# 2026/09/01 13:44:48.868697 [TestProperty_InteractionInvariants] [rapid] draw changeType_file4	control.go: 1
+# 2026/09/01 13:44:48.868698 [TestProperty_InteractionInvariants] [rapid] draw changeType_file5.go: 1
+# 2026/09/01 13:44:48.868698 [TestProperty_InteractionInvariants] [rapid] draw changeType_file6_café.go: 1
+# 2026/09/01 13:44:48.868699 [TestProperty_InteractionInvariants] [rapid] draw changeType_file 7.go: 1
+# 2026/09/01 13:44:48.868699 [TestProperty_InteractionInvariants] [rapid] draw changeType_file8_日本.go: 1
+# 2026/09/01 13:44:48.868700 [TestProperty_InteractionInvariants] [rapid] draw changeType_file9	control.go: 1
+# 2026/09/01 13:44:48.868700 [TestProperty_InteractionInvariants] [rapid] draw changeType_file10.go: 1
+# 2026/09/01 13:44:48.868702 [TestProperty_InteractionInvariants] [rapid] draw changeType_file11_café.go: 1
+# 2026/09/01 13:44:48.868702 [TestProperty_InteractionInvariants] [rapid] draw changeType_file 12.go: 1
+# 2026/09/01 13:44:48.868703 [TestProperty_InteractionInvariants] [rapid] draw changeType_file13_日本.go: 1
+# 2026/09/01 13:44:48.868703 [TestProperty_InteractionInvariants] [rapid] draw changeType_file14	control.go: 1
+# 2026/09/01 13:44:48.868703 [TestProperty_InteractionInvariants] [rapid] draw changeType_file15.go: 1
+# 2026/09/01 13:44:48.868704 [TestProperty_InteractionInvariants] [rapid] draw changeType_file16_café.go: 1
+# 2026/09/01 13:44:48.868704 [TestProperty_InteractionInvariants] [rapid] draw changeType_file 17.go: 1
+# 2026/09/01 13:44:48.868706 [TestProperty_InteractionInvariants] [rapid] draw addStaged_staged0.go: 1
+# 2026/09/01 13:44:48.868707 [TestProperty_InteractionInvariants] [rapid] draw addStaged_staged1_café.go: 1
+# 2026/09/01 13:44:48.868707 [TestProperty_InteractionInvariants] [rapid] draw addStaged_staged 2.go: 1
+# 2026/09/01 13:44:48.868708 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new0.go: 1
+# 2026/09/01 13:44:48.868709 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new1_café.go: 1
+# 2026/09/01 13:44:48.868709 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new 2.go: 1
+# 2026/09/01 13:44:48.868710 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new3_日本.go: 1
+# 2026/09/01 13:44:48.868710 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new4	control.go: 0.125
+# 2026/09/01 13:44:48.868712 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new5.go: 1
+# 2026/09/01 13:44:48.868712 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new6_café.go: 1
+# 2026/09/01 13:44:48.868713 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new 7.go: 1
+# 2026/09/01 13:44:48.868713 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new8_日本.go: 1
+# 2026/09/01 13:44:48.868714 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new9	control.go: 1
+# 2026/09/01 13:44:48.868714 [TestProperty_InteractionInvariants] [rapid] draw rename_s_staged0.go: 1
+# 2026/09/01 13:44:48.868715 [TestProperty_InteractionInvariants] [rapid] draw rename_s_staged1_café.go: 1
+# 2026/09/01 13:44:48.868715 [TestProperty_InteractionInvariants] [rapid] draw rename_s_staged 2.go: 1
+# 2026/09/01 13:44:48.868716 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file0.go: 1
+# 2026/09/01 13:44:48.868716 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file1_café.go: 1
+# 2026/09/01 13:44:48.868716 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file 2.go: 1
+# 2026/09/01 13:44:48.868717 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file3_日本.go: 1
+# 2026/09/01 13:44:48.868717 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file4	control.go: 1
+# 2026/09/01 13:44:48.868718 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file5.go: 1
+# 2026/09/01 13:44:48.868718 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file6_café.go: 1
+# 2026/09/01 13:44:48.868719 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file 7.go: 1
+# 2026/09/01 13:44:48.868719 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file8_日本.go: 1
+# 2026/09/01 13:44:48.868719 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file9	control.go: 1
+# 2026/09/01 13:44:48.868720 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file10.go: 1
+# 2026/09/01 13:44:48.868720 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file11_café.go: 1
+# 2026/09/01 13:44:48.868721 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file 12.go: 1
+# 2026/09/01 13:44:48.868721 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file13_日本.go: 1
+# 2026/09/01 13:44:48.868722 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file14	control.go: 1
+# 2026/09/01 13:44:48.868722 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file15.go: 1
+# 2026/09/01 13:44:48.868723 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file16_café.go: 1
+# 2026/09/01 13:44:48.868723 [TestProperty_InteractionInvariants] [rapid] draw rename_c_file 17.go: 1
+# 2026/09/01 13:44:48.868724 [TestProperty_InteractionInvariants] [rapid] draw nOtherFiles: 0
+# 2026/09/01 13:44:48.868724 [TestProperty_InteractionInvariants] [rapid] draw nIgnored: 8
+# 2026/09/01 13:44:48.868725 [TestProperty_InteractionInvariants] [rapid] draw ignoredKind0: 0
+# 2026/09/01 13:44:48.868725 [TestProperty_InteractionInvariants] [rapid] draw ignoredKind1: 0
+# 2026/09/01 13:44:48.868727 [TestProperty_InteractionInvariants] [rapid] draw ignoredKind2: 0
+# 2026/09/01 13:44:48.868727 [TestProperty_InteractionInvariants] [rapid] draw ignoredKind3: 0
+# 2026/09/01 13:44:48.868728 [TestProperty_InteractionInvariants] [rapid] draw ignoredKind4: 0
+# 2026/09/01 13:44:48.868728 [TestProperty_InteractionInvariants] [rapid] draw ignoredKind5: 0
+# 2026/09/01 13:44:48.868729 [TestProperty_InteractionInvariants] [rapid] draw ignoredKind6: 0
+# 2026/09/01 13:44:48.868729 [TestProperty_InteractionInvariants] [rapid] draw ignoredKind7: 0
+# 2026/09/01 13:44:48.868730 [TestProperty_InteractionInvariants] [rapid] draw commit0_emoji: 1
+# 2026/09/01 13:44:48.868731 [TestProperty_InteractionInvariants] [rapid] draw commit1_emoji: 1
+# 2026/09/01 13:44:48.868732 [TestProperty_InteractionInvariants] [rapid] draw commit2_emoji: 1
+# 2026/09/01 13:44:48.868732 [TestProperty_InteractionInvariants] [rapid] draw commit3_emoji: 1
+# 2026/09/01 13:44:48.868733 [TestProperty_InteractionInvariants] [rapid] draw commit4_emoji: 0.25
+# 2026/09/01 13:44:48.868734 [TestProperty_InteractionInvariants] [rapid] draw commit4_emojiVal: "🔥"
+# 2026/09/01 13:44:48.868735 [TestProperty_InteractionInvariants] [rapid] draw branch: "main"
+# 2026/09/01 13:44:48.868735 [TestProperty_InteractionInvariants] [rapid] draw detached: false
+# 2026/09/01 13:44:48.868736 [TestProperty_InteractionInvariants] [rapid] draw prNum: 42
+# 2026/09/01 13:44:48.868736 [TestProperty_InteractionInvariants] [rapid] draw prTitle_emoji: 0.125
+# 2026/09/01 13:44:48.868737 [TestProperty_InteractionInvariants] [rapid] draw prTitle_emojiVal: "🔥"
+# 2026/09/01 13:44:48.868737 [TestProperty_InteractionInvariants] [rapid] draw isDraft: false
+# 2026/09/01 13:44:48.868738 [TestProperty_InteractionInvariants] [rapid] draw aheadCount: 0
+# 2026/09/01 13:44:48.868738 [TestProperty_InteractionInvariants] [rapid] draw diff_nHunks: 1
+# 2026/09/01 13:44:48.868738 [TestProperty_InteractionInvariants] [rapid] draw diff_skip0: 0
+# 2026/09/01 13:44:48.868739 [TestProperty_InteractionInvariants] [rapid] draw diff_nOps0: 2
+# 2026/09/01 13:44:48.868739 [TestProperty_InteractionInvariants] [rapid] draw diff_op_h0_o0_kind: "context"
+# 2026/09/01 13:44:48.868740 [TestProperty_InteractionInvariants] [rapid] draw diff_op_h0_o1_kind: "context"
+# 2026/09/01 13:44:48.868741 [TestProperty_InteractionInvariants] [rapid] draw commitPatch_emoji: 1
+# 2026/09/01 13:44:48.868742 [TestProperty_InteractionInvariants] [rapid] draw hasReviews: false
+# 2026/09/01 13:44:48.868742 [TestProperty_InteractionInvariants] [rapid] draw hasComments: true
+# 2026/09/01 13:44:48.868742 [TestProperty_InteractionInvariants] [rapid] draw nComments: 5
+# 2026/09/01 13:44:48.868743 [TestProperty_InteractionInvariants] [rapid] draw commenter0_emoji: 1
+# 2026/09/01 13:44:48.868744 [TestProperty_InteractionInvariants] [rapid] draw commentBody0_emoji: 1
+# 2026/09/01 13:44:48.868744 [TestProperty_InteractionInvariants] [rapid] draw commenter1_emoji: 1
+# 2026/09/01 13:44:48.868745 [TestProperty_InteractionInvariants] [rapid] draw commentBody1_emoji: 1
+# 2026/09/01 13:44:48.868746 [TestProperty_InteractionInvariants] [rapid] draw commenter2_emoji: 1
+# 2026/09/01 13:44:48.868746 [TestProperty_InteractionInvariants] [rapid] draw commentBody2_emoji: 1
+# 2026/09/01 13:44:48.868747 [TestProperty_InteractionInvariants] [rapid] draw commenter3_emoji: 1
+# 2026/09/01 13:44:48.868747 [TestProperty_InteractionInvariants] [rapid] draw commentBody3_emoji: 1
+# 2026/09/01 13:44:48.868748 [TestProperty_InteractionInvariants] [rapid] draw commenter4_emoji: 0.25
+# 2026/09/01 13:44:48.868748 [TestProperty_InteractionInvariants] [rapid] draw commenter4_emojiVal: "🔥"
+# 2026/09/01 13:44:48.868749 [TestProperty_InteractionInvariants] [rapid] draw commentBody4_emoji: 1
+# 2026/09/01 13:44:48.868749 [TestProperty_InteractionInvariants] [rapid] draw hasAPIError: false
+# 2026/09/01 13:44:48.868750 [TestProperty_InteractionInvariants] [rapid] draw hasBaseCommits: false
+# 2026/09/01 13:44:48.868750 [TestProperty_InteractionInvariants] [rapid] draw mode: 0
+# 2026/09/01 13:44:48.868750 [TestProperty_InteractionInvariants] [rapid] draw width: 40
+# 2026/09/01 13:44:48.868751 [TestProperty_InteractionInvariants] [rapid] draw height: 10
+# 2026/09/01 13:44:48.871870 [TestProperty_InteractionInvariants] [rapid] draw nSteps: 1
+# 2026/09/01 13:44:48.871874 [TestProperty_InteractionInvariants] [rapid] draw special0: 0.125
+# 2026/09/01 13:44:48.871875 [TestProperty_InteractionInvariants] [rapid] draw step0_special: 7
+# 2026/09/01 13:44:48.876265 [TestProperty_InteractionInvariants] step 0 (mode=0, focus=0) after action: selected rename "new4\tcontrol.go" has titleLeft "old_new4\\tcontrol.go → new4\\tcontrol.go", expected "old_new4\tcontrol.go → new4\tcontrol.go"
+# 
+v0.4.8#3450918261487747793
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0xc05c654ab866b
+0x12
+0x0
+0x1f2b5a0e61c3a6
+0x0
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x6b74f03291620
+0x5
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x943dab5850d10
+0x3
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x9867f1f40f739
+0x8
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x3723723723724
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x1
+0x0
+0x0
+0x6856c47037428
+0x3
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x6b74f03291620
+0x4
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x3723723723724
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x3723723723724
+0x3
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x7

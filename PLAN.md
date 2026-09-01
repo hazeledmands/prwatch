@@ -233,19 +233,38 @@ sites and `fileTitleLeft`, using git's own `\t`/`\n`/`\xNN` representation;
 `filePath` and every git argument keep the raw bytes, because an escaped path
 stops naming a file.
 
-Two bugs the widening surfaced are **left open with their seeds committed**,
-both needing a decision rather than a patch, and both reproducing at HEAD:
-word wrap discards the space it breaks on (so yank/copy loses one space per
-wrap point, and the wrap-relative column model cannot reconstruct it), and
-`renderTitleRow` mis-pads strings of zero-width runes. Both are the same
+Two bugs the widening surfaced were left open with their seeds committed. One
+is now **fixed**: word wrap discarded the space it broke on, so yank/copy lost
+a space per wrap point. The fix is copy-only, per Hazel's direction —
+rendering, cursor math, selection endpoints and hit-testing are untouched, and
+neither of the rejected options (keeping the break space on the ending row; a
+source-relative column model) was taken. `wrapLinesWithBreaks` carries a
+per-row *count* of the spaces each break consumed (a count because a whole run
+of spaces is dropped as one token), `mainPane.wrapBreakSpaces` /
+`breakSpacesBefore` expose it, and `extractSourceRange` re-inserts them when it
+joins a source line's wrap rows — only when the selection spans the break, so
+whole-line yanks are byte-exact and edge-stopping selections gain no phantom
+space. New tests: `TestWrapLines_BreakSpaceAccounting` and the reversibility
+property `TestProperty_WrapLines_JoinWithBreaksRestoresSource`.
+
+Two adjacent findings from the same pass, both logged rather than fixed: a
+source line's *own* trailing spaces are still dropped from a yank
+(`stripGutterText` trims them, for unwrapped lines too — a trailing-space
+policy question, see INCONSISTENCIES.md), and a fresh seed caught
+`TestProperty_InteractionInvariants` expecting a *raw* control character in a
+rename's title bar, which contradicted the committed
+`TestControlCharFilenames_NeverReachDisplayText`. The latter was a stale test
+expectation, not a product bug, and is fixed: the expectation now sanitizes
+both sides of the arrow.
+
+Still open: `renderTitleRow` mis-pads strings of zero-width runes — the same
 family as the already-open wide-glyph half-cell question.
 
-**The suite is therefore deliberately red on exactly those two tests**
-(`TestProperty_Model_VisualYankMatchesHighlight`,
-`TestRenderTitleRow_AlwaysExactWidth`) — per Hazel's decision, they are neither
+**The suite is therefore deliberately red on exactly one test**
+(`TestRenderTitleRow_AlwaysExactWidth`) — per Hazel's decision it is neither
 fixed nor narrowed nor skipped, because the failing replay *is* the record of
-the bug. Any third failure is a real regression. See BUG_REPORTS.md's "Found by
-the widening, NOT fixed" section.
+the bug. Any second failure is a real regression. See BUG_REPORTS.md's "Found
+by the widening, NOT fixed" section.
 
 ---
 

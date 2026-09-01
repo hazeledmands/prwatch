@@ -211,41 +211,17 @@ text the pane actually holds, which is the honest reference:
 
 ### Found by the widening, NOT fixed — needs a decision
 
-**The test suite is deliberately RED on exactly these two seed replays.** Hazel
-decided to leave both open rather than fix them, narrow their assertions, or
-skip them: the failures are the record of the bugs, and each wants a product
-decision rather than a patch. A full run should fail on
-`TestRenderTitleRow_AlwaysExactWidth` and
-`TestProperty_Model_VisualYankMatchesHighlight` and **nothing else** — any
-third failure is a real regression, not part of this known state.
-(`TestStartIPCListener_RoundTrip` fails only under a sandbox that forbids
+**The test suite is deliberately RED on exactly one seed replay.** Hazel
+decided to leave it open rather than fix it, narrow its assertion, or skip
+it: the failure is the record of the bug, and it wants a product decision
+rather than a patch. A full run should fail on
+`TestRenderTitleRow_AlwaysExactWidth` and **nothing else** — any second
+failure is a real regression, not part of this known state. (The
+wrap/copy space loss that used to be the other deliberate red is fixed;
+see "Word wrap dropped the space it broke on" under Fixed Bugs.
+`TestStartIPCListener_RoundTrip` fails only under a sandbox that forbids
 `bind`; it is environmental and unrelated.)
 
-
-- **Word wrap silently drops the space it breaks on, so yanked/copied text
-  loses one space per wrap point.** `wrapLinesWithContinuationMap`
-  (`mainpane.go`) discards a space token that does not fit
-  (`if lineWidth+tok.displayW <= currentMax { write } else { flush() }` —
-  the token is never written to either row). Wrapping is therefore lossy,
-  and since the pane's source-column mapping (`absoluteColumnFromDisplay` /
-  `wrapRowSourceColRange`) is derived from the *wrapped* rows and is
-  contiguous by construction, the dropped column is invisible to the copy
-  path: it cannot reconstruct what the wrapper threw away.
-  *Observed:* viewport rows `"6 +         added_h0o2  //"` + `"    café"`,
-  yanking `"        added_h0o2  //café"` against a true line of
-  `"        added_h0o2  // café"`.
-  *Reproduces at HEAD* — not an A6 regression; it was simply unreachable
-  while every generated diff body was a single space-free token. Any real
-  diff line that wraps at a space hits it.
-  *Why not fixed here:* the obvious fix (keep the break space on the row
-  that is ending) makes a rendered row up to one column wider than the wrap
-  width, which is a product-visible rendering change and collides with
-  `TestMainPane_TruncatesLongLines`' "no line exceeds viewport width"
-  assertion. The alternative (make the column model source-relative rather
-  than wrap-relative) is a larger design change. Same character as the
-  wide-glyph half-cell decision above — deliberately left open.
-  *Failing test:* `TestProperty_Model_VisualYankMatchesHighlight`. Seed
-  committed.
 
 - **`renderTitleRow` mis-pads strings of zero-width runes.** With
   `right="ः\u0600"` (a Devanagari sign plus an Arabic number sign, both
@@ -258,6 +234,44 @@ third failure is a real regression, not part of this known state.
   alongside the two existing April seeds for the same property.
 
 ## New Bugs
+
+- **A whole-line yank still drops the source line's *own* trailing
+  spaces.** Not a wrap bug — `stripGutterText` trims trailing blanks off
+  every rendered row before the copy path slices it, so a line ending in
+  spaces copies without them whether or not it wrapped. (In the wrapper,
+  the same thing shows up as `pending` being discarded after the final
+  `emit`: there is no following row for those spaces to belong to.) A
+  strict reading of PROMPT.md:365 — "copied text should be the same as the
+  text from the file" — calls this a copy-fidelity gap; the counter-reading
+  is that trailing whitespace is invisible padding a user never meant to
+  select, and the trim is what keeps rendered padding out of the copy in
+  the first place.
+  *Deliberately not fixed with the wrap/copy fix:* that fix restores spaces
+  *between* wrap rows, which are unambiguously interior to the line. This
+  one is a `stripGutterText` policy question affecting unwrapped lines
+  equally, so it wants a decision rather than a patch. See INCONSISTENCIES.md.
+
+- **Resolved as a stale test expectation, not a product bug:
+  `TestProperty_InteractionInvariants`' rename title-bar check.** With a
+  control character in the name it expected `titleLeft` to be the *raw*
+  `"old_new4\tcontrol.go → new4\tcontrol.go"`, while production renders the
+  sanitized `"old_new4\\tcontrol.go → new4\\tcontrol.go"`. Production is
+  right: `TestControlCharFilenames_NeverReachDisplayText`
+  (`model_test.go`) pins that no control character may survive
+  `fileTitleLeft`, and a raw tab is precisely the runewidth-0 /
+  lipgloss-renders-4 hazard A6's `sanitizeDisplayText` exists to remove.
+  The two committed tests contradicted each other; this one was wrong.
+  *Fix:* `checkRenameInvariants` now expects
+  `sanitizeDisplayText(old) + " → " + sanitizeDisplayText(selected)` —
+  identical byte-for-byte to sanitizing the joined string, since the helper
+  is per-rune and `" → "` has no control characters. The invariant's real
+  subject (the `old → new` structure and the old/new pairing) is still
+  asserted independently, and the helper itself is pinned by its own table
+  and idempotence tests, so the expectation is not circular.
+  *Found by a fresh seed during the wrap/copy fix and verified
+  pre-existing* (reproduced with that fix stashed, i.e. at `adf90a1`).
+  *Regression replay:* seed `...-20260901134448-50533.fail`, green after
+  the fix.
 
 - Drag selection disagrees with itself when a click lands on the *trailing*
   cell of a wide glyph. Endpoint `Column`s are display columns, and the
@@ -301,6 +315,50 @@ third failure is a real regression, not part of this known state.
   bandwidth.
 
 ## Fixed Bugs
+
+### Wrap/copy space loss (was a deliberate red from the A6 widening)
+
+- **Word wrap dropped the space it broke on, so yanked/copied text lost a
+  space per wrap point.** Two mechanisms, both in
+  `wrapLinesWithContinuationMap` (`mainpane.go`): a space run that does not
+  fit is flushed and written to *neither* row
+  (`if lineWidth+tok.displayW <= currentMax { write } else { flush() }`), and
+  a space run that *does* fit survives only as the ending row's trailing
+  padding, which `stripGutterText` trims out of the copy. Either way the
+  spaces sit outside the pane's column model
+  (`absoluteColumnFromDisplay` / `wrapRowSourceColRange` are derived from
+  the *wrapped* rows and contiguous by construction), so the copy path had
+  nothing to reconstruct them from. Violates PROMPT.md:365 ("copied text
+  should be the same as the text from the file").
+  *Observed pre-fix:* `yanked line "        added_h0o2  //café" is not in
+  the pane's rendered rows` (true line `"        added_h0o2  // café"`), and
+  after the fix landed, the same divergence from the other side:
+  `highlight/selection mismatch: highlight "…content fortesting" vs
+  selectedText "…content for testing"`.
+  *Fix (copy-only — rendering, cursor math, selection endpoints and
+  hit-testing are untouched):* `wrapLinesWithBreaks` returns a third
+  per-viewport-row slice counting the source spaces each wrap break
+  consumed — a **count**, not a flag, because the tokenizer groups a run of
+  consecutive spaces into one token and drops it all-or-nothing (measured:
+  `"aaa      bbb"` at width 4 eats 6). `wrapLinesWithContinuationMap` is now
+  a thin wrapper over it, `mainPane.wrapBreakSpaces` stores the counts, and
+  `mainPane.breakSpacesBefore` reads them. `extractSourceRange` (`drag.go`)
+  re-inserts them when it joins a source line's wrap rows.
+  *Boundary semantics:* the consumed spaces render in no cell, so a
+  selection cannot name them; they are copied exactly when the selection
+  *spans* the break — it covers the ending row's last cell and the
+  continuation row's first cell. Whole-line and whole-row yanks are
+  therefore byte-identical to the source, while a selection that merely
+  stops at a row edge gains no phantom leading/trailing space.
+  *Regression tests:* the committed seed for
+  `TestProperty_Model_VisualYankMatchesHighlight` (now green), plus
+  `TestWrapLines_BreakSpaceAccounting` (deterministic table pinning both
+  mechanisms and the multi-space count) and
+  `TestProperty_WrapLines_JoinWithBreaksRestoresSource` (reversibility:
+  wrap → rejoin-with-counts is the identity on the source line).
+  `TestProperty_DragSelectsCorrectText`'s expected-text model reimplements
+  the wrap join, so it now mirrors the same span-the-break rule; the seed
+  that caught the divergence is committed.
 
 ### CODE_REVIEW.md A5 — well-encapsulated units, broken seams between them
 

@@ -43,6 +43,32 @@ points; it doesn't say whether the wrap-consumed space should be preserved
 or dropped. Need a decision on whether dropping that space is correct or a
 bug.
 
+**Resolved — preserved.** Read as a copy-fidelity requirement ("the same as
+the text from the file"), so the copy path now restores the spaces a wrap
+break consumed, without changing what is rendered. See BUG_REPORTS.md, "Word
+wrap dropped the space it broke on". The related question below — a line's
+*own* trailing spaces — is still open.
+
+## Whole-line yank drops the line's own trailing spaces
+
+Spec: PROMPT.md:365 — "copied text should be the same as the text from the
+file (or diff) that is being copied", against PROMPT.md:364 — the highlight
+"should only cover the relevant content that will be copied — not TUI
+glyphs, border characters, or gutter content."
+
+Code: `stripGutterText` (mainpane.go) trims trailing blanks off every
+rendered row before the copy path slices it, so a source line ending in
+spaces is copied without them. This is independent of wrapping — it applies
+to unwrapped lines the same way — and it is the same trim that keeps
+rendered padding out of copied text.
+
+Open question: is a line's trailing whitespace "text from the file" that a
+whole-line yank must reproduce, or invisible padding that a user never meant
+to select and that :364 arguably wants excluded? A fix means a trailing-space
+policy for `stripGutterText` that distinguishes *content* spaces from
+*render padding* spaces, which the rendered row does not currently
+distinguish. Needs a decision before changing anything.
+
 ## Hover highlight only implemented for one element
 
 Spec: PROMPT.md:361 — "hovering over clickable elements highlights them with

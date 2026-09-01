@@ -740,9 +740,22 @@ func checkRenameInvariants(t *rapid.T, m *Model, context string) {
 	}
 
 	// Title-bar arrow when a renamed file is selected.
+	//
+	// Both sides are sanitized: `fileTitleLeft` is a display boundary, and
+	// TestControlCharFilenames_NeverReachDisplayText (model_test.go) pins
+	// that no control character may survive it — a raw tab in a filename is
+	// exactly the runewidth-0-but-lipgloss-4 hazard that pinning exists to
+	// prevent. Expecting the raw name here contradicted that test outright.
+	// Sanitizing per side rather than sanitizing the joined string is
+	// byte-for-byte equivalent, since sanitizeDisplayText is per-rune and
+	// " → " holds no control characters. Using the production helper in the
+	// expectation is sound here because the helper is pinned independently
+	// (table at mainpane_test.go's sanitize tests, plus its idempotence
+	// property), and this invariant's real subject — the `old → new`
+	// structure and the old/new pairing — is still asserted on its own.
 	selected := m.sidebar.SelectedItem()
 	if old, ok := renameByNew[selected]; ok {
-		expected := old + " → " + selected
+		expected := sanitizeDisplayText(old) + " → " + sanitizeDisplayText(selected)
 		if m.mainPane.titleLeft != expected {
 			t.Fatalf("%s: selected rename %q has titleLeft %q, expected %q",
 				context, selected, m.mainPane.titleLeft, expected)
@@ -1303,11 +1316,20 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 		contMap := m.mainPane.wrapContinuation
 		vpOffset := m.mainPane.viewport.YOffset()
 		var hlText strings.Builder
+		// Mirrors extractSourceRange's wrap-break rule: the spaces a word
+		// wrap consumed at a break occupy no cell — nothing highlights them
+		// — but they are part of the source line, so a selection that spans
+		// the break (covers the ending row's last cell and the continuation
+		// row's first cell) copies them back. Tracked here so this
+		// expected-text model stays character-for-character comparable with
+		// what the copy path produces.
+		prevRanToRowEnd := false
 		for row := hlStartY; row <= hlEndY && row < len(renderedLines); row++ {
 			// Use viewport content (not the full rendered line) to avoid
 			// multibyte sidebar border characters.
 			vpRow := row - contentStartY
 			if vpRow < 0 || vpRow >= len(vpLines) {
+				prevRanToRowEnd = false
 				continue
 			}
 			line := stripGutterText(vpLines[vpRow], gw)
@@ -1325,8 +1347,16 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			if fromX > lineW {
 				fromX = lineW
 			}
+			absRow := vpRow + vpOffset
+			isContinuation := contMap != nil && absRow < len(contMap) && contMap[absRow]
 			if fromX < toX {
+				if isContinuation && prevRanToRowEnd && fromX == 0 {
+					hlText.WriteString(strings.Repeat(" ", m.mainPane.breakSpacesBefore(absRow)))
+				}
 				hlText.WriteString(sliceByDisplayCol(line, fromX, toX))
+				prevRanToRowEnd = toX >= lineW
+			} else {
+				prevRanToRowEnd = false
 			}
 			if row < hlEndY {
 				absY := vpRow + vpOffset

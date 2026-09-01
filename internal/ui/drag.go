@@ -482,8 +482,10 @@ const maxColumn = (1 << 31) - 1
 // chars truncated off the right of the pane are not in the copy. In
 // wrap mode the source line's wrap rows are joined into one logical
 // line (matching the user's expectation that selecting across a wrap
-// break copies one continuous string); chars dropped at word-boundary
-// breaks stay dropped, since they're not visible.
+// break copies one continuous string), and the spaces the wrap break ate
+// are put back from pane.breakSpacesBefore so the join is byte-identical
+// to the source line (PROMPT.md:365 — "copied text should be the same as
+// the text from the file").
 //
 // upper.VpRow / lower.VpRow narrow the wrap-row iteration on the
 // endpoint source lines (see selectionRowRange), disambiguating clicks
@@ -499,9 +501,14 @@ func extractSourceRange(pane *mainPane, upper, lower orderedEnd) string {
 		firstVpRow, rowCount := selectionRowRange(pane, sl, upper, lower)
 
 		var srcOut strings.Builder
+		// Whether the previous wrap row's fragment ran all the way to that
+		// row's last cell — the left half of the "selection spans this wrap
+		// break" test below.
+		prevRanToRowEnd := false
 		for k := 0; k < rowCount; k++ {
 			vpRow := firstVpRow + k
 			if vpRow < 0 || vpRow >= len(vpLines) {
+				prevRanToRowEnd = false
 				continue
 			}
 			rowStart, rowEnd := pane.wrapRowSourceColRange(vpRow)
@@ -515,11 +522,26 @@ func extractSourceRange(pane *mainPane, upper, lower orderedEnd) string {
 				selEnd = lower.Column
 			}
 			if selStart > selEnd {
+				prevRanToRowEnd = false
 				continue
+			}
+			// Re-insert the spaces the wrap break above this row consumed.
+			// They occupy no cell, so the selection can't name them
+			// directly; the rule is that they're in the copy exactly when
+			// the selection spans the break — it covers the last cell of
+			// the row above and the first cell of this one. That keeps a
+			// whole-line (or whole-row) yank byte-identical to the source,
+			// and keeps a selection that merely stops at a row edge from
+			// picking up a phantom leading/trailing space.
+			if k > 0 && prevRanToRowEnd && selStart == rowStart {
+				if n := pane.breakSpacesBefore(vpRow); n > 0 {
+					srcOut.WriteString(strings.Repeat(" ", n))
+				}
 			}
 			fromCol := selStart - rowStart
 			toCol := selEnd - rowStart + 1
 			srcOut.WriteString(extractLineFragment(vpLines[vpRow], fromCol, toCol, pane.gutterWidth))
+			prevRanToRowEnd = selEnd >= rowEnd
 		}
 
 		if wroteFirst {

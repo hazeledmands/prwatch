@@ -855,6 +855,177 @@ func TestWrapLines_BreaksMidWordWhenTooLong(t *testing.T) {
 	}
 }
 
+// TestWrapLines_BreakSpaceAccounting pins the wrapper's space accounting:
+// per viewport row, breaks[i] is how many source spaces sit between the
+// (trailing-space-trimmed) end of row i-1 and the start of row i.
+//
+// Two distinct mechanisms lose spaces at a wrap point, and both are
+// counted here:
+//   - the break space run *fits* on the ending row, so it renders as
+//     trailing padding — which stripGutterText trims off the copy;
+//   - the break space run does *not* fit, so the wrapper discards it
+//     outright (the token is written to neither row).
+//
+// The second case shows the flag has to be a count, not a bool: the
+// tokenizer groups a whole run of consecutive spaces into one token and
+// drops it all-or-nothing, so a break can consume 3 or 6 spaces.
+func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
+	tests := []struct {
+		name       string
+		in         string
+		width      int
+		indent     int
+		wantRows   []string
+		wantCont   []bool
+		wantBreaks []int
+	}{
+		{
+			name:       "single space fits and becomes trailing padding",
+			in:         "aaa bbb",
+			width:      5,
+			wantRows:   []string{"aaa ", "bbb"},
+			wantCont:   []bool{false, true},
+			wantBreaks: []int{0, 1},
+		},
+		{
+			name:       "space run does not fit and is discarded",
+			in:         "aaa   bbb",
+			width:      5,
+			wantRows:   []string{"aaa", "bbb"},
+			wantCont:   []bool{false, true},
+			wantBreaks: []int{0, 3},
+		},
+		{
+			name:       "six-space run discarded whole",
+			in:         "aaa      bbb",
+			width:      4,
+			wantRows:   []string{"aaa", "bbb"},
+			wantCont:   []bool{false, true},
+			wantBreaks: []int{0, 6},
+		},
+		{
+			name:       "every break consumes its trailing space",
+			in:         "aa bb cc dd ee ff",
+			width:      10,
+			wantRows:   []string{"aa bb cc ", "dd ee ff"},
+			wantCont:   []bool{false, true},
+			wantBreaks: []int{0, 1},
+		},
+		{
+			name:       "break after a comment marker (the yank bug)",
+			in:         "        added_h0o2  // café",
+			width:      20,
+			wantRows:   []string{"        added_h0o2  ", "// café"},
+			wantCont:   []bool{false, true},
+			wantBreaks: []int{0, 2},
+		},
+		{
+			name:       "continuation indent is not part of the count",
+			in:         "aaa bbb ccc",
+			width:      7,
+			indent:     2,
+			wantRows:   []string{"aaa bbb", "  ccc"},
+			wantCont:   []bool{false, true},
+			wantBreaks: []int{0, 1},
+		},
+		{
+			name:       "unwrapped lines consume nothing",
+			in:         "aaa bbb\nccc",
+			width:      20,
+			wantRows:   []string{"aaa bbb", "ccc"},
+			wantCont:   []bool{false, false},
+			wantBreaks: []int{0, 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, cont, breaks := wrapLinesWithBreaks(tt.in, tt.width, tt.indent)
+			rows := strings.Split(out, "\n")
+			if len(rows) != len(tt.wantRows) {
+				t.Fatalf("rows = %q, want %q", rows, tt.wantRows)
+			}
+			for i := range rows {
+				if rows[i] != tt.wantRows[i] {
+					t.Errorf("row %d = %q, want %q", i, rows[i], tt.wantRows[i])
+				}
+			}
+			if len(cont) != len(tt.wantCont) || len(breaks) != len(tt.wantBreaks) {
+				t.Fatalf("cont=%v breaks=%v, want %v / %v", cont, breaks, tt.wantCont, tt.wantBreaks)
+			}
+			for i := range cont {
+				if cont[i] != tt.wantCont[i] {
+					t.Errorf("cont[%d] = %v, want %v", i, cont[i], tt.wantCont[i])
+				}
+				if breaks[i] != tt.wantBreaks[i] {
+					t.Errorf("breaks[%d] = %d, want %d", i, breaks[i], tt.wantBreaks[i])
+				}
+			}
+		})
+	}
+}
+
+// rejoinWrappedLine reconstructs a source line from the wrapper's output
+// the way the copy path does: each row's visible body (continuation
+// indent removed, trailing padding trimmed — i.e. what stripGutterText
+// leaves), rejoined with the break spaces the wrapper consumed.
+func rejoinWrappedLine(rows []string, cont []bool, breaks []int, indent int) string {
+	var out strings.Builder
+	indentStr := strings.Repeat(" ", indent)
+	for i, row := range rows {
+		body := row
+		if cont[i] && indent > 0 {
+			body = strings.TrimPrefix(body, indentStr)
+		}
+		if i > 0 {
+			out.WriteString(strings.Repeat(" ", breaks[i]))
+		}
+		out.WriteString(strings.TrimRight(body, " "))
+	}
+	return out.String()
+}
+
+// TestProperty_WrapLines_JoinWithBreaksRestoresSource is the reversibility
+// invariant behind the copy fix: wrapping is lossy on its own, but wrap →
+// rejoin-with-break-counts is the identity on the source line (modulo the
+// line's own trailing padding, which the copy path trims for unwrapped
+// lines too).
+func TestProperty_WrapLines_JoinWithBreaksRestoresSource(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		nTok := rapid.IntRange(1, 14).Draw(t, "nTok")
+		var line strings.Builder
+		for i := range nTok {
+			if i > 0 {
+				line.WriteString(strings.Repeat(" ", rapid.IntRange(1, 6).Draw(t, fmt.Sprintf("gap%d", i))))
+			}
+			word := rapid.SampledFrom([]string{
+				"a", "ab", "abc", "hello", "café", "日本語", "//", "x",
+				strings.Repeat("y", 17), "🔥", "l0_xxxxxxxxxx",
+			}).Draw(t, fmt.Sprintf("w%d", i))
+			line.WriteString(word)
+		}
+		src := line.String()
+		width := rapid.IntRange(1, 60).Draw(t, "width")
+		indent := rapid.IntRange(0, 6).Draw(t, "indent")
+
+		out, cont, breaks := wrapLinesWithBreaks(src, width, indent)
+		rows := strings.Split(out, "\n")
+		if len(cont) != len(rows) || len(breaks) != len(rows) {
+			t.Fatalf("map lengths %d/%d != rows %d", len(cont), len(breaks), len(rows))
+		}
+		effectiveIndent := indent
+		if indent <= 0 || width <= indent {
+			effectiveIndent = 0
+		}
+		got := rejoinWrappedLine(rows, cont, breaks, effectiveIndent)
+		if want := strings.TrimRight(src, " "); got != want {
+			t.Fatalf("rejoin = %q, want %q (rows %q, breaks %v, width %d, indent %d)",
+				got, want, rows, breaks, width, indent)
+		}
+	})
+}
+
 func TestWrapLines_PreservesShortWords(t *testing.T) {
 	// Words shorter than 1/8 of width should never be split
 	result, _ := wrapLinesWithContinuationMap("aa bb cc dd ee ff gg hh ii jj", 10, 0)

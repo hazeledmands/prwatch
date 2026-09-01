@@ -96,6 +96,7 @@ type mainPane struct {
 	gutterWidth        int                    // gutter width from last formatting
 	sourceToFormatLine map[int]int            // source line number (1-indexed) → formatted line index (0-indexed)
 	wrapContinuation   []bool                 // per viewport line: true if this line is a word-wrap continuation
+	wrapBreakSpaces    []int                  // per viewport line: source spaces the wrap break before it consumed (see wrapLinesWithBreaks)
 	titleLeft          string                 // left-aligned content of the sticky title bar
 	titleRight         string                 // right-aligned content of the sticky title bar (when titleDynamic is false)
 	titleDynamic       bool                   // when true, View renders the right side from current hunk position
@@ -668,11 +669,14 @@ func (m *mainPane) refreshViewport() {
 		content = highlightSearch(content, m.searchQuery)
 	}
 	m.wrapContinuation = nil
+	m.wrapBreakSpaces = nil
 	if m.width > 0 {
 		if m.wordWrap {
 			var contMap []bool
-			content, contMap = wrapLinesWithContinuationMap(content, m.width, gutterWidth)
+			var breaks []int
+			content, contMap, breaks = wrapLinesWithBreaks(content, m.width, gutterWidth)
 			m.wrapContinuation = contMap
+			m.wrapBreakSpaces = breaks
 		} else {
 			content = truncateLinesWithOffset(content, m.width, m.xOffset, gutterWidth)
 		}
@@ -1284,6 +1288,27 @@ func (m *mainPane) wrapRowCountAtVpRow(vpRow int) int {
 	return count
 }
 
+// breakSpacesBefore returns how many source spaces the word-wrap break
+// immediately above vpRow consumed (see wrapLinesWithBreaks). Always 0
+// with wrap off, on the first row of a source line, and on any row the
+// map doesn't cover.
+//
+// These spaces are outside the pane's column model whichever mechanism
+// consumed them. When the run did not fit it was discarded and reaches
+// no row at all; when it did fit it renders as trailing blanks on the
+// ending row, but every column measurement goes through stripGutterText,
+// which trims trailing spaces off — so the row's width, and therefore
+// its source-column range, stops before them either way. A selection can
+// consequently never name these columns, which is why only the copy path
+// (extractSourceRange), rejoining a source line's wrap rows, puts them
+// back.
+func (m *mainPane) breakSpacesBefore(vpRow int) int {
+	if !m.wordWrap || vpRow < 0 || vpRow >= len(m.wrapBreakSpaces) {
+		return 0
+	}
+	return m.wrapBreakSpaces[vpRow]
+}
+
 // wrapRowSourceColRange returns the source-absolute, gutter-relative
 // column range [start, end] (inclusive) covered by the wrap row at
 // vpRow. The start comes from absoluteColumnFromDisplay (with display
@@ -1552,10 +1577,33 @@ func ansiAwareIterate(line string, fn func(r rune, displayW int)) int {
 // each entry corresponds to a viewport line. true means the line is a continuation
 // of the previous source line (due to word wrapping).
 func wrapLinesWithContinuationMap(content string, width, indent int) (string, []bool) {
+	out, cont, _ := wrapLinesWithBreaks(content, width, indent)
+	return out, cont
+}
+
+// wrapLinesWithBreaks is wrapLinesWithContinuationMap plus the wrapper's
+// space accounting: a third slice, also one entry per viewport row, giving
+// the number of source spaces consumed by the break immediately before
+// that row. Entry 0 (and every non-continuation row) is 0.
+//
+// Wrapping is otherwise lossy at a break, in two ways, and both are
+// counted here:
+//   - the space run fits on the ending row, so it survives only as
+//     trailing padding, which stripGutterText trims out of copied text;
+//   - the space run does not fit, so the token is discarded outright and
+//     is written to neither row.
+//
+// Since spaces are tokenized as a whole run and dropped all-or-nothing,
+// one break can eat several spaces — hence a count rather than a flag.
+// The copy path (extractSourceRange) re-inserts these when it joins a
+// source line's wrap rows back together; rendering ignores them, so the
+// screen is unchanged.
+func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []int) {
 	if width <= 0 {
 		lines := strings.Split(content, "\n")
 		cont := make([]bool, len(lines))
-		return content, cont
+		breaks := make([]int, len(lines))
+		return content, cont, breaks
 	}
 	effectiveIndent := indent
 	if indent <= 0 || width <= indent {
@@ -1566,6 +1614,7 @@ func wrapLinesWithContinuationMap(content string, width, indent int) (string, []
 	lines := strings.Split(content, "\n")
 	var result []string
 	var contMap []bool
+	var breaks []int
 	indentStr := ""
 	if effectiveIndent > 0 {
 		indentStr = strings.Repeat(" ", effectiveIndent)
@@ -1576,6 +1625,7 @@ func wrapLinesWithContinuationMap(content string, width, indent int) (string, []
 		if lineW <= width {
 			result = append(result, line)
 			contMap = append(contMap, false)
+			breaks = append(breaks, 0)
 			continue
 		}
 
@@ -1622,10 +1672,29 @@ func wrapLinesWithContinuationMap(content string, width, indent int) (string, []
 		var curLine strings.Builder
 		lineWidth := 0
 		first := true
+		// Spaces consumed by the break that precedes the *next* row to be
+		// emitted: the trailing padding of the row just emitted, plus any
+		// space token the wrapper discards outright.
+		pending := 0
+
+		// emit appends the row currently being built, recording the break
+		// spaces that preceded it and re-arming pending with this row's own
+		// trailing padding (trimmed off by the copy path, so it counts as
+		// consumed by the following break).
+		emit := func() {
+			row := curLine.String()
+			body := stripANSIForWidth(row)
+			if !first && effectiveIndent > 0 {
+				body = strings.TrimPrefix(body, indentStr)
+			}
+			result = append(result, row)
+			contMap = append(contMap, !first) // first line of source is not a continuation
+			breaks = append(breaks, pending)
+			pending = len(body) - len(strings.TrimRight(body, " "))
+		}
 
 		flush := func() {
-			result = append(result, curLine.String())
-			contMap = append(contMap, !first) // first line of source is not a continuation
+			emit()
 			curLine.Reset()
 			if effectiveIndent > 0 {
 				curLine.WriteString(indentStr)
@@ -1645,6 +1714,9 @@ func wrapLinesWithContinuationMap(content string, width, indent int) (string, []
 				} else {
 					flush()
 					currentMax = width
+					// The whole space run is discarded — neither row gets
+					// it — so it belongs to the break before the next row.
+					pending += tok.displayW
 				}
 				continue
 			}
@@ -1678,11 +1750,10 @@ func wrapLinesWithContinuationMap(content string, width, indent int) (string, []
 			}
 		}
 		if curLine.Len() > 0 {
-			result = append(result, curLine.String())
-			contMap = append(contMap, !first)
+			emit()
 		}
 	}
-	return strings.Join(result, "\n"), contMap
+	return strings.Join(result, "\n"), contMap, breaks
 }
 
 // ScrollLeft scrolls the viewport left by n columns.
