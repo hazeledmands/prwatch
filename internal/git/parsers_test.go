@@ -5,16 +5,17 @@ import (
 	"time"
 )
 
-// These tests pin the *behavior* of the three line parsers — input string in,
-// parsed value out — rather than their internals. They previously had no
-// dedicated coverage at all, only incidental exercise through happy-path
-// integration tests, which meant no safety net for the planned A6 conversion
-// to NUL-delimited (`-z`) git output.
+// These tests pin the *behavior* of the three parsers — input in, parsed value
+// out — rather than their internals. They were written as the safety net for
+// the A6 conversion to NUL-delimited (`-z`) git output, which has now landed:
+// the two path parsers take the NUL records produced by `runZ` rather than a
+// newline-delimited blob, and the cases that previously recorded
+// core.quotePath's octal-escaped paths as `CURRENT BEHAVIOR:` now assert the
+// raw UTF-8 the `-z` pipeline delivers.
 //
-// Where current behavior is plainly wrong for exotic input (git's default
-// core.quotePath octal-escaping of non-ASCII paths, embedded tabs) the case is
-// recorded as-is with an `// A6:` note saying what should change, so the
-// conversion has a visible before/after rather than a silent one.
+// The record shapes below were verified against real git output, not inferred:
+// `diff --name-status -z` emits `R100\0old\0new\0`, and `status --porcelain=v2
+// -z` emits a rename entry's original path as a *separate* following record.
 
 func renamesEqual(a, b []Rename) bool {
 	if len(a) != len(b) {
@@ -28,112 +29,119 @@ func renamesEqual(a, b []Rename) bool {
 	return true
 }
 
+// z builds the record slice runZ would hand a parser for the given raw -z
+// stdout, so the test tables exercise the real split as well as the parser.
+func z(fields ...string) []string {
+	var raw string
+	for _, f := range fields {
+		raw += f + "\x00"
+	}
+	return splitNUL(raw)
+}
+
 func TestParseRenameNameStatus(t *testing.T) {
 	tests := []struct {
 		name string
-		in   string
+		in   []string
 		want []Rename
 	}{
 		{
 			name: "empty input",
-			in:   "",
+			in:   z(),
 			want: nil,
 		},
 		{
-			name: "only newlines",
-			in:   "\n\n\n",
+			name: "only empty records",
+			in:   z("", "", ""),
 			want: nil,
 		},
 		{
 			name: "pure rename score 100",
-			in:   "R100\told.go\tnew.go\n",
+			in:   z("R100", "old.go", "new.go"),
 			want: []Rename{{Old: "old.go", New: "new.go", Pure: true}},
 		},
 		{
 			name: "rename with edits score 087",
-			in:   "R087\told.go\tnew.go\n",
+			in:   z("R087", "old.go", "new.go"),
 			want: []Rename{{Old: "old.go", New: "new.go", Pure: false}},
 		},
 		{
 			name: "score with leading zeros parses",
-			in:   "R099\ta\tb\n",
+			in:   z("R099", "a", "b"),
 			want: []Rename{{Old: "a", New: "b", Pure: false}},
 		},
 		{
 			name: "bare R with no score is treated as score 0",
-			in:   "R\told.go\tnew.go\n",
+			in:   z("R", "old.go", "new.go"),
 			want: []Rename{{Old: "old.go", New: "new.go", Pure: false}},
 		},
 		{
+			// Each single-path status consumes exactly one path record, so
+			// the trailing rename is still found at the right offset.
 			name: "non-rename statuses are skipped",
-			in:   "M\tmodified.go\nA\tadded.go\nD\tdeleted.go\nR100\told\tnew\n",
+			in:   z("M", "modified.go", "A", "added.go", "D", "deleted.go", "R100", "old", "new"),
 			want: []Rename{{Old: "old", New: "new", Pure: true}},
 		},
 		{
-			name: "copies are skipped (C is not R)",
-			in:   "C100\tsrc.go\tcopy.go\n",
-			want: nil,
+			// C is two-path like R, so it must consume both records even
+			// though the entry itself is discarded.
+			name: "copies are skipped (C is not R) but still consume two paths",
+			in:   z("C100", "src.go", "copy.go", "R100", "a", "b"),
+			want: []Rename{{Old: "a", New: "b", Pure: true}},
 		},
 		{
 			name: "multiple renames",
-			in:   "R100\ta\tb\nR050\tc\td\n",
+			in:   z("R100", "a", "b", "R050", "c", "d"),
 			want: []Rename{
 				{Old: "a", New: "b", Pure: true},
 				{Old: "c", New: "d", Pure: false},
 			},
 		},
 		{
-			name: "spaces in filenames survive (tab is the delimiter)",
-			in:   "R100\told name.go\tnew name.go\n",
+			name: "spaces in filenames survive",
+			in:   z("R100", "old name.go", "new name.go"),
 			want: []Rename{{Old: "old name.go", New: "new name.go", Pure: true}},
 		},
 		{
-			name: "malformed: only two fields",
-			in:   "R100\tonly-old.go\n",
+			name: "malformed: rename status with only one path",
+			in:   z("R100", "only-old.go"),
 			want: nil,
 		},
 		{
-			name: "malformed: no tabs at all",
-			in:   "R100 old.go new.go\n",
+			name: "malformed: status token with no path at all",
+			in:   z("R100"),
 			want: nil,
 		},
 		{
-			name: "malformed line does not abort the rest",
-			in:   "garbage\nR100\ta\tb\n",
+			name: "unknown single-path status does not abort the rest",
+			in:   z("X", "garbage.go", "R100", "a", "b"),
 			want: []Rename{{Old: "a", New: "b", Pure: true}},
 		},
 		{
-			// A6: git quotes non-ASCII paths by default (core.quotePath),
-			// emitting `"caf\303\251.txt"`. The parser passes the quoted,
-			// octal-escaped form straight through, so the UI shows the escape
-			// sequence rather than "café.txt". Converting to `git -c
-			// core.quotePath=false ... -z` should make this case produce
-			// {Old: "café.txt", New: "coffee.txt"}.
-			name: "CURRENT BEHAVIOR: quoted non-ASCII path is not unescaped",
-			in:   "R100\t\"caf\\303\\251.txt\"\tcoffee.txt\n",
-			want: []Rename{{Old: `"caf\303\251.txt"`, New: "coffee.txt", Pure: true}},
+			// A6: -z suppresses core.quotePath, so non-ASCII paths arrive as
+			// raw UTF-8 rather than the octal-escaped `"caf\303\251.txt"`.
+			name: "non-ASCII path arrives as raw UTF-8",
+			in:   z("R100", "café.txt", "coffee.txt"),
+			want: []Rename{{Old: "café.txt", New: "coffee.txt", Pure: true}},
 		},
 		{
-			// A6: same quoting path — a filename containing a literal tab is
-			// emitted by git as `"a\tb.go"` (quoted, backslash-escaped), which
-			// the parser leaves quoted. With -z the raw name would come
-			// through intact.
-			name: "CURRENT BEHAVIOR: quoted path with escaped tab stays quoted",
-			in:   "R100\t\"a\\tb.go\"\tc.go\n",
-			want: []Rename{{Old: `"a\tb.go"`, New: "c.go", Pure: true}},
+			// A6: the tab is no longer a delimiter, so a filename containing
+			// one survives whole instead of being quoted or split.
+			name: "path containing a literal tab survives whole",
+			in:   z("R100", "a\tb.go", "c.go"),
+			want: []Rename{{Old: "a\tb.go", New: "c.go", Pure: true}},
 		},
 		{
-			// A6: an *unquoted* embedded tab (what -z output would allow, or
-			// what a hand-rolled fixture looks like) splits into extra fields
-			// and silently truncates the new path.
-			name: "CURRENT BEHAVIOR: unquoted tab in path truncates the new path",
-			in:   "R100\told.go\tnew\tname.go\n",
-			want: []Rename{{Old: "old.go", New: "new", Pure: true}},
+			// A6: an embedded tab in the *new* path no longer truncates it.
+			name: "literal tab in the new path does not truncate it",
+			in:   z("R100", "old.go", "new\tname.go"),
+			want: []Rename{{Old: "old.go", New: "new\tname.go", Pure: true}},
 		},
 		{
-			name: "trailing newline absent",
-			in:   "R100\ta\tb",
-			want: []Rename{{Old: "a", New: "b", Pure: true}},
+			// A newline is likewise just a byte in a path now.
+			name: "path containing a newline survives whole",
+			in:   z("R100", "a\nb.go", "c.go"),
+			want: []Rename{{Old: "a\nb.go", New: "c.go", Pure: true}},
 		},
 	}
 	for _, tt := range tests {
@@ -147,98 +155,106 @@ func TestParseRenameNameStatus(t *testing.T) {
 }
 
 func TestParsePorcelainV2Renames(t *testing.T) {
-	// Header shape: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <newPath>\t<origPath>
+	// Header record: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <newPath>
+	// followed by a separate record holding <origPath>.
 	const hdr = "2 R. N... 100644 100644 100644 aaaaaaa bbbbbbb "
 
 	tests := []struct {
 		name string
-		in   string
+		in   []string
 		want []Rename
 	}{
 		{
 			name: "empty input",
-			in:   "",
+			in:   z(),
 			want: nil,
 		},
 		{
 			name: "pure rename",
-			in:   hdr + "R100 new.go\told.go\n",
+			in:   z(hdr+"R100 new.go", "old.go"),
 			want: []Rename{{Old: "old.go", New: "new.go", Pure: true}},
 		},
 		{
 			name: "rename with edits",
-			in:   hdr + "R075 new.go\told.go\n",
+			in:   z(hdr+"R075 new.go", "old.go"),
 			want: []Rename{{Old: "old.go", New: "new.go", Pure: false}},
 		},
 		{
 			name: "spaces in new path are preserved",
-			in:   hdr + "R100 new name with spaces.go\told.go\n",
+			in:   z(hdr+"R100 new name with spaces.go", "old.go"),
 			want: []Rename{{Old: "old.go", New: "new name with spaces.go", Pure: true}},
 		},
 		{
 			name: "spaces in orig path are preserved",
-			in:   hdr + "R100 new.go\told name.go\n",
+			in:   z(hdr+"R100 new.go", "old name.go"),
 			want: []Rename{{Old: "old name.go", New: "new.go", Pure: true}},
 		},
 		{
 			name: "rename flagged in Y position",
-			in:   "2 .R N... 100644 100644 100644 aaaaaaa bbbbbbb R100 new.go\told.go\n",
+			in:   z("2 .R N... 100644 100644 100644 aaaaaaa bbbbbbb R100 new.go", "old.go"),
 			want: []Rename{{Old: "old.go", New: "new.go", Pure: true}},
 		},
 		{
 			name: "copies are skipped",
-			in:   "2 C. N... 100644 100644 100644 aaaaaaa bbbbbbb C100 copy.go\tsrc.go\n",
+			in:   z("2 C. N... 100644 100644 100644 aaaaaaa bbbbbbb C100 copy.go", "src.go"),
 			want: nil,
 		},
 		{
 			name: "R in XY but C in the score field is skipped",
-			in:   hdr + "C100 copy.go\tsrc.go\n",
+			in:   z(hdr+"C100 copy.go", "src.go"),
 			want: nil,
 		},
 		{
-			name: "non-type-2 lines are skipped",
-			in: "1 .M N... 100644 100644 100644 aaaaaaa bbbbbbb modified.go\n" +
-				"? untracked.go\n" +
-				"# branch.oid abcdef\n" +
-				hdr + "R100 new.go\told.go\n",
+			// A skipped type-2 entry must still consume its origPath record,
+			// or the following entry is read at the wrong offset.
+			name: "a skipped copy still consumes its orig-path record",
+			in:   z(hdr+"C100 copy.go", "src.go", hdr+"R100 new.go", "old.go"),
 			want: []Rename{{Old: "old.go", New: "new.go", Pure: true}},
 		},
 		{
-			name: "malformed: no tab separator",
-			in:   hdr + "R100 new.go\n",
+			name: "non-type-2 records are skipped",
+			in: z("1 .M N... 100644 100644 100644 aaaaaaa bbbbbbb modified.go",
+				"? untracked.go",
+				"# branch.oid abcdef",
+				hdr+"R100 new.go", "old.go"),
+			want: []Rename{{Old: "old.go", New: "new.go", Pure: true}},
+		},
+		{
+			name: "malformed: rename entry with no orig-path record",
+			in:   z(hdr + "R100 new.go"),
 			want: nil,
 		},
 		{
 			name: "malformed: too few header fields",
-			in:   "2 R. N... 100644 R100 new.go\told.go\n",
+			in:   z("2 R. N... 100644 R100 new.go", "old.go"),
 			want: nil,
 		},
 		{
 			name: "malformed: type-2 prefix with nothing else",
-			in:   "2 \n",
+			in:   z("2 "),
 			want: nil,
 		},
 		{
 			name: "multiple renames",
-			in:   hdr + "R100 a\tb\n" + hdr + "R050 c\td\n",
+			in:   z(hdr+"R100 a", "b", hdr+"R050 c", "d"),
 			want: []Rename{
 				{Old: "b", New: "a", Pure: true},
 				{Old: "d", New: "c", Pure: false},
 			},
 		},
 		{
-			// A6: porcelain v2 also honours core.quotePath, so a non-ASCII
-			// path arrives quoted and octal-escaped and is passed through
-			// verbatim. `-z` output (which porcelain v2 supports natively)
-			// would deliver the raw bytes and NUL-separate the two paths.
-			name: "CURRENT BEHAVIOR: quoted non-ASCII paths are not unescaped",
-			in:   hdr + "R100 \"caf\\303\\251.txt\"\t\"the\\303\\251.txt\"\n",
-			want: []Rename{{Old: `"the\303\251.txt"`, New: `"caf\303\251.txt"`, Pure: true}},
+			// A6: -z delivers both paths as raw UTF-8 rather than
+			// core.quotePath's quoted, octal-escaped form.
+			name: "non-ASCII paths arrive as raw UTF-8",
+			in:   z(hdr+"R100 café.txt", "thé.txt"),
+			want: []Rename{{Old: "thé.txt", New: "café.txt", Pure: true}},
 		},
 		{
-			name: "no trailing newline",
-			in:   hdr + "R100 new.go\told.go",
-			want: []Rename{{Old: "old.go", New: "new.go", Pure: true}},
+			// A6: the tab that used to separate the two paths on one line is
+			// now just a byte a path may contain.
+			name: "paths containing tabs survive whole",
+			in:   z(hdr+"R100 new\tname.go", "old\tname.go"),
+			want: []Rename{{Old: "old\tname.go", New: "new\tname.go", Pure: true}},
 		},
 	}
 	for _, tt := range tests {

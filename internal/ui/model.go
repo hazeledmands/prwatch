@@ -470,10 +470,12 @@ func (m *Model) isPureRename(file string) bool {
 // fileTitleLeft returns the title-bar's left side for file. For renamed files
 // it returns "<old> → <new>"; otherwise just the file path.
 func (m *Model) fileTitleLeft(file string) string {
+	// Title text is display text: escape control characters here (the raw
+	// path is still what every caller passes to git).
 	if old, ok := m.renameOldPath(file); ok {
-		return old + " → " + file
+		return sanitizeDisplayText(old) + " → " + sanitizeDisplayText(file)
 	}
-	return file
+	return sanitizeDisplayText(file)
 }
 
 // statMtime returns the working-tree mtime of file (relative to m.dir).
@@ -1241,6 +1243,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseClickMsg:
+		// The help overlay is modal: it covers both panes, so a click on it
+		// must not reach the sidebar or start a drag underneath.
+		if m.help.IsOpen() {
+			return m, nil
+		}
 		return m.handleMouseClick(msg)
 
 	case tea.MouseWheelMsg:
@@ -1260,6 +1267,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMotionMsg:
 		m.hoverX = msg.X
 		m.hoverY = msg.Y
+		if m.help.IsOpen() {
+			// Modal: no drag extension, no sidebar hover under the overlay.
+			m.sidebar.SetHoverIndex(-1)
+			return m, nil
+		}
 		var autoScrollCmd tea.Cmd
 		if m.drag.IsActive() {
 			g := m.dragGeom()
@@ -1279,16 +1291,27 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, autoScrollCmd
 
 	case tea.MouseReleaseMsg:
+		if m.help.IsOpen() {
+			// Swallowing the release must not strand an in-flight drag: help
+			// can be opened with `?` mid-drag, and a dropped release would
+			// leave m.drag active so motion kept extending the selection after
+			// the overlay closed. Cancel it (no cursor placement, no copy —
+			// the gesture was interrupted, not completed).
+			m.drag.Cancel()
+			return m, nil
+		}
 		g := m.dragGeom()
 		ep := g.clickAt(msg.X, msg.Y)
+		// Whether a drag was in progress decides whether this release is the
+		// end of a main-pane gesture at all. A sidebar click cancels the drag,
+		// so its release must not be read as concluding one.
+		wasDragging := m.drag.IsActive()
 		hadRange := m.drag.Release(ep)
-		// Place cursor at release point when the release was on real
-		// content (per PLAN.md "cursor at release point"). Past-EOL
-		// release clamps to row content via SetFromClick.
-		if ep.OutsideDir == 0 {
-			vpRow := m.mainPane.viewport.YOffset() + (msg.Y - mainPaneContentTop(g))
-			displayCol := msg.X - (g.sidebarW + 1 + m.mainPane.gutterWidth)
-			m.nav().PlaceCursorFromClick(vpRow, displayCol)
+		// Place cursor at release point when the release concludes a main-pane
+		// drag and lands on real content (per PLAN.md "cursor at release
+		// point"). Past-EOL release clamps to row content via SetFromClick.
+		if wasDragging && ep.OutsideDir == 0 && !ep.OutsideSidebar {
+			m.nav().PlaceCursorFromClick(ep.VpRow, ep.DisplayCol)
 		}
 		if hadRange {
 			return m, m.copySelection()
@@ -1926,9 +1949,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		ep := g.clickAt(x, y)
 		m.drag.Begin(ep)
 		if ep.OutsideDir == 0 {
-			vpRow := m.mainPane.viewport.YOffset() + (y - mainPaneContentTop(g))
-			displayCol := x - (g.sidebarW + 1 + m.mainPane.gutterWidth)
-			m.nav().PlaceCursorFromClick(vpRow, displayCol)
+			m.nav().PlaceCursorFromClick(ep.VpRow, ep.DisplayCol)
 		}
 	}
 	return m, nil

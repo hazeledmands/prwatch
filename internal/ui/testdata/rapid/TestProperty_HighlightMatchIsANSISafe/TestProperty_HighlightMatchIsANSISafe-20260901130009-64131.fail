@@ -1,0 +1,21 @@
+# 2026/09/01 13:00:09.857192 [TestProperty_HighlightMatchIsANSISafe] [rapid] draw nSegs: 1
+# 2026/09/01 13:00:09.857212 [TestProperty_HighlightMatchIsANSISafe] [rapid] draw seg0: "\xff"
+# 2026/09/01 13:00:09.857225 [TestProperty_HighlightMatchIsANSISafe] [rapid] draw color0: "#E3C2A1"
+# 2026/09/01 13:00:09.857242 [TestProperty_HighlightMatchIsANSISafe] [rapid] draw styled0: true
+# 2026/09/01 13:00:09.857269 [TestProperty_HighlightMatchIsANSISafe] [rapid] draw query: "�"
+# 2026/09/01 13:00:09.857344 [TestProperty_HighlightMatchIsANSISafe] visible text changed by highlighting query "�":
+#  got "\xff\x1b[m"
+# want "\xff"
+# line "\x1b[38;2;227;194;161m\xff\x1b[m"
+# 
+v0.4.8#561777865202928062
+0x0
+0x0
+0x0
+0xc05c654ab866b
+0x11
+0x0
+0x0
+0x1
+0xc05c654ab866b
+0x12

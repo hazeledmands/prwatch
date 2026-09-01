@@ -54,6 +54,18 @@ type endpoint struct {
 	Pos        Position
 	VpRow      int
 	OutsideDir int
+	// DisplayCol is the click's column relative to the start of the main
+	// pane's text, past the sidebar and gutter (clamped at 0). Cursor
+	// placement needs the *displayed* column, not Pos.Column's source-absolute
+	// one; carrying it here keeps that translation inside clickAt rather than
+	// re-derived at each call site, per the "layout geometry comes from one
+	// function" rule.
+	DisplayCol int
+	// OutsideSidebar reports that x landed over the sidebar proper — not over
+	// the main pane's gutter, which belongs to the pane. A click and a release
+	// on the gutter both clamp to column 0; only the sidebar declines cursor
+	// placement. Drag selection ignores this field entirely.
+	OutsideSidebar bool
 }
 
 // dragGeometry is the screen-layout snapshot dragSelection needs to map
@@ -94,6 +106,10 @@ func (g dragGeometry) clickAt(x, y int) endpoint {
 	}
 	gutterOffset := g.sidebarW + 1 + g.pane.gutterWidth
 	displayCol := x - gutterOffset
+	// Only the sidebar proper is "outside": the gutter sits inside the pane,
+	// so a gutter x clamps to column 0 (matching what a gutter *click* has
+	// always done) rather than being treated as a miss.
+	outsideSidebar := g.sidebarW > 0 && x < g.sidebarW
 	if displayCol < 0 {
 		displayCol = 0
 	}
@@ -102,7 +118,9 @@ func (g dragGeometry) clickAt(x, y int) endpoint {
 			SourceLine: g.pane.sourceLineAtViewportOffset(vpRow),
 			Column:     g.pane.absoluteColumnFromDisplay(vpRow, displayCol),
 		},
-		VpRow: vpRow,
+		VpRow:          vpRow,
+		DisplayCol:     displayCol,
+		OutsideSidebar: outsideSidebar,
 	}
 }
 

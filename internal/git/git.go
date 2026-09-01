@@ -198,6 +198,48 @@ func (g *Git) run(args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// splitNUL splits NUL-delimited (`-z`) git output into records, dropping every
+// empty record — which in practice means the one left after the final
+// terminator, since git emits no empty fields in the formats used here. The
+// parsers rely on that: an empty record would otherwise be read as a status
+// token or a path.
+//
+// Records are returned verbatim. Unlike the newline-delimited forms, `-z`
+// output must not be trimmed: a path may legitimately begin or end with
+// whitespace, and with -z git no longer quotes it to make that visible.
+func splitNUL(out string) []string {
+	var recs []string
+	for _, r := range strings.Split(out, "\x00") {
+		if r == "" {
+			continue
+		}
+		recs = append(recs, r)
+	}
+	return recs
+}
+
+// runZ runs a git command that was passed -z and returns its NUL-delimited
+// records.
+//
+// Every path-producing git call must go through here rather than run(). Git
+// quotes any path containing non-ASCII bytes, a tab, or a quote by default
+// (core.quotePath), emitting `"caf\303\251.txt"` for café.txt — which the
+// newline-splitting callers passed through verbatim, so the escaped form
+// reached the sidebar and then failed to resolve as a real filename. -z both
+// suppresses the quoting and removes the ambiguity of a path that contains the
+// delimiter.
+func (g *Git) runZ(args ...string) ([]string, error) {
+	cmd := g.cmdFactory("git", args...)
+	cmd.SetDir(g.dir)
+	var stdout, stderr bytes.Buffer
+	cmd.SetStdout(&stdout)
+	cmd.SetStderr(&stderr)
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git %s: %s %w", strings.Join(args, " "), stderr.String(), err)
+	}
+	return splitNUL(stdout.String()), nil
+}
+
 // IsRepo returns true if the directory is inside a git repository.
 func (g *Git) IsRepo() bool {
 	_, err := g.run("rev-parse", "--git-dir")
@@ -364,52 +406,37 @@ func (r ChangedFilesResult) ToChangedFiles() *ChangedFiles {
 func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 	// All diff calls below pass -M so renames collapse to the new path
 	// (the old path is reclassified from D+A to R and dropped from --name-only).
-	out, err := g.run("diff", "-M", "--name-only", base+"..HEAD")
+	paths, err := g.runZ("diff", "-M", "--name-only", "-z", base+"..HEAD")
 	if err != nil {
 		return ChangedFilesResult{}, err
 	}
 
 	committedSet := make(map[string]bool)
-	for _, f := range strings.Split(out, "\n") {
-		f = strings.TrimSpace(f)
-		if f != "" {
-			committedSet[f] = true
-		}
+	for _, f := range paths {
+		committedSet[f] = true
 	}
 
 	// Get staged changes (index vs HEAD)
 	stagedSet := make(map[string]bool)
-	out, err = g.run("diff", "-M", "--name-only", "--cached", "HEAD")
-	if err == nil {
-		for _, f := range strings.Split(out, "\n") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				stagedSet[f] = true
-			}
+	if paths, err := g.runZ("diff", "-M", "--name-only", "-z", "--cached", "HEAD"); err == nil {
+		for _, f := range paths {
+			stagedSet[f] = true
 		}
 	}
 
 	// Get unstaged changes (working tree vs index)
 	unstagedSet := make(map[string]bool)
-	out, err = g.run("diff", "-M", "--name-only")
-	if err == nil {
-		for _, f := range strings.Split(out, "\n") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				unstagedSet[f] = true
-			}
+	if paths, err := g.runZ("diff", "-M", "--name-only", "-z"); err == nil {
+		for _, f := range paths {
+			unstagedSet[f] = true
 		}
 	}
 	// Also include untracked files (these are inherently new — all additions)
 	untrackedSet := make(map[string]bool)
-	out, err = g.run("ls-files", "--others", "--exclude-standard")
-	if err == nil {
-		for _, f := range strings.Split(out, "\n") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				unstagedSet[f] = true
-				untrackedSet[f] = true
-			}
+	if paths, err := g.runZ("ls-files", "-z", "--others", "--exclude-standard"); err == nil {
+		for _, f := range paths {
+			unstagedSet[f] = true
+			untrackedSet[f] = true
 		}
 	}
 
@@ -417,14 +444,14 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 	// from the unstaged/untracked sets (where -M on diff can't reach them
 	// because the new side of a working-tree rename may be untracked).
 	var renamed []Rename
-	if out, err := g.run("diff", "-M", "--name-status", "--diff-filter=R", base+"..HEAD"); err == nil {
-		renamed = append(renamed, parseRenameNameStatus(out)...)
+	if recs, err := g.runZ("diff", "-M", "--name-status", "-z", "--diff-filter=R", base+"..HEAD"); err == nil {
+		renamed = append(renamed, parseRenameNameStatus(recs)...)
 	}
-	if out, err := g.run("diff", "-M", "--name-status", "--diff-filter=R", "--cached", "HEAD"); err == nil {
-		renamed = append(renamed, parseRenameNameStatus(out)...)
+	if recs, err := g.runZ("diff", "-M", "--name-status", "-z", "--diff-filter=R", "--cached", "HEAD"); err == nil {
+		renamed = append(renamed, parseRenameNameStatus(recs)...)
 	}
-	if out, err := g.run("status", "--porcelain=v2", "-M", "--untracked-files=all"); err == nil {
-		renamed = append(renamed, parsePorcelainV2Renames(out)...)
+	if recs, err := g.runZ("status", "--porcelain=v2", "-z", "-M", "--untracked-files=all"); err == nil {
+		renamed = append(renamed, parsePorcelainV2Renames(recs)...)
 	}
 	// Fallback: pure working-tree renames (mv without git add) where the new
 	// path is untracked. `git diff -M` can't see across that boundary, and
@@ -470,13 +497,9 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 	// Detect deleted files (in base..HEAD). -M reclassifies rename old paths
 	// from D to R so they fall out of this list naturally.
 	deletedSet := make(map[string]bool)
-	out, err = g.run("diff", "-M", "--name-only", "--diff-filter=D", base+"..HEAD")
-	if err == nil {
-		for _, f := range strings.Split(out, "\n") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				deletedSet[f] = true
-			}
+	if paths, err := g.runZ("diff", "-M", "--name-only", "-z", "--diff-filter=D", base+"..HEAD"); err == nil {
+		for _, f := range paths {
+			deletedSet[f] = true
 		}
 	}
 
@@ -492,22 +515,14 @@ func (g *Git) ChangedFiles(base string) (ChangedFilesResult, error) {
 	// -M keeps rename new paths out of --diff-filter=A on the tracked side;
 	// for working-tree renames where the new path is untracked, we strip below.
 	addedSet := make(map[string]bool)
-	out, err = g.run("diff", "-M", "--name-only", "--diff-filter=A", base+"..HEAD")
-	if err == nil {
-		for _, f := range strings.Split(out, "\n") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				addedSet[f] = true
-			}
+	if paths, err := g.runZ("diff", "-M", "--name-only", "-z", "--diff-filter=A", base+"..HEAD"); err == nil {
+		for _, f := range paths {
+			addedSet[f] = true
 		}
 	}
-	out, err = g.run("diff", "-M", "--name-only", "--diff-filter=A", "--cached", "HEAD")
-	if err == nil {
-		for _, f := range strings.Split(out, "\n") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				addedSet[f] = true
-			}
+	if paths, err := g.runZ("diff", "-M", "--name-only", "-z", "--diff-filter=A", "--cached", "HEAD"); err == nil {
+		for _, f := range paths {
+			addedSet[f] = true
 		}
 	}
 	for f := range untrackedSet {
@@ -592,45 +607,62 @@ func buildChangedFiles(committed, uncommitted, staged, deleted, added []string, 
 	return out
 }
 
-// parseRenameNameStatus parses the output of `git diff -M --name-status
-// --diff-filter=R`. Each line has the form "R<score>\t<old>\t<new>".
-func parseRenameNameStatus(out string) []Rename {
+// parseRenameNameStatus parses the NUL-delimited records of `git diff -M
+// --name-status -z --diff-filter=R`.
+//
+// With -z each field is its own record rather than a tab-separated column, so
+// a record is a status token followed by its path(s): rename and copy statuses
+// carry two paths (old then new), every other status carries one. Walking
+// records this way — instead of splitting a line on tabs — is what lets a path
+// containing a tab, a newline, or non-ASCII bytes survive intact.
+func parseRenameNameStatus(recs []string) []Rename {
 	var renamed []Rename
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
-			continue
+	for i := 0; i < len(recs); {
+		status := recs[i]
+		// R and C statuses are followed by two paths; everything else by one.
+		paths := 1
+		if strings.HasPrefix(status, "R") || strings.HasPrefix(status, "C") {
+			paths = 2
 		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 3 || !strings.HasPrefix(parts[0], "R") {
-			continue
+		if i+paths >= len(recs) {
+			break // truncated record; nothing trustworthy left to read
 		}
-		score, _ := strconv.Atoi(parts[0][1:])
-		renamed = append(renamed, Rename{Old: parts[1], New: parts[2], Pure: score >= 100})
+		if strings.HasPrefix(status, "R") {
+			score, _ := strconv.Atoi(status[1:])
+			renamed = append(renamed, Rename{Old: recs[i+1], New: recs[i+2], Pure: score >= 100})
+		}
+		i += paths + 1
 	}
 	return renamed
 }
 
-// parsePorcelainV2Renames parses the output of `git status --porcelain=v2 -M`,
-// returning each line of type 2 (rename/copy) where the rename is in the
-// working tree or index. The line format is:
+// parsePorcelainV2Renames parses the NUL-delimited records of `git status
+// --porcelain=v2 -z -M`, returning each type-2 (rename/copy) entry where the
+// rename is in the working tree or index. A type-2 record has the form:
 //
-//	2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <newPath>\t<origPath>
+//	2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <newPath>
+//
+// and — uniquely among porcelain v2 entry types — is followed by a second
+// record holding the original path. (Without -z the two are packed into one
+// line separated by a tab, which no path containing a tab can survive.)
 //
 // We accept R in either X or Y position; copies (C) are skipped.
-func parsePorcelainV2Renames(out string) []Rename {
+func parsePorcelainV2Renames(recs []string) []Rename {
 	var renamed []Rename
-	for _, line := range strings.Split(out, "\n") {
-		if !strings.HasPrefix(line, "2 ") {
+	for i := 0; i < len(recs); i++ {
+		header := recs[i]
+		if !strings.HasPrefix(header, "2 ") {
 			continue
 		}
-		tab := strings.IndexByte(line, '\t')
-		if tab < 0 {
-			continue
+		if i+1 >= len(recs) {
+			break // rename entry missing its original-path record
 		}
-		header := line[:tab]
-		origPath := line[tab+1:]
-		fields := strings.Fields(header)
-		// Format: "2" XY sub mH mI mW hH hI X+score newPath  → 10 fields
+		origPath := recs[i+1]
+		i++ // consume the original-path record whether or not we accept the entry
+
+		// SplitN rather than Fields: the header is single-space delimited and
+		// the 10th field is the new path, which may itself contain spaces.
+		fields := strings.SplitN(header, " ", 10)
 		if len(fields) < 10 {
 			continue
 		}
@@ -643,22 +675,7 @@ func parsePorcelainV2Renames(out string) []Rename {
 			continue // ignore copies (C)
 		}
 		score, _ := strconv.Atoi(xScore[1:])
-		// The 10th whitespace-delimited token is the new path; recover by
-		// walking past 9 fields so spaces in the new path survive.
-		idx := 0
-		for n := 0; n < 9; n++ {
-			sp := strings.IndexByte(header[idx:], ' ')
-			if sp < 0 {
-				idx = -1
-				break
-			}
-			idx += sp + 1
-		}
-		if idx < 0 {
-			continue
-		}
-		newPath := header[idx:]
-		renamed = append(renamed, Rename{Old: origPath, New: newPath, Pure: score >= 100})
+		renamed = append(renamed, Rename{Old: origPath, New: fields[9], Pure: score >= 100})
 	}
 	return renamed
 }
@@ -699,15 +716,14 @@ func (g *Git) detectPureMvRenames(existing []Rename, untrackedSet map[string]boo
 	}
 
 	// Find tracked deletions in the working tree.
-	out, err := g.run("diff", "--name-only", "--diff-filter=D")
+	deleted, err := g.runZ("diff", "--name-only", "-z", "--diff-filter=D")
 	if err != nil {
 		return nil
 	}
 
 	var matches []Rename
-	for _, old := range strings.Split(out, "\n") {
-		old = strings.TrimSpace(old)
-		if old == "" || pairedOld[old] {
+	for _, old := range deleted {
+		if pairedOld[old] {
 			continue
 		}
 		// Read the index blob sha for old.
@@ -921,18 +937,14 @@ type IgnoredEntry struct {
 // individually. This is dramatically cheaper than enumerating every file
 // under each ignored directory (e.g. node_modules/ on a JS monorepo).
 func (g *Git) IgnoredEntries() ([]IgnoredEntry, error) {
-	out, err := g.run("ls-files", "--others", "--ignored", "--exclude-standard", "--directory")
+	recs, err := g.runZ("ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
 	if err != nil {
 		return nil, err
 	}
 	var entries []IgnoredEntry
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		isDir := strings.HasSuffix(line, "/")
-		path := strings.TrimSuffix(line, "/")
+	for _, rec := range recs {
+		isDir := strings.HasSuffix(rec, "/")
+		path := strings.TrimSuffix(rec, "/")
 		entries = append(entries, IgnoredEntry{Path: path, IsDir: isDir})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
@@ -944,16 +956,9 @@ func (g *Git) IgnoredEntries() ([]IgnoredEntry, error) {
 // Used to lazily expand a top-level ignored directory entry when the user
 // drills in.
 func (g *Git) IgnoredFilesInDir(dir string) ([]string, error) {
-	out, err := g.run("ls-files", "--others", "--ignored", "--exclude-standard", dir+"/")
+	files, err := g.runZ("ls-files", "-z", "--others", "--ignored", "--exclude-standard", dir+"/")
 	if err != nil {
 		return nil, err
-	}
-	var files []string
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			files = append(files, line)
-		}
 	}
 	sort.Strings(files)
 	return files, nil
@@ -967,25 +972,18 @@ func (g *Git) AllFiles() ([]string, error) {
 	fileSet := make(map[string]bool)
 
 	// Tracked files
-	out, err := g.run("ls-files")
+	tracked, err := g.runZ("ls-files", "-z")
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range strings.Split(out, "\n") {
-		f = strings.TrimSpace(f)
-		if f != "" {
-			fileSet[f] = true
-		}
+	for _, f := range tracked {
+		fileSet[f] = true
 	}
 
 	// Untracked files (excluding ignored)
-	out, err = g.run("ls-files", "--others", "--exclude-standard")
-	if err == nil {
-		for _, f := range strings.Split(out, "\n") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				fileSet[f] = true
-			}
+	if untracked, err := g.runZ("ls-files", "-z", "--others", "--exclude-standard"); err == nil {
+		for _, f := range untracked {
+			fileSet[f] = true
 		}
 	}
 

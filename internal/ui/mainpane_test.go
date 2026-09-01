@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	runewidth "github.com/mattn/go-runewidth"
 	"pgregory.net/rapid"
 )
@@ -344,13 +345,10 @@ func TestMainPane_TruncatesWhenWrapOff(t *testing.T) {
 	// The long line should be truncated — no rune at position > 40
 	for _, l := range lines {
 		stripped := stripANSIForWidth(l)
+		// No tab case: expandTabs normalizes tabs at the content boundary.
 		w := 0
-		for _, r := range stripped {
-			if r == '\t' {
-				w += 8 - (w % 8)
-			} else {
-				w++
-			}
+		for range stripped {
+			w++
 		}
 		if w > 40 {
 			t.Errorf("line exceeds viewport width (w=%d): %q", w, stripped)
@@ -1392,6 +1390,396 @@ func TestProperty_PositionToDisplay_RoundTrip(t *testing.T) {
 		if recoveredCol != col {
 			t.Fatalf("Column not invariant: orig=%d, after roundtrip=%d (vpRow=%d→%d, dc=%d→%d, pos=%+v)",
 				col, recoveredCol, row, gotRow, dc, gotDc, pos)
+		}
+	})
+}
+
+// --- CODE_REVIEW.md A6: tab normalization at the content boundary -----------
+//
+// Three tab widths were in play before this landed: the wrap tokenizer and
+// ansiAwareIterate assumed 8-column tab stops, runewidth.RuneWidth('\t') is 0,
+// and lipgloss renders a tab as 4 spaces. Every Go file is tab-indented, so
+// wrap points, gutter alignment, cursor columns and drag-copy slicing all
+// disagreed with the render and with each other. The fix expands tabs once,
+// where content enters the pane.
+
+// A tab must be indistinguishable from the 4 spaces it renders as: identical
+// rendered rows, identical row counts, identical wrap behavior. Asserting the
+// two forms agree — rather than asserting a particular width — is what makes
+// this test independent of the expansion width itself.
+func TestMainPane_TabRendersIdenticallyToFourSpaces(t *testing.T) {
+	// Widths chosen to straddle the wrap boundary: with the old 8-column
+	// assumption the tab form measures 4 columns wider than it renders, so it
+	// wraps at widths where the space form still fits.
+	for _, width := range []int{20, 24, 28, 30, 34, 40, 50} {
+		for _, body := range []string{
+			"func main() {",
+			"return someValue + otherValue",
+			strings.Repeat("x", 30),
+		} {
+			t.Run(fmt.Sprintf("w%d_%s", width, body[:min(8, len(body))]), func(t *testing.T) {
+				render := func(prefix string) string {
+					mp := newMainPane()
+					mp.SetSize(width, 20)
+					mp.SetWordWrap(true)
+					mp.SetPlainContent(prefix + body)
+					return mp.viewport.View()
+				}
+				tabbed := render("\t")
+				spaced := render("    ")
+				if tabbed != spaced {
+					t.Errorf("tab-indented and 4-space-indented renders differ at width %d:\n tab: %q\nspace: %q",
+						width, tabbed, spaced)
+				}
+			})
+		}
+	}
+}
+
+// The boundary invariant itself: no tab survives into pane content, so no
+// downstream consumer (wrap math, gutter, cursor column, drag copy) ever has
+// to special-case one.
+func TestMainPane_NoTabsSurviveTheContentBoundary(t *testing.T) {
+	tabby := "\tif x {\n\t\treturn 1\t// trailing\n\t}\nno tabs here\n"
+	t.Run("SetPlainContent", func(t *testing.T) {
+		mp := newMainPane()
+		mp.SetSize(80, 20)
+		mp.SetPlainContent(tabby)
+		if strings.Contains(mp.content, "\t") {
+			t.Errorf("mainPane.content still contains a tab: %q", mp.content)
+		}
+	})
+	t.Run("SetContent", func(t *testing.T) {
+		mp := newMainPane()
+		mp.SetSize(80, 20)
+		mp.SetContent(tabby)
+		if strings.Contains(mp.content, "\t") {
+			t.Errorf("mainPane.content still contains a tab: %q", mp.content)
+		}
+	})
+}
+
+// expandTabs advances to the next 4-column tab stop rather than emitting a
+// fixed 4 spaces, so alignment is preserved the way an editor would show it.
+func TestExpandTabs(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"no tabs", "no tabs"},
+		{"\t", "    "},
+		{"\tx", "    x"},
+		{"a\tb", "a   b"},        // 'a' at col 0, tab stop at 4
+		{"ab\tc", "ab  c"},       // tab stop at 4
+		{"abc\td", "abc d"},      // tab stop at 4
+		{"abcd\te", "abcd    e"}, // already at 4, advance to 8
+		{"\t\tx", "        x"},
+		{"a\tb\tc", "a   b   c"},
+		{"line1\n\tline2", "line1\n    line2"}, // column resets each line
+		{"日\tx", "日  x"},                       // wide rune counts as 2 columns
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			if got := expandTabs(tt.in); got != tt.want {
+				t.Errorf("expandTabs(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- CODE_REVIEW.md A6: ANSI-safe search highlighting -----------------------
+//
+// highlightMatchInLine used to run strings.Index against the *styled* string.
+// Truecolor sequences are full of digits and semicolons, so searching "2" in a
+// syntax-highlighted file spliced the highlight into the middle of an escape
+// sequence and dumped `;227;161m`-style garbage on screen as visible text.
+// Matches that straddled a chroma token boundary were silently missed for the
+// same reason: the escape sequence sat between the query's characters.
+//
+// The two invariants below are what "ANSI-safe" means, stated observably:
+// highlighting never changes the visible text, and never misses a match the
+// visible text contains.
+
+func styledLine(t *testing.T, segments ...string) string {
+	t.Helper()
+	var b strings.Builder
+	palette := []string{"#E3C2A1", "#A6E3A1", "#F38BA8"}
+	for i, seg := range segments {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(palette[i%len(palette)])).Render(seg))
+	}
+	return b.String()
+}
+
+func TestHighlightMatchInLine_ANSISafe(t *testing.T) {
+	tests := []struct {
+		name      string
+		segments  []string
+		query     string
+		wantMatch bool
+	}{
+		{
+			// "2" appears only inside the truecolor escape sequences
+			// (\x1b[38;2;227;194;161m), never in the visible text.
+			name:      "digit occurring only inside the escape sequence",
+			segments:  []string{"hello"},
+			query:     "2",
+			wantMatch: false,
+		},
+		{
+			name:      "semicolon occurring only inside the escape sequence",
+			segments:  []string{"hello"},
+			query:     ";",
+			wantMatch: false,
+		},
+		{
+			name:      "the letter m, which terminates every SGR sequence",
+			segments:  []string{"ממm"},
+			query:     "m",
+			wantMatch: true,
+		},
+		{
+			// The query spans two chroma tokens, so an escape sequence sits
+			// between "foo" and "bar" in the styled string.
+			name:      "match spanning a style boundary",
+			segments:  []string{"foo", "bar"},
+			query:     "ooba",
+			wantMatch: true,
+		},
+		{
+			name:      "match entirely inside one token",
+			segments:  []string{"foo", "bar"},
+			query:     "oo",
+			wantMatch: true,
+		},
+		{
+			name:      "case-insensitive match spanning a boundary",
+			segments:  []string{"Foo", "Bar"},
+			query:     "oob",
+			wantMatch: true,
+		},
+		{
+			name:      "no match at all",
+			segments:  []string{"foo", "bar"},
+			query:     "zzz",
+			wantMatch: false,
+		},
+		{
+			name:      "match at the very start",
+			segments:  []string{"foo", "bar"},
+			query:     "fo",
+			wantMatch: true,
+		},
+		{
+			name:      "match at the very end",
+			segments:  []string{"foo", "bar"},
+			query:     "ar",
+			wantMatch: true,
+		},
+		{
+			name:      "wide runes around the match",
+			segments:  []string{"日本語", "text"},
+			query:     "語te",
+			wantMatch: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line := styledLine(t, tt.segments...)
+			plain := stripANSIForWidth(line)
+			got := highlightMatchInLine(line, tt.query)
+
+			// Invariant 1: highlighting never changes the visible text.
+			if gotPlain := stripANSIForWidth(got); gotPlain != plain {
+				t.Errorf("visible text changed by highlighting:\n got %q\nwant %q", gotPlain, plain)
+			}
+			// Invariant 2: a match present in the visible text is highlighted,
+			// and one absent from it is not.
+			highlighted := got != line
+			if highlighted != tt.wantMatch {
+				t.Errorf("highlighted = %v, want %v (visible text %q, query %q)\nresult: %q",
+					highlighted, tt.wantMatch, plain, tt.query, got)
+			}
+		})
+	}
+}
+
+// highlightSearch is the caller; the same invariants must hold through it,
+// including across multiple lines.
+func TestHighlightSearch_ANSISafe(t *testing.T) {
+	line1 := styledLine(t, "func ", "main", "() {")
+	line2 := styledLine(t, "\treturn ", "nil")
+	content := line1 + "\n" + line2
+	plain := stripANSIForWidth(content)
+
+	for _, q := range []string{"2", ";", "main", "urn n", "38", "m"} {
+		t.Run(q, func(t *testing.T) {
+			got := highlightSearch(content, q)
+			if gotPlain := stripANSIForWidth(got); gotPlain != plain {
+				t.Errorf("visible text changed by highlighting query %q:\n got %q\nwant %q", q, gotPlain, plain)
+			}
+		})
+	}
+}
+
+// A6: the generator that was missing entirely — ANSI-styled content. No
+// property test in the package produced an escape sequence in a line body, so
+// highlightMatchInLine's mid-escape splicing was invisible to the whole suite.
+//
+// The two invariants are the same ones the table test states, over a generated
+// space of styled segments and queries drawn *from the escape sequences
+// themselves* (digits, semicolons, 'm', "38;2") as well as from visible text.
+func TestProperty_HighlightMatchIsANSISafe(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		// Build a styled line from several differently-colored segments, so
+		// escape sequences land between, inside and around candidate matches.
+		nSegs := rapid.IntRange(1, 5).Draw(t, "nSegs")
+		bodies := []string{
+			"func", "main", "()", " {", "return", "nil", "x2", "38", "foo", "bar",
+			"日本語", "café", "", "  ", "a;b", "m", "\tindented",
+			// Invalid UTF-8: a lone continuation byte, a truncated 2-byte
+			// sequence, and a Latin-1 "é" — all reachable through
+			// SetPlainContent on a file whose raw bytes pass binary
+			// detection, which then renders as U+FFFD on screen. Indexing
+			// these as if RuneError occupied 3 bytes overshot the span and
+			// panicked.
+			"\xff", "ab\xff", "\xc3", "caf\xe9", "\xff\xfe",
+		}
+		colors := []string{"#E3C2A1", "#A6E3A1", "#F38BA8", "#89B4FA", "#FAB387"}
+		var styled strings.Builder
+		var visible strings.Builder
+		for i := range nSegs {
+			b := rapid.SampledFrom(bodies).Draw(t, fmt.Sprintf("seg%d", i))
+			c := rapid.SampledFrom(colors).Draw(t, fmt.Sprintf("color%d", i))
+			styleIt := rapid.Bool().Draw(t, fmt.Sprintf("styled%d", i))
+			if styleIt {
+				styled.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Render(b))
+			} else {
+				styled.WriteString(b)
+			}
+			visible.WriteString(b)
+		}
+		line := styled.String()
+
+		// Queries deliberately include the bytes that only ever occur *inside*
+		// escape sequences — the exact inputs that used to corrupt the output.
+		query := rapid.SampledFrom([]string{
+			"2", ";", "m", "38", "38;2", "1b", "[", "0m",
+			"func", "main", "nil", "oo", "語", "é", " ", "\t", "x2", "a;b",
+			// The replacement character the user actually sees for an
+			// invalid byte, plus the raw bytes themselves.
+			"\uFFFD", "\xff", "\xc3",
+		}).Draw(t, "query")
+
+		got := highlightMatchInLine(line, query)
+
+		// Invariant 1: highlighting never alters the visible text. This is
+		// what "does not corrupt ANSI" means observably — a spliced escape
+		// sequence shows up as extra visible characters.
+		wantVisible := stripANSIForWidth(line)
+		if gotVisible := stripANSIForWidth(got); gotVisible != wantVisible {
+			t.Fatalf("visible text changed by highlighting query %q:\n got %q\nwant %q\nline %q",
+				query, gotVisible, wantVisible, line)
+		}
+
+		// Invariant 2: a highlight is applied exactly when the visible text
+		// contains the query — never for a match that exists only among the
+		// escape bytes, and never missed when it straddles a style boundary.
+		wantMatch := strings.Contains(strings.ToLower(wantVisible), strings.ToLower(query))
+		if (got != line) != wantMatch {
+			t.Fatalf("highlighted = %v, want %v for query %q\nvisible %q\nline %q\ngot %q",
+				got != line, wantMatch, query, wantVisible, line, got)
+		}
+
+		// Invariant 3: idempotence of the visible text under re-highlighting —
+		// running the highlighter over its own output must not accumulate
+		// visible garbage (the failure mode where escape bytes become text and
+		// are then themselves matched).
+		again := highlightMatchInLine(got, query)
+		if againVisible := stripANSIForWidth(again); againVisible != wantVisible {
+			t.Fatalf("re-highlighting changed visible text for query %q:\n got %q\nwant %q",
+				query, againVisible, wantVisible)
+		}
+	})
+}
+
+// --- A6 review item 5: control characters in filenames ----------------------
+//
+// The -z conversion is what makes this reachable: git's core.quotePath used to
+// escape control characters in filenames before we ever saw them. Reading raw
+// NUL-delimited output is right, but it means a literal tab or newline in a
+// filename now reaches display text, where a tab hits the runewidth-0 /
+// lipgloss-4 disagreement and a newline breaks the one-label-per-row
+// assumption that row math and mouse hit-testing depend on.
+
+func TestSanitizeDisplayText(t *testing.T) {
+	tests := []struct{ name, in, want string }{
+		{"empty", "", ""},
+		{"plain ASCII untouched", "internal/ui/model.go", "internal/ui/model.go"},
+		{"non-ASCII is NOT escaped (the point of -z)", "café/日本語.go", "café/日本語.go"},
+		{"tab", "a\tb.go", `a\tb.go`},
+		{"newline", "a\nb.go", `a\nb.go`},
+		{"carriage return", "a\rb.go", `a\rb.go`},
+		{"NUL", "a\x00b", `a\x00b`},
+		{"bell and escape", "a\x07\x1bb", `a\x07\x1bb`},
+		{"DEL", "a\x7fb", `a\x7fb`},
+		{"literal backslash deliberately left alone", `a\tb.go`, `a\tb.go`},
+		{"only controls", "\t\n", `\t\n`},
+		{"mixed", "sr\tc/café\n.go", `sr\tc/café\n.go`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeDisplayText(tt.in); got != tt.want {
+				t.Errorf("sanitizeDisplayText(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// The invariant that matters for the UI: display text is single-row and
+// control-free, whatever the filename contains. Stated over generated
+// filenames rather than a fixed list, since the whole A6 lesson is that the
+// dangerous inputs are the ones nobody thought to write down.
+func TestProperty_SanitizedFilenameIsSafeForDisplay(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		segments := []string{
+			"internal", "ui", "model.go", "café", "日本語", "my docs",
+			"a\tb", "a\nb", "a\rb", "x\x00y", "\x07bell", "\x1b[31mred",
+			"\x7fdel", "plain", "", "  spaced  ",
+		}
+		n := rapid.IntRange(1, 4).Draw(t, "nSegments")
+		var parts []string
+		for i := range n {
+			parts = append(parts, rapid.SampledFrom(segments).Draw(t, fmt.Sprintf("seg%d", i)))
+		}
+		name := strings.Join(parts, "/")
+
+		got := sanitizeDisplayText(name)
+
+		// Invariant 1: no C0 control character or DEL survives — so no label
+		// can move the cursor, start an escape sequence, or span a row.
+		for _, r := range got {
+			if isDisplayControl(r) {
+				t.Fatalf("control char %#U survived sanitizing %q -> %q", r, name, got)
+			}
+		}
+		// Invariant 2: exactly one row. A newline in a sidebar label breaks
+		// row math and mouse hit-testing outright.
+		if strings.Contains(got, "\n") {
+			t.Fatalf("sanitized %q -> %q still spans multiple rows", name, got)
+		}
+		// Invariant 3: idempotent — sanitizing display text again is a no-op,
+		// so a path that happens to flow through twice is not double-escaped
+		// into something unrecognizable.
+		if again := sanitizeDisplayText(got); again != got {
+			t.Fatalf("not idempotent: %q -> %q -> %q", name, got, again)
+		}
+		// Invariant 4: printable, non-control input is passed through
+		// untouched — the sanitizer must not disturb ordinary or non-ASCII
+		// filenames, which is exactly what the -z conversion set out to fix.
+		if strings.IndexFunc(name, isDisplayControl) < 0 && got != name {
+			t.Fatalf("control-free name %q was altered to %q", name, got)
 		}
 	})
 }

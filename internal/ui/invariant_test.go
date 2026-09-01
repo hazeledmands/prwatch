@@ -59,6 +59,26 @@ func maybeEmoji(t *rapid.T, tag string, s string) string {
 //   - the empty-diff case (file unchanged)
 //
 // Returns ("", "") for the empty-diff case.
+// genDiffLineBody builds the text of one generated diff line. Diff bodies used
+// to be uniformly plain ASCII, so tab-indented source — every Go file — and
+// non-ASCII text never reached the diff renderer, wrap math or gutter.
+//
+// Varied by index rather than by a rapid draw so existing .fail seeds for the
+// diff properties stay replayable.
+func genDiffLineBody(kind string, h, op int) string {
+	base := fmt.Sprintf("%s_h%do%d", kind, h, op)
+	switch (h + op) % 4 {
+	case 1:
+		return "\t" + base
+	case 2:
+		return "\t\t" + base + "\t// café"
+	case 3:
+		return base + " 日本語"
+	default:
+		return base
+	}
+}
+
 func genUnifiedDiff(t *rapid.T) (diff, newContent string) {
 	nHunks := rapid.IntRange(0, 3).Draw(t, "diff_nHunks")
 	if nHunks == 0 {
@@ -88,7 +108,7 @@ func genUnifiedDiff(t *rapid.T) (diff, newContent string) {
 		for op := 0; op < nOps; op++ {
 			kind := rapid.SampledFrom([]string{"context", "added", "removed"}).Draw(
 				t, fmt.Sprintf("diff_op_h%d_o%d_kind", h, op))
-			text := fmt.Sprintf("%s_h%do%d", kind, h, op)
+			text := genDiffLineBody(kind, h, op)
 			switch kind {
 			case "context":
 				hunkBody.WriteString(" " + text + "\n")
@@ -138,6 +158,34 @@ func genUnifiedDiff(t *rapid.T) (diff, newContent string) {
 }
 
 // genMockGit generates random but valid mockGit instances for property testing.
+// genFileName builds a generated filename, cycling through character classes
+// that used to be absent from every generator in the package: non-ASCII
+// letters, wide runes, and spaces. Real repos contain all three, and the
+// escaped forms git emits for them (`"caf\303\251.go"`) were reaching the
+// sidebar verbatim before the -z conversion.
+//
+// The variation is keyed on the index rather than drawn from rapid on purpose:
+// it widens the generated input class without adding a draw, so every existing
+// .fail seed for these properties stays replayable.
+func genFileName(prefix string, i int) string {
+	switch i % 5 {
+	case 1:
+		return fmt.Sprintf("%s%d_café.go", prefix, i)
+	case 2:
+		return fmt.Sprintf("%s %d.go", prefix, i)
+	case 3:
+		return fmt.Sprintf("%s%d_日本.go", prefix, i)
+	case 4:
+		// A literal tab in a filename. Legal on every platform this runs on,
+		// and reachable since the -z conversion stopped git from escaping it
+		// for us. Sanitizing happens at the display boundary, so filePath and
+		// every git argument keep the raw byte while labels show `\t`.
+		return fmt.Sprintf("%s%d\tcontrol.go", prefix, i)
+	default:
+		return fmt.Sprintf("%s%d.go", prefix, i)
+	}
+}
+
 func genMockGit(t *rapid.T) *mockGit {
 	nCommitted := rapid.IntRange(0, 20).Draw(t, "nCommitted")
 	nUncommitted := rapid.IntRange(0, 10).Draw(t, "nUncommitted")
@@ -146,7 +194,7 @@ func genMockGit(t *rapid.T) *mockGit {
 
 	committed := make([]string, nCommitted)
 	for i := range committed {
-		committed[i] = fmt.Sprintf("file%d.go", i)
+		committed[i] = genFileName("file", i)
 	}
 	// Randomly mark some committed files as deleted (exercises [-] badge)
 	// and some as entirely-added (exercises [+] badge on committed files).
@@ -163,11 +211,11 @@ func genMockGit(t *rapid.T) *mockGit {
 	}
 	uncommitted := make([]string, nUncommitted)
 	for i := range uncommitted {
-		uncommitted[i] = fmt.Sprintf("new%d.go", i)
+		uncommitted[i] = genFileName("new", i)
 	}
 	staged := make([]string, nStaged)
 	for i := range staged {
-		staged[i] = fmt.Sprintf("staged%d.go", i)
+		staged[i] = genFileName("staged", i)
 	}
 	// All uncommitted files in the mock are untracked (new), and some staged
 	// files are newly added — collect them as the Added set so the [+] badge
@@ -213,7 +261,7 @@ func genMockGit(t *rapid.T) *mockGit {
 	nOther := rapid.IntRange(0, 15).Draw(t, "nOtherFiles")
 	otherFiles := make([]string, nOther)
 	for i := range otherFiles {
-		otherFiles[i] = fmt.Sprintf("other%d.go", i)
+		otherFiles[i] = genFileName("other", i)
 	}
 	// allFiles is a superset: changed files + unchanged files (excludes ignored)
 	allFiles := make([]string, 0, nCommitted+nUncommitted+nStaged+nOther)
@@ -717,14 +765,15 @@ func checkAllInvariants(t *rapid.T, m *Model, context string) {
 
 // displayWidth returns the display width of a string, accounting for
 // multi-byte UTF-8 characters, emoji, and East Asian wide characters.
+// Tabs are not special-cased: expandTabs removes them at the content
+// boundary, so a tab reaching display-width math is a bug at that boundary
+// rather than something to compensate for here. (This helper previously used a
+// flat 8 columns per tab — a *fourth* tab width, agreeing with none of the
+// three in production.)
 func displayWidth(s string) int {
 	w := 0
 	for _, r := range s {
-		if r == '\t' {
-			w += 8 // tab stop
-		} else {
-			w += runewidth.RuneWidth(r)
-		}
+		w += runewidth.RuneWidth(r)
 	}
 	return w
 }
@@ -1116,11 +1165,28 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 				func(n int) string { return fmt.Sprintf("日本語のテキスト %d です", n) },
 				// Mixed ASCII + wide + combining marks.
 				func(n int) string { return fmt.Sprintf("café ünïcode %d 漢字 mixed", n) },
+				// A6: tab-indented body — i.e. what every Go file looks like.
+				// Never generated before, which is how three disagreeing tab
+				// widths survived in the wrap, gutter and copy math.
+				func(n int) string { return fmt.Sprintf("\tif tabbed(%d) {", n) },
+				// A6: deeper tab indent plus an interior tab, so tab-stop
+				// alignment (not just a fixed substitution) is exercised.
+				func(n int) string { return fmt.Sprintf("\t\treturn x\t// %d", n) },
+				// A6: mixed tabs and spaces, the alignment case most likely to
+				// disagree between wrap math and render.
+				func(n int) string { return fmt.Sprintf("\t    mixed indent %d", n) },
 			}
 			k := rapid.IntRange(0, len(kinds)-1).Draw(t, fmt.Sprintf("lineKind%d", i))
 			srcLines = append(srcLines, kinds[k](i+1))
 		}
-		srcContent := strings.Join(srcLines, "\n")
+		// Tabs are expanded once where content enters the pane, so the text
+		// the user sees — and therefore the text a drag copies — is the
+		// expanded form. The invariants below compare copied text against
+		// these source lines, so they must hold the post-boundary form too;
+		// comparing against the raw generated string would report every
+		// tab-indented line as a mismatch.
+		srcContent := expandTabs(strings.Join(srcLines, "\n"))
+		srcLines = strings.Split(srcContent, "\n")
 
 		mock := genMockGit(t)
 		mock.fileContent = srcContent
@@ -1623,7 +1689,11 @@ func TestProperty_DragAcrossModesNoPanic(t *testing.T) {
 
 // genNestedFiles generates file paths with directory structure for tree mode testing.
 func genNestedFiles(t *rapid.T, tag string, n int) []string {
-	dirPool := []string{"internal", "cmd", "pkg", "api", "internal/ui", "internal/git", "pkg/utils", "lib"}
+	// A6: the pool now includes a non-ASCII and a spaced directory component,
+	// so tree building, path splitting and sidebar width math see them. Added
+	// to the end of the pool so existing seeds keep sampling the same entries.
+	dirPool := []string{"internal", "cmd", "pkg", "api", "internal/ui", "internal/git", "pkg/utils", "lib",
+		"café", "my docs", "internal/日本"}
 	seen := make(map[string]bool)
 	var files []string
 	for i := range n {
@@ -1632,9 +1702,9 @@ func genNestedFiles(t *rapid.T, tag string, n int) []string {
 		var path string
 		if useDir {
 			dir := rapid.SampledFrom(dirPool).Draw(t, itag+"_dir")
-			path = fmt.Sprintf("%s/file%d.go", dir, i)
+			path = fmt.Sprintf("%s/%s", dir, genFileName("file", i))
 		} else {
-			path = fmt.Sprintf("file%d.go", i)
+			path = genFileName("file", i)
 		}
 		if seen[path] {
 			path = fmt.Sprintf("gen%d_%s", i, path)
@@ -2844,37 +2914,41 @@ func TestProperty_FileViewRender_PreservesAllRemovedLines(t *testing.T) {
 		mp.SetSize(200, 100)
 		mp.lineNumbers = false
 		mp.showRemoved = true
-		mp.diffAnnotations = annotations
+		// Install through the real setter, not by assigning the field: that
+		// setter is a content boundary (it tab-normalizes removedLines), and
+		// bypassing it made this test compare rendered output against
+		// pre-boundary text.
+		mp.SetDiffAnnotations(annotations)
 		mp.SetPlainContent(newContent)
 		formatted, _ := mp.applyFileViewFormatting(newContent)
 		rendered := stripANSI(formatted)
 
-		// Build the set of removed-line texts the renderer is *exempt* from
-		// preserving as contiguous substrings: the one removed line per
-		// diffLineChanged annotation that drives the inline-diff renderer.
-		exempt := make(map[string]int)
+		// Expected removed-line texts are built from the caller's own
+		// `annotations` mapped through expandTabs — deliberately NOT from
+		// mp.diffAnnotations, which is the same state the renderer reads: if
+		// the setter dropped an entry, both sides would lose it together and
+		// the property would pass vacuously. expandTabs is the boundary's
+		// stated contract, so applying it here states the expectation rather
+		// than re-deriving the implementation.
+		//
+		// Exempt: the one removed line per diffLineChanged annotation that
+		// drives the inline-diff renderer, which is not preserved as a
+		// contiguous substring.
+		wantRemoved := make(map[string]int)
 		for _, ann := range annotations {
-			if ann.kind == diffLineChanged && len(ann.removedLines) > 0 {
-				last := ann.removedLines[len(ann.removedLines)-1]
-				exempt[last]++
+			for i, r := range ann.removedLines {
+				isInlineDiffSource := ann.kind == diffLineChanged && i == len(ann.removedLines)-1
+				if isInlineDiffSource {
+					continue
+				}
+				wantRemoved[expandTabs(r)]++
 			}
 		}
 
-		for _, line := range strings.Split(diff, "\n") {
-			if strings.HasPrefix(line, "---") {
-				continue
-			}
-			if !strings.HasPrefix(line, "-") {
-				continue
-			}
-			removed := line[1:]
-			if exempt[removed] > 0 {
-				exempt[removed]--
-				continue
-			}
-			if !strings.Contains(rendered, removed) {
-				t.Fatalf("removed line %q missing from rendered output\ndiff:\n%s\nnewContent:\n%q\nannotations: %+v\nrendered:\n%s",
-					removed, diff, newContent, annotations, rendered)
+		for removed, n := range wantRemoved {
+			if strings.Count(rendered, removed) < n {
+				t.Fatalf("removed line %q appears %d× in rendered output, want >= %d\ndiff:\n%s\nnewContent:\n%q\nannotations: %+v\nrendered:\n%s",
+					removed, strings.Count(rendered, removed), n, diff, newContent, mp.diffAnnotations, rendered)
 			}
 		}
 	})

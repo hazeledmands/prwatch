@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -111,9 +113,36 @@ func newMainPane() *mainPane {
 }
 
 // SetDiffAnnotations sets diff annotations for files mode gutter rendering.
+//
+// This is the pane's *second* content boundary: an annotation's removedLines
+// are rendered inline as pane rows (Shift+D), so they get the same tab
+// normalization as SetContent/SetPlainContent. Without it a removed line
+// carried a raw tab into the render, where lipgloss expanded it to 4 columns
+// while the pane's own width math counted it as 0 — the same class of
+// disagreement expandTabs exists to end.
 func (m *mainPane) SetDiffAnnotations(annotations map[int]diffAnnotation) {
-	m.diffAnnotations = annotations
+	m.diffAnnotations = expandTabsInAnnotations(annotations)
 	m.refreshViewport()
+}
+
+// expandTabsInAnnotations returns annotations whose removedLines have been
+// tab-normalized. Returns a fresh map so the caller's copy is untouched.
+func expandTabsInAnnotations(annotations map[int]diffAnnotation) map[int]diffAnnotation {
+	if annotations == nil {
+		return nil
+	}
+	out := make(map[int]diffAnnotation, len(annotations))
+	for line, ann := range annotations {
+		if len(ann.removedLines) > 0 {
+			removed := make([]string, len(ann.removedLines))
+			for i, r := range ann.removedLines {
+				removed[i] = expandTabs(r)
+			}
+			ann.removedLines = removed
+		}
+		out[line] = ann
+	}
+	return out
 }
 
 // ClearDiffAnnotations removes diff annotations.
@@ -511,14 +540,64 @@ func viewportHeightFor(paneHeight int) int {
 	return paneHeight - 1
 }
 
+// tabWidth is the column span of a tab everywhere in the UI. 4 matches what
+// lipgloss already renders, so expanding at the boundary changes no pixels.
+const tabWidth = 4
+
+// expandTabs replaces each tab with spaces up to the next tabWidth-column tab
+// stop, resetting the column at every newline and skipping ANSI escape
+// sequences (which occupy no columns).
+//
+// This is the single tab-handling site in the UI. Before it existed, three
+// different widths were in play — the wrap tokenizer and ansiAwareIterate used
+// 8-column stops, runewidth.RuneWidth('\t') reports 0, and lipgloss renders 4
+// — so on tab-indented files (i.e. every Go file) wrap points, gutter
+// alignment, cursor columns and drag-copy slicing silently disagreed with the
+// render and with each other. Normalizing once here means no downstream
+// consumer needs to know what a tab is.
+func expandTabs(s string) string {
+	if !strings.ContainsRune(s, '\t') {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + len(s)/8)
+	col := 0
+	inEscape := false
+	for _, r := range s {
+		if inEscape {
+			b.WriteRune(r)
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+		switch r {
+		case '\x1b':
+			b.WriteRune(r)
+			inEscape = true
+		case '\n':
+			b.WriteRune(r)
+			col = 0
+		case '\t':
+			n := tabWidth - (col % tabWidth)
+			b.WriteString(strings.Repeat(" ", n))
+			col += n
+		default:
+			b.WriteRune(r)
+			col += runewidth.RuneWidth(r)
+		}
+	}
+	return b.String()
+}
+
 func (m *mainPane) SetContent(content string) {
-	m.content = content
+	m.content = expandTabs(content)
 	m.isDiff = true
 	m.refreshViewport()
 }
 
 func (m *mainPane) SetPlainContent(content string) {
-	m.content = content
+	m.content = expandTabs(content)
 	m.isDiff = false
 	m.recomputeHighlightedLines()
 	m.refreshViewport()
@@ -1322,44 +1401,129 @@ func highlightSearch(content, query string) string {
 		return content
 	}
 	lines := strings.Split(content, "\n")
-	q := strings.ToLower(query)
 	for i, line := range lines {
-		stripped := stripANSIForWidth(line)
-		if strings.Contains(strings.ToLower(stripped), q) {
-			lines[i] = highlightMatchInLine(line, query)
-		}
+		lines[i] = highlightMatchInLine(line, query)
 	}
 	return strings.Join(lines, "\n")
 }
 
-// highlightMatchInLine wraps matching substrings with the search highlight style.
-// Works on text that may already contain ANSI escape codes.
+// searchHighlightOpen is the SGR open-sequence for the search highlight, used
+// to re-establish it after each inner reset inside a matched span (the same
+// technique as applyDiffBg).
+var searchHighlightOpen = styleOpenSeq(searchHighlightStyle)
+
+// styleOpenSeq returns just the SGR open-sequence for a style, with no
+// trailing reset.
+func styleOpenSeq(st lipgloss.Style) string {
+	rendered := st.Render("")
+	return strings.TrimSuffix(strings.TrimSuffix(rendered, "\x1b[0m"), "\x1b[m")
+}
+
+// visibleIndex maps the *visible* text of an ANSI-styled line back to byte
+// spans of the original styled line.
+type visibleIndex struct {
+	lower    string // visible text, lowercased per rune, for matching
+	srcStart []int  // per lower byte: start byte offset in the styled line
+	srcEnd   []int  // per lower byte: end byte offset in the styled line
+}
+
+// indexVisible walks line once, skipping ANSI escape sequences, and records
+// for every byte of the lowercased visible text which byte span of the styled
+// line produced it. Lowercasing per rune (rather than over the whole string)
+// is what keeps the mapping valid even when a rune's lowercase form has a
+// different byte length.
+//
+// Escape sequences are terminated on any letter, matching the package's other
+// ANSI walkers (ansiAwareIterate, stripANSIForWidth).
+//
+// The decode is manual rather than `for i, r := range line` because that form
+// cannot express the span of invalid UTF-8: it yields RuneError for a single
+// bad byte, and utf8.RuneLen(RuneError) is 3, so the recorded span overshot
+// the byte the rune actually occupied — corrupting spans mid-string and
+// panicking with a slice-bounds error when the overshoot ran past the end.
+// DecodeRuneInString's size is the real byte count in every case.
+func indexVisible(line string) visibleIndex {
+	var vi visibleIndex
+	var lower []byte
+	inEscape := false
+	for i := 0; i < len(line); {
+		r, size := utf8.DecodeRuneInString(line[i:])
+		if inEscape {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			i += size
+			continue
+		}
+		if r == '\x1b' {
+			inEscape = true
+			i += size
+			continue
+		}
+		start, end := i, i+size
+		before := len(lower)
+		lower = utf8.AppendRune(lower, unicode.ToLower(r))
+		for range len(lower) - before {
+			vi.srcStart = append(vi.srcStart, start)
+			vi.srcEnd = append(vi.srcEnd, end)
+		}
+		i += size
+	}
+	vi.lower = string(lower)
+	return vi
+}
+
+// highlightMatchInLine wraps matching substrings with the search highlight
+// style, on text that may already contain ANSI escape codes.
+//
+// The search runs against the *visible* text, never the styled bytes. Doing it
+// the other way round (as this used to) meant truecolor sequences — which are
+// nothing but digits, semicolons and a terminating letter — matched queries
+// like "2", ";" or "m", splicing the highlight into the middle of an escape
+// sequence and dumping `7;194;161mhello` on screen as visible text. It also
+// silently missed any match straddling a chroma token boundary, because an
+// escape sequence sat between the query's characters.
 func highlightMatchInLine(line, query string) string {
+	if query == "" {
+		return line
+	}
+	vi := indexVisible(line)
 	q := strings.ToLower(query)
-	lower := strings.ToLower(line)
-	var result strings.Builder
-	pos := 0
+	if !strings.Contains(vi.lower, q) {
+		return line
+	}
+
+	var out strings.Builder
+	out.Grow(len(line))
+	pos := 0  // byte offset into the styled line, already emitted
+	from := 0 // byte offset into vi.lower, already searched
 	for {
-		idx := strings.Index(strings.ToLower(line[pos:]), q)
+		idx := strings.Index(vi.lower[from:], q)
 		if idx < 0 {
-			result.WriteString(line[pos:])
 			break
 		}
-		result.WriteString(line[pos : pos+idx])
-		matchEnd := pos + idx + len(query)
-		// Find the actual matched text (preserving original case)
-		matchText := line[pos+idx : matchEnd]
-		result.WriteString(searchHighlightStyle.Render(matchText))
-		pos = matchEnd
+		ps := from + idx
+		pe := ps + len(q)
+		styledStart, styledEnd := vi.srcStart[ps], vi.srcEnd[pe-1]
+		if styledStart >= pos {
+			out.WriteString(line[pos:styledStart])
+			// The matched span may itself contain escape sequences; re-emit the
+			// highlight after each inner reset so it covers the whole match.
+			out.WriteString(applyDiffBg(line[styledStart:styledEnd], searchHighlightOpen))
+			pos = styledEnd
+		}
+		from = pe
 	}
-	_ = lower // used in ToLower above
-	return result.String()
+	out.WriteString(line[pos:])
+	return out.String()
 }
 
 // ansiAwareIterate calls fn for each rune in line, passing the rune and its
-// display width (0 for characters inside ANSI escape sequences, 1 for normal
-// printable characters, and the tab width for '\t').
-// It returns the total display width.
+// display width (0 for characters inside ANSI escape sequences, otherwise the
+// rune's display width). It returns the total display width.
+//
+// Tabs need no special case: expandTabs removes them where content enters the
+// pane, so anything reaching here is already spaces.
 func ansiAwareIterate(line string, fn func(r rune, displayW int)) int {
 	totalW := 0
 	inEscape := false
@@ -1377,12 +1541,7 @@ func ansiAwareIterate(line string, fn func(r rune, displayW int)) int {
 			inEscape = true
 			continue
 		}
-		var w int
-		if r == '\t' {
-			w = 8 - (totalW % 8) // tab stop every 8 columns
-		} else {
-			w = runewidth.RuneWidth(r)
-		}
+		w := runewidth.RuneWidth(r)
 		fn(r, w)
 		totalW += w
 	}
@@ -1444,7 +1603,9 @@ func wrapLinesWithContinuationMap(content string, width, indent int) (string, []
 				inEscape = true
 				continue
 			}
-			isSpace := r == ' ' || r == '\t'
+			// No '\t' case: expandTabs already turned tabs into spaces at
+			// the content boundary.
+			isSpace := r == ' '
 			if cur.Len() > 0 && isSpace != curIsSpace {
 				tokens = append(tokens, token{text: cur.String(), displayW: curW, isSpace: curIsSpace})
 				cur.Reset()
@@ -1452,11 +1613,7 @@ func wrapLinesWithContinuationMap(content string, width, indent int) (string, []
 			}
 			curIsSpace = isSpace
 			cur.WriteRune(r)
-			if r == '\t' {
-				curW += 8 - (curW % 8)
-			} else {
-				curW += runewidth.RuneWidth(r)
-			}
+			curW += runewidth.RuneWidth(r)
 		}
 		if cur.Len() > 0 {
 			tokens = append(tokens, token{text: cur.String(), displayW: curW, isSpace: curIsSpace})

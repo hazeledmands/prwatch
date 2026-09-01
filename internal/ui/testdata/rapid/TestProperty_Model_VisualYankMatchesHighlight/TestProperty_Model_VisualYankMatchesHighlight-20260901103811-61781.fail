@@ -1,0 +1,789 @@
+# 2026/09/01 10:38:11.816011 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw isGit: 1
+# 2026/09/01 10:38:11.816030 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nCommitted: 20
+# 2026/09/01 10:38:11.816040 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nUncommitted: 1
+# 2026/09/01 10:38:11.816049 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nStaged: 0
+# 2026/09/01 10:38:11.816056 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nCommits: 17
+# 2026/09/01 10:38:11.816108 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file0.go: 1
+# 2026/09/01 10:38:11.816117 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file1_café.go: 1
+# 2026/09/01 10:38:11.816125 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file 2.go: 1
+# 2026/09/01 10:38:11.816132 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file3_日本.go: 1
+# 2026/09/01 10:38:11.816142 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file4.go: 1
+# 2026/09/01 10:38:11.816150 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file5_café.go: 1
+# 2026/09/01 10:38:11.816158 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file 6.go: 1
+# 2026/09/01 10:38:11.816164 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file7_日本.go: 1
+# 2026/09/01 10:38:11.816172 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file8.go: 1
+# 2026/09/01 10:38:11.816179 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file9_café.go: 1
+# 2026/09/01 10:38:11.816185 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file 10.go: 1
+# 2026/09/01 10:38:11.816195 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file11_日本.go: 1
+# 2026/09/01 10:38:11.816206 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file12.go: 1
+# 2026/09/01 10:38:11.816213 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file13_café.go: 1
+# 2026/09/01 10:38:11.816219 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file 14.go: 1
+# 2026/09/01 10:38:11.816226 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file15_日本.go: 1
+# 2026/09/01 10:38:11.816233 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file16.go: 1
+# 2026/09/01 10:38:11.816239 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file17_café.go: 1
+# 2026/09/01 10:38:11.816247 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file 18.go: 1
+# 2026/09/01 10:38:11.816254 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw changeType_file19_日本.go: 1
+# 2026/09/01 10:38:11.816264 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_u_new0.go: 1
+# 2026/09/01 10:38:11.816272 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file0.go: 1
+# 2026/09/01 10:38:11.816280 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file1_café.go: 1
+# 2026/09/01 10:38:11.816287 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file 2.go: 1
+# 2026/09/01 10:38:11.816294 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file3_日本.go: 1
+# 2026/09/01 10:38:11.816302 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file4.go: 1
+# 2026/09/01 10:38:11.816309 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file5_café.go: 1
+# 2026/09/01 10:38:11.816317 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file 6.go: 1
+# 2026/09/01 10:38:11.816323 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file7_日本.go: 1
+# 2026/09/01 10:38:11.816330 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file8.go: 1
+# 2026/09/01 10:38:11.816337 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file9_café.go: 1
+# 2026/09/01 10:38:11.816344 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file 10.go: 1
+# 2026/09/01 10:38:11.816359 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file11_日本.go: 1
+# 2026/09/01 10:38:11.816365 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file12.go: 1
+# 2026/09/01 10:38:11.816372 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file13_café.go: 1
+# 2026/09/01 10:38:11.816379 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file 14.go: 1
+# 2026/09/01 10:38:11.816386 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file15_日本.go: 1
+# 2026/09/01 10:38:11.816394 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file16.go: 1
+# 2026/09/01 10:38:11.816402 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file17_café.go: 1
+# 2026/09/01 10:38:11.816410 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file 18.go: 1
+# 2026/09/01 10:38:11.816417 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw rename_c_file19_日本.go: 1
+# 2026/09/01 10:38:11.816426 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nOtherFiles: 0
+# 2026/09/01 10:38:11.816433 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nIgnored: 3
+# 2026/09/01 10:38:11.816441 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw ignoredKind0: 0
+# 2026/09/01 10:38:11.816453 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw ignoredKind1: 0
+# 2026/09/01 10:38:11.816464 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw ignoredKind2: 0
+# 2026/09/01 10:38:11.816481 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit0_emoji: 0.49699798226356506
+# 2026/09/01 10:38:11.816495 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit1_emoji: 0.2795615675735945
+# 2026/09/01 10:38:11.816502 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit1_emojiVal: "✅"
+# 2026/09/01 10:38:11.816515 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit2_emoji: 8.557920298222806e-38
+# 2026/09/01 10:38:11.816523 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit2_emojiVal: "✅"
+# 2026/09/01 10:38:11.816537 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit3_emoji: 0.23004150390625
+# 2026/09/01 10:38:11.816544 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit3_emojiVal: "🤖"
+# 2026/09/01 10:38:11.816557 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit4_emoji: 1
+# 2026/09/01 10:38:11.816570 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit5_emoji: 1.567512828240504e-228
+# 2026/09/01 10:38:11.816577 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit5_emojiVal: "🔥"
+# 2026/09/01 10:38:11.816592 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit6_emoji: 1
+# 2026/09/01 10:38:11.816605 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit7_emoji: 1
+# 2026/09/01 10:38:11.816617 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit8_emoji: 1
+# 2026/09/01 10:38:11.816629 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit9_emoji: 1
+# 2026/09/01 10:38:11.816641 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit10_emoji: 1
+# 2026/09/01 10:38:11.816654 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit11_emoji: 1
+# 2026/09/01 10:38:11.816668 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit12_emoji: 0.5
+# 2026/09/01 10:38:11.816679 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit13_emoji: 1
+# 2026/09/01 10:38:11.816691 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit14_emoji: 1
+# 2026/09/01 10:38:11.816702 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit15_emoji: 1
+# 2026/09/01 10:38:11.816713 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commit16_emoji: 1
+# 2026/09/01 10:38:11.816721 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw branch: "main"
+# 2026/09/01 10:38:11.816727 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw detached: false
+# 2026/09/01 10:38:11.816750 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw prNum: 42
+# 2026/09/01 10:38:11.816758 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw prTitle_emoji: 1
+# 2026/09/01 10:38:11.816763 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw isDraft: true
+# 2026/09/01 10:38:11.816772 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw aheadCount: 0
+# 2026/09/01 10:38:11.816779 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_nHunks: 3
+# 2026/09/01 10:38:11.816788 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_skip0: 3
+# 2026/09/01 10:38:11.816804 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_nOps0: 4
+# 2026/09/01 10:38:11.816812 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_op_h0_o0_kind: "context"
+# 2026/09/01 10:38:11.816825 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_op_h0_o1_kind: "added"
+# 2026/09/01 10:38:11.816837 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_op_h0_o2_kind: "added"
+# 2026/09/01 10:38:11.816848 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_op_h0_o3_kind: "added"
+# 2026/09/01 10:38:11.816863 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_skip1: 0
+# 2026/09/01 10:38:11.816871 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_nOps1: 1
+# 2026/09/01 10:38:11.816880 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_op_h1_o0_kind: "context"
+# 2026/09/01 10:38:11.816895 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_skip2: 0
+# 2026/09/01 10:38:11.816903 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_nOps2: 2
+# 2026/09/01 10:38:11.816911 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_op_h2_o0_kind: "removed"
+# 2026/09/01 10:38:11.816923 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw diff_op_h2_o1_kind: "added"
+# 2026/09/01 10:38:11.816941 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commitPatch_emoji: 1
+# 2026/09/01 10:38:11.816949 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw hasReviews: false
+# 2026/09/01 10:38:11.816955 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw hasComments: true
+# 2026/09/01 10:38:11.816960 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nComments: 3
+# 2026/09/01 10:38:11.816974 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commenter0_emoji: 1.080258498280931e-124
+# 2026/09/01 10:38:11.816980 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commenter0_emojiVal: "🔥"
+# 2026/09/01 10:38:11.816993 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commentBody0_emoji: 1
+# 2026/09/01 10:38:11.817006 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commenter1_emoji: 1
+# 2026/09/01 10:38:11.817015 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commentBody1_emoji: 1
+# 2026/09/01 10:38:11.817028 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commenter2_emoji: 0.5
+# 2026/09/01 10:38:11.817038 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw commentBody2_emoji: 0.30509485118091106
+# 2026/09/01 10:38:11.817046 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw hasAPIError: false
+# 2026/09/01 10:38:11.817051 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw hasBaseCommits: true
+# 2026/09/01 10:38:11.817059 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nBaseCommits: 9
+# 2026/09/01 10:38:11.817070 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base0_emoji: 0.9930460896064233
+# 2026/09/01 10:38:11.817083 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base1_emoji: 0.1939697265625
+# 2026/09/01 10:38:11.817089 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base1_emojiVal: "🔥"
+# 2026/09/01 10:38:11.817102 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base2_emoji: 1
+# 2026/09/01 10:38:11.817114 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base3_emoji: 1
+# 2026/09/01 10:38:11.817127 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base4_emoji: 1
+# 2026/09/01 10:38:11.817141 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base5_emoji: 1
+# 2026/09/01 10:38:11.817152 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base6_emoji: 1
+# 2026/09/01 10:38:11.817162 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base7_emoji: 0.5
+# 2026/09/01 10:38:11.817174 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw base8_emoji: 0.3585177338682115
+# 2026/09/01 10:38:11.817181 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw mode: 0
+# 2026/09/01 10:38:11.817188 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw width: 96
+# 2026/09/01 10:38:11.817194 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw height: 34
+# 2026/09/01 10:38:11.831635 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw steps: 4
+# 2026/09/01 10:38:11.831657 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav0_kind: "motion"
+# 2026/09/01 10:38:11.831668 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav0_motion: "h"
+# 2026/09/01 10:38:11.831883 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav1_kind: "resize"
+# 2026/09/01 10:38:11.831893 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav1_w: 42
+# 2026/09/01 10:38:11.831902 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav1_h: 10
+# 2026/09/01 10:38:11.832672 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav2_kind: "motion"
+# 2026/09/01 10:38:11.832682 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav2_motion: "G"
+# 2026/09/01 10:38:11.832786 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav3_kind: "motion"
+# 2026/09/01 10:38:11.832794 [TestProperty_Model_VisualYankMatchesHighlight] [rapid] draw nav3_motion: "k"
+# 2026/09/01 10:38:11.840569 [TestProperty_Model_VisualYankMatchesHighlight] yanked line "        added_h0o2  //café" is not in the pane's rendered rows
+# 
+v0.4.8#8433057892456877923
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0xc05c654ab866b
+0x14
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0xc05c654ab866b
+0x11
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x3
+0x1fae5536209b5
+0x1a825731c2f82f
+0x0
+0xf20a4dc248b32
+0xc831c2918c65
+0x0
+0xb4aaa3591dab
+0x12ad9f79766219
+0x0
+0x8a05a4f7d345c
+0x1310e40793af12
+0xbeb83ced8b8dd
+0x2
+0x0
+0x18
+0xfced0ac9f0a2e
+0xc6fa8783a8956
+0x1554a424e79944
+0x3eb83d52d79cf
+0x2
+0x0
+0x2e
+0x1e456337c9d27
+0x10320ca8b5ca02
+0x1
+0x1d83a87f6c857f
+0x18e7cad1439c6e
+0x1226b4f17cc4b3
+0x7c
+0x0
+0xf
+0xd1f118e0ec80c
+0x13aa8829545b14
+0x1
+0x1bb604648af942
+0x1db63ad499f14d
+0x5315ac90eb815
+0x3
+0x0
+0xb
+0xd722fd5f669d0
+0x1933e5b4c5f3ce
+0x9
+0x1977cc65d65ce4
+0xbe
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1b0d30ae252fe9
+0xeb3e518976f47
+0x1adc060b1fb21c
+0x2f5
+0x0
+0x1b
+0x3032f1f44a19e
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x1
+0x0
+0x20
+0x5
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x5f5f15018afa4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x3a4e165a26cdf
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1746fa0140bcad
+0x2ad
+0x0
+0x0
+0x0
+0x0
+0x0
+0x148da7ed2cc2a
+0x0
+0x0
+0xa41d2afe268f5
+0x1
+0x1a94d0a918b2f3
+0x6fe27eec57ce8
+0x62e67078ca217
+0x0
+0x0
+0x0
+0x0
+0x1
+0x1b2bb690fafb1b
+0xe343ecb05406a
+0x0
+0x45d2e14cdfb0f
+0xb5331893e95d2
+0x3
+0xe7f78da3451ec
+0x1132ee49279464
+0x3
+0x8d46c2cde44bf
+0xe2cc80ef2e862
+0x3
+0xb087c460f8eb3
+0x0
+0x188d96c33c17a0
+0x1
+0x85f8d041c84c1
+0x1
+0x1
+0x1
+0x2
+0x2
+0x0
+0x1
+0x3f28cff3bbba
+0x0
+0x1a9c712d268578
+0x0
+0x182779dfc2597d
+0x46ef96e9a0bc1
+0x0
+0x8e65476510f2a
+0x573afaece3849
+0x1
+0x6b587d0a266bb
+0x2
+0x1e00000d0fc234
+0x1
+0x136173b1ad0282
+0x115529451505e1
+0x1d807c2ffc811
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x1fbc0c6a91fe93
+0x8225fa2cbedb7
+0x2
+0x19f5e4c5ada547
+0x17e9832f31ac8a
+0x16ef37e872bf42
+0x19c
+0x0
+0xd
+0x24815b419ec04
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0xaac9be19d1aa2
+0x3
+0x0
+0x1
+0x0
+0x1b
+0x1
+0xd76b02392393d
+0x1b061abb2a1d5c
+0x3824040fc3dea
+0x2
+0x0
+0x1c
+0x386ac8e532081
+0x0
+0x1
+0x40889cd4fca76
+0x1011e5cd4be74c
+0x8
+0x1abd2588fc9d31
+0x1bfc5c3ead9679
+0x4f08a5fc8176b
+0x1
+0x0
+0x2d
+0xfc70897c8f81c
+0x8bcd890204412
+0x9dfc2f6d44eb7
+0x7caa47ff2f697
+0x3
+0x0
+0xc
+0x8d449be483e31
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0xfbac53561c234
+0x3c
+0x0
+0x1
+0x0
+0x4
+0x8
+0x1d6cfc12373962
+0x415e03fc62d4f
+0x120057658c13ef
+0x2
+0x0
+0x1d
+0x6f1f45d85915c
+0x15e2289696be32
+0x7ce5359f835ff
+0x0
+0xaa37463a59db9
+0x1a8b538dc294a1
+0x24
+0x81ad300baca90
+0x10c0cd8b4a0b0c
+0x12
+0x1c82fa07771e52
+0x11ca318bdf1081
+0x3
+0xc8bebff085a28
+0x2
+0x129b62b8f0c1c6
+0x2
+0x1b24bda2340f3c
+0xa
+0x12954f8915a008
+0x6562098980df6
+0x2
+0x3f26a408621b8
+0xe9d1d7abf92
+0x0
+0x12d65429b02190
+0x2
+0x1fd88d4f46e51c
+0xffffffffffffffff
+0x2fee277fea3ba
+0x0
+0x3
+0x1

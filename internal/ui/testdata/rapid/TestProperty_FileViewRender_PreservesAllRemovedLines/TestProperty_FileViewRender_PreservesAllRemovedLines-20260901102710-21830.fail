@@ -1,0 +1,55 @@
+# 2026/09/01 10:27:10.365356 [TestProperty_FileViewRender_PreservesAllRemovedLines] [rapid] draw diff_nHunks: 1
+# 2026/09/01 10:27:10.365372 [TestProperty_FileViewRender_PreservesAllRemovedLines] [rapid] draw diff_skip0: 0
+# 2026/09/01 10:27:10.365382 [TestProperty_FileViewRender_PreservesAllRemovedLines] [rapid] draw diff_nOps0: 6
+# 2026/09/01 10:27:10.365395 [TestProperty_FileViewRender_PreservesAllRemovedLines] [rapid] draw diff_op_h0_o0_kind: "context"
+# 2026/09/01 10:27:10.365409 [TestProperty_FileViewRender_PreservesAllRemovedLines] [rapid] draw diff_op_h0_o1_kind: "context"
+# 2026/09/01 10:27:10.365421 [TestProperty_FileViewRender_PreservesAllRemovedLines] [rapid] draw diff_op_h0_o2_kind: "context"
+# 2026/09/01 10:27:10.365433 [TestProperty_FileViewRender_PreservesAllRemovedLines] [rapid] draw diff_op_h0_o3_kind: "context"
+# 2026/09/01 10:27:10.365445 [TestProperty_FileViewRender_PreservesAllRemovedLines] [rapid] draw diff_op_h0_o4_kind: "context"
+# 2026/09/01 10:27:10.365461 [TestProperty_FileViewRender_PreservesAllRemovedLines] [rapid] draw diff_op_h0_o5_kind: "removed"
+# 2026/09/01 10:27:10.365600 [TestProperty_FileViewRender_PreservesAllRemovedLines] removed line "\tremoved_h0o5" missing from rendered output
+# diff:
+# diff --git a/f b/f
+# --- a/f
+# +++ b/f
+# @@ -1,6 +1,5 @@
+#  context_h0o0
+#  	context_h0o1
+#  		context_h0o2	// café
+#  context_h0o3 日本語
+#  context_h0o4
+# -	removed_h0o5
+# 
+# newContent:
+# "context_h0o0\n\tcontext_h0o1\n\t\tcontext_h0o2\t// café\ncontext_h0o3 日本語\ncontext_h0o4"
+# annotations: map[6:{kind:0 removedLines:[	removed_h0o5]}]
+# rendered:
+#    context_h0o0
+#    	context_h0o1
+#    		context_h0o2	// café
+#    context_h0o3 日本語
+#    context_h0o4
+#  -     removed_h0o5
+# 
+v0.4.8#926658517550203186
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x5
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2

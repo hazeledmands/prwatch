@@ -45,6 +45,13 @@ func setupTestRepo(t *testing.T) string {
 		{"git", "init", "--initial-branch=main"},
 		{"git", "config", "user.email", "test@test.com"},
 		{"git", "config", "user.name", "Test"},
+		// Pin core.quotePath ON in repo-local config, which overrides whatever
+		// the host has globally. Without this, a developer with
+		// core.quotePath=false set globally would see the non-ASCII path tests
+		// pass even if the -z conversion were reverted to newline splitting.
+		// Repo-local + true is stronger than clearing the global config: it
+		// forces the very quoting these tests exist to defeat.
+		{"git", "config", "core.quotePath", "true"},
 	}
 	for _, args := range cmds {
 		cmd := command.DefaultFactory(args[0], args[1:]...)
@@ -217,6 +224,13 @@ func setupRenameRepo(t *testing.T) string {
 		{"git", "init", "--initial-branch=main"},
 		{"git", "config", "user.email", "test@test.com"},
 		{"git", "config", "user.name", "Test"},
+		// Pin core.quotePath ON in repo-local config, which overrides whatever
+		// the host has globally. Without this, a developer with
+		// core.quotePath=false set globally would see the non-ASCII path tests
+		// pass even if the -z conversion were reverted to newline splitting.
+		// Repo-local + true is stronger than clearing the global config: it
+		// forces the very quoting these tests exist to defeat.
+		{"git", "config", "core.quotePath", "true"},
 	}
 	for _, args := range cmds {
 		cmd := command.DefaultFactory(args[0], args[1:]...)
@@ -641,6 +655,13 @@ func TestDetectBase_NoMainBranch(t *testing.T) {
 		{"git", "init", "--initial-branch=master"},
 		{"git", "config", "user.email", "test@test.com"},
 		{"git", "config", "user.name", "Test"},
+		// Pin core.quotePath ON in repo-local config, which overrides whatever
+		// the host has globally. Without this, a developer with
+		// core.quotePath=false set globally would see the non-ASCII path tests
+		// pass even if the -z conversion were reverted to newline splitting.
+		// Repo-local + true is stronger than clearing the global config: it
+		// forces the very quoting these tests exist to defeat.
+		{"git", "config", "core.quotePath", "true"},
 	}
 	for _, args := range cmds {
 		cmd := command.DefaultFactory(args[0], args[1:]...)
@@ -676,6 +697,13 @@ func TestDetectBase_FallbackToHEAD(t *testing.T) {
 		{"git", "init", "--initial-branch=only"},
 		{"git", "config", "user.email", "test@test.com"},
 		{"git", "config", "user.name", "Test"},
+		// Pin core.quotePath ON in repo-local config, which overrides whatever
+		// the host has globally. Without this, a developer with
+		// core.quotePath=false set globally would see the non-ASCII path tests
+		// pass even if the -z conversion were reverted to newline splitting.
+		// Repo-local + true is stronger than clearing the global config: it
+		// forces the very quoting these tests exist to defeat.
+		{"git", "config", "core.quotePath", "true"},
 	}
 	for _, args := range cmds {
 		cmd := command.DefaultFactory(args[0], args[1:]...)
@@ -2072,4 +2100,182 @@ func TestPRChecksAll_FixtureCoversEveryRequestedField(t *testing.T) {
 	if !got.CompletedAt.Equal(wantDone) {
 		t.Errorf("CompletedAt = %v, want %v", got.CompletedAt, wantDone)
 	}
+}
+
+// --- CODE_REVIEW.md A6: non-ASCII paths -------------------------------------
+//
+// git quotes non-ASCII paths by default (core.quotePath), emitting
+// `"caf\303\251.txt"`. Every path-producing call must therefore use -z, which
+// suppresses quoting and NUL-delimits the records, so the raw UTF-8 bytes
+// reach the UI. These tests drive real git in a temp repo, so they fail
+// against any call site still splitting newline-delimited, quoted output.
+
+func hasPath(paths []string, want string) bool {
+	for _, p := range paths {
+		if p == want {
+			return true
+		}
+	}
+	return false
+}
+
+func assertHasPath(t *testing.T, label string, paths []string, want string) {
+	t.Helper()
+	if !hasPath(paths, want) {
+		t.Errorf("%s = %q, want it to contain %q", label, paths, want)
+	}
+}
+
+func TestChangedFiles_NonASCIIPaths(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Committed on the feature branch.
+	writeFile(t, dir, "café.txt", "coffee\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add cafe")
+
+	// Staged but not committed.
+	writeFile(t, dir, "stagéd.txt", "staged\n")
+	runGit(t, dir, "add", "stagéd.txt")
+
+	// Untracked.
+	writeFile(t, dir, "unträcked.txt", "untracked\n")
+
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertHasPath(t, "Committed", result.Committed, "café.txt")
+	assertHasPath(t, "Staged", result.Staged, "stagéd.txt")
+	assertHasPath(t, "Uncommitted", result.Uncommitted, "unträcked.txt")
+	assertHasPath(t, "Added", result.Added, "café.txt")
+}
+
+func TestChangedFiles_NonASCIIDeletedPath(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	// Put the non-ASCII file on main so deleting it on the branch is a
+	// base..HEAD deletion.
+	runGit(t, dir, "checkout", "main")
+	writeFile(t, dir, "délete-me.txt", "bye\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add file to delete")
+	runGit(t, dir, "checkout", "hazel/test/feature")
+	runGit(t, dir, "rebase", "main")
+	runGit(t, dir, "rm", "délete-me.txt")
+	runGit(t, dir, "commit", "-m", "delete it")
+
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertHasPath(t, "Committed", result.Committed, "délete-me.txt")
+	assertHasPath(t, "Deleted", result.Deleted, "délete-me.txt")
+}
+
+func TestChangedFiles_Rename_NonASCIIPaths(t *testing.T) {
+	dir := setupRenameRepo(t)
+	g := noGH(dir)
+
+	// Rename the ASCII original to a non-ASCII name, committed.
+	runGit(t, dir, "mv", "original.go", "renàmed.go")
+	runGit(t, dir, "commit", "-m", "rename")
+
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Renamed) != 1 {
+		t.Fatalf("Renamed = %+v, want exactly 1 rename", result.Renamed)
+	}
+	got := result.Renamed[0]
+	if got.Old != "original.go" || got.New != "renàmed.go" {
+		t.Errorf("rename = %+v, want {Old: original.go, New: renàmed.go}", got)
+	}
+	assertHasPath(t, "Committed", result.Committed, "renàmed.go")
+}
+
+func TestChangedFiles_Rename_WorkingTree_NonASCIIPaths(t *testing.T) {
+	dir := setupRenameRepo(t)
+	g := noGH(dir)
+
+	// Staged rename to a non-ASCII path — exercises the porcelain v2 path.
+	runGit(t, dir, "mv", "original.go", "renàmed.go")
+
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := g.ChangedFiles(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Renamed) != 1 {
+		t.Fatalf("Renamed = %+v, want exactly 1 rename", result.Renamed)
+	}
+	got := result.Renamed[0]
+	if got.Old != "original.go" || got.New != "renàmed.go" {
+		t.Errorf("rename = %+v, want {Old: original.go, New: renàmed.go}", got)
+	}
+}
+
+func TestAllFiles_NonASCIIPaths(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	writeFile(t, dir, "tracké.txt", "tracked\n")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "add tracked")
+	writeFile(t, dir, "othér.txt", "untracked\n")
+
+	files, err := g.AllFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertHasPath(t, "AllFiles", files, "tracké.txt")
+	assertHasPath(t, "AllFiles", files, "othér.txt")
+}
+
+func TestIgnoredEntries_NonASCIIPaths(t *testing.T) {
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	writeFile(t, dir, ".gitignore", "ignoréd.txt\nbuîld/\n")
+	writeFile(t, dir, "ignoréd.txt", "nope\n")
+	if err := os.MkdirAll(filepath.Join(dir, "buîld"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, filepath.Join("buîld", "artefäct.o"), "bin\n")
+
+	entries, err := g.IgnoredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, e := range entries {
+		paths = append(paths, e.Path)
+	}
+	assertHasPath(t, "IgnoredEntries", paths, "ignoréd.txt")
+	assertHasPath(t, "IgnoredEntries", paths, "buîld")
+
+	inDir, err := g.IgnoredFilesInDir("buîld")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertHasPath(t, "IgnoredFilesInDir", inDir, "buîld/artefäct.o")
 }

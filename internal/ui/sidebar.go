@@ -192,7 +192,8 @@ func buildTreeItems(files []string, kind sidebarItemKind, section string, collap
 						// Show path relative to parent: compacted dir name + remaining subdirs + filename
 						relPath := strings.TrimPrefix(leafNode.path, compacted.path+"/")
 						displayLabel := displayName + "/" + relPath
-						label := strings.Repeat("  ", indent) + "  " + displayLabel
+						// filePath below stays raw; only the label is escaped.
+						label := strings.Repeat("  ", indent) + "  " + sanitizeDisplayText(displayLabel)
 						items = append(items, sidebarItem{
 							label:    label,
 							kind:     leafNode.kind,
@@ -219,7 +220,7 @@ func buildTreeItems(files []string, kind sidebarItemKind, section string, collap
 			// entry). For purely intermediate dirs that never appeared as
 			// a leafmost path, compacted.kind defaults to the kind parameter.
 			dirKind := compacted.kind
-			label := strings.Repeat("  ", indent) + prefix + " " + displayName + "/"
+			label := strings.Repeat("  ", indent) + prefix + " " + sanitizeDisplayText(displayName) + "/"
 			items = append(items, sidebarItem{
 				label:       label,
 				kind:        dirKind,
@@ -234,7 +235,7 @@ func buildTreeItems(files []string, kind sidebarItemKind, section string, collap
 		}
 		for _, name := range fileNames {
 			child := node.children[name]
-			label := strings.Repeat("  ", indent) + "  " + name
+			label := strings.Repeat("  ", indent) + "  " + sanitizeDisplayText(name)
 			items = append(items, sidebarItem{
 				label:    label,
 				kind:     child.kind,

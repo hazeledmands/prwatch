@@ -193,9 +193,59 @@ monotonic `seq` (`gitLoadRequest` → `gitDataMsg`) compared against
 the vertical axis only, and horizontal scroll stays deliberately outside the
 contract this round.
 
-**A6 — ungenerated inputs** (queued): NUL-delimited git output, tab
-normalization at content boundary, ANSI-safe search highlighting, blank-line
-drag-copy, help-overlay mouse, sidebar release.
+**A6 — ungenerated inputs** (done, uncommitted): five of the six bullets fixed;
+the sixth was already done. Details per-bug in BUG_REPORTS.md.
+
+`Git.runZ` + `splitNUL` (`internal/git/git.go`) is the new NUL-delimited
+boundary, and all 15 path-producing call sites pass `-z`, so
+`core.quotePath`'s octal-escaped `"caf\303\251.txt"` no longer reaches the UI.
+Both rename parsers consume records rather than splitting lines on tabs, which
+also retires `parsePorcelainV2Renames`' 9-field space-walk. The `-z` record
+shapes were verified against real git rather than inferred. `IgnoredEntries`
+was doubly broken (the closing quote also defeated its `/` directory check).
+
+`expandTabs` normalizes tabs once at the pane's content boundary and the three
+disagreeing downstream tab widths are deleted; the widening turned up a
+*second* content boundary — `SetDiffAnnotations`, whose `removedLines` render
+as pane rows — which now normalizes too. `highlightMatchInLine` searches the
+visible text via a new `indexVisible` byte map instead of the styled bytes, so
+querying `2`/`;`/`m` no longer splices a highlight mid-escape and boundary-
+spanning matches are no longer missed. Click, motion and release now return
+early while the help overlay is open, and cursor-on-release is gated on a drag
+having actually been in progress; `endpoint` gained `DisplayCol` so the click
+and release handlers consume `clickAt`'s geometry instead of re-deriving it.
+The blank-line drag-copy bullet was already fixed by A4 (`stripGutterText`) —
+verified, not re-fixed; `CODE_REVIEW.md` is stale on that point.
+
+Generators were widened for tabs, non-ASCII/wide/spaced filenames, non-ASCII
+diff bodies, and (newly) ANSI escape sequences, all keyed on the loop index
+rather than a new rapid draw so existing `.fail` seeds stay replayable.
+
+A review round added five more fixes: `indexVisible` panicked on invalid UTF-8
+(`utf8.RuneLen(RuneError)` is 3, so spans overshot the byte a bad byte actually
+occupied); `OutsideSidebar` wrongly counted the pane's own gutter as outside,
+so a gutter release refused a cursor placement a gutter click performs; a
+release swallowed by the help overlay stranded an in-flight drag; and — a gap
+the `-z` conversion itself opened — control characters in filenames now reach
+display text, since `core.quotePath` used to escape them for us. That last one
+gets one boundary function, `sanitizeDisplayText`, applied at the sidebar label
+sites and `fileTitleLeft`, using git's own `\t`/`\n`/`\xNN` representation;
+`filePath` and every git argument keep the raw bytes, because an escaped path
+stops naming a file.
+
+Two bugs the widening surfaced are **left open with their seeds committed**,
+both needing a decision rather than a patch, and both reproducing at HEAD:
+word wrap discards the space it breaks on (so yank/copy loses one space per
+wrap point, and the wrap-relative column model cannot reconstruct it), and
+`renderTitleRow` mis-pads strings of zero-width runes. Both are the same
+family as the already-open wide-glyph half-cell question.
+
+**The suite is therefore deliberately red on exactly those two tests**
+(`TestProperty_Model_VisualYankMatchesHighlight`,
+`TestRenderTitleRow_AlwaysExactWidth`) — per Hazel's decision, they are neither
+fixed nor narrowed nor skipped, because the failing replay *is* the record of
+the bug. Any third failure is a real regression. See BUG_REPORTS.md's "Found by
+the widening, NOT fixed" section.
 
 ---
 

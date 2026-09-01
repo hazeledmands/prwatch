@@ -1,3 +1,262 @@
+## CODE_REVIEW.md A6 — ungenerated inputs
+
+Fixed in the A6 pass. Each entry names the regression test and the failure
+observed *before* the fix.
+
+- **Non-ASCII paths came back octal-escaped from every path-producing git
+  call.** git quotes any path with non-ASCII bytes, a tab, or a quote by
+  default (`core.quotePath`), and every call site split newline-delimited
+  output and passed the quoted form through — so `café.txt` reached the
+  sidebar as the literal 14-character string `"caf\303\251.txt"` and then
+  failed to resolve as a filename for diffs or file content. `IgnoredEntries`
+  was doubly broken: the closing quote defeated its `HasSuffix(line, "/")`
+  directory check too.
+  *Root cause:* no `-z` on any of the 15 path-producing calls — `diff
+  --name-only` (×7, counting the D/A/cached filters), `diff --name-status`
+  (×2), `status --porcelain=v2`, `ls-files` (×5).
+  *Fix:* new `Git.runZ` + `splitNUL` (`internal/git/git.go`) as the single
+  NUL-delimited boundary; all 15 call sites converted. `runZ` also
+  deliberately does not trim, since with `-z` a path may legitimately begin or
+  end with whitespace. `parseRenameNameStatus` and `parsePorcelainV2Renames`
+  now consume records instead of splitting lines on tabs, which also retires
+  the fragile 9-field space-walk in the latter (`strings.SplitN(header, " ",
+  10)` instead).
+  *Record shapes were verified against real git, not inferred:* `diff
+  --name-status -z` emits `R100\0old\0new\0`; `status --porcelain=v2 -z`
+  emits a rename entry's original path as a separate following record.
+  *Regression tests:* `TestChangedFiles_NonASCIIPaths`,
+  `TestChangedFiles_NonASCIIDeletedPath`,
+  `TestChangedFiles_Rename_NonASCIIPaths`,
+  `TestChangedFiles_Rename_WorkingTree_NonASCIIPaths`,
+  `TestAllFiles_NonASCIIPaths`, `TestIgnoredEntries_NonASCIIPaths` (all drive
+  real git in a temp repo), plus the `parsers_test.go` tables.
+  *Observed pre-fix:* `Committed = ["\"caf\\303\\251.txt\"" "feature.go"],
+  want it to contain "café.txt"` and `rename = {Old:original.go
+  New:"ren\303\240med.go" Pure:true}`.
+
+- **Three disagreeing tab widths.** Wrap math and `ansiAwareIterate` assumed
+  8-column tab stops, `runewidth.RuneWidth('\t')` reports 0, and lipgloss
+  renders a tab as 4 spaces. On tab-indented files — i.e. every Go file —
+  wrap points, gutter alignment, cursor columns and drag-copy slicing
+  disagreed with the render and with each other.
+  *Fix:* `expandTabs` (`internal/ui/mainpane.go`), applied once where content
+  enters the pane, and the downstream `'\t'` special cases deleted. Two test
+  helpers that carried a *fourth* and *fifth* tab width (a flat `w += 8`, and
+  `8 - (w%8)`) were converted to plain rune widths.
+  *Regression tests:* `TestMainPane_TabRendersIdenticallyToFourSpaces` (a tab
+  and four spaces must render identically — an assertion that does not depend
+  on the expansion width itself), `TestMainPane_NoTabsSurviveTheContentBoundary`,
+  `TestExpandTabs`.
+  *Observed pre-fix:* at width 24, `tab: "1       return          \n    someValue +..."`
+  vs `space: "1       return someValue\n    + otherValue..."` — the tab form
+  wrapped a column early and broke at a different word.
+
+- **`SetDiffAnnotations` was an unguarded second content boundary.** An
+  annotation's `removedLines` render as pane rows (Shift+D) but never went
+  through tab normalization, so a removed line carried a raw tab into the
+  render, where lipgloss expanded it to 4 columns while the pane's own width
+  math counted it as 0.
+  *Fix:* `expandTabsInAnnotations`, applied in `SetDiffAnnotations`.
+  *Regression test:* `TestProperty_FileViewRender_PreservesAllRemovedLines`,
+  which also stopped bypassing the setter by assigning the field directly.
+  *Observed pre-fix:* `removed line "\tremoved_h0o5" missing from rendered
+  output`. Seed committed.
+
+- **Search highlighting corrupted ANSI and missed matches.**
+  `highlightMatchInLine` ran `strings.Index` against the *styled* string.
+  Truecolor sequences are nothing but digits, semicolons and a terminating
+  letter, so searching `2`, `;` or `m` spliced the highlight into the middle
+  of an escape sequence and dumped escape bytes on screen as visible text;
+  matches straddling a chroma token boundary were silently missed for the
+  same reason.
+  *Fix:* `indexVisible` builds the lowercased visible text alongside a
+  per-byte map back to the styled line, so the search runs on visible text
+  and the highlight is applied to whole styled spans. Lowercasing per rune
+  (not over the whole string) keeps the map valid when a rune's lowercase
+  form has a different byte length. The matched span is wrapped with the
+  existing `applyDiffBg` re-establish-after-reset technique so inner chroma
+  resets do not cancel the highlight.
+  *Regression tests:* `TestHighlightMatchInLine_ANSISafe`,
+  `TestHighlightSearch_ANSISafe`, and `TestProperty_HighlightMatchIsANSISafe`
+  — the package's first generator that emits ANSI at all.
+  *Observed pre-fix:* querying `2` on a styled `hello` produced visible text
+  `"\x1b[38;2;227;194;161mhello"` instead of `"hello"`, and `ooba` across a
+  style boundary in `foobar` was not highlighted at all.
+
+- **Mouse events passed through the help overlay.** Only the wheel handler
+  checked `help.IsOpen()`; click, motion and release fell through to the
+  panes underneath, so clicking help text selected hidden sidebar items, set
+  sidebar hover, started invisible drags and placed the main-pane cursor.
+  *Fix:* the click, motion and release arms of the `Update` dispatcher return
+  early while the overlay is open.
+  *Regression test:* `TestMouse_HelpOverlaySwallowsClickMotionAndRelease`.
+  *Observed pre-fix:* `focus changed to 0 through the help overlay`,
+  `sidebar hover set to 1 through the help overlay`, `cursor placed (seq 1 →
+  2) by a release on the help overlay`.
+
+- **Mouse release moved the main-pane cursor with no drag behind it.**
+  Cursor placement on release was gated only on the release y landing in the
+  content band, so a release over the sidebar (whose click had cancelled the
+  drag) and a bare release with no preceding click both moved the cursor.
+  *Fix:* gate on `m.drag.IsActive()` captured before `Release`, plus a new
+  `endpoint.OutsideSidebar`. `endpoint` also gained `DisplayCol` so the
+  release and click handlers stop re-deriving the click geometry inline —
+  both now consume what `clickAt` already computed, per the
+  "layout geometry comes from one function" rule.
+  *Regression test:* `TestMouse_ReleaseDoesNotMoveCursorWithoutADrag`, whose
+  third case pins that a real main-pane click+release *does* still place the
+  cursor, so the gate cannot be over-tightened.
+  *Observed pre-fix:* `release in the sidebar placed the main-pane cursor
+  (seq 1 → 2)` and `bare release placed the cursor with no drag in progress`.
+
+- **Blank lines + drag-copy** (the fifth A6 bullet) was already fixed by A4:
+  `stripGutterText` strips the gutter before trimming and is shared by
+  `extractLineFragment` and `stripGutterDisplayWidth`. Verified, not
+  re-fixed. `CODE_REVIEW.md`'s A6 text and its "verified clean" section are
+  both stale on this point.
+
+### Review-round fixes (same A6 pass)
+
+- **`indexVisible` panicked on invalid UTF-8.** `for i, r := range line` yields
+  `RuneError` for a single bad byte, but `utf8.RuneLen(RuneError)` is 3, so the
+  recorded span overshot the byte the rune actually occupied — corrupting spans
+  mid-string and running past the end of the line at the tail.
+  *Reachable in normal use:* raw file bytes reach `SetPlainContent`, a Latin-1
+  file passes binary detection and renders `U+FFFD`, and the user searches for
+  the `�` they can see.
+  *Fix:* manual `utf8.DecodeRuneInString` loop using the real `size` for both
+  the span end and the loop increment.
+  *Regression test:* invalid-UTF-8 bodies and a `�` query added to
+  `TestProperty_HighlightMatchIsANSISafe`'s pools; seed committed. Verified
+  non-vacuous by restoring `utf8.RuneLen` and watching the property fail.
+  *Observed pre-fix:* `panic: runtime error: slice bounds out of range [:6]
+  with length 4` from `highlightMatchInLine("abc\xff", "\uFFFD")`.
+
+- **`OutsideSidebar` treated the main pane's own gutter as outside.** A click
+  on the gutter clamps to column 0 and places the cursor; the release path
+  declined, so the cursor moved on click and then refused to move on release.
+  *Fix:* one semantics, expressed once in `clickAt` — `OutsideSidebar` is now
+  `g.sidebarW > 0 && x < g.sidebarW`, the sidebar proper. The gutter belongs to
+  the pane.
+  *Regression test:* `TestMouse_ReleaseOnGutterPlacesCursorLikeClick`.
+  *Observed pre-fix:* `release on the gutter should place the cursor, as a
+  gutter click does`.
+
+- **A release swallowed by the help overlay stranded an in-flight drag.** Help
+  can be opened with `?` mid-drag; the release was then dropped without
+  clearing `m.drag`, so motion kept extending the selection once the overlay
+  closed.
+  *Fix:* the release arm's overlay gate calls `m.drag.Cancel()` before
+  returning — the gesture was interrupted, so no cursor placement and no copy.
+  *Regression test:* `TestMouse_HelpOverlayReleaseDoesNotStrandDrag`.
+  *Observed pre-fix:* `drag still active after the overlay swallowed its
+  release`.
+
+- **Control characters in filenames reached display text unescaped.** This one
+  is *created* by the `-z` conversion: `core.quotePath` used to escape control
+  characters in filenames before we ever saw them. Reading raw NUL-delimited
+  output is correct — it is what lets `café.txt` display as `café.txt` — but a
+  literal tab or newline in a filename now flows straight to display text. A
+  raw tab hits the same runewidth-0 / lipgloss-4 disagreement `expandTabs`
+  exists to prevent; a raw newline in a sidebar label breaks row math and mouse
+  hit-testing outright, since a label is assumed to occupy exactly one row.
+  *Fix:* one boundary function, `sanitizeDisplayText` (`internal/ui/format.go`),
+  applied at the three sidebar label-construction sites in `buildTreeItems`,
+  at `fileTitleLeft` (covering the rename `old → new` form), and at
+  `maincontent.go`'s error-path `SetTitle`. **Representation is git's own:**
+  `\t`, `\n`, `\r` by name and `\xNN` for the rest — what these filenames
+  displayed as before the `-z` change, pure ASCII so width math stays trivially
+  correct, and renderable in every terminal (unlike the Control Pictures block
+  `␉`/`␊`, whose font coverage is patchy). A literal backslash is deliberately
+  *not* escaped: doing so would rewrite every path containing one to resolve an
+  ambiguity that is vanishingly rare here.
+  *Identity stays raw.* `sidebarItem.filePath`, map keys and every git argument
+  keep the original bytes — an escaped path stops naming a file. An initial
+  attempt to sanitize at the path-split point in `buildTreeItems` was backed
+  out for exactly this reason: `treeNode.path` is rebuilt from those segments.
+  *Regression tests:* `TestSanitizeDisplayText`,
+  `TestProperty_SanitizedFilenameIsSafeForDisplay` (no control char survives,
+  single row, idempotent, control-free input untouched), and
+  `TestControlCharFilenames_NeverReachDisplayText`, which asserts the boundary
+  is actually *wired up* end-to-end and that `filePath` stays raw. `genFileName`
+  now emits a tab-bearing filename so the whole property suite exercises it.
+  *Observed pre-fix* (with the sanitizer stubbed out): `sidebar item 2 label
+  "  dir/new\nline.go" spans multiple rows`, plus control chars surviving into
+  five more labels and every `fileTitleLeft` result.
+
+### Generator widenings (A6's actual subject)
+
+The bugs above were survivable because no property test ever generated the
+triggering input. Widened, all *without adding a rapid draw* (the variation is
+keyed on the loop index) so every existing `.fail` seed stays replayable:
+
+- `TestProperty_DragSelectsCorrectText` line bodies: tab-indented, deep tab
+  indent with an interior tab, and mixed tabs/spaces.
+- `genFileName` (new): generated filenames now cycle through non-ASCII
+  letters, wide runes and spaces, feeding `genMockGit`'s committed /
+  uncommitted / staged / other buckets and `genNestedFiles`.
+- `genNestedFiles` directory pool gained `café`, `my docs`, `internal/日本`
+  (appended, so existing seeds sample the same earlier entries).
+- `genDiffLineBody` (new): diff bodies now carry tab indentation, interior
+  tabs and non-ASCII text instead of being uniformly `kind_hNoM`.
+- `TestProperty_HighlightMatchIsANSISafe` (new) is the first generator in the
+  package to emit ANSI escape sequences, with queries drawn from the escape
+  bytes themselves.
+
+Two tests held their *own* pre-boundary copy of the content and so reported
+the tab expansion as a mismatch; both now measure against the post-boundary
+text the pane actually holds, which is the honest reference:
+`TestProperty_DragSelectsCorrectText` and
+`TestProperty_FileViewRender_PreservesAllRemovedLines`.
+
+### Found by the widening, NOT fixed — needs a decision
+
+**The test suite is deliberately RED on exactly these two seed replays.** Hazel
+decided to leave both open rather than fix them, narrow their assertions, or
+skip them: the failures are the record of the bugs, and each wants a product
+decision rather than a patch. A full run should fail on
+`TestRenderTitleRow_AlwaysExactWidth` and
+`TestProperty_Model_VisualYankMatchesHighlight` and **nothing else** — any
+third failure is a real regression, not part of this known state.
+(`TestStartIPCListener_RoundTrip` fails only under a sandbox that forbids
+`bind`; it is environmental and unrelated.)
+
+
+- **Word wrap silently drops the space it breaks on, so yanked/copied text
+  loses one space per wrap point.** `wrapLinesWithContinuationMap`
+  (`mainpane.go`) discards a space token that does not fit
+  (`if lineWidth+tok.displayW <= currentMax { write } else { flush() }` —
+  the token is never written to either row). Wrapping is therefore lossy,
+  and since the pane's source-column mapping (`absoluteColumnFromDisplay` /
+  `wrapRowSourceColRange`) is derived from the *wrapped* rows and is
+  contiguous by construction, the dropped column is invisible to the copy
+  path: it cannot reconstruct what the wrapper threw away.
+  *Observed:* viewport rows `"6 +         added_h0o2  //"` + `"    café"`,
+  yanking `"        added_h0o2  //café"` against a true line of
+  `"        added_h0o2  // café"`.
+  *Reproduces at HEAD* — not an A6 regression; it was simply unreachable
+  while every generated diff body was a single space-free token. Any real
+  diff line that wraps at a space hits it.
+  *Why not fixed here:* the obvious fix (keep the break space on the row
+  that is ending) makes a rendered row up to one column wider than the wrap
+  width, which is a product-visible rendering change and collides with
+  `TestMainPane_TruncatesLongLines`' "no line exceeds viewport width"
+  assertion. The alternative (make the column model source-relative rather
+  than wrap-relative) is a larger design change. Same character as the
+  wide-glyph half-cell decision above — deliberately left open.
+  *Failing test:* `TestProperty_Model_VisualYankMatchesHighlight`. Seed
+  committed.
+
+- **`renderTitleRow` mis-pads strings of zero-width runes.** With
+  `right="ः\u0600"` (a Devanagari sign plus an Arabic number sign, both
+  `runewidth` 0) at width 3, it returns a row of display width 2.
+  *Verified pre-existing:* replaying the captured seed against HEAD
+  (`6c3baac`) fails identically, so this is not an A6 regression — the
+  higher check count of the A6 sweep simply reached it. Same zero-width /
+  wide-glyph accounting family as the drag bug above.
+  *Failing test:* `TestRenderTitleRow_AlwaysExactWidth`. Seed committed
+  alongside the two existing April seeds for the same property.
+
 ## New Bugs
 
 - Drag selection disagrees with itself when a click lands on the *trailing*

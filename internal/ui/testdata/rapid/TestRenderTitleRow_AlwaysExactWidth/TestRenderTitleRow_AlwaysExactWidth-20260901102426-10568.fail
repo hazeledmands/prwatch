@@ -1,0 +1,19 @@
+# 2026/09/01 10:24:26.570634 [TestRenderTitleRow_AlwaysExactWidth] [rapid] draw left: ""
+# 2026/09/01 10:24:26.570653 [TestRenderTitleRow_AlwaysExactWidth] [rapid] draw right: "ः\u0600"
+# 2026/09/01 10:24:26.570912 [TestRenderTitleRow_AlwaysExactWidth] [rapid] draw width: 3
+# 2026/09/01 10:24:26.571160 [TestRenderTitleRow_AlwaysExactWidth] renderTitleRow width=3, got display width 2 for left="" right="ः\u0600" result=" ः\u0600 "
+# 
+v0.4.8#14984509838082339159
+0x0
+0x5555555555555
+0x23
+0x0
+0x0
+0x5555555555555
+0x26
+0x0
+0x1
+0x0
+0x0
+0x38e38e38e38e4
+0x2

@@ -8811,3 +8811,280 @@ func TestBug_MultipleRemovedLinesShownInFileView(t *testing.T) {
 		})
 	}
 }
+
+// --- CODE_REVIEW.md A6: mouse modality ---------------------------------------
+//
+// Two related defects, both from mouse handlers that never asked what mode the
+// UI was in:
+//
+//  1. Only the wheel handler checked help.IsOpen(). Click, motion and release
+//     fell through to the panes underneath the help overlay, so clicking help
+//     text selected hidden sidebar items, started invisible drags whose
+//     highlight painted onto the help screen, and copied hidden pane text.
+//  2. Mouse release placed the main-pane cursor whenever the release y was in
+//     the content band — including a release over the sidebar, and a release
+//     with no drag behind it at all.
+
+func mouseModalityModel(t *testing.T) *Model {
+	t.Helper()
+	m := NewModel("/tmp", testGit())
+	m.width = 80
+	m.height = 24
+	m.loading = false
+	m.updateLayout()
+	putChanges(m, git.SectionCommitted, git.ClassModified, "a.go", "b.go", "c.go")
+	m.mode = FilesMode
+	m.updateSidebarItems()
+	m.mainPane.SetPlainContent("one\ntwo\nthree\nfour\nfive\nsix\nseven\neight")
+	return m
+}
+
+func TestMouse_HelpOverlaySwallowsClickMotionAndRelease(t *testing.T) {
+	// A y inside the sidebar/main-pane content band, and x values on each side
+	// of the sidebar boundary.
+	const contentY = 4
+
+	t.Run("click does not reach the sidebar", func(t *testing.T) {
+		m := mouseModalityModel(t)
+		m.focus = MainFocus
+		m.help.Open()
+		before := m.sidebar.SelectedIndex()
+
+		result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: contentY})
+		m = result.(*Model)
+
+		if m.sidebar.SelectedIndex() != before {
+			t.Errorf("sidebar selection moved %d → %d through the help overlay",
+				before, m.sidebar.SelectedIndex())
+		}
+		if m.focus != MainFocus {
+			t.Errorf("focus changed to %v through the help overlay", m.focus)
+		}
+	})
+
+	t.Run("click does not start a drag in the main pane", func(t *testing.T) {
+		m := mouseModalityModel(t)
+		m.help.Open()
+		// seq, not IsPlaced: the cursor is already placed by content setup, so
+		// what matters is that no *new* placement happens.
+		seqBefore := m.cursor.seq
+
+		result, _ := m.Update(tea.MouseClickMsg{X: 60, Y: contentY})
+		m = result.(*Model)
+
+		if m.drag.IsActive() {
+			t.Error("clicking the help overlay started a drag in the pane underneath")
+		}
+		if m.cursor.seq != seqBefore {
+			t.Errorf("clicking the help overlay re-placed the main-pane cursor (seq %d → %d)",
+				seqBefore, m.cursor.seq)
+		}
+	})
+
+	t.Run("motion does not move the drag or the sidebar hover", func(t *testing.T) {
+		m := mouseModalityModel(t)
+		m.help.Open()
+		m.sidebar.SetHoverIndex(-1)
+
+		result, _ := m.Update(tea.MouseMotionMsg{X: 5, Y: contentY})
+		m = result.(*Model)
+
+		if m.sidebar.hoverIndex != -1 {
+			t.Errorf("sidebar hover set to %d through the help overlay", m.sidebar.hoverIndex)
+		}
+	})
+
+	t.Run("release does not place the cursor", func(t *testing.T) {
+		m := mouseModalityModel(t)
+		m.help.Open()
+		seqBefore := m.cursor.seq
+
+		result, _ := m.Update(tea.MouseReleaseMsg{X: 60, Y: contentY})
+		m = result.(*Model)
+
+		if m.cursor.seq != seqBefore {
+			t.Errorf("cursor placed (seq %d → %d) by a release on the help overlay",
+				seqBefore, m.cursor.seq)
+		}
+	})
+}
+
+func TestMouse_ReleaseDoesNotMoveCursorWithoutADrag(t *testing.T) {
+	const contentY = 4
+
+	t.Run("release over the sidebar", func(t *testing.T) {
+		m := mouseModalityModel(t)
+		// Click in the sidebar: this cancels any drag, so the release that
+		// follows must not be treated as concluding one.
+		result, _ := m.Update(tea.MouseClickMsg{X: 5, Y: contentY})
+		m = result.(*Model)
+		seqBefore := m.cursor.seq
+
+		result, _ = m.Update(tea.MouseReleaseMsg{X: 5, Y: contentY})
+		m = result.(*Model)
+
+		if m.cursor.seq != seqBefore {
+			t.Errorf("release in the sidebar placed the main-pane cursor (seq %d → %d)",
+				seqBefore, m.cursor.seq)
+		}
+	})
+
+	t.Run("bare release with no preceding click", func(t *testing.T) {
+		m := mouseModalityModel(t)
+		seqBefore := m.cursor.seq
+
+		result, _ := m.Update(tea.MouseReleaseMsg{X: 60, Y: contentY})
+		m = result.(*Model)
+
+		if m.cursor.seq != seqBefore {
+			t.Errorf("bare release placed the cursor with no drag in progress (seq %d → %d)",
+				seqBefore, m.cursor.seq)
+		}
+	})
+
+	// The spec'd behavior must survive: a real main-pane click+release DOES
+	// place the cursor at the release point.
+	t.Run("main-pane click then release still places the cursor", func(t *testing.T) {
+		m := mouseModalityModel(t)
+		result, _ := m.Update(tea.MouseClickMsg{X: 60, Y: contentY})
+		m = result.(*Model)
+		if !m.cursor.IsPlaced() {
+			t.Fatal("main-pane click should place the cursor")
+		}
+		seqBefore := m.cursor.seq
+
+		result, _ = m.Update(tea.MouseReleaseMsg{X: 62, Y: contentY + 1})
+		m = result.(*Model)
+
+		if m.cursor.seq == seqBefore {
+			t.Error("release concluding a main-pane drag should place the cursor at the release point")
+		}
+	})
+}
+
+// A6 review follow-ups: two gaps in the first cut of the mouse-modality fix.
+
+// The gutter belongs to the main pane, not the sidebar. A click there has
+// always clamped to column 0 and placed the cursor; the release path must
+// agree, or the cursor moves on click and then refuses to move on release.
+func TestMouse_ReleaseOnGutterPlacesCursorLikeClick(t *testing.T) {
+	const contentY = 4
+	m := mouseModalityModel(t)
+
+	// x just inside the main pane, within the gutter columns.
+	g := m.dragGeom()
+	gutterX := g.sidebarW + 1
+	if m.mainPane.gutterWidth == 0 {
+		t.Skip("no gutter in this configuration")
+	}
+
+	result, _ := m.Update(tea.MouseClickMsg{X: gutterX, Y: contentY})
+	m = result.(*Model)
+	seqAfterClick := m.cursor.seq
+	if !m.cursor.IsPlaced() {
+		t.Fatal("gutter click should place the cursor")
+	}
+
+	result, _ = m.Update(tea.MouseReleaseMsg{X: gutterX, Y: contentY + 1})
+	m = result.(*Model)
+
+	if m.cursor.seq == seqAfterClick {
+		t.Error("release on the gutter should place the cursor, as a gutter click does")
+	}
+}
+
+// Opening help mid-drag swallows the release. That must not leave the drag
+// active, or motion after the overlay closes keeps extending a selection the
+// user already let go of.
+func TestMouse_HelpOverlayReleaseDoesNotStrandDrag(t *testing.T) {
+	const contentY = 4
+	m := mouseModalityModel(t)
+
+	// Start a drag in the main pane, then open help mid-gesture.
+	result, _ := m.Update(tea.MouseClickMsg{X: 60, Y: contentY})
+	m = result.(*Model)
+	if !m.drag.IsActive() {
+		t.Fatal("main-pane click should start a drag")
+	}
+	m.help.Open()
+
+	// The release lands on the overlay and is swallowed.
+	result, _ = m.Update(tea.MouseReleaseMsg{X: 62, Y: contentY + 1})
+	m = result.(*Model)
+
+	if m.drag.IsActive() {
+		t.Error("drag still active after the overlay swallowed its release: motion will keep extending the selection once help closes")
+	}
+}
+
+// End-to-end wiring for the filename sanitizer: it is not enough that
+// sanitizeDisplayText is correct in isolation, the display boundary has to
+// actually call it. Asserts on what the sidebar and title bar hold after a
+// real model build from control-char filenames.
+func TestControlCharFilenames_NeverReachDisplayText(t *testing.T) {
+	nasty := []string{
+		"src\ttabbed.go",
+		"dir/new\nline.go",
+		"esc\x1b[31mred.go",
+		"bell\x07.go",
+		"del\x7f.go",
+		"café/日本語.go", // must survive untouched
+	}
+
+	m := NewModel("/tmp", testGit())
+	m.width = 100
+	m.height = 30
+	m.loading = false
+	m.updateLayout()
+	putChanges(m, git.SectionCommitted, git.ClassModified, nasty...)
+	m.mode = FilesMode
+	m.updateSidebarItems()
+
+	if len(m.sidebar.items) == 0 {
+		t.Fatal("no sidebar items built")
+	}
+	for i, item := range m.sidebar.items {
+		for _, r := range item.label {
+			if isDisplayControl(r) {
+				t.Errorf("sidebar item %d label %q contains control char %#U", i, item.label, r)
+			}
+		}
+		if strings.Contains(item.label, "\n") {
+			t.Errorf("sidebar item %d label %q spans multiple rows", i, item.label)
+		}
+	}
+
+	// The non-ASCII path must still be shown as itself — the sanitizer must
+	// not undo what the -z conversion achieved.
+	var sawUnicode bool
+	for _, item := range m.sidebar.items {
+		if strings.Contains(item.label, "日本語.go") {
+			sawUnicode = true
+		}
+	}
+	if !sawUnicode {
+		t.Error("expected the non-ASCII filename to render as itself in a sidebar label")
+	}
+
+	// Titles too: fileTitleLeft is the other display boundary.
+	for _, f := range nasty {
+		title := m.fileTitleLeft(f)
+		for _, r := range title {
+			if isDisplayControl(r) {
+				t.Errorf("fileTitleLeft(%q) = %q contains control char %#U", f, title, r)
+			}
+		}
+	}
+
+	// filePath must stay RAW — it is the identity used for git operations, so
+	// escaping it would stop it naming a real file.
+	rawSeen := false
+	for _, item := range m.sidebar.items {
+		if strings.ContainsRune(item.filePath, '\t') || strings.ContainsRune(item.filePath, '\n') {
+			rawSeen = true
+		}
+	}
+	if !rawSeen {
+		t.Error("sidebarItem.filePath was sanitized; it must keep the raw bytes that name the file")
+	}
+}

@@ -69,7 +69,7 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 		m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
 		m.mainPane.ClearDiffAnnotations()
 		m.mainPane.ClearDiffHunks()
-		m.mainPane.SetTitle(file, "error")
+		m.mainPane.SetTitle(sanitizeDisplayText(file), "error")
 		setItem(mainItemKey{m.mode, file})
 		return
 	}
