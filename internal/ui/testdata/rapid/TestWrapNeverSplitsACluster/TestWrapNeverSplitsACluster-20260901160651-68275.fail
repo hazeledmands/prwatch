@@ -1,0 +1,15 @@
+# 2026/09/01 16:06:51.288357 [TestWrapNeverSplitsACluster] [rapid] draw bodyLen: 1
+# 2026/09/01 16:06:51.288360 [TestWrapNeverSplitsACluster] [rapid] draw bodyPiece: 0
+# 2026/09/01 16:06:51.288361 [TestWrapNeverSplitsACluster] [rapid] draw width: 2
+# 2026/09/01 16:06:51.288363 [TestWrapNeverSplitsACluster] wrapped row "aaaa" measures 4, over width 2
+# 
+v0.4.8#6608457823441214205
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

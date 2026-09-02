@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	runewidth "github.com/mattn/go-runewidth"
 )
 
 type sidebarItemKind int
@@ -582,7 +581,7 @@ func (s *sidebar) View(focused bool) string {
 
 		if item.kind == itemCutline {
 			label := " scope "
-			labelW := runewidth.StringWidth(label)
+			labelW := displayWidth(label)
 			leftFill := (s.width - labelW) / 2
 			rightFill := s.width - labelW - leftFill
 			if leftFill < 0 {
@@ -656,12 +655,12 @@ func (s *sidebar) View(focused bool) string {
 		if item.prefix == "" && item.suffix == "" {
 			// Simple path: single-styled label.
 			label := item.label
-			if s.width > 0 && runewidth.StringWidth(label) > s.width {
-				label = runewidth.Truncate(label, s.width, "")
+			if s.width > 0 && displayWidth(label) > s.width {
+				label = truncateToWidth(label, s.width, "")
 			}
 			if s.width > 0 {
 				// Pad with spaces to fill sidebar width
-				pad := s.width - runewidth.StringWidth(label)
+				pad := s.width - displayWidth(label)
 				if pad > 0 {
 					label += strings.Repeat(" ", pad)
 				}
@@ -673,9 +672,9 @@ func (s *sidebar) View(focused bool) string {
 			label := item.label
 			suffix := item.suffix
 
-			prefixW := runewidth.StringWidth(prefix)
-			labelW := runewidth.StringWidth(label)
-			suffixW := runewidth.StringWidth(suffix)
+			prefixW := displayWidth(prefix)
+			labelW := displayWidth(label)
+			suffixW := displayWidth(suffix)
 			contentW := prefixW + labelW + suffixW
 			if s.width > 0 && contentW > s.width {
 				// Truncate: prefix stays, suffix stays if it fits, label shrinks.
@@ -690,8 +689,8 @@ func (s *sidebar) View(focused bool) string {
 					avail = 1
 				}
 				if labelW > avail {
-					label = runewidth.Truncate(label, avail, "")
-					labelW = runewidth.StringWidth(label)
+					label = truncateToWidth(label, avail, "")
+					labelW = displayWidth(label)
 				}
 				contentW = prefixW + labelW + suffixW
 			}

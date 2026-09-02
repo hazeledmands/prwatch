@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/lipgloss/v2"
 	"github.com/hazeledmands/prwatch/internal/git"
 )
 
@@ -93,10 +92,10 @@ func statusBarLineCount(data statusBarData) int {
 func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line2Label, []line3Label) {
 	if data.confirming {
 		msg := " Quit? Press q/Q to confirm, any other key to cancel"
-		pad := width - lipgloss.Width(msg)
-		if pad > 0 {
-			msg += strings.Repeat(" ", pad)
-		}
+		// padToWidth rather than a counted shortfall, for the same reason as
+		// padToHeight and renderTitleRow: width is not additive across
+		// concatenation. This message is ASCII today, but the rule is the rule.
+		msg = padToWidth(msg, width)
 		return statusBarConfirmStyle.Width(width).Render(msg), nil, nil, nil
 	}
 
@@ -120,16 +119,12 @@ func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line
 	} else if data.prLoading {
 		// Show loading indicator while PR data is being fetched
 		loadText := " Loading from GitHub…"
-		if lipgloss.Width(loadText) > width-2 {
-			loadText = truncateToWidth(loadText, width-2)
-		}
+		loadText = ellipsize(loadText, width-2)
 		result += "\n" + statusBarDimStyle.Width(width).Render(loadText)
 	} else if data.prError != "" {
 		// Show error on line 3 when no PR data available
 		errText := " " + data.prError
-		if lipgloss.Width(errText) > width-2 {
-			errText = truncateToWidth(errText, width-2)
-		}
+		errText = ellipsize(errText, width-2)
 		errLine := statusBarDimStyle.Width(width).Render(errText)
 		result += "\n" + errLine
 	}
@@ -198,9 +193,12 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 		}
 
 		displayText := m.name
-		displayWidth := len(displayText)
+		// Oracle, not len(): this is a hit region in display columns, and a
+		// byte count is only right by accident for ASCII mode names. Also
+		// avoids shadowing displayWidth in a scope that computes geometry.
+		textW := displayWidth(displayText)
 
-		label := modeLabel{mode: m.mode, start: pos, end: pos + displayWidth}
+		label := modeLabel{mode: m.mode, start: pos, end: pos + textW}
 		labels = append(labels, label)
 
 		// Check if hover is on this label
@@ -216,7 +214,7 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 		// reset that kills the outer statusBarStyle background between items.
 		modeItems = append(modeItems, styleModeInline(displayText, isActive, isHovered))
 
-		pos += displayWidth + 1 // +1 for space separator
+		pos += textW + 1 // +1 for space separator
 	}
 	_ = hoverMode
 	modeStr := strings.Join(modeItems, " ")
@@ -240,9 +238,7 @@ func renderLine1(width int, data statusBarData) (string, []modeLabel) {
 
 	bar := strings.Join(parts, " · ")
 	// Truncate to prevent wrapping — statusBarStyle has Padding(0,1) = 2 chars
-	if lipgloss.Width(bar) > width-2 {
-		bar = truncateToWidth(bar, width-2)
-	}
+	bar = ellipsize(bar, width-2)
 	return statusBarStyle.Width(width).Render(bar), labels
 }
 
@@ -308,19 +304,17 @@ func renderLine2(width int, data statusBarData) (string, []line2Label) {
 	pos := 1
 	var textParts []string
 	for i, p := range parts {
-		displayWidth := lipgloss.Width(p.text)
-		labels = append(labels, line2Label{target: p.target, start: pos, end: pos + displayWidth})
+		textW := displayWidth(p.text)
+		labels = append(labels, line2Label{target: p.target, start: pos, end: pos + textW})
 		textParts = append(textParts, p.text)
-		pos += displayWidth
+		pos += textW
 		if i < len(parts)-1 {
 			pos += 3 // " · " separator
 		}
 	}
 
 	bar := strings.Join(textParts, " · ")
-	if lipgloss.Width(bar) > width-2 {
-		bar = truncateToWidth(bar, width-2)
-	}
+	bar = ellipsize(bar, width-2)
 	return statusBarPRStyle.Width(width).Render(bar), labels
 }
 
@@ -375,10 +369,10 @@ func renderLine3(width int, data statusBarData) (string, []line3Label) {
 	pos := 1
 	var textParts []string
 	for i, p := range parts {
-		displayWidth := lipgloss.Width(p.text)
-		labels = append(labels, line3Label{target: p.target, start: pos, end: pos + displayWidth})
+		textW := displayWidth(p.text)
+		labels = append(labels, line3Label{target: p.target, start: pos, end: pos + textW})
 		textParts = append(textParts, p.text)
-		pos += displayWidth
+		pos += textW
 		if i < len(parts)-1 {
 			pos += 3 // " · " separator
 		}
@@ -386,9 +380,7 @@ func renderLine3(width int, data statusBarData) (string, []line3Label) {
 
 	bar := strings.Join(textParts, " · ")
 	// Truncate if too wide for the content area (width - 2 padding)
-	if lipgloss.Width(bar) > width-2 {
-		bar = truncateToWidth(bar, width-2)
-	}
+	bar = ellipsize(bar, width-2)
 	return statusBarDimStyle.Width(width).Render(bar), labels
 }
 
@@ -487,30 +479,17 @@ func renderReviews(reviews []git.PRReview, requests []git.PRReviewRequest, decis
 	return strings.Join(parts, "/")
 }
 
-// truncateToWidth truncates a string to the given display width, appending "…"
-// if truncation occurs.
-func truncateToWidth(s string, maxWidth int) string {
-	if maxWidth <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= maxWidth {
-		return s
-	}
-	target := maxWidth - 1
-	if target < 0 {
-		target = 0
-	}
-	runes := []rune(s)
-	for end := len(runes); end > 0; end-- {
-		candidate := string(runes[:end])
-		if lipgloss.Width(candidate) <= target {
-			return candidate + "…"
-		}
-	}
-	if maxWidth >= 1 {
-		return "…"
-	}
-	return ""
+// ellipsize truncates a status-bar string to the given width, appending "…" if
+// truncation occurs.
+//
+// It fits the RENDERER's measurement, not the oracle's: every string it returns
+// is handed to `style.Width(n).Render(...)`, and lipgloss is what decides to
+// wrap. Trimming only under the oracle left divergence-class input measuring
+// wider to lipgloss, which then hard-wrapped the bar onto an extra row and
+// desynchronised statusBarLineCount from renderStatusBar. See
+// fitToRendererWidth (width.go) and TestStatusBarRowCountMatchesLayout.
+func ellipsize(s string, maxWidth int) string {
+	return fitToRendererWidth(s, maxWidth, "…")
 }
 
 // makeHyperlink creates an OSC 8 terminal hyperlink.

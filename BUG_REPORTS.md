@@ -209,29 +209,15 @@ text the pane actually holds, which is the honest reference:
 `TestProperty_DragSelectsCorrectText` and
 `TestProperty_FileViewRender_PreservesAllRemovedLines`.
 
-### Found by the widening, NOT fixed — needs a decision
+### Found by the widening, since fixed
 
-**The test suite is deliberately RED on exactly one seed replay.** Hazel
-decided to leave it open rather than fix it, narrow its assertion, or skip
-it: the failure is the record of the bug, and it wants a product decision
-rather than a patch. A full run should fail on
-`TestRenderTitleRow_AlwaysExactWidth` and **nothing else** — any second
-failure is a real regression, not part of this known state. (The
-wrap/copy space loss that used to be the other deliberate red is fixed;
-see "Word wrap dropped the space it broke on" under Fixed Bugs.
-`TestStartIPCListener_RoundTrip` fails only under a sandbox that forbids
-`bind`; it is environmental and unrelated.)
+Both entries that lived here — the `renderTitleRow` zero-width mis-padding
+and the wide-glyph drag asymmetry — are fixed by the unified width oracle.
+See "Unicode width accounting unified on one oracle" under Fixed Bugs.
 
-
-- **`renderTitleRow` mis-pads strings of zero-width runes.** With
-  `right="ः\u0600"` (a Devanagari sign plus an Arabic number sign, both
-  `runewidth` 0) at width 3, it returns a row of display width 2.
-  *Verified pre-existing:* replaying the captured seed against HEAD
-  (`6c3baac`) fails identically, so this is not an A6 regression — the
-  higher check count of the A6 sweep simply reached it. Same zero-width /
-  wide-glyph accounting family as the drag bug above.
-  *Failing test:* `TestRenderTitleRow_AlwaysExactWidth`. Seed committed
-  alongside the two existing April seeds for the same property.
+**The suite is fully green.** There is no deliberate red left. The only
+expected failure is `TestStartIPCListener_RoundTrip`, which fails solely
+under a sandbox that forbids `bind`; it is environmental and unrelated.
 
 ## New Bugs
 
@@ -273,23 +259,6 @@ see "Word wrap dropped the space it broke on" under Fixed Bugs.
   *Regression replay:* seed `...-20260901134448-50533.fail`, green after
   the fix.
 
-- Drag selection disagrees with itself when a click lands on the *trailing*
-  cell of a wide glyph. Endpoint `Column`s are display columns, and the
-  clips run through `sliceByDisplayCol` (`ansiwidth.go`), which rounds the
-  *start* up to the next rune boundary but lets a rune straddling the *end*
-  through. So clicking the second cell of `日` excludes it when it is the
-  start of the selection and includes it when it is the end — the two edges
-  round in opposite directions. Surfaced by widening
-  `TestProperty_DragSelectsCorrectText`'s generator to emit CJK-width line
-  bodies (A4): `last char: selectedText() ends with "の", but screen
-  position (31,5) has "テ"`. Not fixed here — it is A6 mixed-width
-  territory and wants a product decision (a terminal treats the whole cell
-  as the glyph, so clicking either half should arguably include it, which
-  means the start clip should round *down*). The property's first/last-char
-  invariants currently assert only on rune-boundary columns and say so
-  inline, so the ambiguous case is skipped rather than blessed either way.
-
-
 - `isRateLimited` (`model.go`) classifies on substrings and treats *any*
   `"403"` in the error text as a rate limit — so a SAML-enforcement or
   permission 403 (`gh` on an SSO-protected org, a token missing `repo`
@@ -306,15 +275,269 @@ see "Word wrap dropped the space it broke on" under Fixed Bugs.
 
 - Flaky `viewWithTimeout` assertion in `TestProperty_DragSelectsCorrectText`:
   occasional "View() hung for >1s" under stress (300+ iter), but the
-  captured seed replays cleanly at default check count. Seed at
-  `testdata/rapid/TestProperty_DragSelectsCorrectText/...-20260520145748-58114.fail`.
-  Per-property timing was identical with/without the SelectedText split,
-  so this looks like a pre-existing performance edge under load rather
-  than a regression. Worth profiling View() on the captured configuration
-  (13 files, FilesMode, 66×38 viewport with sidebar 19) when there's
-  bandwidth.
+  captured seed replayed cleanly at default check count. Per-property timing
+  was identical with/without the SelectedText split, so this looks like a
+  pre-existing performance edge under load rather than a regression.
+  *Seed deleted* — rapid reported it "no longer valid" after the generator
+  widening changed the draw sequence (see "Invalidated seeds" below), so it can
+  no longer be replayed. `View()` has since gotten ~14x faster on an empty
+  render (see the padding-complexity entry above), which may or may not cover
+  this configuration; `BenchmarkViewEmpty` is now the standing guard.
 
 ## Fixed Bugs
+
+### Unicode width accounting unified on one oracle
+
+All display-width math now goes through a single grapheme-cluster-aware
+function, `displayWidth` in `internal/ui/width.go`, with `eachDisplayCluster`
+as the matching walk. `TestNoDirectRunewidthOutsideOracle` (width_test.go)
+parses every Go file in the repo with `go/parser` and forbids any other file
+importing a width library or calling the renderer's measurement — matching on
+resolved import paths rather than text, so an alias or dot-import cannot slip
+past it. The single exception is `rendererWidth` / `fitToRendererWidth`, which
+live in width.go precisely so the one place that must consult lipgloss's own
+measure (to predict its wrapping) is the sanctioned one. Six independent width
+authorities were in play before this: `runewidth.StringWidth`, four separate
+`runewidth.RuneWidth` rune-walks (`splitAtDisplayCols`, `sliceByDisplayCol`,
+`expandTabs`, the wrap tokenizer and its mid-token splitter), a
+`lipgloss.Width`-plus-rune-slicing truncator in `statusbar.go`, and a private
+rune-sum `displayWidth` in the test package. Each disagreed with the renderer,
+and with the others, on some input class.
+
+- **`renderTitleRow` mis-padded strings of zero-width runes.** FIXED.
+  *Symptom:* `renderTitleRow("", "ः\u0600", 3)` returned a row of display
+  width 2 instead of 3.
+  *Root cause:* the row was assembled as `left + strings.Repeat(" ", pad) +
+  right` with `pad = width - leftW - rightW`, i.e. from separately measured
+  parts. Display width is not additive across concatenation: U+0903 merges
+  backward into the padding and U+0600 (Prepend class) swallows the first
+  space appended after it, so the assembled row measured narrower than the
+  parts predicted.
+  *Fix:* `renderTitleRow` now measures whole candidate rows and grows the gap
+  to a fixed point, never accepting a candidate that overshoots; `fitToWidth`
+  / `padToWidth` (width.go) re-measure the whole string after each appended
+  space. It also sanitizes control characters first, so a newline in the input
+  cannot split the "row" in two and make any single width unachievable.
+  *Regression tests:* `TestRenderTitleRow_AlwaysExactWidth` (all three
+  committed seeds replay green), plus `TestPadToWidth_ExactForAnyInput`,
+  `TestPadToWidth_AbsorbedSpaces` and `TestFitToWidth_ExactForAnyInput`.
+  *Pre-fix failure line:* `mainpane_test.go:1205: renderTitleRow width=3, got
+  display width 2 for left="" right="ः\u0600" result=" ः\u0600 "`.
+
+- **Drag selection disagreed with itself on the trailing cell of a wide
+  glyph.** FIXED.
+  *Symptom:* clicking the second cell of `日` excluded it when it was the
+  start of a selection and included it when it was the end.
+  *Root cause:* `sliceByDisplayCol` rounded the start up to the next rune
+  boundary but let a rune straddling the end through — the two edges rounded
+  in opposite directions.
+  *Fix:* rounding is now an explicit policy parameter. `roundOutward` takes
+  every cluster the range touches, symmetrically at both edges (selection and
+  highlighting, per PROMPT.md's mouse-behavior rule); `roundInward` takes only
+  clusters wholly inside (clipping a row to the pane, where a straddling glyph
+  must be dropped or the content would overflow the border). Both resolve
+  through one primitive, `displayColByteRange`.
+  *Regression tests:* `TestProperty_DragSelectsCorrectText`'s first/last-char
+  invariants now assert on **every** column — the `onBoundary` skip that
+  dodged this case is gone — plus `TestSliceByDisplayCol_OutwardIsSymmetric`,
+  `TestSliceByDisplayCol_NeverSplitsAnAtom`, and explicit both-policy rows in
+  `TestSliceByDisplayCol`.
+  *Pre-fix failure line:* `last char: selectedText() ends with "の", but screen
+  position (31,5) has "テ"`.
+
+- **A cluster split across ANSI color spans measured several cells too
+  wide.** FIXED (found while widening the generators).
+  *Symptom:* the syntax highlighter emits one color span per token, so a ZWJ
+  family emoji arrives as `ESC[..m👩ESC[0m ESC[..m<ZWJ>ESC[0m ...`. That line
+  measured 6 cells for a 2-cell glyph, and because the drag highlight rewrites
+  its region with escapes stripped, applying a highlight silently changed the
+  row's width — `displayWidth(s) != displayWidth(stripANSIForWidth(s))`.
+  *Root cause:* segmentation broke clusters at escape boundaries.
+  *Fix:* escapes are transparent to clustering — `eachDisplayCluster` segments
+  over the ANSI-stripped text and reattaches escapes, so width no longer
+  depends on where the highlighter chunked its spans.
+  *Regression tests:* `TestWidthIgnoresEscapePlacement` and
+  `TestWidthIgnoresEscapePlacement_ZWJ`.
+  *Pre-fix failure line:* `drag changed styling after highlight on line 11:
+  base: "\x1b[m    " drag: ""`.
+
+- **Wrap could break inside a grapheme cluster.** FIXED. The over-long-token
+  splitter stepped rune by rune, so a base character could end one row and its
+  combining mark start the next. It now steps by cluster.
+  *Regression test:* `TestWrapNeverSplitsACluster`.
+
+- **Click-placed cursors could land inside a glyph.** FIXED. `clampDisplayCol`
+  now snaps to the start of the cluster the click lands on, via
+  `mainPane.snapDisplayColToCluster`.
+  *Regression tests:* `TestCursorSnapsToClusterStart`,
+  `TestCursorSnapIsIdempotent`.
+
+### Found in review of the width-oracle change
+
+Three real bugs caught reviewing the unification. The first two were introduced
+or left in place by it; the third it made reachable in a new way.
+
+- **`truncateToWidth` dropped every ANSI escape past the truncation point.**
+  FIXED.
+  *Symptom:* a status bar carrying a `makeHyperlink` (OSC 8) cut mid-link kept
+  the opening sequence and lost its terminator, so the "…" and everything
+  rendered after it became part of the clickable link. The SGR form of the same
+  bug leaked color past the cut. Reachable through `ellipsize`
+  (`statusbar.go`) whenever the terminal was too narrow for a PR line
+  containing a link.
+  *Root cause:* the cluster walk returned `false` — stopping iteration — at the
+  first over-budget cluster. Escape sequences come in open/close pairs, so
+  stopping at the cut necessarily dropped the closing half.
+  *Fix:* the walk now continues to the end of the string once the budget is
+  spent, emitting escapes and dropping only printable content (`ansi.Truncate`'s
+  policy). Escapes carried *inside* a dropped cluster are extracted too.
+  *Regression tests:* `TestTruncateToWidth_PreservesEscapesPastTheCut` (asserts
+  balanced OSC 8 open/close after cutting mid-link),
+  `TestTruncateToWidth_PreservesSGRReset`, and the general property
+  `TestTruncateToWidth_KeepsAllEscapes` (the escape stream is unchanged by
+  truncation).
+  *Pre-fix failure line:* `truncateToWidth(link, 1) left 1 OSC 8 sequences,
+  want 2 (unbalanced link)  got "\x1b]8;;https://example.com/pull/1234\x1b\\…"`.
+
+- **`padToHeight` padded by counted shortfall.** FIXED.
+  *Symptom:* a row whose content ended in a Prepend-class cluster came out one
+  cell short of its promised width — the exact non-additive-concatenation bug
+  fixed in `renderTitleRow`, still present one function away. These rows carry
+  arbitrary file content through `RenderOnce` (`model.go`), so it was reachable
+  from ordinary use, and it violates PROMPT.md's exact-width clause.
+  *Root cause:* `lines[i] += strings.Repeat(" ", width-w)` computes the padding
+  once from a measurement taken before the padding is attached; the first
+  appended space is then absorbed into the preceding cluster.
+  *Fix:* `lines[i] = padToWidth(lines[i], width)`, which re-measures the whole
+  string after each space. Also removes a duplicate padding implementation.
+  *Regression tests:* `TestPadToHeight_ExactWidthForAnyInput` (Prepend-final
+  line) and `TestPadToHeight_ExactWidthProperty`.
+  *Pre-fix failure line:* `padToHeight line 0 measures 9, want exactly 10 (line
+  "xy ः\u0600       ")`.
+
+- **The status bar wrapped onto an extra row, desynchronising layout from
+  render.** FIXED.
+  *Symptom:* on divergence-class input in a PR title, `renderStatusBar`
+  returned more rows than `statusBarLineCount` promised — 4 or 5 where 3 was
+  budgeted. Every click target below the wrap point shifts by a row: the
+  `statusBarLines` off-by-one family CLAUDE.md records as having recurred three
+  times.
+  *Root cause:* the overflow guards mixed width authorities — they measured
+  with `lipgloss.Width` but truncated with `ellipsize`, which measured with the
+  oracle. Switching the guards to the oracle is NOT sufficient on its own, and
+  that is the interesting part: `style.Width(n).Render(...)` is what performs
+  the wrap, using lipgloss's own measure, so no amount of oracle-side trimming
+  prevents it.
+  *Fix:* the two questions are now asked in the frame of whoever answers them.
+  `fitToRendererWidth` / `rendererWidth` (width.go, the one file allowed to name
+  the renderer's measurement) trim until *lipgloss* agrees the string fits, and
+  `ellipsize` uses them; the redundant pre-checks are gone, so there is one call
+  and one authority per site. Click hit-regions deliberately stay on
+  `displayWidth`, because they model where a glyph lands on the real terminal's
+  cell grid — which follows grapheme clusters — rather than lipgloss's counter.
+  *Regression test:* `TestStatusBarRowCountMatchesLayout` checks
+  `renderStatusBar`'s row count against `statusBarLineCount`, and each row
+  against the promised width, across both divergence classes plus wide glyphs,
+  ZWJ clusters and decomposed Latin.
+  *Pre-fix failure line:* `width 40, title "AःAःAःAःAःAःAःAःAःAः"…:
+  renderStatusBar produced 5 rows but statusBarLineCount promised 3`.
+
+- **The width oracle made padding quadratic, and `View()` started timing out.**
+  FIXED.
+  *Symptom:* `TestProperty_InteractionInvariants` failed under `-race` with
+  `after init: View() hung for >1s (mode=0, focus=0, sidebarWidth=57, width=192,
+  height=51, files=0, commits=0)` — an EMPTY model, failing after 0 tests. It
+  did not reproduce in a focused run; it needed the whole package running in
+  parallel under `-race`, which is why the non-race sweeps missed it.
+  *Root cause:* `padToWidth` appended ONE space at a time and re-measured the
+  whole string on every iteration, to defend against a Prepend-class tail
+  absorbing a space. That is O(width²) per row, and `padToHeight` runs it on
+  every row of every frame — so a mostly-blank 192x51 render spent essentially
+  all its time there. `renderTitleRow`'s gap-growth loop had the same shape.
+  *Fix:* one-shot-then-verify. Add the whole shortfall at once and keep it only
+  if a single re-measure says the result is exactly the target width — correct
+  by definition when it holds, whatever the tail. When it does not hold, give
+  the absorbing cluster one space and retry the one-shot; a cluster can swallow
+  only one space and there are finitely many, so even the hazard path converges
+  in practice on the next iteration rather than stepping cell by cell.
+  *Pre-fix numbers* (Apple M1 Pro, `-benchtime 50x`):
+
+  | benchmark | before | after | speedup |
+  |---|---|---|---|
+  | `BenchmarkViewEmpty` (192x51, empty) | 13,571,038 ns/op | 937,015 ns/op | 14.5x |
+  | `BenchmarkPadToWidth/empty` | 15,640 ns/op | 284 ns/op | 55x |
+  | `BenchmarkPadToWidth/ascii` | 15,327 ns/op | 306 ns/op | 50x |
+  | `BenchmarkPadToWidth/prepend_tail` | 253,385 ns/op | 5,756 ns/op | 44x |
+
+  *Regression guard:* `BenchmarkViewEmpty` and `BenchmarkPadToWidth`
+  (width_test.go), so the next regression is a number rather than a flaky 1s
+  timeout. Correctness is still pinned by `TestPadToWidth_ExactForAnyInput`,
+  `TestPadToWidth_AbsorbedSpaces` and `TestRenderTitleRow_AlwaysExactWidth`,
+  which the fast path had to keep passing.
+
+- **Resolved as an imprecise test expectation, not a product bug: the drag
+  property's first/last-cluster invariants.** Surfaced at 300 checks by the
+  widened generator, on a line containing `\u0600本` — a Prepend character
+  immediately before a wide CJK glyph.
+  *Symptom:* `first char: selectedText() starts with "\u0600本 1 ", but screen
+  position (27,5) has " "`.
+  *Cause:* uniseg segments `\u0600本` as ONE cluster and scores it **width 0**
+  (a Prepend cluster reports no width regardless of what it prepends). So two
+  atoms share column 3: the invisible `"\u0600本"` and the following space.
+  `charAt` skips zero-width atoms because it answers "which glyph occupies this
+  cell"; `displayColByteRange` attaches zero-width atoms to the content that
+  follows them, per Prepend semantics, so the selection legitimately opens with
+  that invisible cluster. Both are behaving as designed — the invariant was
+  comparing the selection's first *bytes* against the cell's *glyph*.
+  *Fix:* the invariants now compare the first and last atoms that actually
+  occupy a cell (`firstVisibleCluster`, and `lastCluster` skipping zero-width
+  atoms). No production change: this is the contract stated precisely, and it is
+  still asserted on every column.
+  *Note:* it also shows the width model inherits uniseg's view that a Prepend
+  cluster is zero-width, which is visually wrong for `\u0600本` (the glyph does
+  occupy two cells). That is squarely the exotic-script residue PROMPT.md puts
+  out of scope, and it is reachable only from synthetic input.
+
+#### Invalidated seeds
+
+Widening the generators changed the draw sequence of the shared `genMockGit`
+helpers, so six committed seeds could no longer be replayed. rapid reported each
+of them itself — the one condition CLAUDE.md permits deletion under — and they
+were deleted, none other:
+
+```
+[rapid] fail file ".../TestProperty_DragSelectsCorrectText-20260520145748-58114.fail" is no longer valid
+[rapid] fail file ".../TestProperty_DragAcrossModesNoPanic-20260515122534-4472.fail" is no longer valid
+[rapid] fail file ".../TestProperty_DragAcrossModesNoPanic-20260515161924-53136.fail" is no longer valid
+[rapid] fail file ".../TestProperty_TreeModeNavigation-20260509234947-38218.fail" is no longer valid
+[rapid] fail file ".../TestProperty_InteractionInvariants-20260520144058-13094.fail" is no longer valid
+[rapid] fail file ".../TestProperty_InteractionInvariants-20260901164422-53562.fail" is no longer valid
+```
+
+The last of those is the seed written by the `View()` timeout above. It records
+a timing failure at 0 draws, and rapid cannot replay it, so `BenchmarkViewEmpty`
+is that bug's durable guard instead. A full verbose package run now reports zero
+invalid fail files.
+
+#### Known, deliberate divergence from `ansi.StringWidth`
+
+The oracle models the terminal cell grid, which PROMPT.md makes ground truth.
+It agrees with `ansi.StringWidth` (what lipgloss measures with) everywhere
+except two classes in which that function contradicts *its own* grapheme
+segmentation, and where a real terminal follows the segmentation:
+
+1. a cluster that begins with an ASCII byte and continues into non-ASCII bytes.
+   `ansi.StringWidth`'s ASCII fast path emits the base as one cell without
+   consulting grapheme segmentation, then measures the continuation as if it
+   began a new cluster. So `"Aः"` (ASCII + U+0903) scores 2 and `" 🏿"` (space +
+   U+1F3FF emoji modifier) scores 3, though each is one cluster of width 1; and
+2. a cluster split across ANSI escape spans (above).
+
+Reproducing either would mean splitting a cluster, which the spec forbids and
+which is not exotic — decomposed accented Latin text is ordinary content, and
+splitting it makes a selection begin with a floating accent. Both classes are
+asserted explicitly by `TestOracleDivergesOnlyWhereRendererIsSelfInconsistent`
+and `TestWidthIgnoresEscapePlacement_ZWJ` rather than tolerated silently.
 
 ### Wrap/copy space loss (was a deliberate red from the A6 widening)
 

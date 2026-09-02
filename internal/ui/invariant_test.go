@@ -12,7 +12,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hazeledmands/prwatch/internal/git"
-	runewidth "github.com/mattn/go-runewidth"
 	"pgregory.net/rapid"
 )
 
@@ -776,65 +775,18 @@ func checkAllInvariants(t *rapid.T, m *Model, context string) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// displayWidth returns the display width of a string, accounting for
-// multi-byte UTF-8 characters, emoji, and East Asian wide characters.
-// Tabs are not special-cased: expandTabs removes them at the content
-// boundary, so a tab reaching display-width math is a bug at that boundary
-// rather than something to compensate for here. (This helper previously used a
-// flat 8 columns per tab — a *fourth* tab width, agreeing with none of the
-// three in production.)
-func displayWidth(s string) int {
-	w := 0
-	for _, r := range s {
-		w += runewidth.RuneWidth(r)
-	}
-	return w
-}
+// displayWidth used to be reimplemented here as a rune-by-rune runewidth sum —
+// a private width authority that disagreed with production about clusters and
+// (before that) about tabs. It now resolves to the one oracle in width.go.
+// Measuring with the oracle is not circular here: PROMPT.md makes agreement
+// with the oracle the specified guarantee, so it is the thing under test.
 
-// splitLineAtCols splits a line (which may contain ANSI escape codes) into
-// three parts at display column boundaries: before fromCol, between fromCol
-// and toCol, and after toCol. ANSI escape codes are preserved in whichever
-// segment they appear in.
+// splitLineAtCols used to be a private reimplementation of the production
+// splitAtDisplayCols (ansiwidth.go), walking runes with runewidth. Two copies of
+// column->byte resolution meant the test could agree with itself while
+// disagreeing with what the app actually sliced. It now calls production.
 func splitLineAtCols(line string, fromCol, toCol int) (before, middle, after string) {
-	col := 0
-	fromByte := -1
-	toByte := -1
-	inEscape := false
-	for i, r := range line {
-		if inEscape {
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-				inEscape = false
-			}
-			continue
-		}
-		if r == '\x1b' {
-			inEscape = true
-			if fromByte < 0 && col >= fromCol {
-				fromByte = i
-			}
-			if toByte < 0 && col >= toCol {
-				toByte = i
-			}
-			continue
-		}
-		if fromByte < 0 && col >= fromCol {
-			fromByte = i
-		}
-		if toByte < 0 && col >= toCol {
-			toByte = i
-		}
-		col += runewidth.RuneWidth(r)
-	}
-	if fromByte < 0 {
-		fromByte = len(line)
-	}
-	if toByte < 0 {
-		toByte = len(line)
-	}
-	if fromByte > toByte {
-		fromByte = toByte
-	}
-	return line[:fromByte], line[fromByte:toByte], line[toByte:]
+	return splitAtDisplayCols(line, fromCol, toCol)
 }
 
 // initModel creates a model from a scenario, loads data, and sets dimensions.
@@ -1176,8 +1128,28 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 				func(n int) string { return fmt.Sprintf("trailing space body %d      ", n) },
 				// Mixed-width (wide CJK) body.
 				func(n int) string { return fmt.Sprintf("日本語のテキスト %d です", n) },
-				// Mixed ASCII + wide + combining marks.
+				// Mixed ASCII + wide + (precomposed) accented letters. Note
+				// these are single runes: the label below carries the real
+				// multi-rune clusters.
 				func(n int) string { return fmt.Sprintf("café ünïcode %d 漢字 mixed", n) },
+				// Genuinely multi-rune grapheme clusters. The line above was
+				// labelled "combining marks" but Go source literals are NFC,
+				// so it emitted none and the suite could not fail on a cluster
+				// bug. These are decomposed base+mark sequences, a ZWJ emoji
+				// family, a regional-indicator pair and a skin-tone modifier —
+				// each one several runes that must never be split.
+				func(n int) string {
+					return fmt.Sprintf("école %d naïve café", n)
+				},
+				func(n int) string {
+					return fmt.Sprintf("emoji \U0001f469‍\U0001f469‍\U0001f466 %d \U0001f1ef\U0001f1f5 \U0001f44d\U0001f3fd end", n)
+				},
+				// A wide glyph directly adjacent to a combining mark and to a
+				// zero-width Prepend character — the adjacency that makes width
+				// non-additive across a slice boundary.
+				func(n int) string {
+					return fmt.Sprintf("日̃x؀本 %d ः wide", n)
+				},
 				// A6: tab-indented body — i.e. what every Go file looks like.
 				// Never generated before, which is how three disagreeing tab
 				// widths survived in the wrap, gutter and copy math.
@@ -1353,7 +1325,7 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 				if isContinuation && prevRanToRowEnd && fromX == 0 {
 					hlText.WriteString(strings.Repeat(" ", m.mainPane.breakSpacesBefore(absRow)))
 				}
-				hlText.WriteString(sliceByDisplayCol(line, fromX, toX))
+				hlText.WriteString(sliceByDisplayCol(line, fromX, toX, roundOutward))
 				prevRanToRowEnd = toX >= lineW
 			} else {
 				prevRanToRowEnd = false
@@ -1390,40 +1362,53 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 				hlJoined, gotJoined, wordWrap, lineNumbers, x1, y1, x2, y2)
 		}
 
-		// Helper: get the gutter-stripped, ANSI-stripped character occupying a
-		// screen position in the viewport content.
+		// Helper: the gutter-stripped atom occupying a screen position in the
+		// viewport content.
 		//
 		// Screen columns are *display* columns, so the body is addressed by
-		// display width — rune index and display column diverge as soon as
-		// the body holds wide runes, which the generator now produces.
+		// display width — index and display column diverge as soon as the body
+		// holds wide glyphs, which the generator produces.
 		//
-		// onBoundary reports whether the column is the *first* cell of the
-		// rune. When a click lands on the trailing cell of a wide glyph, the
-		// copy path's start and end clips disagree about whether that glyph is
-		// inside the selection (sliceByDisplayCol rounds the start up to the
-		// next rune boundary but lets a straddling rune through at the end),
-		// so the endpoint invariants below only assert on boundary columns.
-		// See BUG_REPORTS.md — the half-cell click case is an open question,
-		// not something these tests should silently bless either way.
-		charAt := func(screenX, screenY int) (r rune, onBoundary, ok bool) {
+		// This returns the whole cluster covering the column, not a rune, and
+		// has no boundary/non-boundary distinction. It used to report whether
+		// the column was a glyph's *first* cell so the endpoint invariants
+		// could skip the rest, dodging sliceByDisplayCol's start/end rounding
+		// asymmetry. That asymmetry is fixed — endpoints round outward at both
+		// edges — so every column is now assertable.
+		charAt := func(screenX, screenY int) (cluster string, ok bool) {
 			row := screenY - contentStartY
 			if row < 0 || row >= len(vpLines) {
-				return 0, false, false
+				return "", false
 			}
 			body := stripGutterText(vpLines[row], gw)
 			charCol := screenX - contentStartX - gw
 			if charCol < 0 || charCol >= displayWidthOf(body) {
-				return 0, false, false
+				return "", false
 			}
-			col := 0
-			for _, rr := range body {
-				w := runewidth.RuneWidth(rr)
-				if charCol < col+w {
-					return rr, charCol == col, true
+			eachDisplayCluster(body, func(c displayCluster) bool {
+				if c.IsEscape || c.Width == 0 {
+					return true
 				}
-				col += w
-			}
-			return 0, false, false
+				if charCol >= c.Col && charCol < c.Col+c.Width {
+					cluster, ok = c.Text, true
+					return false
+				}
+				return true
+			})
+			return cluster, ok
+		}
+
+		// lastCluster returns the final display atom of s, the counterpart to a
+		// leading-cluster prefix check.
+		lastCluster := func(s string) string {
+			last := ""
+			eachDisplayCluster(s, func(c displayCluster) bool {
+				if !c.IsEscape && c.Width > 0 {
+					last = c.Text
+				}
+				return true
+			})
+			return last
 		}
 
 		// Invariant 1: every logical line in the copied text is a subsequence
@@ -1510,26 +1495,35 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			}
 		}
 
-		// Invariant 2: first character matches drag start position
-		gotRunes := []rune(got)
-		if startChar, onBoundary, ok := charAt(x1, y1); ok && onBoundary {
-			if gotRunes[0] != startChar {
+		// Invariant 2: the first selected cluster matches the drag start
+		// position. Asserted on *every* column, including the trailing cell of
+		// a wide glyph: endpoints round outward to cluster boundaries, so
+		// clicking either cell of a glyph selects that whole glyph.
+		if startCluster, ok := charAt(x1, y1); ok {
+			// Compare the first *visible* atom, not the first bytes. A
+			// zero-width cluster attaches to the content that follows it
+			// (Prepend semantics), so a selection starting at a column may
+			// legitimately open with invisible atoms bound to the glyph there —
+			// "\u0600本" is one such cluster, which uniseg scores width 0.
+			// charAt reports the glyph occupying the cell; the selection carries
+			// that glyph plus whatever is bound to it. Both are correct, so the
+			// invariant is about the first thing that occupies a cell.
+			if first := firstVisibleCluster(got); first != startCluster {
 				t.Fatalf("first char: selectedText() starts with %q, but screen position (%d,%d) has %q",
-					string(gotRunes[0]), x1, y1, string(startChar))
+					first, x1, y1, startCluster)
 			}
 		}
 
-		// Invariant 3: last character matches drag end position
-		if endChar, onBoundary, ok := charAt(x2, y2); ok && onBoundary {
-			lastGot := gotRunes[len(gotRunes)-1]
-			// The last rune might be a newline if we selected to end of line;
-			// in that case compare against the last non-newline rune.
-			if lastGot == '\n' && len(gotRunes) > 1 {
-				lastGot = gotRunes[len(gotRunes)-2]
-			}
-			if lastGot != endChar {
+		// Invariant 3: the last selected cluster matches the drag end position,
+		// likewise on every column.
+		if endCluster, ok := charAt(x2, y2); ok {
+			tail := got
+			// The selection may end with a newline if it ran to end of line;
+			// in that case compare against the last cluster before it.
+			tail = strings.TrimSuffix(tail, "\n")
+			if lastGot := lastCluster(tail); lastGot != endCluster {
 				t.Fatalf("last char: selectedText() ends with %q, but screen position (%d,%d) has %q",
-					string(lastGot), x2, y2, string(endChar))
+					lastGot, x2, y2, endCluster)
 			}
 		}
 
@@ -1615,25 +1609,11 @@ func TestProperty_DragSelectsCorrectText(t *testing.T) {
 			if revOff < 0 {
 				continue
 			}
-			// Count display columns up to revOff, skipping ANSI escapes.
-			hlRightCol := 0
-			inEsc := false
-			for i, r := range dragLine {
-				if i >= revOff {
-					break
-				}
-				if inEsc {
-					if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-						inEsc = false
-					}
-					continue
-				}
-				if r == '\x1b' {
-					inEsc = true
-					continue
-				}
-				hlRightCol += runewidth.RuneWidth(r)
-			}
+			// Count display columns up to revOff. The oracle already skips
+			// ANSI escapes, so this needs no escape state machine of its
+			// own — the hand-rolled one it replaces was a private width
+			// authority that disagreed with production about clusters.
+			hlRightCol := displayWidth(dragLine[:revOff])
 
 			// Content boundary: rightmost non-space display column in the
 			// baseline (un-highlighted) line.

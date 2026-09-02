@@ -232,7 +232,10 @@ func paintHighlightClips(content string, g dragGeometry, clips []highlightClip) 
 			toCol = rightBorderCol + 1
 		}
 		stripped := stripANSIForWidth(lines[screenY])
-		mainContent := sliceByDisplayCol(stripped, gutterOffset, rightBorderCol)
+		// Clipping the rendered row to the pane, not selecting: a glyph
+		// straddling the right border must be dropped, since taking it whole
+		// would make the measured content end a cell past the border.
+		mainContent := sliceByDisplayCol(stripped, gutterOffset, rightBorderCol, roundInward)
 		trimmed := strings.TrimRight(mainContent, " ")
 		contentEndCol := gutterOffset + displayWidthOf(trimmed)
 		if toCol > contentEndCol {
@@ -570,7 +573,11 @@ func extractLineFragment(line string, fromCol, toCol, gw int) string {
 	if fromCol >= toCol {
 		return ""
 	}
-	return sliceByDisplayCol(stripped, fromCol, toCol)
+	// Selection: round outward at both edges so an endpoint landing on either
+	// cell of a wide glyph takes the whole glyph, symmetrically (PROMPT.md,
+	// mouse behavior). Rounding the start outward and letting the end straddle
+	// — the old behavior — made the two edges disagree.
+	return sliceByDisplayCol(stripped, fromCol, toCol, roundOutward)
 }
 
 // mainPaneContentTop returns the screen-Y of the first row inside the

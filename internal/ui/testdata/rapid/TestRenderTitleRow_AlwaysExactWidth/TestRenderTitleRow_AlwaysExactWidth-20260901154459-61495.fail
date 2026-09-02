@@ -1,0 +1,19 @@
+# 2026/09/01 15:44:59.256761 [TestRenderTitleRow_AlwaysExactWidth] [rapid] draw left: ""
+# 2026/09/01 15:44:59.256779 [TestRenderTitleRow_AlwaysExactWidth] [rapid] draw right: "\nA"
+# 2026/09/01 15:44:59.256790 [TestRenderTitleRow_AlwaysExactWidth] [rapid] draw width: 2
+# 2026/09/01 15:44:59.256801 [TestRenderTitleRow_AlwaysExactWidth] renderTitleRow width=2: lipgloss measures 1 for " \nA"
+# 
+v0.4.8#12679855874044404514
+0x0
+0x5555555555555
+0x0
+0xc05c654ab866b
+0x17
+0x5555555555555
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1

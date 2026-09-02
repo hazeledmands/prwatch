@@ -8321,23 +8321,34 @@ func TestSliceByDisplayCol(t *testing.T) {
 		name     string
 		input    string
 		from, to int
+		mode     colRounding
 		want     string
 	}{
-		{"ascii", "hello world", 0, 5, "hello"},
-		{"ascii mid", "hello world", 6, 11, "world"},
-		{"emoji start", "🔥abc", 0, 2, "🔥"},
-		{"emoji skip", "🔥abc", 2, 5, "abc"},
-		{"multi emoji", "🔥🎉x", 0, 4, "🔥🎉"},
-		{"multi emoji skip first", "🔥🎉x", 2, 5, "🎉x"},
-		{"empty range", "abc", 2, 2, ""},
-		{"past end", "abc", 0, 10, "abc"},
-		{"from past end", "abc", 5, 10, ""},
+		{"ascii", "hello world", 0, 5, roundOutward, "hello"},
+		{"ascii mid", "hello world", 6, 11, roundOutward, "world"},
+		{"emoji start", "🔥abc", 0, 2, roundOutward, "🔥"},
+		{"emoji skip", "🔥abc", 2, 5, roundOutward, "abc"},
+		{"multi emoji", "🔥🎉x", 0, 4, roundOutward, "🔥🎉"},
+		{"multi emoji skip first", "🔥🎉x", 2, 5, roundOutward, "🎉x"},
+		{"empty range", "abc", 2, 2, roundOutward, ""},
+		{"past end", "abc", 0, 10, roundOutward, "abc"},
+		{"from past end", "abc", 5, 10, roundOutward, ""},
+
+		// Partial cover of a wide glyph. 日 occupies columns 2-3 of "ab日cd";
+		// the two policies are what a selection and a clip respectively want.
+		{"outward takes straddled glyph at end", "ab日cd", 0, 3, roundOutward, "ab日"},
+		{"outward takes straddled glyph at start", "ab日cd", 3, 5, roundOutward, "日c"},
+		{"outward is symmetric across the glyph", "ab日cd", 1, 3, roundOutward, "b日"},
+		{"inward drops straddled glyph at end", "ab日cd", 0, 3, roundInward, "ab"},
+		{"inward drops straddled glyph at start", "ab日cd", 3, 5, roundInward, "c"},
+		{"both agree on a whole glyph", "ab日cd", 2, 4, roundOutward, "日"},
+		{"both agree on a whole glyph (inward)", "ab日cd", 2, 4, roundInward, "日"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := sliceByDisplayCol(tt.input, tt.from, tt.to)
+			got := sliceByDisplayCol(tt.input, tt.from, tt.to, tt.mode)
 			if got != tt.want {
-				t.Errorf("sliceByDisplayCol(%q, %d, %d) = %q, want %q", tt.input, tt.from, tt.to, got, tt.want)
+				t.Errorf("sliceByDisplayCol(%q, %d, %d, %v) = %q, want %q", tt.input, tt.from, tt.to, tt.mode, got, tt.want)
 			}
 		})
 	}

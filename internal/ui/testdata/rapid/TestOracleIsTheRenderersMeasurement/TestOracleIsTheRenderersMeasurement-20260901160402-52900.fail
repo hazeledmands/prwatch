@@ -1,0 +1,19 @@
+# 2026/09/01 16:04:02.299113 [TestOracleIsTheRenderersMeasurement] [rapid] draw sLen: 3
+# 2026/09/01 16:04:02.299116 [TestOracleIsTheRenderersMeasurement] [rapid] draw sPiece: 8
+# 2026/09/01 16:04:02.299117 [TestOracleIsTheRenderersMeasurement] [rapid] draw sPiece: 18
+# 2026/09/01 16:04:02.299118 [TestOracleIsTheRenderersMeasurement] [rapid] draw sPiece: 0
+# 2026/09/01 16:04:02.299119 [TestOracleIsTheRenderersMeasurement] displayWidth("\u0600\x1b[31ma") = 0 but lipgloss.Width = 1
+# 
+v0.4.8#16943972296613799655
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x9867f1f40f739
+0x8
+0x0
+0xc05c654ab866b
+0x12
+0x0
+0x0
+0x0

@@ -1,0 +1,26 @@
+# 2026/09/01 16:32:33.681524 [TestTruncateToWidth_NeverExceedsAndNeverSplits] [rapid] draw sLen: 3
+# 2026/09/01 16:32:33.681528 [TestTruncateToWidth_NeverExceedsAndNeverSplits] [rapid] draw sPiece: 0
+# 2026/09/01 16:32:33.681529 [TestTruncateToWidth_NeverExceedsAndNeverSplits] [rapid] draw sPiece: 0
+# 2026/09/01 16:32:33.681532 [TestTruncateToWidth_NeverExceedsAndNeverSplits] [rapid] draw sPiece: 18
+# 2026/09/01 16:32:33.681532 [TestTruncateToWidth_NeverExceedsAndNeverSplits] [rapid] draw width: 1
+# 2026/09/01 16:32:33.681533 [TestTruncateToWidth_NeverExceedsAndNeverSplits] [rapid] draw tail: ""
+# 2026/09/01 16:32:33.681536 [TestTruncateToWidth_NeverExceedsAndNeverSplits] truncateToWidth("aa\x1b[31m", 1, "") = "a\x1b[31m": kept part is not a prefix
+# 
+v0.4.8#9822946849691330228
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0xc05c654ab866b
+0x12
+0x0
+0x0
+0x1
+0x0
+0x0

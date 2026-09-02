@@ -230,8 +230,15 @@ func rowContentWidth(pane *mainPane, vpRow int) int {
 	return w
 }
 
-// clampDisplayCol bounds a click's display column to the row's
-// content. Used by SetFromClick so past-EOL clicks land at end-of-line.
+// clampDisplayCol bounds a click's display column to the row's content, then
+// snaps it to the start of the grapheme cluster it lands on. Used by
+// SetFromClick, so past-EOL clicks land at end-of-line and a click on the
+// trailing cell of a wide glyph (or on a combining mark) puts the cursor at the
+// glyph's first cell rather than inside it — PROMPT.md, mouse behavior.
+//
+// Both adjustments live here because this is the single place a click's column
+// is normalized; deriving either one at another call site is how the cursor and
+// the highlight would come to disagree about where the cursor is.
 func clampDisplayCol(pane *mainPane, vpRow, displayCol int) int {
 	if displayCol < 0 {
 		return 0
@@ -241,9 +248,9 @@ func clampDisplayCol(pane *mainPane, vpRow, displayCol int) int {
 		return 0
 	}
 	if displayCol >= rowW {
-		return rowW - 1
+		displayCol = rowW - 1
 	}
-	return displayCol
+	return pane.snapDisplayColToCluster(vpRow, displayCol)
 }
 
 // ApplyHighlight paints a single reverse-video cell at the cursor's

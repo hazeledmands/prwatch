@@ -147,7 +147,9 @@ table-driven behavior tests as the safety net for A6's `-z` conversion, with
 today's `core.quotePath` mishandling recorded as `CURRENT BEHAVIOR:` rather
 than fixed. Two A4 bullets are deliberately left to A5
 (`TestScope_IsScrubbedConditions`, `TestModeSwitching_RetainsPerModeViewState`);
-one new wide-glyph drag bug found and logged in BUG_REPORTS.md.
+one new wide-glyph drag bug found and logged in BUG_REPORTS.md (since
+fixed by the unified width oracle — see "Done: unified grapheme-cluster width
+accounting" below).
 
 **A5 — broken seams** (done, uncommitted): all six sub-items fixed; details
 per-bug in BUG_REPORTS.md. The structural change is `internal/ui/mainnav.go`,
@@ -257,14 +259,69 @@ rename's title bar, which contradicted the committed
 expectation, not a product bug, and is fixed: the expectation now sanitizes
 both sides of the arrow.
 
-Still open: `renderTitleRow` mis-pads strings of zero-width runes — the same
-family as the already-open wide-glyph half-cell question.
+Both of these — `renderTitleRow`'s zero-width mis-padding and the wide-glyph
+half-cell question — are now **fixed** by the unified width oracle (below).
 
-**The suite is therefore deliberately red on exactly one test**
-(`TestRenderTitleRow_AlwaysExactWidth`) — per Hazel's decision it is neither
-fixed nor narrowed nor skipped, because the failing replay *is* the record of
-the bug. Any second failure is a real regression. See BUG_REPORTS.md's "Found
-by the widening, NOT fixed" section.
+---
+
+## Done: unified grapheme-cluster width accounting
+
+**Goal (PROMPT.md, "unicode width accounting" under `## layout`, plus the
+selection-rounding bullet under `## mouse behavior`):** the terminal cell grid
+is ground truth; one shared cluster-aware width function, applied to whole
+strings; clusters indivisible for cursor, selection, wrap-break and slice;
+width-promising rows exact for any input; selection endpoints round outward
+symmetrically.
+
+**Shipped.**
+- `internal/ui/width.go` — `displayWidth` (the oracle) and
+  `eachDisplayCluster` (the matching walk), plus `truncateToWidth`,
+  `padToWidth`, `fitToWidth`. Escapes are transparent to clustering.
+- `ansiwidth.go` — `displayColByteRange` resolves a column range to bytes under
+  an explicit `roundInward` / `roundOutward` policy; `sliceByDisplayCol` and
+  `splitAtDisplayCols` are built on it. Every call site now states its policy.
+- Six competing width authorities removed; `TestNoDirectRunewidthOutsideOracle`
+  keeps them from coming back.
+- `renderTitleRow` measures whole candidate rows to a fixed point.
+- Wrap tokenizer and mid-token splitter step by cluster.
+- `clampDisplayCol` snaps click-placed cursors to the cluster start.
+- Generators widened with combining marks, Prepend characters, ZWJ emoji,
+  regional indicators and skin-tone modifiers — which found two further real
+  bugs (escape-split clusters, and cluster-splitting in the drag path).
+
+**The suite is fully green.** The only deliberate red is gone; the sole
+expected failure is the sandbox-only `TestStartIPCListener_RoundTrip`.
+
+**Divergence ratified in review:** the oracle deliberately diverges from
+`ansi.StringWidth` in two classes where that function contradicts its own
+grapheme segmentation (a cluster beginning with an ASCII base and continuing
+into non-ASCII bytes; clusters split across colour spans). See BUG_REPORTS.md,
+"Known, deliberate divergence from `ansi.StringWidth`".
+
+**Review follow-ups, all landed** (see BUG_REPORTS.md, "Found in review of the
+width-oracle change"): truncation no longer drops escapes past the cut (it was
+unbalancing OSC 8 hyperlinks); `padToHeight` pads via `padToWidth` instead of a
+counted shortfall; and the status bar no longer wraps onto an unbudgeted row.
+That last one needed more than switching to the oracle — `style.Width(n).Render`
+wraps using lipgloss's own measure, so `fitToRendererWidth` trims until the
+*renderer* is satisfied, while click hit-regions stay on `displayWidth` because
+they model the terminal's cell grid. The guard test now parses the whole repo
+with `go/parser` and is alias-proof; `go mod tidy` has dropped go-runewidth to
+an indirect dependency.
+
+**Perf follow-up, landed.** The oracle's one-space-at-a-time padding made
+`padToWidth` O(width²), and since `padToHeight` runs it on every row of every
+frame, an empty 192x51 render took 13.6ms and tripped the property suite's 1s
+`View()` timeout under `-race`. Padding now adds the shortfall in one shot and
+verifies with a single re-measure, falling back to a converging retry only for
+absorbing tails: `BenchmarkViewEmpty` 13.6ms → 0.94ms (14.5x).
+`BenchmarkViewEmpty` / `BenchmarkPadToWidth` are committed so the next
+regression is a number, not a flaky timeout.
+
+**Six seeds deleted**, each reported "no longer valid" by rapid itself after the
+generator widening changed the shared draw sequence — the one condition
+CLAUDE.md permits deletion under. Exact reports are quoted in BUG_REPORTS.md
+under "Invalidated seeds"; a verbose package run now reports zero.
 
 ---
 

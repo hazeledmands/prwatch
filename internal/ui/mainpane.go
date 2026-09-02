@@ -15,7 +15,6 @@ import (
 	chromaformatters "github.com/alecthomas/chroma/v2/formatters"
 	chromalexers "github.com/alecthomas/chroma/v2/lexers"
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
-	runewidth "github.com/mattn/go-runewidth"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -563,31 +562,26 @@ func expandTabs(s string) string {
 	var b strings.Builder
 	b.Grow(len(s) + len(s)/8)
 	col := 0
-	inEscape := false
-	for _, r := range s {
-		if inEscape {
-			b.WriteRune(r)
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-				inEscape = false
-			}
-			continue
-		}
-		switch r {
-		case '\x1b':
-			b.WriteRune(r)
-			inEscape = true
-		case '\n':
-			b.WriteRune(r)
+	// Tab and newline are Control-class, so each is always its own grapheme
+	// cluster (UAX #29 GB4/GB5 break either side) — they can never hide inside
+	// a cluster we would otherwise pass through whole.
+	eachDisplayCluster(s, func(c displayCluster) bool {
+		switch {
+		case c.IsEscape:
+			b.WriteString(c.Text)
+		case c.Text == "\n":
+			b.WriteString(c.Text)
 			col = 0
-		case '\t':
+		case c.Text == "\t":
 			n := tabWidth - (col % tabWidth)
 			b.WriteString(strings.Repeat(" ", n))
 			col += n
 		default:
-			b.WriteRune(r)
-			col += runewidth.RuneWidth(r)
+			b.WriteString(c.Text)
+			col += c.Width
 		}
-	}
+		return true
+	})
 	return b.String()
 }
 
@@ -701,7 +695,7 @@ func inlineDiffSize(oldText, newText string) int {
 		if d.Type == diffmatchpatch.DiffEqual {
 			continue
 		}
-		size += runewidth.StringWidth(d.Text)
+		size += displayWidth(d.Text)
 	}
 	return size
 }
@@ -986,51 +980,69 @@ func (m *mainPane) View(focused bool) string {
 // row of exactly width display columns. When left+right would collide, left is
 // truncated with an ellipsis. If right alone is wider than width, right is
 // truncated and left is dropped entirely.
+// The gap between left and right is grown one space at a time, re-measuring the
+// whole assembled row each step, rather than computed as
+// `width - leftW - rightW`. Display width is not additive across concatenation:
+// a combining mark at the start of `right` merges backward into the padding, and
+// a Prepend-class character at the end of `left` swallows the first pad space,
+// so a row built from separately-measured parts comes out narrower than promised.
+// That was the "renderTitleRow mis-pads strings of zero-width runes" bug.
 func renderTitleRow(left, right string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	rightW := runewidth.StringWidth(right)
-	if rightW > width {
-		return fitToWidth(runewidth.Truncate(right, width, ""), width)
+	// A row is one line. Escape control characters — a newline above all, which
+	// would split the "row" in two and make any single width unachievable — so
+	// the promised width holds for any input rather than only for callers that
+	// remembered to sanitize. Idempotent, and the production callers already
+	// sanitize, so this is a no-op for real titles.
+	left = sanitizeDisplayText(left)
+	right = sanitizeDisplayText(right)
+	if displayWidth(right) > width {
+		return fitToWidth(truncateToWidth(right, width, ""), width)
 	}
-	leftW := runewidth.StringWidth(left)
 	gap := 1
-	if leftW == 0 || rightW == 0 {
+	if displayWidth(left) == 0 || displayWidth(right) == 0 {
 		gap = 0
 	}
-	if leftW+gap+rightW > width {
-		budget := width - rightW - gap
+	if displayWidth(left)+gap+displayWidth(right) > width {
+		budget := width - displayWidth(right) - gap
 		if budget <= 0 {
 			left = ""
-			leftW = 0
 		} else {
-			left = runewidth.Truncate(left, budget, "…")
-			leftW = runewidth.StringWidth(left)
+			left = truncateToWidth(left, budget, "…")
 		}
 	}
-	pad := width - leftW - rightW
-	if pad < 0 {
-		pad = 0
+	// Whole-row check: the parts-based budget above is an estimate, so keep
+	// dropping clusters off left until the row itself fits.
+	for left != "" && displayWidth(left+right) > width {
+		left = truncateToWidth(left, displayWidth(left)-1, "")
 	}
-	return fitToWidth(left+strings.Repeat(" ", pad)+right, width)
-}
-
-// fitToWidth pads or truncates s so its display width is exactly width. Acts as
-// a safety net against width-estimate drift from combining characters.
-func fitToWidth(s string, width int) string {
-	w := runewidth.StringWidth(s)
-	if w == width {
-		return s
+	// Size the gap to fill the row. Try the whole shortfall at once and keep it
+	// only if it measures exactly — same one-shot-then-verify shape as
+	// padToWidth, and for the same reason: growing the gap one space at a time
+	// is O(width) whole-row measurements, and this runs on every frame.
+	row := left + right
+	if w := displayWidth(row); w < width {
+		if cand := left + strings.Repeat(" ", width-w) + right; displayWidth(cand) == width {
+			return cand
+		}
+		// A cluster at the seam is absorbing padding. Grow one space at a time,
+		// never accepting a candidate that overshoots; fitToWidth makes up any
+		// remaining shortfall.
+		for pad := 1; ; pad++ {
+			cand := left + strings.Repeat(" ", pad) + right
+			cw := displayWidth(cand)
+			if cw > width {
+				break
+			}
+			row = cand
+			if cw == width {
+				break
+			}
+		}
 	}
-	if w < width {
-		return s + strings.Repeat(" ", width-w)
-	}
-	s = runewidth.Truncate(s, width, "")
-	if w := runewidth.StringWidth(s); w < width {
-		s += strings.Repeat(" ", width-w)
-	}
-	return s
+	return fitToWidth(row, width)
 }
 
 // ScrollTop returns the line number at the top of the viewport.
@@ -1268,6 +1280,36 @@ func (m *mainPane) absoluteColumnFromDisplay(vpRow, displayCol int) int {
 		}
 	}
 	return base + displayCol
+}
+
+// snapDisplayColToCluster moves a row-relative display column left to the first
+// cell of the grapheme cluster covering it, so a cursor never sits on a glyph's
+// trailing cell or between a base character and its combining marks (PROMPT.md:
+// "a cursor placed by click snaps to the start of the cluster it lands on").
+//
+// Columns past the row's content, and rows the viewport doesn't have, are
+// returned unchanged — clamping those is clampDisplayCol's job.
+func (m *mainPane) snapDisplayColToCluster(vpRow, displayCol int) int {
+	if displayCol <= 0 || vpRow < 0 {
+		return max(displayCol, 0)
+	}
+	vpLines := strings.Split(m.viewport.GetContent(), "\n")
+	if vpRow >= len(vpLines) {
+		return displayCol
+	}
+	body := stripGutterText(vpLines[vpRow], m.gutterWidth)
+	snapped := displayCol
+	eachDisplayCluster(body, func(c displayCluster) bool {
+		if c.IsEscape || c.Width == 0 {
+			return true
+		}
+		if displayCol >= c.Col && displayCol < c.Col+c.Width {
+			snapped = c.Col
+			return false
+		}
+		return true
+	})
+	return snapped
 }
 
 // wrapRowCountAtVpRow returns the number of wrap rows belonging to the
@@ -1543,36 +1585,6 @@ func highlightMatchInLine(line, query string) string {
 	return out.String()
 }
 
-// ansiAwareIterate calls fn for each rune in line, passing the rune and its
-// display width (0 for characters inside ANSI escape sequences, otherwise the
-// rune's display width). It returns the total display width.
-//
-// Tabs need no special case: expandTabs removes them where content enters the
-// pane, so anything reaching here is already spaces.
-func ansiAwareIterate(line string, fn func(r rune, displayW int)) int {
-	totalW := 0
-	inEscape := false
-	for _, r := range line {
-		if inEscape {
-			fn(r, 0)
-			// SGR sequences end with a letter; OSC 8 sequences end with ST (\x1b\\)
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-				inEscape = false
-			}
-			continue
-		}
-		if r == '\x1b' {
-			fn(r, 0)
-			inEscape = true
-			continue
-		}
-		w := runewidth.RuneWidth(r)
-		fn(r, w)
-		totalW += w
-	}
-	return totalW
-}
-
 // wrapLinesWithContinuationMap wraps content and returns a boolean slice where
 // each entry corresponds to a viewport line. true means the line is a continuation
 // of the previous source line (due to word wrapping).
@@ -1621,7 +1633,7 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 	}
 
 	for _, line := range lines {
-		lineW := ansiAwareIterate(line, func(r rune, w int) {})
+		lineW := displayWidth(line)
 		if lineW <= width {
 			result = append(result, line)
 			contMap = append(contMap, false)
@@ -1638,33 +1650,27 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 		var cur strings.Builder
 		curW := 0
 		curIsSpace := false
-		inEscape := false
 
-		for _, r := range line {
-			if inEscape {
-				cur.WriteRune(r)
-				if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-					inEscape = false
-				}
-				continue
-			}
-			if r == '\x1b' {
-				cur.WriteRune(r)
-				inEscape = true
-				continue
+		// Tokenize by grapheme cluster, not by rune: a cluster is indivisible,
+		// so it must land wholly in one token and therefore wholly on one row.
+		eachDisplayCluster(line, func(c displayCluster) bool {
+			if c.IsEscape {
+				cur.WriteString(c.Text)
+				return true
 			}
 			// No '\t' case: expandTabs already turned tabs into spaces at
 			// the content boundary.
-			isSpace := r == ' '
+			isSpace := c.Text == " "
 			if cur.Len() > 0 && isSpace != curIsSpace {
 				tokens = append(tokens, token{text: cur.String(), displayW: curW, isSpace: curIsSpace})
 				cur.Reset()
 				curW = 0
 			}
 			curIsSpace = isSpace
-			cur.WriteRune(r)
-			curW += runewidth.RuneWidth(r)
-		}
+			cur.WriteString(c.Text)
+			curW += c.Width
+			return true
+		})
 		if cur.Len() > 0 {
 			tokens = append(tokens, token{text: cur.String(), displayW: curW, isSpace: curIsSpace})
 		}
@@ -1722,24 +1728,23 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 			}
 
 			if tok.displayW > maxWordWidth {
-				for _, r := range tok.text {
-					if r == '\x1b' || inEscape {
-						curLine.WriteRune(r)
-						if inEscape && ((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')) {
-							inEscape = false
-						} else if r == '\x1b' {
-							inEscape = true
-						}
-						continue
+				// An over-long token is broken across rows, but only ever at a
+				// grapheme-cluster boundary: a wide glyph is never split
+				// between its two cells, and a base character never parts from
+				// its combining marks.
+				eachDisplayCluster(tok.text, func(c displayCluster) bool {
+					if c.IsEscape {
+						curLine.WriteString(c.Text)
+						return true
 					}
-					rw := runewidth.RuneWidth(r)
-					if lineWidth+rw > currentMax {
+					if lineWidth+c.Width > currentMax {
 						flush()
 						currentMax = width
 					}
-					curLine.WriteRune(r)
-					lineWidth += rw
-				}
+					curLine.WriteString(c.Text)
+					lineWidth += c.Width
+					return true
+				})
 			} else {
 				if lineWidth+tok.displayW > currentMax {
 					flush()
@@ -1785,7 +1790,7 @@ func (m *mainPane) ScrollRight(n int) {
 func (m *mainPane) maxContentWidth() int {
 	maxW := 0
 	for _, line := range strings.Split(m.content, "\n") {
-		w := runewidth.StringWidth(stripANSIForWidth(line))
+		w := displayWidth(line)
 		if w > maxW {
 			maxW = w
 		}
@@ -1806,21 +1811,23 @@ func truncateLinesWithOffset(content string, width, offset, stickyPrefix int) st
 		var b strings.Builder
 		pos := 0   // display position in the full line
 		taken := 0 // display width taken in the output
-		ansiAwareIterate(line, func(r rune, dw int) {
-			if dw == 0 {
-				// ANSI escape character — always emit to preserve styling
-				b.WriteRune(r)
-				return
+		eachDisplayCluster(line, func(c displayCluster) bool {
+			dw := c.Width
+			if c.IsEscape {
+				// ANSI escape sequence — always emit to preserve styling
+				b.WriteString(c.Text)
+				return true
 			}
 			if pos < stickyPrefix {
 				// Sticky prefix — always show
-				b.WriteRune(r)
+				b.WriteString(c.Text)
 				taken += dw
 			} else if pos-stickyPrefix >= offset && taken+dw <= width {
-				b.WriteRune(r)
+				b.WriteString(c.Text)
 				taken += dw
 			}
 			pos += dw
+			return true
 		})
 		lines[i] = b.String()
 	}
