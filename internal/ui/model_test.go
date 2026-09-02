@@ -3046,21 +3046,92 @@ func TestMouseClick_StatusBar_Line1ClicksSpecificMode(t *testing.T) {
 	}
 }
 
-func TestMouseClick_StatusBar_Line2SwitchesToCommits(t *testing.T) {
+// line2ModelForClicks builds a model whose line 2 carries a branch label plus
+// a commit-count label, and returns it with those labels' column ranges.
+func line2ModelForClicks(t *testing.T) *Model {
+	t.Helper()
 	m := NewModel("/tmp", testGit())
 	m.width = 120
 	m.height = 24
 	m.repoInfo = git.RepoInfoResult{Branch: "feature", RepoName: "repo"}
+	m.loading = false // View early-returns while loading, publishing no labels
 	m.updateLayout()
 	m.mode = FilesMode
 	m.commits = []git.Commit{{SHA: "abc", Subject: "test"}}
 	m.updateSidebarItems()
+	// Populate line2Labels: they are a render output, and Update only
+	// consults the ones the last View produced.
+	m.View()
+	if len(m.line2Labels) == 0 {
+		t.Fatal("expected line 2 to publish clickable labels")
+	}
+	return m
+}
 
-	// Click row 1 (local git status) should switch to commit mode
-	result, _ := m.Update(tea.MouseClickMsg{X: 50, Y: 1})
+func TestMouseClick_StatusBar_Line2SwitchesToCommits(t *testing.T) {
+	m := line2ModelForClicks(t)
+
+	// Click the middle of a commits-mode label — not arbitrary dead space.
+	var x int
+	var found bool
+	for _, l := range m.line2Labels {
+		if l.target == line2CommitsMode {
+			x, found = l.start+(l.end-l.start)/2, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected a line2CommitsMode label on line 2")
+	}
+
+	result, _ := m.Update(tea.MouseClickMsg{X: x, Y: 1})
 	m = result.(*Model)
 	if m.mode != CommitsMode {
-		t.Errorf("clicking line 2 should switch to CommitsMode, got %d", m.mode)
+		t.Errorf("clicking a commits label at x=%d should switch to CommitsMode, got %d", x, m.mode)
+	}
+}
+
+// TestMouseClick_StatusBar_Line2DeadSpaceDoesNothing pins the removal of the
+// "anywhere on line 2 goes to commits mode" fallback. PROMPT.md requires hover
+// regions and click regions to be the same regions, and hover only ever
+// highlights a published label — so a coordinate on line 2 that no label
+// covers must not dispatch. Separators, the padding past the last label, and
+// anything beyond a truncation cut are all such coordinates.
+func TestMouseClick_StatusBar_Line2DeadSpaceDoesNothing(t *testing.T) {
+	base := line2ModelForClicks(t)
+
+	covered := func(x int) bool {
+		for _, l := range base.line2Labels {
+			if x >= l.start && x < l.end {
+				return true
+			}
+		}
+		return false
+	}
+
+	last := base.line2Labels[len(base.line2Labels)-1]
+	cases := []struct {
+		name string
+		x    int
+	}{
+		{"left padding", 0},
+		{"separator after first label", base.line2Labels[0].end},
+		{"padding past last label", last.end + 1},
+		{"far right of the row", base.width - 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if covered(tc.x) {
+				t.Skipf("x=%d is inside a label for this fixture; not dead space", tc.x)
+			}
+			m := line2ModelForClicks(t)
+			result, _ := m.Update(tea.MouseClickMsg{X: tc.x, Y: 1})
+			m = result.(*Model)
+			if m.mode != FilesMode {
+				t.Errorf("click on line-2 dead space at x=%d changed mode to %d; want FilesMode unchanged", tc.x, m.mode)
+			}
+		})
 	}
 }
 

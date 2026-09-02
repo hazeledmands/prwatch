@@ -1896,10 +1896,13 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		// Fallback: anywhere on line 2 goes to commits mode
-		if len(m.commits) > 0 {
-			m.setMode(CommitsMode)
-		}
+		// No row-wide fallback: a coordinate no label covers does nothing.
+		// PROMPT.md requires hover regions and click regions to be the same
+		// regions, and hover only ever highlights a published label — so a
+		// row-wide target would be a large invisible one, which is exactly
+		// what the hover state exists to rule out. Separators, the padding
+		// past the last label, and anything beyond a truncation cut are all
+		// inert. Same shape as line 3, which never had a fallback.
 	case rows.line3:
 		// Line 3: PR status — click on specific elements. Clicking any
 		// label jumps to a specific item, overriding the restored state.
