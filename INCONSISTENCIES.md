@@ -123,5 +123,12 @@ decision before this can be fixed.
 **Resolved — semantics defined.** Staged → the staged diff
 (`git diff --cached`); new changes → the working-tree diff against the
 index; untracked → each file's contents rendered as a new-file diff. Now
-specified in PROMPT.md's commits-mode section. Fix pending — queued after
-the error-path thread.
+specified in PROMPT.md's commits-mode section.
+
+**Implemented.** `internal/git/pseudodiff.go` supplies the three sources
+(`StagedDiff`, `UnstagedDiff` + `UntrackedDiff`, composed by
+`NewChangesDiff`); `internal/ui/commitspseudo.go` turns each into a body and
+its own shortstat. Untracked content lands in the "new changes" body, since
+PROMPT.md groups untracked and unstaged under that one sidebar entry rather
+than giving untracked an entry of its own. See BUG_REPORTS.md, "Commits-mode
+pseudo-entry bodies were all the same diff".

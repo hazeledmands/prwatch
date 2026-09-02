@@ -59,6 +59,11 @@ type GitDataSource interface {
 	CommitCountRange(base string) (int, error)
 	FileDiffCommitted(base, file string) (string, error)
 	FileDiffUncommitted(file string) (string, error)
+	// StagedDiff and NewChangesDiff back the two commits-mode pseudo-entries.
+	// They are deliberately separate calls: sharing one diff between them is
+	// the bug they exist to prevent.
+	StagedDiff() (string, error)
+	NewChangesDiff() (string, error)
 	FileContent(file string) (string, error)
 	LastCommitForFile(file string) (gitpkg.Commit, error)
 	CommitPatch(sha string) (string, error)
@@ -118,6 +123,7 @@ type Model struct {
 	ciChecks           []gitpkg.CICheck      // CI checks for PR-view mode
 	rwxFetcher         *rwxFetcher           // RWX log fetch/cache state
 	viewMemory         *viewMemory           // per-mode sidebar + per-item main-pane scroll
+	pseudoDiffs        pseudoDiffCache       // commits-mode pseudo-entry bodies, per git-load cycle
 	lastMainItem       mainItemKey           // (mode, item) currently displayed in main pane
 	sidebar            *sidebar
 	mainPane           *mainPane
@@ -925,6 +931,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// failed both prove the local half worked, and the PR failure has its
 		// own display (prError).
 		m.err = nil
+		// This is the cycle that refreshes the sidebar's file counts, so it is
+		// also where the pseudo-entry bodies behind those counts go stale.
+		m.pseudoDiffs.Invalidate()
 		// Which checkout we are on is last-writer-wins state, so an answer from
 		// an older dispatch must not overwrite a newer one. Loads do finish out
 		// of order: a slow cross-checkout load dispatched on branch A can land

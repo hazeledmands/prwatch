@@ -198,6 +198,24 @@ func (g *Git) run(args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// runDiff runs a git command whose *output text* contains paths — a diff or a
+// patch — with path quoting disabled.
+//
+// This is the display-side counterpart to runZ. runZ fixes the listing side:
+// paths git hands us as data. But a diff body carries paths inside its own
+// headers (`diff --git a/x b/x`, `--- a/x`, `+++ b/x`), and those are subject
+// to core.quotePath too — so a file named ünï.go renders on screen as
+// `diff --git "a/\303\274n\303\257.go" ...`. There is no -z for a diff body;
+// -c core.quotePath=false is the switch, and it must be set per-invocation
+// because a user's global config is what turns the quoting on.
+//
+// Not folded into run(): run()'s other callers parse paths out of
+// newline-delimited output, where quoting is load-bearing for disambiguation.
+// Only the diff/patch producers want this.
+func (g *Git) runDiff(args ...string) (string, error) {
+	return g.run(append([]string{"-c", "core.quotePath=false"}, args...)...)
+}
+
 // splitNUL splits NUL-delimited (`-z`) git output into records, dropping every
 // empty record — which in practice means the one left after the final
 // terminator, since git emits no empty fields in the formats used here. The
@@ -765,7 +783,7 @@ func dedupRenamesByNew(in []Rename) []Rename {
 
 // FileDiffCommitted returns the diff for a committed file between base and HEAD.
 func (g *Git) FileDiffCommitted(base, file string) (string, error) {
-	return g.run("diff", base+"..HEAD", "--", file)
+	return g.runDiff("diff", base+"..HEAD", "--", file)
 }
 
 // FileDiffUncommitted returns the working tree diff for a file against HEAD.
@@ -775,22 +793,17 @@ func (g *Git) FileDiffUncommitted(file string) (string, error) {
 	var diff string
 	var err error
 	if file == "" {
-		diff, err = g.run("diff", "HEAD")
+		diff, err = g.runDiff("diff", "HEAD")
 	} else {
-		diff, err = g.run("diff", "HEAD", "--", file)
+		diff, err = g.runDiff("diff", "HEAD", "--", file)
 	}
 	if err == nil && diff != "" {
 		return diff, nil
 	}
-	// For untracked files, diff against /dev/null.
-	// git diff --no-index exits 1 when differences exist, so we capture output manually.
-	cmd := g.cmdFactory("git", "diff", "--no-index", "/dev/null", file)
-	cmd.SetDir(g.dir)
-	var stdout bytes.Buffer
-	cmd.SetStdout(&stdout)
-	cmd.Run() // ignore exit code — 1 means "differences found"
-	out := stdout.String()
-	if out != "" {
+	// For untracked files, diff against /dev/null. Shares noIndexDiff with the
+	// pseudo-entry bodies, which also gets this call the `--` separator it
+	// previously lacked (a file named `-x` was read as a flag).
+	if out, _ := g.noIndexDiff(file); out != "" {
 		return out, nil
 	}
 	return "", fmt.Errorf("no diff available for %s", file)
@@ -903,7 +916,7 @@ func (g *Git) LastCommitForFile(file string) (Commit, error) {
 
 // CommitPatch returns the full patch for a single commit.
 func (g *Git) CommitPatch(sha string) (string, error) {
-	return g.run("show", sha)
+	return g.runDiff("show", sha)
 }
 
 // FileContent returns the full content of a file from the working tree.

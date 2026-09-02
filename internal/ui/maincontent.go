@@ -138,10 +138,31 @@ func (m *Model) updateCommitsModeContent(setItem itemSetter) {
 		setItem(mainItemKey{m.mode, selected})
 		return
 	}
-	if selected == "new changes" || selected == "staged changes" {
-		diff, _ := m.git.FileDiffUncommitted("")
-		m.mainPane.SetContent(diff)
-		m.mainPane.SetTitle(selected, shortstatFromDiff(diff))
+	if isPseudoEntryLabel(selected) {
+		// Each pseudo-entry has its own diff source (PROMPT.md, commits mode).
+		// Sharing one `git diff HEAD` between them conflated staged with
+		// unstaged and dropped untracked content entirely.
+		fetch := m.git.NewChangesDiff
+		if selected == pseudoStagedLabel {
+			fetch = m.git.StagedDiff
+		}
+		// Memoized per git-load cycle: this runs on every updateMainContent,
+		// and the untracked half spawns one subprocess per untracked file.
+		content, err := m.pseudoDiffs.Get(selected, fetch)
+		if err != nil {
+			m.mainPane.SetFilename("")
+			m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
+			m.mainPane.SetTitle(selected, "")
+			setItem(mainItemKey{m.mode, selected})
+			return
+		}
+		if content.asDiff {
+			m.mainPane.SetContent(content.body)
+		} else {
+			m.mainPane.SetFilename("")
+			m.mainPane.SetPlainContent(content.body)
+		}
+		m.mainPane.SetTitle(selected, content.titleRight)
 		setItem(mainItemKey{m.mode, selected})
 		return
 	}

@@ -417,7 +417,9 @@ func TestTitle_CommitsMode_NewChangesShortstat(t *testing.T) {
 		repoInfo:     git.RepoInfoResult{Branch: "main"},
 		base:         "origin/main",
 		changedFiles: git.ChangedFilesResult{Uncommitted: []string{"a.go"}},
-		fileDiff: `diff --git a/a.go b/a.go
+		// The "new changes" shortstat is derived from that entry's own diff
+		// (working tree + untracked), not from the shared file diff.
+		newChangesDiff: `diff --git a/a.go b/a.go
 --- a/a.go
 +++ b/a.go
 @@ -1 +1,2 @@

@@ -44,42 +44,48 @@ func testGit() *git.Git {
 
 // mockGit implements GitDataSource for controlled testing.
 type mockGit struct {
-	repoInfo       git.RepoInfoResult
-	repoInfoErr    error
-	prInfo         git.PRInfoResult
-	prInfoErr      error
-	ciStatus       git.CIStatusResult
-	ciStatusErr    error
-	reviews        []git.PRReview
-	commentCount   int
-	base           string
-	baseErr        error
-	baseFromPR     string // if non-empty, DetectBaseFromPR returns this instead of base
-	baseFromPRErr  error
-	changedFiles   git.ChangedFilesResult
-	changedErr     error
-	commits        []git.Commit
-	commitsErr     error
-	fileDiff       string
-	fileDiffErr    error
-	fileContent    string
-	contentErr     error
-	commitPatch    string
-	patchErr       error
-	allFiles       []string // tracked + untracked (excluding ignored)
-	ignoredFiles   []string // gitignored files; included in AllFiles(true) only
-	allFilesErr    error
-	baseCommits    []git.Commit
-	baseCommitsErr error
-	behindRefs     []string          // refs passed to BehindCount, in call order
-	behindCount    int               // value BehindCount returns
-	behindErr      error             // error BehindCount returns
-	parents        map[string]string // sha → parent sha; empty entry / missing key → "no parent" (root)
-	firstChildren  map[string]string // sha → first-parent child sha toward HEAD; missing key → no child
-	prComments     []git.PRComment
-	prDeployments  []git.PRDeployment
-	ciChecks       []git.CICheck
-	reviewRequests []git.PRReviewRequest
+	repoInfo      git.RepoInfoResult
+	repoInfoErr   error
+	prInfo        git.PRInfoResult
+	prInfoErr     error
+	ciStatus      git.CIStatusResult
+	ciStatusErr   error
+	reviews       []git.PRReview
+	commentCount  int
+	base          string
+	baseErr       error
+	baseFromPR    string // if non-empty, DetectBaseFromPR returns this instead of base
+	baseFromPRErr error
+	changedFiles  git.ChangedFilesResult
+	changedErr    error
+	commits       []git.Commit
+	commitsErr    error
+	fileDiff      string
+	fileDiffErr   error
+	// Commits-mode pseudo-entry diffs — deliberately independent of fileDiff
+	// and of each other.
+	stagedDiff        string
+	stagedDiffErr     error
+	newChangesDiff    string
+	newChangesDiffErr error
+	fileContent       string
+	contentErr        error
+	commitPatch       string
+	patchErr          error
+	allFiles          []string // tracked + untracked (excluding ignored)
+	ignoredFiles      []string // gitignored files; included in AllFiles(true) only
+	allFilesErr       error
+	baseCommits       []git.Commit
+	baseCommitsErr    error
+	behindRefs        []string          // refs passed to BehindCount, in call order
+	behindCount       int               // value BehindCount returns
+	behindErr         error             // error BehindCount returns
+	parents           map[string]string // sha → parent sha; empty entry / missing key → "no parent" (root)
+	firstChildren     map[string]string // sha → first-parent child sha toward HEAD; missing key → no child
+	prComments        []git.PRComment
+	prDeployments     []git.PRDeployment
+	ciChecks          []git.CICheck
+	reviewRequests    []git.PRReviewRequest
 
 	lastCommitForFile    git.Commit
 	lastCommitForFileErr error
@@ -152,6 +158,12 @@ func (m *mockGit) FileDiffCommitted(base, file string) (string, error) {
 func (m *mockGit) FileDiffUncommitted(file string) (string, error) {
 	return m.fileDiff, m.fileDiffErr
 }
+
+// The two commits-mode pseudo-entries have separate diff sources; keeping the
+// mock's fields separate is what lets a test catch them being conflated again.
+func (m *mockGit) StagedDiff() (string, error)     { return m.stagedDiff, m.stagedDiffErr }
+func (m *mockGit) NewChangesDiff() (string, error) { return m.newChangesDiff, m.newChangesDiffErr }
+
 func (m *mockGit) FileContent(file string) (string, error) { return m.fileContent, m.contentErr }
 func (m *mockGit) LastCommitForFile(file string) (git.Commit, error) {
 	return m.lastCommitForFile, m.lastCommitForFileErr

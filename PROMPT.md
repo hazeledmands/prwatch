@@ -191,8 +191,7 @@ title bar: for a real commit, left shows `<sha7> · <subject>` and right shows `
 
 pseudo-entry bodies (main pane content) each show their own distinct diff:
 - **staged** — the staged diff (`git diff --cached`).
-- **new changes (unstaged)** — the working-tree diff against the index.
-- **untracked files** — each untracked file's contents rendered as a new-file diff.
+- **new changes** — the working-tree diff against the index, followed by each untracked file's contents rendered as a new-file diff (untracked and unstaged share this one entry, matching the sidebar grouping above).
 
 
 ### pr mode

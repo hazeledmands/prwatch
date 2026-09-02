@@ -290,6 +290,152 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
 
 ## Fixed Bugs
 
+### Commits-mode pseudo-entry bodies were all the same diff
+
+- **"new changes" and "staged changes" rendered one identical body.** FIXED.
+  *Symptom:* both commits-mode pseudo-entries showed byte-identical main-pane
+  content and the same title-bar shortstat, so the two sections of the sidebar
+  could not be told apart by looking at them. Untracked files were counted in
+  the `New Changes (N files)` header but their content appeared nowhere: the
+  shared diff excluded them entirely.
+  *Root cause:* `updateCommitsModeContent` matched both labels in one arm and
+  issued a single `m.git.FileDiffUncommitted("")` — i.e. `git diff HEAD`, which
+  conflates index-vs-HEAD with worktree-vs-index and omits untracked files
+  (maincontent.go:141-147 at c297e8e). The shortstat was derived from that same
+  string, so it was shared too. `internal/git` had no staged-only diff, no
+  exported untracked listing, and no untracked-as-new-file renderer to build
+  the correct bodies from.
+  *Fix:* new `internal/git/pseudodiff.go` with `StagedDiff` (`git diff
+  --cached`), `UnstagedDiff` (`git diff`), `UntrackedFiles` (`ls-files -z
+  --others --exclude-standard`, through `runZ` per the A6 NUL discipline), and
+  `UntrackedDiff` (each untracked file via `git diff --no-index -- /dev/null
+  <path>`, concatenated in path order); `NewChangesDiff` composes the last two,
+  since PROMPT.md groups unstaged and untracked under the one "New Changes"
+  entry. The dispatch arm now picks the entry's own source, and the pure
+  `buildPseudoEntryContent` (`internal/ui/commitspseudo.go`) turns a diff into
+  body + per-entry shortstat, so the two can no longer share one.
+  *Binary and size:* no special casing needed for binary — `git diff
+  --no-index` emits its own `Binary files /dev/null and b/<path> differ` and
+  never the bytes, satisfying PROMPT.md's "binary content is never shown". No
+  size limit was added: the codebase has none anywhere on the diff path, and
+  inventing one here would have been a new, unspecified behavior.
+  *Empty state:* a pseudo-entry whose diff is empty (e.g. the index was reset
+  between the git load and the render) shows a quiet `no staged changes` /
+  `no new changes` line via `SetPlainContent`, with an empty shortstat, rather
+  than a blank pane or the previous entry's stale body.
+  *Regression tests:* `internal/git/pseudodiff_test.go` — `TestStagedDiff`,
+  `TestUnstagedDiff`, `TestUntrackedFiles` (includes a non-ASCII path, so the
+  `-z` discipline stays honest), `TestUntrackedDiff_RendersAsNewFileDiff`,
+  `TestUntrackedDiff_AllBodyLinesAreAdditions`,
+  `TestUntrackedDiff_BinaryFileShowsNoContent`,
+  `TestUntrackedDiff_NoUntrackedFiles`, `TestNewChangesDiff`,
+  `TestPseudoEntryDiffsAreDistinct` (all drive real git in a temp repo).
+  `internal/ui/commitspseudo_test.go` — `TestCommitsPseudoEntries_BodiesAreDistinct`,
+  `_BodyMatchesGitSource`, `_ShortstatPerEntry`, `_EmptyState` (a real repo
+  behind a real `Model`), plus rapid properties `TestProperty_PseudoEntryContent`
+  (body never empty, `asDiff` ⟺ diff present, shortstat only on diffs,
+  idempotent, empty state names its own entry) and
+  `TestProperty_PseudoEntriesNeverShareContent`.
+  *Observed pre-fix:* `commitspseudo_test.go:110: new changes and staged
+  changes render identical bodies:` followed by one diff containing both
+  `+var onlyUnstaged = 2` and `+var onlyStaged = 1`, and
+  `commitspseudo_test.go:113: new changes and staged changes share one
+  shortstat: "2 files changed, 4 insertions(+)"`. Also
+  `new changes body missing "+var onlyUntracked = 3"` — untracked content was
+  absent from both bodies.
+
+Four further bugs found in review of the fix itself, all in the new code:
+
+- **An unreadable untracked file vanished from the body without a word.**
+  FIXED. *Symptom:* a file listed by `ls-files` but gone by the time it was
+  diffed (deleted in between) or permission-denied contributed nothing to the
+  body while still being counted in the sidebar's `New Changes (N files)`
+  header — the body and its own header disagreed, which reads as a rendering
+  bug rather than as the race it is.
+  *Root cause:* `git diff --no-index` signals "differences found" with exit
+  status 1, so the exit code is ignored by design; an unreadable path produces
+  *the same exit 1* with empty stdout and the message on stderr. The first
+  implementation captured only stdout, so the two cases were indistinguishable
+  and the failure was read as "no output, skip".
+  *Fix:* `noIndexDiff` captures stderr and returns an error when stdout is
+  empty and stderr is not; `UntrackedDiff` appends a visible
+  `[could not read <path>]` line rather than dropping the file.
+  *Regression test:* `TestUntrackedDiff_UnreadableFileGetsPlaceholder` (a
+  factory intercepts `ls-files` to name a file that does not exist, so the
+  race is deterministic rather than timing-dependent).
+  *Verified against real git:* `git diff --no-index -- /dev/null nosuchfile`
+  → exit 1, empty stdout, `error: Could not access 'nosuchfile.txt'` on
+  stderr; a chmod-000 file → exit 128, same shape.
+
+- **`NewChangesDiff` swallowed the untracked-listing error.** FIXED.
+  *Symptom:* when `UntrackedFiles` failed, the body silently rendered
+  unstaged-only under a header whose count included untracked files, and the
+  dispatcher's error path never fired — a total failure could even render as
+  the reassuring "no new changes" empty state.
+  *Root cause:* the error was discarded with `return unstaged, nil`.
+  *Fix:* both halves. With unstaged content present, the body keeps it and
+  gains an `[error listing untracked files: <err>]` trailer (not a diff line,
+  so `diffScanner` classifies it as `rowMeta` and it renders as plain text);
+  with nothing else to show, the error propagates so the caller renders it.
+  *Regression tests:* `TestNewChangesDiff_UntrackedListingFailure` — one
+  subtest per branch.
+
+- **The pseudo-diffs were re-fetched on every `updateMainContent`.** FIXED.
+  *Symptom:* every sidebar move onto a pseudo-entry and every message that
+  refreshes the pane (git load, PR refresh, RWX logs, PR tick) re-ran the
+  fetch. For "new changes" that is `git diff` + `ls-files` + **one
+  `--no-index` subprocess per untracked file**, so a tree with hundreds of
+  untracked files spawned hundreds of subprocesses on the Update goroutine,
+  repeatedly, while the user did nothing but hold a cursor still.
+  *Root cause:* the fetch sat directly in the render path with nothing between
+  it and git.
+  *Fix:* `pseudoDiffCache` (`internal/ui/commitspseudo.go`), one field on
+  Model, memoizing each label's rendered content — errors included, so a
+  persistent git failure does not re-spawn per keystroke. Invalidated in the
+  `gitDataMsg` handler: that is the cycle that refreshes the sidebar's file
+  counts, so it is also where the bodies behind those counts go stale.
+  Steady-state selection now costs zero subprocess spawns.
+  *Regression tests:* `TestCommitsPseudoEntries_FetchedOncePerGitLoad`,
+  `_RefetchedAfterGitLoad`, `_GitDataMsgInvalidates`, `_ErrorIsCachedAndShown`
+  (counting mock wrapping `mockGit`), plus the rapid property
+  `TestProperty_PseudoDiffCache` (per-label isolation, idempotence within a
+  cycle, fetches-per-label never exceeding cycles).
+  *Observed pre-fix:* `steady-state selection re-fetched: newChangesCalls = 7,
+  want 1` and `failing fetch re-spawned: newChangesCalls = 4, want 1`.
+
+- **Displayed diff headers octal-mangled non-ASCII paths.** FIXED.
+  *Symptom:* a file named `ünï.go` rendered in the main pane as
+  `diff --git "a/\303\274n\303\257.go" "b/\303\274n\303\257.go"`. A6
+  fixed the *listing* side (paths git hands us as data, via `-z`), but a diff
+  body carries paths inside its own headers, and those are subject to
+  `core.quotePath` too. This affected every diff on screen — commit patches
+  and file diffs included — not just the new pseudo-entries.
+  *Root cause:* there is no `-z` for a diff body; the switch is
+  `-c core.quotePath=false`, and it must be set per-invocation because the
+  user's own global config is what turns the quoting on. No diff-producing
+  call set it.
+  *Fix:* `Git.runDiff` (`internal/git/git.go`) as the display-side counterpart
+  to `runZ`, used by `StagedDiff`, `UnstagedDiff`, `FileDiffCommitted`,
+  `FileDiffUncommitted` and `CommitPatch`; `noIndexDiff` sets the same flag
+  inline (it needs its own exit-code and stderr handling, so it cannot route
+  through `runDiff`). Deliberately *not* folded into `run()`: run's other
+  callers parse paths out of newline-delimited output, where the quoting is
+  load-bearing for disambiguation.
+  *Regression tests:* `TestUntrackedDiff_NonASCIIPathIsReadable`,
+  `TestStagedDiff_NonASCIIPathIsReadable` (both assert the readable form *and*
+  the absence of the octal form; `setupTestRepo` pins `core.quotePath=true`
+  repo-locally, so they cannot pass by accident on a host that disabled it).
+  No existing characterization test had pinned the octal form for a diff body
+  — the whole git suite stayed green — and the A6 parsers are unaffected since
+  they consume `-z` paths, not diff bodies.
+  *Observed pre-fix:* `pseudodiff_test.go:389: non-ASCII staged path should
+  render readably` / `:392: non-ASCII staged path came back octal-escaped`.
+
+- **`FileDiffUncommitted` duplicated the `--no-index` dance minus `--`.**
+  FIXED (latent). Its inline copy lacked the `--` separator, so a file whose
+  name begins with a dash was read as a flag. Both call sites now share
+  `noIndexDiff`, which carries the separator and the stderr handling.
+
 ### GitHub error paths: classification and visibility
 
 Two bugs on the same path — the classifier that decides what a failed `gh`

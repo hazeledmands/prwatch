@@ -372,6 +372,65 @@ floor; only success clears it), `TestGenericError_CarriesRawText` /
 
 ---
 
+## Done: commits-mode pseudo-entry bodies
+
+**Goal:** give the "new changes" and "staged changes" pseudo-entries their own
+distinct main-pane bodies, per the semantics adjudicated in INCONSISTENCIES.md
+and now specified in PROMPT.md's commits-mode section.
+
+Both entries previously rendered one `git diff HEAD` (maincontent.go:141-147),
+so their bodies *and* their title-bar shortstats were identical and untracked
+content appeared nowhere despite being counted in the `New Changes (N files)`
+header.
+
+`internal/git/pseudodiff.go` adds the three sources: `StagedDiff`
+(`git diff --cached`), `UnstagedDiff` (`git diff`), and `UntrackedDiff` — each
+untracked file rendered as a new-file diff via `git diff --no-index --
+/dev/null <path>`, listed through `UntrackedFiles` (`ls-files -z --others
+--exclude-standard`, on `runZ` per the A6 NUL discipline). `NewChangesDiff`
+composes unstaged + untracked, because PROMPT.md groups them under the one
+"New Changes" sidebar entry rather than giving untracked its own.
+
+`internal/ui/commitspseudo.go` holds the labels (now shared with
+`buildCommitsSidebar` instead of being spelled out at each site) and the pure
+`buildPseudoEntryContent`, which maps a diff to body + `asDiff` + that entry's
+own shortstat — so the two entries can no longer share one. The dispatch arm in
+`updateCommitsModeContent` fetches the entry's own source, surfaces a git error
+the way the real-commit arm does, and clears the pane filename before plain
+content so a stale lexer can't highlight the placeholder lines.
+
+Binary needs no special casing: `git diff --no-index` emits its own
+`Binary files … differ` and never the bytes. No size cap was added — the diff
+path has none anywhere in the codebase, and inventing one here would be
+unspecified behavior. Empty diff → a quiet `no staged changes` / `no new
+changes` line with an empty shortstat.
+
+Review round on this thread turned up five more bugs in the new code, all
+fixed and logged in BUG_REPORTS.md: an unreadable untracked file was dropped
+from the body silently (exit 1 with empty stdout is *also* the failure shape,
+so stderr is the only signal — now a `[could not read <path>]` placeholder);
+`NewChangesDiff` swallowed the untracked-listing error (now a visible trailer
+when there is other content, propagated when there is not); the diffs were
+re-fetched on every `updateMainContent` rather than per git-load cycle (now
+`pseudoDiffCache`, invalidated on `gitDataMsg`); displayed diff headers
+octal-mangled non-ASCII paths app-wide (now `Git.runDiff`, the display-side
+counterpart to `runZ`); and `FileDiffUncommitted`'s duplicated `--no-index`
+block lacked the `--` separator (now shares `noIndexDiff`).
+
+*Tests:* `internal/git/pseudodiff_test.go` (13 characterization tests against a
+real temp repo, including a non-ASCII untracked path and a binary file) and
+`internal/ui/commitspseudo_test.go` (4 end-to-end tests through a real `Model`
+over a real repo, four counting-mock cache tests, plus rapid properties
+`TestProperty_PseudoEntryContent`, `TestProperty_PseudoEntriesNeverShareContent`
+and `TestProperty_PseudoDiffCache`). Two existing tests were
+migrated to the new sources rather than loosened:
+`TestTitle_CommitsMode_NewChangesShortstat` and the `TestSnapshot_CommitsMode`
+fixture, both of which had been feeding the pseudo-entry through `fileDiff`.
+Full suite green; the INCONSISTENCIES.md entry is marked implemented and the
+fix is logged in BUG_REPORTS.md.
+
+---
+
 ## In Progress: Position-based diff addressing
 
 **Goal:** Introduce explicit `Position` and `Range` values naming "where the user is pointing in a diff" and "what window is currently visible." Several planned features (hunk-grain navigation, line-aware deep-links, inline comments, keyboard selection, LSP) all need to ask "what am I looking at right now?" Today this is derived ad-hoc from viewport state each time. Naming it unblocks the rest.

@@ -167,7 +167,7 @@ func buildCommitsSidebar(
 
 	if len(uncommitted) > 0 {
 		items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d files)", len(uncommitted)), kind: itemHeader})
-		items = append(items, sidebarItem{label: "new changes", kind: itemDim})
+		items = append(items, sidebarItem{label: pseudoNewChangesLabel, kind: itemDim})
 	}
 
 	if len(staged) > 0 {
@@ -175,7 +175,7 @@ func buildCommitsSidebar(
 			items = append(items, sidebarItem{kind: itemSeparator})
 		}
 		items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d files)", len(staged)), kind: itemHeader})
-		items = append(items, sidebarItem{label: "staged changes", kind: itemDim})
+		items = append(items, sidebarItem{label: pseudoStagedLabel, kind: itemDim})
 	}
 
 	unpushedVisible := unpushed
