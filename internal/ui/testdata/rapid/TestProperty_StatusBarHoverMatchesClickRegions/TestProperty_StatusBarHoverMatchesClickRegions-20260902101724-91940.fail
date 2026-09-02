@@ -1,0 +1,67 @@
+# 2026/09/02 10:17:24.238745 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw repoName: ""
+# 2026/09/02 10:17:24.238760 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw branch: ""
+# 2026/09/02 10:17:24.238770 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw prTitle: "short"
+# 2026/09/02 10:17:24.238781 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw prNumber: 0
+# 2026/09/02 10:17:24.238789 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw ahead: 0
+# 2026/09/02 10:17:24.238797 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw mode: 0
+# 2026/09/02 10:17:24.238807 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw uncommitted: 0
+# 2026/09/02 10:17:24.238814 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw commits: 0
+# 2026/09/02 10:17:24.238820 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw changedFiles: 0
+# 2026/09/02 10:17:24.238831 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw behind: 0
+# 2026/09/02 10:17:24.238838 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw behindKnown: false
+# 2026/09/02 10:17:24.238844 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw comments: 0
+# 2026/09/02 10:17:24.238851 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw showHelp: false
+# 2026/09/02 10:17:24.238859 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw confirming: 0.0625
+# 2026/09/02 10:17:24.238867 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw prLoading: false
+# 2026/09/02 10:17:24.238873 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw prError: ""
+# 2026/09/02 10:17:24.238879 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw scrubbed: false
+# 2026/09/02 10:17:24.238886 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw width: 8
+# 2026/09/02 10:17:24.238897 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw hoverY: 0
+# 2026/09/02 10:17:24.238905 [TestProperty_StatusBarHoverMatchesClickRegions] [rapid] draw hoverX: 0
+# 2026/09/02 10:17:24.239047 [TestProperty_StatusBarHoverMatchesClickRegions] renderStatusBar produced 8 rows, statusBarRows promised 1: "\x1b[48;2;249;226;175m \x1b[m\x1b[38;2;30;30;46;48;2;249;226;175m Quit?\x1b[m\x1b[48;2;249;226;175m \x1b[m\n\x1b[48;2;249;226;175m \x1b[m\x1b[38;2;30;30;46;48;2;249;226;175mPress\x1b[m\x1b[48;2;249;226;175m \x1b[m\x1b[48;2;249;226;175m \x1b[m\n\x1b[48;2;249;226;175m \x1b[m\x1b[38;2;30;30;46;48;2;249;226;175mq/Q to\x1b[m\x1b[48;2;249;226;175m \x1b[m\n\x1b[48;2;249;226;175m \x1b[m\x1b[38;2;30;30;46;48;2;249;226;175mconfir\x1b[m\x1b[48;2;249;226;175m \x1b[m\n\x1b[48;2;249;226;175m \x1b[m\x1b[38;2;30;30;46;48;2;249;226;175mm, any\x1b[m\x1b[48;2;249;226;175m \x1b[m\n\x1b[48;2;249;226;175m \x1b[m\x1b[38;2;30;30;46;48;2;249;226;175mother\x1b[m\x1b[48;2;249;226;175m \x1b[m\x1b[48;2;249;226;175m \x1b[m\n\x1b[48;2;249;226;175m \x1b[m\x1b[38;2;30;30;46;48;2;249;226;175mkey to\x1b[m\x1b[48;2;249;226;175m \x1b[m\n\x1b[48;2;249;226;175m \x1b[m\x1b[38;2;30;30;46;48;2;249;226;175mcancel\x1b[m\x1b[48;2;249;226;175m \x1b[m"
+# 
+v0.4.8#7924178667749014643
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x6856c47037428
+0x4
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

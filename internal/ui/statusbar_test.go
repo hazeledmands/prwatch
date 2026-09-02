@@ -450,7 +450,7 @@ func TestRenderLine3_PRWithNoURL(t *testing.T) {
 	data := statusBarData{
 		pr: git.PRInfoResult{Number: 1, Title: "no url"},
 	}
-	result, _ := renderLine3(80, data)
+	result, _ := renderLine3(80, data, statusBarRows(data).line3)
 	if !strings.Contains(result, "PR #1") {
 		t.Error("should show PR without URL")
 	}
@@ -535,4 +535,369 @@ func TestRenderLine3_ActiveErrorWithPRData(t *testing.T) {
 			t.Errorf("status bar = %q, want the control characters rendered as escapes", bar)
 		}
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Status-bar hover
+//
+// PROMPT.md, "mouse behavior": "every clickable element has a hover state …
+// **status bar** — an underline on the hovered label. this covers the line-1
+// mode labels and every clickable label on lines 2 and 3 … a label whose
+// click target was truncated away is not hoverable either — hover regions and
+// click regions are the same regions."
+// ---------------------------------------------------------------------------
+
+// underlinedRuns returns the visible text of each underlined run in a rendered
+// status-bar row, in order. Underline is applied with the bare SGR pair
+// (ansiUlOn/ansiUlOff) rather than lipgloss.Render — see the comment above
+// ansiWhiteFg — so the runs are exactly the text bracketed by those two
+// sequences.
+func underlinedRuns(row string) []string {
+	var out []string
+	rest := row
+	for {
+		i := strings.Index(rest, ansiUlOn)
+		if i < 0 {
+			return out
+		}
+		rest = rest[i+len(ansiUlOn):]
+		j := strings.Index(rest, ansiUlOff)
+		if j < 0 {
+			// Unterminated underline: report the remainder so a leaked
+			// attribute shows up as a failure rather than vanishing.
+			out = append(out, stripANSI(rest))
+			return out
+		}
+		out = append(out, stripANSI(rest[:j]))
+		rest = rest[j+len(ansiUlOff):]
+	}
+}
+
+// underlinedRun returns the single underlined run on a row, "" for none, and
+// fails the test if there is more than one — at most one label is hovered.
+func underlinedRun(t *testing.T, row string) string {
+	t.Helper()
+	runs := underlinedRuns(row)
+	switch len(runs) {
+	case 0:
+		return ""
+	case 1:
+		return runs[0]
+	default:
+		t.Fatalf("row carries %d underlined runs %q, want at most 1", len(runs), runs)
+		return ""
+	}
+}
+
+func TestStatusBarRows_LineToRowMapping(t *testing.T) {
+	gitRepo := git.RepoInfoResult{Branch: "main", RepoName: "repo", DirName: "repo"}
+	tests := []struct {
+		name                     string
+		data                     statusBarData
+		line1, line2, line3, cnt int
+	}{
+		{"not a git repo, no PR", statusBarData{}, 0, -1, -1, 1},
+		{"git repo, no PR", statusBarData{info: gitRepo}, 0, 1, -1, 2},
+		{"git repo with PR", statusBarData{info: gitRepo, pr: git.PRInfoResult{Number: 1}}, 0, 1, 2, 3},
+		{"git repo, loading", statusBarData{info: gitRepo, prLoading: true}, 0, 1, 2, 3},
+		{"git repo, error", statusBarData{info: gitRepo, prError: "boom"}, 0, 1, 2, 3},
+		// No line 2 at all: line 3 slides up to row 1. Hover and click
+		// targeting must follow it there.
+		{"no git repo but a PR", statusBarData{pr: git.PRInfoResult{Number: 1}}, 0, -1, 1, 2},
+		{"no git repo, loading", statusBarData{prLoading: true}, 0, -1, 1, 2},
+		{"confirming replaces the bar", statusBarData{info: gitRepo, confirming: true}, -1, -1, -1, 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := statusBarRows(tc.data)
+			want := statusBarRowLayout{line1: tc.line1, line2: tc.line2, line3: tc.line3, rows: tc.cnt}
+			if got != want {
+				t.Errorf("statusBarRows = %+v, want %+v", got, want)
+			}
+			if n := statusBarLineCount(tc.data); n != tc.cnt {
+				t.Errorf("statusBarLineCount = %d, want %d", n, tc.cnt)
+			}
+			bar, _, _, _ := renderStatusBar(120, tc.data)
+			if n := len(strings.Split(bar, "\n")); n != tc.cnt {
+				t.Errorf("renderStatusBar produced %d rows, want %d: %q", n, tc.cnt, bar)
+			}
+		})
+	}
+}
+
+// line2HoverData is the fixture for the line-2 hover table. Its parts are all
+// ASCII, so the column arithmetic in the table is exact:
+//
+//	col: 1         6  9             22 25        34 37
+//	     " main" + " · " + "3 uncommitted" + " · " + "5 commits" + " · " + "No PR"
+func line2HoverData() statusBarData {
+	return statusBarData{
+		info:          git.RepoInfoResult{Branch: "main", RepoName: "repo", DirName: "repo"},
+		mode:          FilesMode,
+		uncommitCount: 3,
+		commitCount:   5,
+	}
+}
+
+func TestStatusBarHover_Line2(t *testing.T) {
+	tests := []struct {
+		name   string
+		hoverX int
+		hoverY int
+		want   string
+	}{
+		{"first column of branch label", 1, 1, " main"},
+		{"last column of branch label", 5, 1, " main"},
+		{"padding column left of the bar", 0, 1, ""},
+		{"separator after branch", 6, 1, ""},
+		{"separator column before uncommitted", 8, 1, ""},
+		{"start of uncommitted", 9, 1, "3 uncommitted"},
+		{"end of uncommitted", 21, 1, "3 uncommitted"},
+		{"separator after uncommitted", 22, 1, ""},
+		{"start of commits", 25, 1, "5 commits"},
+		{"end of commits", 33, 1, "5 commits"},
+		{"start of no-PR", 37, 1, "No PR"},
+		{"end of no-PR", 41, 1, "No PR"},
+		{"one past the end of the bar", 42, 1, ""},
+		{"far past the end of the bar", 200, 1, ""},
+		{"hover on line 1 leaves line 2 alone", 9, 0, ""},
+		{"hover below the bar", 9, 2, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			data := line2HoverData()
+			data.hoverX, data.hoverY = tc.hoverX, tc.hoverY
+			bar, _, _, _ := renderStatusBar(120, data)
+			lines := strings.Split(bar, "\n")
+			if len(lines) != 2 {
+				t.Fatalf("want 2 rows, got %d: %q", len(lines), bar)
+			}
+			if got := underlinedRun(t, lines[1]); got != tc.want {
+				t.Errorf("hover (%d,%d): underlined %q, want %q", tc.hoverX, tc.hoverY, got, tc.want)
+			}
+		})
+	}
+}
+
+// line3HoverData exercises the parts that embed raw SGR sequences (the
+// [DRAFT] marker, which ends in its own `0` reset) and OSC 8 hyperlinks (the
+// PR link and the CI status), all of which the underline pair has to bracket
+// without being clobbered and without changing measured width.
+func line3HoverData() statusBarData {
+	return statusBarData{
+		info:         git.RepoInfoResult{Branch: "feature", RepoName: "repo", DirName: "repo"},
+		mode:         FilesMode,
+		pr:           git.PRInfoResult{Number: 42, Title: "My PR", URL: "https://example.com/pull/42", IsDraft: true},
+		reviews:      []git.PRReview{{Author: "alice", State: "APPROVED"}},
+		commentCount: 7,
+		ciStatus:     git.CIStatusResult{State: "SUCCESS", URL: "https://ci.example.com"},
+	}
+}
+
+func TestStatusBarHover_Line3(t *testing.T) {
+	// Resolve the expected columns from the click regions themselves: line 3
+	// carries emoji and check marks, so hard-coding columns here would encode
+	// this machine's idea of their width rather than the geometry under test.
+	// The point of the assertion is that the underline lands on the label a
+	// click at that column would dispatch.
+	data := line3HoverData()
+	_, _, _, labels := renderStatusBar(120, data)
+	if len(labels) != 5 {
+		t.Fatalf("want 5 line-3 labels (draft, link, reviews, comments, CI), got %d: %+v", len(labels), labels)
+	}
+	texts := map[line3Target]string{
+		line3Description: " [DRAFT]",
+		line3Reviews:     "1✓",
+		line3Comments:    "7 comments",
+		line3CI:          "✅ CI passing",
+	}
+
+	for _, label := range labels {
+		want := texts[label.target]
+		if label.target == line3Description && label.start > 1 {
+			want = "PR #42: My PR" // the second description label is the link
+		}
+		for _, x := range []int{label.start, label.end - 1} {
+			d := data
+			d.hoverX, d.hoverY = x, 2
+			bar, _, _, _ := renderStatusBar(120, d)
+			lines := strings.Split(bar, "\n")
+			if len(lines) != 3 {
+				t.Fatalf("want 3 rows, got %d", len(lines))
+			}
+			if got := underlinedRun(t, lines[2]); got != want {
+				t.Errorf("hover x=%d: underlined %q, want %q", x, got, want)
+			}
+			// The other rows must stay untouched.
+			if got := underlinedRun(t, lines[1]); got != "" {
+				t.Errorf("hover x=%d on line 3 also underlined %q on line 2", x, got)
+			}
+		}
+	}
+
+	// Separators underline nothing. Every column between one label's end and
+	// the next label's start is separator.
+	for i := 0; i+1 < len(labels); i++ {
+		for x := labels[i].end; x < labels[i+1].start; x++ {
+			d := data
+			d.hoverX, d.hoverY = x, 2
+			bar, _, _, _ := renderStatusBar(120, d)
+			lines := strings.Split(bar, "\n")
+			if got := underlinedRun(t, lines[2]); got != "" {
+				t.Errorf("hover on separator column %d underlined %q, want nothing", x, got)
+			}
+		}
+	}
+}
+
+// TestStatusBarHover_Line3WithoutLine2 pins the row-index shift: with no git
+// repo there is no line 2, so line 3 renders on row 1 and that is where it
+// must be hoverable.
+func TestStatusBarHover_Line3WithoutLine2(t *testing.T) {
+	data := line3HoverData()
+	data.info = git.RepoInfoResult{}
+	rows := statusBarRows(data)
+	if rows.line2 != -1 || rows.line3 != 1 {
+		t.Fatalf("row layout = %+v, want line2 absent and line3 on row 1", rows)
+	}
+
+	_, _, _, labels := renderStatusBar(120, data)
+	if len(labels) == 0 {
+		t.Fatal("no line-3 labels")
+	}
+	last := labels[len(labels)-1]
+
+	data.hoverX, data.hoverY = last.start, 1
+	bar, _, _, _ := renderStatusBar(120, data)
+	lines := strings.Split(bar, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want 2 rows, got %d: %q", len(lines), bar)
+	}
+	if got := underlinedRun(t, lines[1]); got != "✅ CI passing" {
+		t.Errorf("hover (%d,1): underlined %q, want the CI label", last.start, got)
+	}
+
+	// Row 2 does not exist; hovering it must underline nothing anywhere.
+	data.hoverY = 2
+	bar, _, _, _ = renderStatusBar(120, data)
+	for i, row := range strings.Split(bar, "\n") {
+		if got := underlinedRun(t, row); got != "" {
+			t.Errorf("hover on nonexistent row 2 underlined %q on row %d", got, i)
+		}
+	}
+}
+
+// TestStatusBarHover_TruncatedLabelsAreNotHoverable is the regression test for
+// the pre-existing phantom-target bug: label columns were computed before
+// ellipsize(bar, width-2) ran, so on a narrow terminal a click past the
+// truncation point fired a target whose text was not on screen. PROMPT.md:
+// "a label whose click target was truncated away is not hoverable either —
+// hover regions and click regions are the same regions."
+func TestStatusBarHover_TruncatedLabelsAreNotHoverable(t *testing.T) {
+	// Content area is width-2 = 28 columns; the full ASCII bar wants 41, so
+	// one column goes to the "…" and 27 columns of content survive. Content
+	// starts at column 1 (the style's left padding), so column 28 is the
+	// first column no label may claim.
+	const width = 30
+	const limit = 28
+	data := line2HoverData()
+	bar0, _, labels, _ := renderStatusBar(width, data)
+	visible := stripANSI(strings.Split(bar0, "\n")[1])
+
+	if len(labels) == 0 {
+		t.Fatal("no line-2 labels at all")
+	}
+	for _, l := range labels {
+		if l.start >= l.end {
+			t.Errorf("empty label region %+v survived", l)
+		}
+		if l.end > limit {
+			t.Errorf("label %+v extends past the rendered content (limit %d, row %q)", l, limit, visible)
+		}
+	}
+	// "No PR" starts at column 37 and cannot survive a 28-column content
+	// area, so it must be gone entirely.
+	if len(labels) != 3 {
+		t.Errorf("got %d labels, want 3 — the truncated-away label must be dropped: %+v", len(labels), labels)
+	}
+
+	// A column past the truncation point underlines nothing.
+	for _, x := range []int{limit, limit + 1, 37, 40} {
+		d := data
+		d.hoverX, d.hoverY = x, 1
+		bar, _, _, _ := renderStatusBar(width, d)
+		lines := strings.Split(bar, "\n")
+		if got := underlinedRun(t, lines[1]); got != "" {
+			t.Errorf("hover x=%d past truncation underlined %q, want nothing", x, got)
+		}
+	}
+
+	// A label the truncation clipped in half stays hoverable over the columns
+	// that survived.
+	tail := labels[len(labels)-1]
+	d := data
+	d.hoverX, d.hoverY = tail.end-1, 1
+	bar, _, _, _ := renderStatusBar(width, d)
+	lines := strings.Split(bar, "\n")
+	if got := underlinedRun(t, lines[1]); got == "" {
+		t.Errorf("hover x=%d on the surviving columns of %+v underlined nothing: %q", tail.end-1, tail, lines[1])
+	}
+}
+
+// TestStatusBarHover_Line1ModeLabels covers the line-1 labels through the same
+// harness, including the truncation clipping that line 1 shared with lines 2
+// and 3.
+func TestStatusBarHover_Line1ModeLabels(t *testing.T) {
+	data := statusBarData{
+		info: git.RepoInfoResult{Branch: "main", RepoName: "repo", DirName: "repo"},
+		mode: FilesMode,
+	}
+	// " files commits help" — "files" at [2,7), "commits" at [8,15),
+	// "help" at [16,20).
+	tests := []struct {
+		hoverX int
+		want   string
+	}{
+		{0, ""},
+		{1, ""},
+		{2, "files"},
+		{6, "files"},
+		{7, ""},
+		{8, "commits"},
+		{14, "commits"},
+		{15, ""},
+		{16, "help"},
+		{19, "help"},
+		{20, ""},
+	}
+	for _, tc := range tests {
+		d := data
+		d.hoverX, d.hoverY = tc.hoverX, 0
+		bar, _, _, _ := renderStatusBar(120, d)
+		lines := strings.Split(bar, "\n")
+		if got := underlinedRun(t, lines[0]); got != tc.want {
+			t.Errorf("hover x=%d: underlined %q, want %q", tc.hoverX, got, tc.want)
+		}
+	}
+}
+
+// TestRenderStatusBar_ConfirmRowFitsNarrowTerminal is the regression test for
+// a bug the hover property test turned up: the quit prompt was padded but
+// never truncated, so at width 8 lipgloss hard-wrapped it onto 8 rows while
+// statusBarRows promised 1 — the row-count desync that shifts every click
+// target below the bar. It survived because at ordinary widths the only
+// overflow was the padding lipgloss trims anyway.
+func TestRenderStatusBar_ConfirmRowFitsNarrowTerminal(t *testing.T) {
+	for _, width := range []int{1, 2, 3, 8, 20, 53, 54, 100, 200} {
+		data := statusBarData{
+			info:       git.RepoInfoResult{Branch: "main", RepoName: "repo", DirName: "repo"},
+			pr:         git.PRInfoResult{Number: 1, Title: "t"},
+			confirming: true,
+		}
+		bar, _, _, _ := renderStatusBar(width, data)
+		if got, want := len(strings.Split(bar, "\n")), statusBarLineCount(data); got != want {
+			t.Errorf("width %d: confirm bar rendered %d rows, statusBarLineCount promised %d: %q",
+				width, got, want, bar)
+		}
+	}
 }

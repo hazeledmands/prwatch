@@ -387,7 +387,9 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 - clicking on files or commits in the sidebar opens them in the main view. clicking a directory toggles its expand/collapse state without changing the main panel.
 - scrolling independently scrolls the focused view, keeping selections the same.
 - when text is not wrapped, horizontal mouse scroll works too.
-- hovering over the mode labels in the status bar highlights them (underline style). other clickable elements have no hover treatment — a deliberate simplification.
+- every clickable element has a hover state, so the mouse always reveals what is actionable. the treatment differs by region, matching how each region already signals its selection:
+  - **sidebar** — a background color on the hovered row (selection wins over hover, which wins over the pinned/uncommitted/deleted styling).
+  - **status bar** — an underline on the hovered label. this covers the line-1 mode labels and every clickable label on lines 2 and 3 (the counts, the PR link, reviews, comments, CI). a label whose click target was truncated away is not hoverable either — hover regions and click regions are the same regions.
 - dragging over text highlights it, and finishing a drag copies to the system clipboard.
   - selecting stays within the boundaries of the pane being dragged in.
   - selection endpoints round *outward* to grapheme-cluster boundaries, symmetrically at both edges: an endpoint on any cell of a wide glyph includes the whole glyph (see "unicode width accounting" under layout). a cursor placed by click snaps to the start of the cluster it lands on.
