@@ -1,0 +1,8 @@
+# 2026/09/01 18:10:31.775855 [TestProperty_ClassificationNeverBacksOffNonRateLimit] [rapid] draw parts: []ui.errFragment{ui.errFragment{text:"Resource protected by organization SAML enforcement", kind:2}}
+# 2026/09/01 18:10:31.775885 [TestProperty_ClassificationNeverBacksOffNonRateLimit] classifyGitHubError("Resource protected by organization SAML enforcement") = rate-limited, want auth (rateLimitFragment=false authFragment=true)
+# 
+v0.4.8#7858223953494654418
+0x8000000000000
+0x6b74f03291620
+0x6
+0x0

@@ -220,9 +220,15 @@ type gitDataMsg struct {
 	// an unknown count is not "0 behind".
 	behindKnown   bool
 	prFetchFailed bool // true if PR fetch errored — preserve old PR data
-	// prRateLimited: prFetchFailed *and* the error classified as a GitHub rate
-	// limit, so this load feeds the backoff exactly like a PR-tick fetch would.
-	prRateLimited bool
+	// prErrKind: how the PR fetch failure classified, so this load feeds the
+	// backoff and the status line exactly like a PR-tick fetch would. One
+	// field rather than a set of booleans, so the outcomes cannot disagree
+	// (nothing can be both a rate limit and an auth error).
+	prErrKind githubErrorKind
+	// prErrText: the raw error text the PR fetch failed with, snapshotted on
+	// the msg like every other input (never read back off Model state).
+	// Rendered only for the unclassified bucket — see statusMessageWith.
+	prErrText string
 	// checksFailed: PR fetch succeeded but the checks fetch didn't — preserve
 	// the CI data we already have instead of applying zeros.
 	checksFailed bool
@@ -258,9 +264,13 @@ type prRefreshMsg struct {
 	// fetchFailed: the PR fetch itself failed, so every PR field on this msg is
 	// zero and the handler must preserve what it already has.
 	fetchFailed bool
-	// rateLimited: fetchFailed *and* the error was classified as a GitHub rate
-	// limit, which additionally backs the poll interval off.
-	rateLimited bool
+	// errKind: how the failure classified. Only ghErrRateLimited backs the
+	// poll interval off; the rest are reported at the normal cadence.
+	errKind githubErrorKind
+	// errText: the raw error text the fetch failed with, computed in the
+	// fetch function and carried on the msg. Rendered only for the
+	// unclassified bucket — see statusMessageWith.
+	errText string
 	// checksFailed: the PR fetch succeeded but the checks fetch didn't, so
 	// ciStatus/ciChecks are zero and the handler must keep the previous CI data
 	// rather than blanking the panel.
@@ -404,7 +414,11 @@ func fetchPRStatus(g GitDataSource) tea.Msg {
 		// genuine rate limit backs the poll off — reporting expired auth or a
 		// DNS failure as "rate limited" both lies to the user and slows the
 		// poll down for a condition that retrying won't fix.
-		return prRefreshMsg{fetchFailed: true, rateLimited: isRateLimited(err)}
+		return prRefreshMsg{
+			fetchFailed: true,
+			errKind:     classifyGitHubError(err),
+			errText:     err.Error(),
+		}
 	}
 	var checksResult gitpkg.PRChecksResult
 	var checksFailed bool
@@ -424,15 +438,6 @@ func fetchPRStatus(g GitDataSource) tea.Msg {
 		prComments:     prAll.Comments,
 		prDeployments:  prAll.Deployments,
 	}
-}
-
-// isRateLimited checks if an error from the gh CLI indicates rate limiting.
-func isRateLimited(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "rate limit") || strings.Contains(msg, "403") || strings.Contains(msg, "secondary rate")
 }
 
 func (m *Model) fileDiffPrefix(file string) string {
@@ -668,7 +673,8 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 	var (
 		prAll         gitpkg.PRAllResult
 		prFetchFailed bool
-		prRateLimited bool
+		prErrKind     githubErrorKind
+		prErrText     string
 		checksFailed  bool
 		ciStatus      gitpkg.CIStatusResult
 		ciChecks      []gitpkg.CICheck
@@ -680,7 +686,10 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 		prFetchFailed = prErr != nil
 		// Classified here, exactly as fetchPRStatus does, so the handler can
 		// back off on a rate limit and report anything else generically.
-		prRateLimited = isRateLimited(prErr)
+		prErrKind = classifyGitHubError(prErr)
+		if prErr != nil {
+			prErrText = prErr.Error()
+		}
 		prBaseRef = prAll.Info.BaseRef
 		if prAll.Info.Number > 0 {
 			checksResult, checksErr := g.PRChecksAll()
@@ -782,7 +791,8 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 		msg.prDeployments = prAll.Deployments
 		msg.reviewRequests = prAll.ReviewRequests
 		msg.prFetchFailed = prFetchFailed
-		msg.prRateLimited = prRateLimited
+		msg.prErrKind = prErrKind
+		msg.prErrText = prErrText
 		msg.checksFailed = checksFailed
 	}
 	return msg
@@ -886,8 +896,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case moreCommitsMsg:
 			m.debugLog.Printf("[data] moreCommitsMsg commits=%d", len(msg.commits))
 		case prRefreshMsg:
-			m.debugLog.Printf("[data] prRefreshMsg fetchFailed=%v rateLimited=%v checksFailed=%v",
-				msg.fetchFailed, msg.rateLimited, msg.checksFailed)
+			m.debugLog.Printf("[data] prRefreshMsg fetchFailed=%v errKind=%v checksFailed=%v",
+				msg.fetchFailed, msg.errKind, msg.checksFailed)
 		case rwxLogMsg:
 			m.debugLog.Printf("[data] rwxLogMsg")
 		}
@@ -941,12 +951,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// clear a backoff the tick loop is still sitting in.
 			m.activity.MarkPRFetch(time.Now())
 			if msg.prFetchFailed {
-				if msg.prRateLimited {
+				// Unlike the prRefreshMsg arm, a non-rate-limit failure here
+				// does not call ResetPRInterval. The difference is deliberate
+				// and inert: this path is not the poll loop, so it has no tick
+				// cadence of its own to restore, and ResetPRInterval only ever
+				// recomputes max(activity-derived, latched backoff) — it cannot
+				// clear a latch (only MarkPRSuccess does). Both arms therefore
+				// leave the same interval behind. Don't "fix" the asymmetry by
+				// adding a reset here; it would only add a redundant recompute.
+				kind := msg.prErrKind.reported()
+				if kind.backsOff() {
 					m.activity.BumpRateLimited(time.Now())
-					m.prError = "GitHub API rate limited"
-				} else {
-					m.prError = "GitHub API error"
 				}
+				m.prError = kind.statusMessageWith(msg.prErrText)
 			} else {
 				m.activity.MarkPRSuccess(time.Now())
 				m.prError = ""
@@ -1124,21 +1141,34 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prRefreshMsg:
-		// rateLimited implies fetchFailed; both are accepted so the two flags
-		// can't disagree about whether there is any data to apply.
-		if msg.fetchFailed || msg.rateLimited {
+		// A classified error implies fetchFailed; both are accepted so the two
+		// fields can't disagree about whether there is any data to apply.
+		if msg.fetchFailed || msg.errKind != ghErrNone {
 			// Preserve the PR data we have either way; only a real rate limit
 			// backs the interval off (PROMPT.md:21). The bump is latched in the
 			// tracker, so neither the next tick's ResetPRInterval nor the tick
 			// already in flight at the old interval can undo it — see the
-			// prTickMsg arm's PRFetchDue gate.
-			if msg.rateLimited {
+			// prTickMsg arm's PRFetchDue gate. An auth-or-permission failure
+			// deliberately keeps the normal cadence: waiting cannot grant a
+			// scope or clear SAML enforcement, and the message is on line 3
+			// either way.
+			//
+			// "Normal cadence" means *unless a rate-limit backoff is already
+			// latched*. ResetPRInterval recomputes through
+			// effectivePRInterval = max(activity-derived, rateLimitBackoff),
+			// so a rate limit followed by an auth failure holds the latched
+			// floor; only MarkPRSuccess — a fetch that actually came back —
+			// clears the latch. That is deliberate: a 403 telling us the token
+			// lacks a scope is not evidence the throttle lifted, so speeding
+			// the poll back up on it would walk straight back into the rate
+			// limit. See TestAuthErrorDuringRateLimitBackoff.
+			kind := msg.errKind.reported()
+			if kind.backsOff() {
 				m.activity.BumpRateLimited(time.Now())
-				m.prError = "GitHub API rate limited"
 			} else {
 				m.activity.ResetPRInterval(time.Now())
-				m.prError = "GitHub API error"
 			}
+			m.prError = kind.statusMessageWith(msg.errText)
 			m.updateLayout()
 			return m, nil
 		}

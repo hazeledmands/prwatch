@@ -259,7 +259,11 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
   *Regression replay:* seed `...-20260901134448-50533.fail`, green after
   the fix.
 
-- `isRateLimited` (`model.go`) classifies on substrings and treats *any*
+- ~~`isRateLimited` (`model.go`) classifies on substrings and treats *any*
+  `"403"` in the error text as a rate limit~~ **FIXED** — see "GitHub error
+  paths: classification and visibility" under Fixed Bugs. Original report
+  kept for the reasoning: `isRateLimited` classified on substrings and
+  treated *any*
   `"403"` in the error text as a rate limit — so a SAML-enforcement or
   permission 403 (`gh` on an SSO-protected org, a token missing `repo`
   scope) is reported as "GitHub API rate limited" and, since the A3 fix,
@@ -285,6 +289,167 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
   this configuration; `BenchmarkViewEmpty` is now the standing guard.
 
 ## Fixed Bugs
+
+### GitHub error paths: classification and visibility
+
+Two bugs on the same path — the classifier that decides what a failed `gh`
+call *means*, and the status line that decides whether the user ever hears
+about it.
+
+What `gh` actually emits, since both fixes turn on it: `internal/git`'s
+`runExternal` (git.go:34-49) folds gh's stderr into the returned error as
+`"<exit status>: <stderr>"`, so gh's own text is what reaches the classifier.
+gh formats API failures as `HTTP %d: %s (%s)` for REST and `GraphQL: %s` for
+GraphQL (both format strings confirmed in the gh 2.92.0 binary), where `%s` is
+GitHub's own `message` field. gh does **not** print response headers, so
+`x-ratelimit-remaining: 0` — the canonical signal, and the one gh itself
+checks internally (`pkg/cmd/skills/search.isRateLimitError`, also in the
+binary) — only reaches us if a caller captured headers (`gh api -i`). The
+signals actually available in the captured text are therefore the message
+texts: `API rate limit exceeded …`, `You have exceeded a secondary rate
+limit …`, `Resource protected by organization SAML enforcement …`, `your
+authentication token is missing required scopes […]`, `Bad credentials`,
+`Resource not accessible by …`. No widening of capture was needed; stderr was
+already being captured in full.
+
+- **`isRateLimited` called any error containing "403" a rate limit.** FIXED.
+  *Symptom:* a SAML/SSO 403, a token missing scopes, or any error text that
+  happened to contain the digits 403 was reported on the status bar as
+  "GitHub API rate limited" and — since the A3 backoff fix made the
+  classification load-bearing — drove `BumpRateLimited`, doubling the poll
+  interval out to the 15-minute cap for a condition no amount of waiting
+  fixes. Five consecutive SSO 403s took the poll from 30s to 16m.
+  *Root cause:* `isRateLimited` (model.go) was three substring tests —
+  `"rate limit"`, `"403"`, `"secondary rate"` — on the lowercased error. The
+  status code is not evidence of throttling: GitHub returns 403 for
+  permission failures too, and returns rate-limit *evidence* separately.
+  *Fix:* `isRateLimited` is replaced by `classifyGitHubError`
+  (`internal/ui/gherror.go`), which returns a three-valued
+  `githubErrorKind` — `ghErrRateLimited`, `ghErrAuth`, `ghErrOther` (plus
+  `ghErrNone` for a nil error). Rate limit requires actual throttle
+  evidence: `x-ratelimit-remaining: 0` (digit-bounded regex), the texts
+  `rate limit exceeded` / `secondary rate limit`, or the GraphQL error type
+  `RATE_LIMITED`. Auth-or-permission is SAML/SSO, missing-scope, bad or
+  expired credential, and inaccessible-resource text, plus a bare 401/403
+  matched *in status-code position* (`bareAuthStatusRe`: `HTTP 40[13]`, or
+  `40[13]: forbidden|unauthorized`). Position, not digit-bounding, is what
+  makes it evidence: gh appends the request URL, and that URL carries the PR
+  number, so `HTTP 502: Bad gateway (…/pulls/403)` is a gateway failure on PR
+  #403 — under a merely digit-bounded match it read as an auth error and told
+  the user to check `gh auth status` for a 502. For the same reason a bare
+  `"forbidden"` is deliberately *not* an auth signal (a branch named
+  "forbidden-fix" in `no pull requests found for branch …` would trip it);
+  gh's own `HTTP 403: Forbidden` is already covered by the anchored status
+  match, so anchoring loses no real shape. A SHA or byte count containing
+  "403" is likewise not a status code. Only
+  `githubErrorKind.backsOff()` (true for `ghErrRateLimited` alone) drives
+  `BumpRateLimited`; everything else takes `ResetPRInterval`, i.e. the
+  normal cadence. **Cadence decision for an unrecognized 403:** normal
+  cadence, error shown. A permanent condition must not spin the backoff, and
+  the user sees the message on line 3 either way. "Normal cadence" means
+  *unless a rate-limit backoff is already latched*: `ResetPRInterval`
+  recomputes `max(activity-derived, rateLimitBackoff)` and only
+  `MarkPRSuccess` clears the latch, so a rate limit followed by SSO failures
+  holds the latched floor while the message flips to the auth text. That is
+  deliberate — a 403 about a missing scope is not evidence the throttle
+  lifted — and is now pinned by `TestAuthErrorDuringRateLimitBackoff`. The message is per-kind
+  (`statusMessage()`), so an auth failure now names its own cause:
+  "GitHub API auth/permission error — check: gh auth status".
+  The classification travels as one field (`prRefreshMsg.errKind`,
+  `gitDataMsg.prErrKind`) rather than a pair of booleans, so "backs off" and
+  "is an auth error" cannot disagree by construction.
+  *Regression tests:* `TestSSO403_NotRateLimited` (errorpaths_test.go) walks
+  the real loop — `fetchPRStatus` classifies, `Update` applies — for five
+  consecutive identical failures, asserting an SSO 403 and a missing-scope
+  error leave `PRInterval` untouched while a genuine rate limit doubles it
+  five times, and that each surfaces its own message on the rendered status
+  bar. `TestAuthErrorDuringRateLimitBackoff` pins the latch interaction
+  above, on both the PR-tick and git-load paths, through to the success that
+  clears it. `TestClassifyGitHubError` (gherror_test.go) is the table, one
+  row per real gh error shape, including the 502-on-PR-#403 and
+  branch-named-"forbidden-fix" false positives.
+  `TestProperty_ClassificationNeverBacksOffNonRateLimit` recombines labelled
+  fragments of those shapes and asserts the *exact* kind against the
+  generator's own ground truth (which fragments were drawn), with
+  `backsOff()` following from it. Its first form asserted only "backs off ⇒
+  rate limit", which is unsatisfiable by construction — `backsOff()` is
+  *defined* as `k == ghErrRateLimited`, so it would have passed with SAML
+  text bucketed as a rate limit. Liveness was then verified by mutation:
+  temporarily adding `"saml"` to `rateLimitSignals` failed the property in 30
+  draws (`classifyGitHubError("Resource protected by organization SAML
+  enforcement") = rate-limited, want auth`). That run's seed
+  (`TestProperty_ClassificationNeverBacksOffNonRateLimit-20260901181031-41837.fail`)
+  is committed and replays green — it records a deliberate mutation check,
+  not a product bug, and is kept because rapid has not reported it invalid.
+  `TestFetchPRStatus_ClassifiesErrors` and `TestGitLoad_ClassifiesPRError`
+  now assert kinds instead of a bool; `TestIsRateLimited` (model_test.go) is
+  gone — its `{"403", …, true}` row *was* the bug.
+  *Pre-fix failure lines:* `errorpaths_test.go:526: after 1 SSO 403s, PR
+  interval = 1m0s, want it unchanged at 30s`; and for the URL false positive,
+  `gherror_test.go:129: classifyGitHubError(exit status 1: gh: HTTP 502: Bad
+  gateway (https://api.github.com/repos/o/r/pulls/403)) = auth, want other`.
+
+- **API errors were invisible on status line 3 once PR data existed.** FIXED.
+  *Symptom:* PROMPT.md:83 puts the GitHub API error message on line 3, but
+  after the first successful PR fetch the line always showed the PR summary.
+  Every later failure — rate limit, expired auth, network — was silent, with
+  stale PR data sitting on the line looking current.
+  *Root cause:* `renderStatusBar` (statusbar.go) chained
+  `if pr.Number > 0 … else if prLoading … else if prError != ""`, so the
+  error branch was reachable only before any PR had been fetched.
+  *Fix:* the chain is a `switch` with the error first: an active error
+  replaces line 3's content while it lasts, the PR summary returns when it
+  clears. Precedence rather than composition — PROMPT.md:83 asks for the
+  error message on this line and says nothing about combining it with the PR
+  summary, and the last-known-good PR data is still rendered in the PR pane,
+  so both spec clauses hold (INCONSISTENCIES.md, "GitHub API errors hidden
+  once PR data exists"). "Active" is exactly `prError != ""`: it is set on
+  every failure and cleared by the next successful fetch, on both the PR-tick
+  and PR-inclusive-git-load paths (verified, no lifecycle change needed).
+  The error text now goes through `sanitizeDisplayText` before `ellipsize`,
+  like any other display string — a raw newline in an error would otherwise
+  split the "row" in two and desync the status bar's row count. Row count is
+  unchanged: `statusBarLineCount` already counted one line-3 row for
+  `pr.Number > 0 || prError != "" || prLoading`, and every switch arm renders
+  exactly one row.
+  *Regression tests:* `TestRenderLine3_ActiveErrorWithPRData`
+  (statusbar_test.go) — error replaces the PR summary and emits no clickable
+  line-3 labels; no error keeps the summary; control characters in the error
+  render as escapes and add no rows. The existing
+  `TestProperty_StatusBarRenderRowsMatchLayoutRows` already fuzzes the
+  error × PR × loading state space for the row-count promise and stays green.
+  *Pre-fix failure line:* `statusbar_test.go:509: line 3 = "… PR #7: a pr …",
+  want the active error message`.
+
+- **Line-3 messages are hybrid: summary for classified kinds, raw text for
+  the rest.** (Adjudicated during review of the two fixes above.) The
+  classified kinds keep fixed, actionable text — "GitHub API rate limited",
+  "GitHub API auth/permission error — check: gh auth status" — because the
+  classifier has already extracted the meaning and a one-line summary beats
+  gh's sentence-and-a-URL on a single status row. `ghErrOther` has no meaning
+  to state, and a fixed "GitHub API error" made a DNS failure, a missing `gh`
+  binary, a 502 and "no pull requests found" all render identically — a
+  genuine gap against PROMPT.md:83. It now carries gh's own words:
+  `statusMessageWith(detail)` renders `"GitHub API error: " + detail`, where
+  the detail is the raw error text snapshotted onto the msg in the fetch
+  function (`prRefreshMsg.errText`, `gitDataMsg.prErrText`) — never read back
+  off Model state, per the tea.Cmd snapshot rule. Sanitizing stays at the
+  display boundary (`renderStatusBar` → `sanitizeDisplayText` → `ellipsize`)
+  rather than in the message builder, so the text is escaped exactly once.
+  *Tests:* `TestGenericError_CarriesRawText` (network and gh-missing carry
+  their text; rate-limit and auth keep their fixed summaries) and
+  `TestGenericError_RawTextIsSanitizedOnLine3` (a multi-line error carrying
+  `\t`, `\r` and `\x07` renders escaped, on exactly the number of rows
+  `statusBarLines()` reserved).
+
+- *Documented, not changed:* the `gitDataMsg` failure path skips
+  `ResetPRInterval` where the `prRefreshMsg` path calls it. The asymmetry is
+  pre-existing and inert — that path is not the poll loop, and
+  `ResetPRInterval` only recomputes `max(activity-derived, latched backoff)`,
+  so it cannot clear a latch (only `MarkPRSuccess` does) and both arms leave
+  the same interval behind. A comment at the `gitDataMsg` site now says so,
+  so nobody "fixes" it into a redundant recompute;
+  `TestAuthErrorDuringRateLimitBackoff` covers both paths.
 
 ### Unicode width accounting unified on one oracle
 

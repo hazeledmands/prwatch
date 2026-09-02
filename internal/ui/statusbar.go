@@ -110,23 +110,37 @@ func renderStatusBar(width int, data statusBarData) (string, []modeLabel, []line
 		result += "\n" + l2
 	}
 
-	// Line 3: only show if there's a PR
+	// Line 3: the GitHub row — an active API error, else the PR summary, else
+	// the loading indicator. The error comes first because PROMPT.md:83 puts
+	// the API error message on this line unconditionally ("if the github API
+	// is returning errors, then put the error message here!"); it used to be
+	// reachable only before the first successful PR fetch, so every later
+	// failure was invisible while stale PR data sat on the line looking
+	// current. The PR data itself is still rendered — in the PR pane — so
+	// both spec clauses hold. prError is cleared by the next successful fetch,
+	// so "active" is exactly "prError != \"\"". See INCONSISTENCIES.md,
+	// "GitHub API errors hidden once PR data exists".
+	//
+	// Every branch here occupies exactly one row, matching the single
+	// increment in statusBarLineCount.
 	var line3Labels []line3Label
-	if data.pr.Number > 0 {
+	switch {
+	case data.prError != "":
+		// Sanitized like any other display text: an error string is not
+		// under our control (it can carry gh's stderr), and a raw newline
+		// would split this "row" in two and desync the layout.
+		errText := " " + sanitizeDisplayText(data.prError)
+		errText = ellipsize(errText, width-2)
+		result += "\n" + statusBarDimStyle.Width(width).Render(errText)
+	case data.pr.Number > 0:
 		l3, l3Labels := renderLine3(width, data)
 		line3Labels = l3Labels
 		result += "\n" + l3
-	} else if data.prLoading {
+	case data.prLoading:
 		// Show loading indicator while PR data is being fetched
 		loadText := " Loading from GitHub…"
 		loadText = ellipsize(loadText, width-2)
 		result += "\n" + statusBarDimStyle.Width(width).Render(loadText)
-	} else if data.prError != "" {
-		// Show error on line 3 when no PR data available
-		errText := " " + data.prError
-		errText = ellipsize(errText, width-2)
-		errLine := statusBarDimStyle.Width(width).Render(errText)
-		result += "\n" + errLine
 	}
 
 	return result, labels, line2Labels, line3Labels

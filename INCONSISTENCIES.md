@@ -32,11 +32,15 @@ screen (instead of surfacing the new error) the intended behavior, or should
 errors always take priority on line 3 regardless of whether PR data is
 already loaded?
 
-**Resolved — both.** PROMPT.md:83 is taken at face value: an active API
-error is surfaced on line 3 even when PR data already exists, while the
-last-known-good PR data stays rendered elsewhere. Fix pending — queued for
-the error-path work thread alongside the `isRateLimited` 403
-misclassification (BUG_REPORTS.md, New Bugs).
+**Resolved — both. Implemented.** PROMPT.md:83 is taken at face value: an
+active API error is surfaced on line 3 even when PR data already exists,
+while the last-known-good PR data stays rendered elsewhere (the PR pane).
+`renderStatusBar`'s line-3 chain is now a switch with the error first, so an
+active error *replaces* line 3's content until the next successful fetch
+clears it — precedence, not composition, since the spec asks for the message
+on this line and says nothing about combining it with the PR summary. Landed
+with the `isRateLimited` 403 fix; see BUG_REPORTS.md, "GitHub error paths:
+classification and visibility".
 
 ## Drag-copy drops the space at word-wrap breaks
 

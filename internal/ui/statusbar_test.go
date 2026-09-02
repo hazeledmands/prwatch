@@ -482,3 +482,57 @@ func TestMakeHyperlink(t *testing.T) {
 		t.Error("should end with OSC 8 close sequence")
 	}
 }
+
+// TestRenderLine3_ActiveErrorWithPRData is the regression test for
+// INCONSISTENCIES.md "GitHub API errors hidden once PR data exists":
+// PROMPT.md:83 says line 3 carries the GitHub API error message, but
+// renderStatusBar only reached the error branch when no PR had been fetched
+// yet. An active error must be surfaced on line 3 even with PR data on hand
+// (the PR data itself stays rendered elsewhere), and the error text goes
+// through the display-text sanitizer like any other display string.
+func TestRenderLine3_ActiveErrorWithPRData(t *testing.T) {
+	base := statusBarData{
+		info: git.RepoInfoResult{Branch: "feature", RepoName: "p", DirName: "p"},
+		pr:   git.PRInfoResult{Number: 7, Title: "a pr"},
+		mode: FilesMode,
+	}
+
+	t.Run("error replaces line 3 content", func(t *testing.T) {
+		data := base
+		data.prError = "GitHub API rate limited"
+		bar, _, _, line3Labels := renderStatusBar(120, data)
+		lines := strings.Split(bar, "\n")
+		if len(lines) != 3 {
+			t.Fatalf("status bar has %d rows, want 3: %q", len(lines), bar)
+		}
+		if !strings.Contains(lines[2], "GitHub API rate limited") {
+			t.Errorf("line 3 = %q, want the active error message", lines[2])
+		}
+		if strings.Contains(lines[2], "PR #7") {
+			t.Errorf("line 3 = %q, want the error to replace the PR summary", lines[2])
+		}
+		if len(line3Labels) != 0 {
+			t.Errorf("line 3 labels = %v, want none while the error occupies the line", line3Labels)
+		}
+	})
+
+	t.Run("no error keeps the PR summary", func(t *testing.T) {
+		bar, _, _, _ := renderStatusBar(120, base)
+		lines := strings.Split(bar, "\n")
+		if len(lines) != 3 || !strings.Contains(lines[2], "PR #7") {
+			t.Errorf("line 3 = %q, want the PR summary when no error is active", bar)
+		}
+	})
+
+	t.Run("error text is sanitized", func(t *testing.T) {
+		data := base
+		data.prError = "GitHub API error\nsecond row\tand a tab"
+		bar, _, _, _ := renderStatusBar(120, data)
+		if got := len(strings.Split(bar, "\n")); got != 3 {
+			t.Fatalf("status bar has %d rows, want 3 — control characters must not add rows: %q", got, bar)
+		}
+		if !strings.Contains(bar, `\n`) || !strings.Contains(bar, `\t`) {
+			t.Errorf("status bar = %q, want the control characters rendered as escapes", bar)
+		}
+	})
+}

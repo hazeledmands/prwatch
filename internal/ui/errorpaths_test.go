@@ -76,29 +76,29 @@ func TestErr_ClearedBySuccessfulLoad(t *testing.T) {
 // TestFetchPRStatus_ClassifiesErrors covers CODE_REVIEW A3: fetchPRStatus
 // mapped *every* PRAll error to rateLimited, so expired gh auth reported
 // "GitHub API rate limited" forever and every failure triggered rate-limit
-// backoff. Classification goes through isRateLimited.
+// backoff. Classification goes through classifyGitHubError.
 func TestFetchPRStatus_ClassifiesErrors(t *testing.T) {
 	cases := []struct {
-		name            string
-		err             error
-		wantRateLimited bool
-		wantFailed      bool
+		name       string
+		err        error
+		wantKind   githubErrorKind
+		wantFailed bool
 	}{
-		{"no error", nil, false, false},
-		{"primary rate limit", fmt.Errorf("API rate limit exceeded for user"), true, true},
-		{"secondary rate limit", fmt.Errorf("You have exceeded a secondary rate limit"), true, true},
-		{"403", fmt.Errorf("HTTP 403: Forbidden"), true, true},
-		{"expired auth", fmt.Errorf("gh: authentication token expired"), false, true},
-		{"network", fmt.Errorf("dial tcp: lookup api.github.com: no such host"), false, true},
-		{"no PR", fmt.Errorf("no pull requests found for branch"), false, true},
+		{"no error", nil, ghErrNone, false},
+		{"primary rate limit", fmt.Errorf("API rate limit exceeded for user"), ghErrRateLimited, true},
+		{"secondary rate limit", fmt.Errorf("You have exceeded a secondary rate limit"), ghErrRateLimited, true},
+		{"403", fmt.Errorf("HTTP 403: Forbidden"), ghErrAuth, true},
+		{"expired auth", fmt.Errorf("gh: authentication token expired"), ghErrAuth, true},
+		{"network", fmt.Errorf("dial tcp: lookup api.github.com: no such host"), ghErrOther, true},
+		{"no PR", fmt.Errorf("no pull requests found for branch"), ghErrOther, true},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			mg := &mockGit{prInfo: git.PRInfoResult{Number: 7}, prInfoErr: c.err}
 			msg := fetchPRStatus(mg).(prRefreshMsg)
-			if msg.rateLimited != c.wantRateLimited {
-				t.Errorf("rateLimited = %v, want %v", msg.rateLimited, c.wantRateLimited)
+			if msg.errKind != c.wantKind {
+				t.Errorf("errKind = %v, want %v", msg.errKind, c.wantKind)
 			}
 			if msg.fetchFailed != c.wantFailed {
 				t.Errorf("fetchFailed = %v, want %v", msg.fetchFailed, c.wantFailed)
@@ -161,7 +161,7 @@ func TestRateLimitBackoff_TickLoop(t *testing.T) {
 	}
 
 	// That fetch comes back rate limited: double the interval and latch it.
-	res, _ = m.Update(prRefreshMsg{rateLimited: true})
+	res, _ = m.Update(prRefreshMsg{fetchFailed: true, errKind: ghErrRateLimited})
 	m = res.(*Model)
 	if got := m.activity.PRInterval(); got != prRefreshActive*2 {
 		t.Fatalf("interval after 403 = %v, want %v", got, prRefreshActive*2)
@@ -195,7 +195,7 @@ func TestRateLimitBackoff_TickLoop(t *testing.T) {
 	}
 
 	// A second 403 doubles again.
-	res, _ = m.Update(prRefreshMsg{rateLimited: true})
+	res, _ = m.Update(prRefreshMsg{fetchFailed: true, errKind: ghErrRateLimited})
 	m = res.(*Model)
 	if got := m.activity.PRInterval(); got != prRefreshActive*4 {
 		t.Fatalf("interval after second 403 = %v, want %v", got, prRefreshActive*4)
@@ -348,7 +348,7 @@ func TestGitLoadPRPath_ParticipatesInBackoff(t *testing.T) {
 		m := NewModel("/tmp", mg)
 		m.width, m.height = 80, 24
 		m.updateLayout()
-		res, _ := m.Update(prRefreshMsg{rateLimited: true})
+		res, _ := m.Update(prRefreshMsg{fetchFailed: true, errKind: ghErrRateLimited})
 		m = res.(*Model)
 		if m.activity.PRInterval() != prRefreshActive*2 {
 			t.Fatalf("setup: interval = %v, want %v", m.activity.PRInterval(), prRefreshActive*2)
@@ -378,7 +378,7 @@ func TestGitLoadPRPath_ParticipatesInBackoff(t *testing.T) {
 			repoInfo:      git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
 			changes:       git.NewChangedFiles(),
 			prFetchFailed: true,
-			prRateLimited: true,
+			prErrKind:     ghErrRateLimited,
 		})
 		m = res.(*Model)
 		if got := m.activity.PRInterval(); got != prRefreshActive*4 {
@@ -411,12 +411,14 @@ func TestGitLoadPRPath_ParticipatesInBackoff(t *testing.T) {
 // does, so the handler can tell a rate limit from anything else.
 func TestGitLoad_ClassifiesPRError(t *testing.T) {
 	cases := []struct {
-		name            string
-		err             error
-		wantRateLimited bool
+		name     string
+		err      error
+		wantKind githubErrorKind
 	}{
-		{"rate limit", fmt.Errorf("API rate limit exceeded for user"), true},
-		{"expired auth", fmt.Errorf("gh: authentication token expired"), false},
+		{"rate limit", fmt.Errorf("API rate limit exceeded for user"), ghErrRateLimited},
+		{"expired auth", fmt.Errorf("gh: authentication token expired"), ghErrAuth},
+		{"SAML 403", fmt.Errorf("HTTP 403: Resource protected by organization SAML enforcement"), ghErrAuth},
+		{"network", fmt.Errorf("dial tcp: no such host"), ghErrOther},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -429,8 +431,8 @@ func TestGitLoad_ClassifiesPRError(t *testing.T) {
 			if !msg.prFetchFailed {
 				t.Fatal("prFetchFailed = false, want true")
 			}
-			if msg.prRateLimited != c.wantRateLimited {
-				t.Errorf("prRateLimited = %v, want %v", msg.prRateLimited, c.wantRateLimited)
+			if msg.prErrKind != c.wantKind {
+				t.Errorf("prErrKind = %v, want %v", msg.prErrKind, c.wantKind)
 			}
 		})
 	}
@@ -499,5 +501,232 @@ func TestBehindCount_UnknownIsHidden(t *testing.T) {
 	})
 	if strings.Contains(bar, "behind") {
 		t.Error("renderStatusBar rendered an unknown behind count")
+	}
+}
+
+// TestSSO403_NotRateLimited is the regression test for the `isRateLimited`
+// 403 misclassification (BUG_REPORTS.md, New Bugs): a SAML/SSO 403 is a
+// permission condition no amount of waiting fixes, so it must neither be
+// reported as a rate limit nor drive the exponential backoff.
+// It walks the real loop — fetchPRStatus classifies, Update applies — for a
+// stream of identical failures, which is what a misclassification actually
+// costs: five SSO 403s used to take the poll from 30s to 16m.
+func TestSSO403_NotRateLimited(t *testing.T) {
+	cases := []struct {
+		name      string
+		err       error
+		wantGrows bool
+		wantError string
+	}{
+		{
+			name: "SAML/SSO 403",
+			err: fmt.Errorf("exit status 1: gh: HTTP 403: Resource protected by organization SAML enforcement. " +
+				"You must grant your OAuth token access to this organization. (https://api.github.com/graphql)"),
+			wantGrows: false,
+			wantError: ghErrAuth.statusMessage(),
+		},
+		{
+			name:      "missing scopes",
+			err:       fmt.Errorf("exit status 1: error: your authentication token is missing required scopes [read:org]"),
+			wantGrows: false,
+			wantError: ghErrAuth.statusMessage(),
+		},
+		{
+			name:      "genuine rate limit",
+			err:       fmt.Errorf("exit status 1: gh: HTTP 403: API rate limit exceeded for user ID 1234. (https://api.github.com/graphql)"),
+			wantGrows: true,
+			wantError: ghErrRateLimited.statusMessage(),
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mg := &mockGit{
+				repoInfo:  git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+				prInfoErr: c.err,
+			}
+			m := NewModel("/tmp", mg)
+			m.width, m.height = 80, 24
+			m.updateLayout()
+			before := m.activity.PRInterval()
+
+			const fetches = 5
+			for i := range fetches {
+				res, _ := m.Update(fetchPRStatus(mg))
+				m = res.(*Model)
+				if !c.wantGrows {
+					if got := m.activity.PRInterval(); got != before {
+						t.Fatalf("after %d failures, PR interval = %v, want it unchanged at %v", i+1, got, before)
+					}
+				}
+			}
+			if c.wantGrows {
+				// A3's contract: consecutive rate limits double the interval.
+				want := min(before<<fetches, prRefreshMax)
+				if got := m.activity.PRInterval(); got != want {
+					t.Errorf("after %d rate limits, PR interval = %v, want %v", fetches, got, want)
+				}
+			}
+			if m.prError != c.wantError {
+				t.Errorf("prError = %q, want %q", m.prError, c.wantError)
+			}
+			// Whatever the cause, the message reaches line 3 — the PR pane
+			// keeps whatever last-known-good data it had.
+			bar, _, _, _ := renderStatusBar(m.width, m.statusBarData())
+			if !strings.Contains(bar, c.wantError) {
+				t.Errorf("status bar does not carry the error %q: %q", c.wantError, bar)
+			}
+		})
+	}
+}
+
+// TestAuthErrorDuringRateLimitBackoff pins the interaction between the two
+// error kinds, which the "auth keeps the normal cadence" rule alone does not
+// describe: an auth failure arriving *while a rate-limit backoff is latched*
+// holds the latched floor. ResetPRInterval recomputes through
+// effectivePRInterval = max(activity-derived, rateLimitBackoff), and only
+// MarkPRSuccess clears the latch — a 403 about a missing scope is not
+// evidence the throttle lifted, so the poll must not speed back up on it.
+// The message, however, does flip to the auth text: it names the most recent
+// cause.
+func TestAuthErrorDuringRateLimitBackoff(t *testing.T) {
+	mg := &mockGit{repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"}}
+	m := NewModel("/tmp", mg)
+	m.width, m.height = 80, 24
+	m.updateLayout()
+
+	// One genuine rate limit latches a doubled interval.
+	res, _ := m.Update(prRefreshMsg{fetchFailed: true, errKind: ghErrRateLimited})
+	m = res.(*Model)
+	latched := m.activity.PRInterval()
+	if latched != prRefreshActive*2 {
+		t.Fatalf("setup: interval after a rate limit = %v, want %v", latched, prRefreshActive*2)
+	}
+
+	// SSO failures now arrive. They must neither grow the interval (an auth
+	// error never backs off) nor shrink it below the latched floor.
+	for i := range 3 {
+		res, _ = m.Update(prRefreshMsg{fetchFailed: true, errKind: ghErrAuth})
+		m = res.(*Model)
+		if got := m.activity.PRInterval(); got != latched {
+			t.Fatalf("after %d auth failures during backoff, interval = %v, want the latched %v", i+1, got, latched)
+		}
+		if m.prError != ghErrAuth.statusMessage() {
+			t.Errorf("after %d auth failures, prError = %q, want %q", i+1, m.prError, ghErrAuth.statusMessage())
+		}
+	}
+
+	// The same holds on the PR-inclusive git-load path, which skips
+	// ResetPRInterval entirely — both paths leave the same interval behind.
+	res, _ = m.Update(gitDataMsg{
+		repoInfo:      git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		changes:       git.NewChangedFiles(),
+		prFetchFailed: true,
+		prErrKind:     ghErrAuth,
+	})
+	m = res.(*Model)
+	if got := m.activity.PRInterval(); got != latched {
+		t.Errorf("after an auth failure on the git-load path, interval = %v, want the latched %v", got, latched)
+	}
+
+	// Only a success clears the latch.
+	res, _ = m.Update(prRefreshMsg{})
+	m = res.(*Model)
+	if got := m.activity.PRInterval(); got != prRefreshActive {
+		t.Errorf("interval after a successful fetch = %v, want the latch cleared to %v", got, prRefreshActive)
+	}
+	if m.prError != "" {
+		t.Errorf("prError = %q, want cleared by the successful fetch", m.prError)
+	}
+}
+
+// TestGenericError_CarriesRawText covers the hybrid-message adjudication: the
+// classified kinds keep their fixed actionable text, but ghErrOther has no
+// meaning to state, so it carries gh's own words — otherwise a DNS failure, a
+// missing gh binary, a 502 and "no pull requests found" all render as the
+// identical "GitHub API error" (PROMPT.md:83 wants the message).
+func TestGenericError_CarriesRawText(t *testing.T) {
+	cases := []struct {
+		name     string
+		err      error
+		wantLine string
+	}{
+		{
+			"network failure",
+			fmt.Errorf("dial tcp: lookup api.github.com: no such host"),
+			"GitHub API error: dial tcp: lookup api.github.com: no such host",
+		},
+		{
+			"gh missing",
+			fmt.Errorf(`exec: "gh": executable file not found in $PATH`),
+			`GitHub API error: exec: "gh": executable file not found in $PATH`,
+		},
+		{
+			// Classified kinds ignore the detail: the summary is better than
+			// gh's sentence-and-a-URL on a one-row status line.
+			"rate limit keeps the fixed message",
+			fmt.Errorf("gh: HTTP 403: API rate limit exceeded for user ID 1 (https://api.github.com/graphql)"),
+			"GitHub API rate limited",
+		},
+		{
+			"auth keeps the fixed message",
+			fmt.Errorf("gh: HTTP 403: Resource protected by organization SAML enforcement (https://api.github.com/graphql)"),
+			"GitHub API auth/permission error — check: gh auth status",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mg := &mockGit{
+				repoInfo:  git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+				prInfoErr: c.err,
+			}
+			m := NewModel("/tmp", mg)
+			m.width, m.height = 200, 24
+			m.updateLayout()
+			res, _ := m.Update(fetchPRStatus(mg))
+			m = res.(*Model)
+			if m.prError != c.wantLine {
+				t.Errorf("prError = %q, want %q", m.prError, c.wantLine)
+			}
+		})
+	}
+}
+
+// A raw gh error can be multi-line and carry control characters. It must reach
+// line 3 escaped, on exactly one row — the status bar's row-count promise does
+// not bend for error text.
+func TestGenericError_RawTextIsSanitizedOnLine3(t *testing.T) {
+	nasty := fmt.Errorf("exit status 1: gh: request failed\n\tat api.github.com\rretrying\x07 now")
+	mg := &mockGit{
+		repoInfo:  git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		prInfoErr: nasty,
+	}
+	m := NewModel("/tmp", mg)
+	m.width, m.height = 200, 24
+	m.updateLayout()
+	res, _ := m.Update(fetchPRStatus(mg))
+	m = res.(*Model)
+
+	// The model keeps the raw text; sanitizing is the display boundary's job.
+	if !strings.Contains(m.prError, "\n") {
+		t.Errorf("prError = %q, want it to keep the raw error text", m.prError)
+	}
+
+	bar, _, _, _ := renderStatusBar(m.width, m.statusBarData())
+	rows := strings.Split(bar, "\n")
+	if got, want := len(rows), m.statusBarLines(); got != want {
+		t.Fatalf("status bar rendered %d rows, layout reserved %d — control chars must not add rows", got, want)
+	}
+	line3 := rows[len(rows)-1]
+	for _, raw := range []string{"\t", "\r", "\x07"} {
+		if strings.Contains(line3, raw) {
+			t.Errorf("line 3 contains a raw control character %q: %q", raw, line3)
+		}
+	}
+	for _, esc := range []string{`\t`, `\r`, `\x07`} {
+		if !strings.Contains(line3, esc) {
+			t.Errorf("line 3 missing the escape %s: %q", esc, line3)
+		}
 	}
 }

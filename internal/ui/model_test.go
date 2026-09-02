@@ -4875,14 +4875,14 @@ func TestRateLimitBackoff(t *testing.T) {
 	}
 
 	// Simulate rate limit
-	result, _ := m.Update(prRefreshMsg{rateLimited: true})
+	result, _ := m.Update(prRefreshMsg{fetchFailed: true, errKind: ghErrRateLimited})
 	m = result.(*Model)
 	if m.activity.prInterval != prRefreshActive*2 {
 		t.Errorf("expected interval to double to %v, got %v", prRefreshActive*2, m.activity.prInterval)
 	}
 
 	// Second rate limit
-	result, _ = m.Update(prRefreshMsg{rateLimited: true})
+	result, _ = m.Update(prRefreshMsg{fetchFailed: true, errKind: ghErrRateLimited})
 	m = result.(*Model)
 	if m.activity.prInterval != prRefreshActive*4 {
 		t.Errorf("expected interval to quadruple to %v, got %v", prRefreshActive*4, m.activity.prInterval)
@@ -5006,26 +5006,10 @@ func TestRefreshMsg_UpdatesLastGitChange(t *testing.T) {
 	}
 }
 
-func TestIsRateLimited(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"normal error", fmt.Errorf("connection refused"), false},
-		{"rate limit", fmt.Errorf("API rate limit exceeded"), true},
-		{"403", fmt.Errorf("HTTP 403: forbidden"), true},
-		{"secondary rate", fmt.Errorf("secondary rate limit"), true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isRateLimited(tt.err); got != tt.want {
-				t.Errorf("isRateLimited(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
-	}
-}
+// TestIsRateLimited's successor lives in gherror_test.go: the boolean
+// isRateLimited became classifyGitHubError, which distinguishes a rate limit
+// from an auth-or-permission failure (the "403 → rate limited" row this table
+// used to assert was the bug — see BUG_REPORTS.md).
 
 func TestHelpScrolling(t *testing.T) {
 	m := NewModel("/tmp", testGit())

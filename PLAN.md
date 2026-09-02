@@ -325,6 +325,53 @@ under "Invalidated seeds"; a verbose package run now reports zero.
 
 ---
 
+## Done: GitHub error paths — classification and visibility
+
+The two error-path items the A3 pass logged rather than fixed, done together
+because they are the same path: what a failed `gh` call *means*, and whether
+the user hears about it.
+
+1. **`isRateLimited` → `classifyGitHubError`** (`internal/ui/gherror.go`).
+   The substring classifier called any error containing "403" a rate limit,
+   which since A3 drove the exponential backoff to its 15m cap for
+   SAML/SSO and missing-scope failures that waiting cannot fix. Replaced by
+   a three-valued `githubErrorKind`: rate limit requires real throttle
+   evidence (`x-ratelimit-remaining: 0`, `rate limit exceeded` /
+   `secondary rate limit` text, GraphQL `RATE_LIMITED` type); auth/permission
+   covers SAML/SSO, missing scopes, bad or expired credentials, inaccessible
+   resources, and a bare digit-bounded 401/403; everything else is generic.
+   Only `backsOff()` — true for the rate-limit kind alone — bumps the
+   interval. **Unrecognized 403 keeps the normal cadence** and shows its own
+   message. The kind travels as one message field (`errKind` / `prErrKind`)
+   replacing the `rateLimited` / `prRateLimited` booleans, so the two
+   outcomes cannot disagree.
+
+2. **Line 3 shows an active API error even with PR data** (statusbar.go).
+   `renderStatusBar`'s line-3 chain reached the error branch only before the
+   first successful PR fetch, so every later failure was invisible
+   (PROMPT.md:83). Now a switch with the error first: the error replaces
+   line 3 while active (cleared by the next successful fetch), the PR summary
+   returns after. The message is sanitized before ellipsizing, and the row
+   count is unchanged — `statusBarLineCount` already reserved the row.
+
+3. **Hybrid line-3 messages** (review adjudication). Rate-limit and auth keep
+   fixed actionable summaries; `ghErrOther` carries gh's raw text
+   (`"GitHub API error: " + detail`) so a DNS failure, a missing `gh`, a 502
+   and "no PRs found" stop rendering identically. The detail is snapshotted
+   onto the msg in the fetch function; sanitizing stays at the display
+   boundary.
+
+Tests: `TestSSO403_NotRateLimited` (the backoff contract, both directions),
+`TestAuthErrorDuringRateLimitBackoff` (an auth error holds a latched backoff
+floor; only success clears it), `TestGenericError_CarriesRawText` /
+`TestGenericError_RawTextIsSanitizedOnLine3`,
+`TestClassifyGitHubError` (table, one row per real gh error shape),
+`TestProperty_ClassificationNeverBacksOffNonRateLimit`,
+`TestRenderLine3_ActiveErrorWithPRData`. Full suite green; both adjudications
+(BUG_REPORTS.md New Bugs, INCONSISTENCIES.md line-3 entry) closed.
+
+---
+
 ## In Progress: Position-based diff addressing
 
 **Goal:** Introduce explicit `Position` and `Range` values naming "where the user is pointing in a diff" and "what window is currently visible." Several planned features (hunk-grain navigation, line-aware deep-links, inline comments, keyboard selection, LSP) all need to ask "what am I looking at right now?" Today this is derived ad-hoc from viewport state each time. Naming it unblocks the rest.
