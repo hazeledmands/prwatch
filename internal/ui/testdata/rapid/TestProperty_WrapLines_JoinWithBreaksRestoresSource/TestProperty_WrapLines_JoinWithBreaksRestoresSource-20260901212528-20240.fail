@@ -1,0 +1,25 @@
+# 2026/09/01 21:25:28.023122 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw nTok: 2
+# 2026/09/01 21:25:28.023143 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw w0: "l0_xxxxxxxxxx"
+# 2026/09/01 21:25:28.023158 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw gap1: 1
+# 2026/09/01 21:25:28.023176 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw w1: "a"
+# 2026/09/01 21:25:28.023184 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw width: 1
+# 2026/09/01 21:25:28.023195 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw indent: 1
+# 2026/09/01 21:25:28.023515 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] rejoin = "    ", want "l0_xxxxxxxxxx a   " (rows ["#" "l" "0" "_" "x" "x" "x" "x" "x" "x" "x" "x" "x" "x" "a"], breaks [0 0 0 0 0 0 0 0 0 0 0 0 0 0 1], own [0 0 0 0 0 0 0 0 0 0 0 0 0 0 3], width 1, indent 1)
+# 
+v0.4.8#5893503343117659182
+0x0
+0x0
+0x1
+0x1f2b5a0e61c3a6
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1

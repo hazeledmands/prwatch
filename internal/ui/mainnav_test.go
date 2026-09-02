@@ -173,6 +173,12 @@ func TestProperty_Model_VisualSelectionTracksCursor(t *testing.T) {
 
 // TestProperty_Model_VisualYankMatchesHighlight states the second half of
 // sub-item 2: what `y` copies is exactly the range the highlight painted.
+//
+// Both visual modes are exercised, and the containment check below is
+// mode-aware: a cell-wise (`v`) yank is a screen operation, so its lines
+// are compared with trailing padding trimmed, while a line-wise (`V`) yank
+// is a source-text operation and its lines must appear in the rendered rows
+// verbatim — trailing whitespace and all (PROMPT.md `### visual mode`).
 func TestProperty_Model_VisualYankMatchesHighlight(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -181,7 +187,8 @@ func TestProperty_Model_VisualYankMatchesHighlight(t *testing.T) {
 		height := rapid.IntRange(16, 44).Draw(t, "height")
 		m := initModel(mock, mode, width, height)
 		m = applyAction(m, tea.KeyPressMsg{Text: ".", Code: '.'})
-		m = applyAction(m, tea.KeyPressMsg{Text: "v", Code: 'v'})
+		enter := rapid.SampledFrom([]string{"v", "V"}).Draw(t, "enter")
+		m = applyAction(m, tea.KeyPressMsg{Text: enter, Code: rune(enter[0])})
 
 		steps := rapid.IntRange(1, 10).Draw(t, "steps")
 		for i := range steps {
@@ -220,13 +227,23 @@ func TestProperty_Model_VisualYankMatchesHighlight(t *testing.T) {
 		// wrapped lines too: a yanked line is one logical row, so it matches a
 		// whole `formattedContent` row even when the screen split it across
 		// several.
+		//
+		// For a line-wise selection the needle is the yanked line as-is: the
+		// trailing whitespace a `V` yank re-appends came from the source line,
+		// so it is present in `formattedContent` too (which is pre-wrap, and
+		// so untouched by the wrap-time trimming that motivated the fix).
+		lineWise := m.selection.mode == selectionLine
 		rendered := stripANSIForWidth(m.mainPane.formattedContent)
 		for _, line := range strings.Split(want, "\n") {
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			if !strings.Contains(rendered, strings.TrimRight(line, " ")) {
-				t.Fatalf("yanked line %q is not in the pane's rendered rows", line)
+			needle := line
+			if !lineWise {
+				needle = strings.TrimRight(line, " ")
+			}
+			if !strings.Contains(rendered, needle) {
+				t.Fatalf("yanked line %q is not in the pane's rendered rows (mode=%v)", line, m.selection.mode)
 			}
 		}
 	})

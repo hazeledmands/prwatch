@@ -1,0 +1,28 @@
+# 2026/09/01 19:06:44.325559 [TestProperty_LineWiseYankRoundTripsSourceLines] [rapid] draw nLines: 1
+# 2026/09/01 19:06:44.325576 [TestProperty_LineWiseYankRoundTripsSourceLines] [rapid] draw body0: ""
+# 2026/09/01 19:06:44.325586 [TestProperty_LineWiseYankRoundTripsSourceLines] [rapid] draw trail0: 1
+# 2026/09/01 19:06:44.325596 [TestProperty_LineWiseYankRoundTripsSourceLines] [rapid] draw width: 24
+# 2026/09/01 19:06:44.325604 [TestProperty_LineWiseYankRoundTripsSourceLines] [rapid] draw lineNumbers: false
+# 2026/09/01 19:06:44.325665 [TestProperty_LineWiseYankRoundTripsSourceLines] [rapid] draw from: 1
+# 2026/09/01 19:06:44.325672 [TestProperty_LineWiseYankRoundTripsSourceLines] [rapid] draw to: 1
+# 2026/09/01 19:06:44.325703 [TestProperty_LineWiseYankRoundTripsSourceLines] V-yank of lines 1..1 = "", want " " (width=24 lineNumbers=false)
+# 
+v0.4.8#529252923133655680
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

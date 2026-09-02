@@ -1,0 +1,18 @@
+# 2026/09/01 21:23:32.635393 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw nTok: 1
+# 2026/09/01 21:23:32.635414 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw w0: "ab"
+# 2026/09/01 21:23:32.635426 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw width: 2
+# 2026/09/01 21:23:32.635437 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] [rapid] draw indent: 1
+# 2026/09/01 21:23:32.635469 [TestProperty_WrapLines_JoinWithBreaksRestoresSource] rejoin = "#ab   ", want "ab   " (rows ["" " #ab" " "], breaks [0 0 3], own [0 0 0], width 2, indent 1)
+# 
+v0.4.8#11251091132704041867
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1

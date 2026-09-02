@@ -553,7 +553,7 @@ func TestWrapNeverSplitsACluster(t *testing.T) {
 		content = strings.Repeat(content, 4)
 		width := rapid.IntRange(2, 20).Draw(t, "width")
 
-		out, _, _ := wrapLinesWithBreaks(content, width, 0)
+		out, _, _, _ := wrapLinesWithBreaks(content, width, 0)
 		// The wrapper deliberately keeps a token whole rather than splitting it
 		// when the token is no wider than maxWordWidth = max(10, width/8) — see
 		// TestWrapLines_PreservesShortWords. So a row may legitimately exceed a

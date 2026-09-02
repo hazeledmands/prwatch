@@ -87,9 +87,61 @@ distinguish. Needs a decision before changing anything.
 source-text operations and reproduce lines exactly, trailing whitespace
 included; cell-wise selections (drag, `v`) are screen operations and keep
 the trim. Now specified in PROMPT.md (`### visual mode` and the mouse
-copy bullets). Fix pending — same content-boundary bookkeeping pattern as
-the wrap-break-space fix (record trailing-space counts, re-append at
-line-yank join).
+copy bullets). **Implemented** — same bookkeeping pattern as the
+wrap-break-space fix: `wrapLinesWithBreaks` now also returns each source
+line's own trailing-space count (recorded on the line's last wrap row), and
+`extractSourceRange` re-appends it at the join for line-wise selections
+only. See BUG_REPORTS.md, "Whole-line yank dropped the line's own trailing
+spaces".
+
+## Line-wise yank is a visible-window operation when word wrap is off
+
+**OPEN — needs a decision.**
+
+Spec: PROMPT.md `### visual mode` — "line-wise selections (`V`) are source-text
+operations — the copied text reproduces each selected source line exactly,
+including its trailing whitespace."
+
+Code: with wrap off, `refreshViewport` (mainpane.go:678-688) populates
+`lineTrailingSpaces` from the rows *after*
+`truncateLinesWithOffset` has applied the horizontal scroll and clipped
+each line at the pane's right edge. Two consequences for a `V` yank of a
+line wider than the pane:
+
+- the copy is the visible window of the line, not the line — everything
+  past the right edge is missing, so it is not reproduced "exactly";
+- whatever spaces happen to end that visible window get re-appended as if
+  they were the line's own trailing run, even when they are interior spaces
+  with more text after them.
+
+This is not new behavior introduced by the trailing-space fix. Copy in
+no-wrap mode has always been visible-only — `extractSourceRange` documents
+it (drag.go:485-488: "In no-wrap mode each source line has exactly one wrap
+row in `viewport.GetContent()` (post horizontal-truncation), so the copy
+preserves only visible chars"). The fix is internally consistent with that
+existing rule; the fix's own round-trip property is scoped to wrap mode for
+exactly this reason. But the rule and the new `V` sentence in the spec now
+strictly contradict each other, and only one of them can be right.
+
+Two ways to resolve, both small:
+
+(a) **Adjudicate no-wrap copies as visible-window operations** (spec
+adjustment). Say in PROMPT.md that with word wrap off, every copy — `V`
+included — is bounded by what is on screen, since the pane is showing a
+window onto the line and there is no un-truncated row to read from. Costs
+nothing in code; makes `V`'s "exactly" conditional on wrap being on.
+
+(b) **Make `V` source-text in both modes** (code change). Have the
+line-wise path read from `pane.formattedContent` — the pre-truncation,
+pre-wrap rows — via `sourceToFormatLine`, instead of from the truncated
+viewport rows. Well-contained: `formattedContent` is already stored for
+line mapping and already has the gutter applied, so `stripGutterBody` reads
+it the same way. It would also make the trailing count for no-wrap mode
+come from the same place the wrap path gets it, rather than from the
+render.
+
+Not implemented pending a decision — (b) changes what `V` copies in no-wrap
+mode, which is a product call, not a refactor.
 
 ## Hover highlight only implemented for one element
 

@@ -221,21 +221,9 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
 
 ## New Bugs
 
-- **A whole-line yank still drops the source line's *own* trailing
-  spaces.** Not a wrap bug — `stripGutterText` trims trailing blanks off
-  every rendered row before the copy path slices it, so a line ending in
-  spaces copies without them whether or not it wrapped. (In the wrapper,
-  the same thing shows up as `pending` being discarded after the final
-  `emit`: there is no following row for those spaces to belong to.) A
-  strict reading of PROMPT.md:365 — "copied text should be the same as the
-  text from the file" — calls this a copy-fidelity gap; the counter-reading
-  is that trailing whitespace is invisible padding a user never meant to
-  select, and the trim is what keeps rendered padding out of the copy in
-  the first place.
-  *Deliberately not fixed with the wrap/copy fix:* that fix restores spaces
-  *between* wrap rows, which are unambiguously interior to the line. This
-  one is a `stripGutterText` policy question affecting unwrapped lines
-  equally, so it wants a decision rather than a patch. See INCONSISTENCIES.md.
+- ~~A whole-line yank still drops the source line's *own* trailing
+  spaces.~~ **FIXED** — see "Whole-line yank dropped the line's own trailing
+  spaces" under Fixed Bugs.
 
 - **Resolved as a stale test expectation, not a product bug:
   `TestProperty_InteractionInvariants`' rename title-bar check.** With a
@@ -289,6 +277,78 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
   this configuration; `BenchmarkViewEmpty` is now the standing guard.
 
 ## Fixed Bugs
+
+### Whole-line yank dropped the line's own trailing spaces
+
+- **A line-wise (`V`) yank lost the source line's own trailing whitespace.**
+  FIXED.
+  *Symptom:* `V` over a line ending in spaces copied it without them, on
+  wrapped and unwrapped lines alike; a whitespace-only line copied as the
+  empty string. Pre-fix, from the new regression table:
+  `selection_test.go:381: V-yank = "alpha", want "alpha   "` (and
+  `V-yank = "", want "   "` for the whitespace-only case).
+  *Root cause:* two mechanisms, both ending in the same place. Every column
+  measurement and every copy fragment goes through `stripGutterText`
+  (`mainpane.go`), which trims trailing blanks off the rendered row — so the
+  row's width, its source-column range, and the copied slice all stop before
+  the run, and no selection can name those cells. In the wrapper the same
+  loss shows up as `pending` being discarded after the final `emit`: the
+  break-space bookkeeping only ever attaches a run to a *following* row, and
+  a line's own trailing run has none.
+  *Adjudication (PROMPT.md `### visual mode` and the mouse copy bullets):*
+  line-wise (`V`) selections are **source-text** operations and reproduce
+  each selected line exactly, trailing whitespace included; cell-wise
+  selections (`v`, mouse drag) are **screen** operations and keep the trim,
+  so trailing render padding stays out. See INCONSISTENCIES.md, "Whole-line
+  yank drops the line's own trailing spaces".
+  *Fix (copy-only — rendering, highlight, cursor math, selection endpoints
+  and hit-testing are all untouched):* `wrapLinesWithBreaks` returns a
+  *fourth* per-viewport-row slice holding each source line's own trailing
+  spaces, recorded on the line's **last** wrap row and 0 elsewhere. It is
+  taken from the wrapper's `pending` after the final emit — deliberately not
+  re-derived from the source text, which is what keeps it disjoint from the
+  break counts: when the wrapper discards a trailing run at a break and then
+  emits an indent-only final row, the run is already in `breaks` for that
+  row and `pending` is correctly 0. `mainPane.lineTrailingSpaces` stores the
+  slice (populated in no-wrap mode from the truncated rows via the shared
+  `trailingSpaceRun` helper, since horizontal truncation has already decided
+  what a copy can honestly reproduce — but see INCONSISTENCIES.md,
+  "Line-wise yank is a visible-window operation when word wrap is off",
+  which logs the resulting tension with the spec's "exactly" as OPEN) and
+  `mainPane.trailingSpacesAfter` reads it. `extractSourceRange` (`drag.go`) takes a `lineWise` flag and
+  re-appends the run at the join; `selection.SelectedText` passes
+  `s.mode == selectionLine`, `dragSelection.SelectedText` passes false.
+  *Gutter:* `trailingSpaceRun` strips the gutter before counting, so a blank
+  source line rendered as gutter-only (`"  12   "`) contributes 0 rather than
+  leaking the gutter's own padding back as content.
+  *Does a `V` selection ever end mid-line?* No — `selection.resolveEnds`
+  extends a line-mode selection to column 0 of the first wrap row and to the
+  last wrap row's final content column. The join is still guarded on the
+  iteration having reached the line's last row with its fragment running to
+  the row end, so a clipped or synthesized range cannot grow spaces it never
+  covered.
+  *Regression tests:* `TestSelection_LineWiseYankKeepsTrailingSpaces`
+  (table: unwrapped, wrapped-but-fitting, whitespace-only, multi-line span,
+  a wrapped line where break spaces and the own-trailing run must both
+  survive, and a no-trailing control) and
+  `TestSelection_StreamYankStillTrimsTrailingSpaces` (the `v` half of the
+  policy — the trim stays). `TestWrapLines_BreakSpaceAccounting` gained a
+  `wantOwn` column and four cases pinning that the same discarded run lands
+  in `breaks` *or* `own` but never both.
+  `TestProperty_LineWiseYankRoundTripsSourceLines` is the round-trip
+  invariant: a `V` yank of any set of whole lines equals those post-boundary
+  source lines byte for byte. Committed seed:
+  `TestProperty_LineWiseYankRoundTripsSourceLines-20260901190644-23154.fail`
+  (whitespace-only line; verified to fail with the fix disabled and pass
+  with it).
+  *Generator widening (the A6 lesson):* no generator in the suite emitted a
+  line with trailing whitespace, which is why every existing property was
+  blind to this. `genDiffLineBody` (`invariant_test.go`) now appends a
+  trailing run on some indices — varied by index, not by a rapid draw, so
+  existing `.fail` seeds stay replayable — and
+  `TestProperty_Model_VisualYankMatchesHighlight` now enters with `v` *or*
+  `V` and is mode-aware: cell-wise yanked lines are matched against the
+  rendered rows with trailing padding trimmed, line-wise ones verbatim.
 
 ### Commits-mode pseudo-entry bodies were all the same diff
 

@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hazeledmands/prwatch/internal/git"
+	"pgregory.net/rapid"
 )
 
 // TestSelection_BeginStream_AnchorsAtCursor verifies that `v` from
@@ -279,6 +281,190 @@ func TestSelection_RendersHighlight(t *testing.T) {
 	if !strings.Contains(v.Content, "\x1b[7m") {
 		t.Error("expected selection highlight (reverse-video) in View output")
 	}
+}
+
+// yankTestPane builds a bare mainPane holding plain content, sized and
+// wrapped as the case asks. Shared setup for the trailing-space yank
+// tests below.
+func yankTestPane(t *testing.T, content string, width int, wrap bool) *mainPane {
+	t.Helper()
+	mp := newMainPane()
+	mp.SetSize(width, 20)
+	mp.SetWordWrap(wrap)
+	mp.SetPlainContent(content)
+	return mp
+}
+
+// lineSelection builds a line-wise (`V`) selection covering source lines
+// [from, to]; streamSelection builds the cell-wise (`v`) peer over the
+// same lines, anchored at column 0 and extended to the last line's final
+// content column.
+func lineSelection(mp *mainPane, from, to int) *selection {
+	s := newSelection()
+	s.BeginLine(endpointAt(mp, from, 0))
+	s.SetActive(endpointAt(mp, to, 0))
+	return s
+}
+
+func endpointAt(mp *mainPane, sourceLine, col int) endpoint {
+	pos := Position{SourceLine: sourceLine, Column: col}
+	vpRow, _ := mp.positionToDisplay(pos)
+	return endpoint{Pos: pos, VpRow: vpRow}
+}
+
+// TestSelection_LineWiseYankKeepsTrailingSpaces is the regression test for
+// BUG_REPORTS.md "A whole-line yank still drops the source line's own
+// trailing spaces". PROMPT.md's `### visual mode` makes a line-wise (`V`)
+// selection a *source-text* operation: the copy reproduces each selected
+// source line exactly, trailing whitespace included. stripGutterText trims
+// trailing blanks off every rendered row, so the yank used to lose them.
+func TestSelection_LineWiseYankKeepsTrailingSpaces(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		width   int
+		wrap    bool
+		from    int
+		to      int
+		want    string
+	}{
+		{
+			name:    "single line, no wrap",
+			content: "alpha   \nbravo",
+			width:   80,
+			from:    1, to: 1,
+			want: "alpha   ",
+		},
+		{
+			name:    "single line, wrap on but line fits",
+			content: "alpha   \nbravo",
+			width:   80,
+			wrap:    true,
+			from:    1, to: 1,
+			want: "alpha   ",
+		},
+		{
+			name:    "whitespace-only line",
+			content: "alpha\n   \nbravo",
+			width:   80,
+			from:    2, to: 2,
+			want: "   ",
+		},
+		{
+			name:    "multi-line span keeps each line's own trailing run",
+			content: "alpha \nbravo   \ncharlie",
+			width:   80,
+			from:    1, to: 3,
+			want: "alpha \nbravo   \ncharlie",
+		},
+		{
+			name:    "wrapped line: break spaces and own trailing run both survive",
+			content: "aaaa bbbb cccc dddd  \nzz",
+			width:   16,
+			wrap:    true,
+			from:    1, to: 1,
+			want: "aaaa bbbb cccc dddd  ",
+		},
+		{
+			name:    "line with no trailing run is unchanged",
+			content: "alpha\nbravo",
+			width:   80,
+			from:    1, to: 2,
+			want: "alpha\nbravo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mp := yankTestPane(t, tt.content, tt.width, tt.wrap)
+			s := lineSelection(mp, tt.from, tt.to)
+			got := s.SelectedText(dragGeometry{pane: mp})
+			if got != tt.want {
+				t.Errorf("V-yank = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSelection_StreamYankStillTrimsTrailingSpaces is the other half of the
+// adjudicated policy: a cell-wise (`v`) selection is a *screen* operation,
+// so trailing render padding stays out of the copy even when the selection
+// runs to the end of the row.
+func TestSelection_StreamYankStillTrimsTrailingSpaces(t *testing.T) {
+	mp := yankTestPane(t, "alpha   \nbravo", 80, false)
+	s := newSelection()
+	s.BeginStream(endpointAt(mp, 1, 0))
+	_, lastEnd := mp.wrapRowSourceColRange(mp.sourceLineToViewportOffset(1))
+	s.SetActive(endpointAt(mp, 1, lastEnd))
+	if got, want := s.SelectedText(dragGeometry{pane: mp}), "alpha"; got != want {
+		t.Errorf("v-yank = %q, want %q (trailing padding must stay excluded)", got, want)
+	}
+}
+
+// genTrailingSpaceLines produces source lines that actually carry trailing
+// whitespace — the shape no existing generator emitted, which is why the
+// V-yank trim survived every property in the suite. Bodies cover the cases
+// that interact with the trailing run: empty (so the line is whitespace
+// only), wide glyphs, interior space runs a wrap break can eat, and lines
+// long enough to wrap several times.
+func genTrailingSpaceLines(t *rapid.T) []string {
+	n := rapid.IntRange(1, 8).Draw(t, "nLines")
+	lines := make([]string, n)
+	for i := range lines {
+		body := rapid.SampledFrom([]string{
+			"",
+			"a",
+			"alpha bravo",
+			"café 日本語 🔥",
+			"   leading",
+			"word " + strings.Repeat("x", 40),
+			"aaa   bbb   ccc   ddd   eee   fff   ggg   hhh",
+		}).Draw(t, fmt.Sprintf("body%d", i))
+		trail := rapid.IntRange(0, 5).Draw(t, fmt.Sprintf("trail%d", i))
+		lines[i] = body + strings.Repeat(" ", trail)
+	}
+	return lines
+}
+
+// TestProperty_LineWiseYankRoundTripsSourceLines is the round-trip
+// invariant behind the trailing-space fix: a line-wise (`V`) yank of any
+// set of whole lines equals those post-boundary source lines byte for
+// byte, trailing whitespace included, joined with newlines.
+//
+// Scoped to wrap mode and undecorated plain content, which is where the
+// equality is even well-posed. With wrap off, horizontal truncation drops
+// everything past the pane's right edge, so the copy is visible-only by
+// design (see extractSourceRange); with diff annotations on, a `~` row
+// renders the old and new text side by side and a copied row legitimately
+// holds text that is not one source line.
+func TestProperty_LineWiseYankRoundTripsSourceLines(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		lines := genTrailingSpaceLines(t)
+		width := rapid.IntRange(24, 120).Draw(t, "width")
+		lineNumbers := rapid.Bool().Draw(t, "lineNumbers")
+
+		mp := newMainPane()
+		mp.SetSize(width, 24)
+		mp.SetWordWrap(true)
+		mp.SetLineNumbers(lineNumbers)
+		mp.SetPlainContent(strings.Join(lines, "\n"))
+
+		// The contract is against post-boundary source text: SetPlainContent
+		// expands tabs, so that is the text a yank must reproduce.
+		srcLines := strings.Split(expandTabs(strings.Join(lines, "\n")), "\n")
+
+		from := rapid.IntRange(1, len(srcLines)).Draw(t, "from")
+		to := rapid.IntRange(from, len(srcLines)).Draw(t, "to")
+
+		s := lineSelection(mp, from, to)
+		got := s.SelectedText(dragGeometry{pane: mp})
+		want := strings.Join(srcLines[from-1:to], "\n")
+		if got != want {
+			t.Fatalf("V-yank of lines %d..%d = %q, want %q (width=%d lineNumbers=%v)",
+				from, to, got, want, width, lineNumbers)
+		}
+	})
 }
 
 // newVisualModeTestModel builds a Model with multi-line plain content

@@ -145,10 +145,15 @@ func (s *selection) ApplyHighlight(content string, g dragGeometry) string {
 // SelectedText extracts the selection's source text — the same path
 // drag.SelectedText uses, just sourced from anchor/active instead of
 // drag endpoints.
+//
+// The mode reaches the join: a line-wise (`V`) selection is a source-text
+// operation and reproduces each line's own trailing whitespace, while a
+// stream (`v`) selection is a screen operation and does not (PROMPT.md
+// `### visual mode`).
 func (s *selection) SelectedText(g dragGeometry) string {
 	upper, lower, ok := s.resolveEnds(g.pane)
 	if !ok {
 		return ""
 	}
-	return extractSourceRange(g.pane, upper, lower)
+	return extractSourceRange(g.pane, upper, lower, s.mode == selectionLine)
 }

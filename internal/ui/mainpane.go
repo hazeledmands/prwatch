@@ -96,6 +96,7 @@ type mainPane struct {
 	sourceToFormatLine map[int]int            // source line number (1-indexed) → formatted line index (0-indexed)
 	wrapContinuation   []bool                 // per viewport line: true if this line is a word-wrap continuation
 	wrapBreakSpaces    []int                  // per viewport line: source spaces the wrap break before it consumed (see wrapLinesWithBreaks)
+	lineTrailingSpaces []int                  // per viewport line: the source line's own trailing spaces, on its last wrap row (see wrapLinesWithBreaks)
 	titleLeft          string                 // left-aligned content of the sticky title bar
 	titleRight         string                 // right-aligned content of the sticky title bar (when titleDynamic is false)
 	titleDynamic       bool                   // when true, View renders the right side from current hunk position
@@ -664,15 +665,27 @@ func (m *mainPane) refreshViewport() {
 	}
 	m.wrapContinuation = nil
 	m.wrapBreakSpaces = nil
+	m.lineTrailingSpaces = nil
 	if m.width > 0 {
 		if m.wordWrap {
 			var contMap []bool
-			var breaks []int
-			content, contMap, breaks = wrapLinesWithBreaks(content, m.width, gutterWidth)
+			var breaks, ownTrailing []int
+			content, contMap, breaks, ownTrailing = wrapLinesWithBreaks(content, m.width, gutterWidth)
 			m.wrapContinuation = contMap
 			m.wrapBreakSpaces = breaks
+			m.lineTrailingSpaces = ownTrailing
 		} else {
 			content = truncateLinesWithOffset(content, m.width, m.xOffset, gutterWidth)
+			// No wrap: every row is its own source line's last (and only)
+			// row, and horizontal truncation has already cut anything past
+			// the right edge — so the run still present in the rendered row
+			// is exactly the part of the line's trailing whitespace a copy
+			// can honestly reproduce.
+			rows := strings.Split(content, "\n")
+			m.lineTrailingSpaces = make([]int, len(rows))
+			for i, row := range rows {
+				m.lineTrailingSpaces[i] = trailingSpaceRun(row, gutterWidth)
+			}
 		}
 	}
 	m.viewport.SetContent(content)
@@ -1351,6 +1364,23 @@ func (m *mainPane) breakSpacesBefore(vpRow int) int {
 	return m.wrapBreakSpaces[vpRow]
 }
 
+// trailingSpacesAfter returns the source line's own trailing spaces,
+// nonzero only on the line's last wrap row (see wrapLinesWithBreaks).
+//
+// Like break spaces, these are outside the pane's column model:
+// stripGutterText trims them, so the row's width — and therefore its
+// source-column range — stops before them and no selection can name the
+// cells. Unlike break spaces they are not re-inserted for every selection
+// that spans them, because there is nothing on the far side to span to.
+// Only a line-wise (`V`) yank puts them back, per PROMPT.md's split of
+// `V` (source-text operation) from `v`/drag (screen operations).
+func (m *mainPane) trailingSpacesAfter(vpRow int) int {
+	if vpRow < 0 || vpRow >= len(m.lineTrailingSpaces) {
+		return 0
+	}
+	return m.lineTrailingSpaces[vpRow]
+}
+
 // wrapRowSourceColRange returns the source-absolute, gutter-relative
 // column range [start, end] (inclusive) covered by the wrap row at
 // vpRow. The start comes from absoluteColumnFromDisplay (with display
@@ -1421,16 +1451,20 @@ func stripGutterDisplayWidth(line string, gw int) int {
 	return displayWidthOf(stripGutterText(line, gw))
 }
 
-// stripGutterText is the single source of truth for "the visible body of a
-// rendered viewport line": ANSI codes removed, the gutter prefix removed, and
-// trailing padding trimmed — in that order.
+// stripGutterBody is the single source of truth for "which bytes of a
+// rendered viewport line are its body": ANSI codes removed and the gutter
+// prefix removed, with trailing padding still attached. stripGutterText
+// trims that padding off; trailingSpaceRun measures it. Both go through
+// here so the two can never drift out of lockstep — a body/count pair
+// derived from different rules is exactly how a re-appended trailing run
+// would come back wrong.
 //
 // Order matters. Trimming first shrinks a blank line ("  12   ") below the
 // gutter width, so the length guard declines to strip and the line-number
 // digits survive as if they were content — leaking the gutter into copied text
 // and into cursor-column math. The gutter is pure ASCII, so gw (a display
 // width) is also a valid byte offset.
-func stripGutterText(line string, gw int) string {
+func stripGutterBody(line string, gw int) string {
 	stripped := stripANSIForWidth(line)
 	if gw > 0 {
 		if len(stripped) <= gw {
@@ -1438,7 +1472,24 @@ func stripGutterText(line string, gw int) string {
 		}
 		stripped = stripped[gw:]
 	}
-	return strings.TrimRight(stripped, " ")
+	return stripped
+}
+
+// stripGutterText is the visible body of a rendered viewport line: the
+// gutter-stripped body with its trailing padding trimmed.
+func stripGutterText(line string, gw int) string {
+	return strings.TrimRight(stripGutterBody(line, gw), " ")
+}
+
+// trailingSpaceRun returns how many trailing spaces stripGutterText trims
+// off a rendered viewport row's body — the exact count needed to undo that
+// trim. Splitting the count out (rather than having callers diff the two
+// strings) keeps the "what the gutter is" rule in one place: a blank source
+// line renders as gutter-only ("  12   "), whose spaces belong to the gutter
+// and must not come back as content.
+func trailingSpaceRun(line string, gw int) int {
+	body := stripGutterBody(line, gw)
+	return len(body) - len(strings.TrimRight(body, " "))
 }
 
 // visibleRange returns the [top, bottom] source-line range currently
@@ -1589,7 +1640,7 @@ func highlightMatchInLine(line, query string) string {
 // each entry corresponds to a viewport line. true means the line is a continuation
 // of the previous source line (due to word wrapping).
 func wrapLinesWithContinuationMap(content string, width, indent int) (string, []bool) {
-	out, cont, _ := wrapLinesWithBreaks(content, width, indent)
+	out, cont, _, _ := wrapLinesWithBreaks(content, width, indent)
 	return out, cont
 }
 
@@ -1610,12 +1661,31 @@ func wrapLinesWithContinuationMap(content string, width, indent int) (string, []
 // The copy path (extractSourceRange) re-inserts these when it joins a
 // source line's wrap rows back together; rendering ignores them, so the
 // screen is unchanged.
-func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []int) {
+//
+// The fourth slice is the source line's *own* trailing spaces, recorded on
+// the last wrap row of each source line and 0 everywhere else. It is the
+// same bookkeeping one step further along: a break's spaces sit between two
+// rows, the line's own run sits after the final one, and stripGutterText
+// trims both out of the copy. Deriving it from the wrapper's `pending` —
+// which after the final emit holds exactly the run nothing downstream will
+// see — is what keeps the two disjoint. Re-deriving it from the source text
+// instead would double-count the case where the wrapper discards a trailing
+// space run at a break and then emits an indent-only final row, because
+// that run is already in `breaks` for that row.
+//
+// A line-wise (`V`) yank re-appends this run; cell-wise selections do not
+// (PROMPT.md `### visual mode`: `V` is a source-text operation, `v` and
+// mouse drag are screen operations).
+func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []int, []int) {
 	if width <= 0 {
 		lines := strings.Split(content, "\n")
 		cont := make([]bool, len(lines))
 		breaks := make([]int, len(lines))
-		return content, cont, breaks
+		ownTrailing := make([]int, len(lines))
+		for i, line := range lines {
+			ownTrailing[i] = trailingSpaceRun(line, indent)
+		}
+		return content, cont, breaks, ownTrailing
 	}
 	effectiveIndent := indent
 	if indent <= 0 || width <= indent {
@@ -1627,6 +1697,7 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 	var result []string
 	var contMap []bool
 	var breaks []int
+	var ownTrailing []int
 	indentStr := ""
 	if effectiveIndent > 0 {
 		indentStr = strings.Repeat(" ", effectiveIndent)
@@ -1638,6 +1709,9 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 			result = append(result, line)
 			contMap = append(contMap, false)
 			breaks = append(breaks, 0)
+			// Unwrapped: this row is the source line's only row, so its
+			// post-gutter trailing run is the line's own.
+			ownTrailing = append(ownTrailing, trailingSpaceRun(line, indent))
 			continue
 		}
 
@@ -1696,6 +1770,7 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 			result = append(result, row)
 			contMap = append(contMap, !first) // first line of source is not a continuation
 			breaks = append(breaks, pending)
+			ownTrailing = append(ownTrailing, 0)
 			pending = len(body) - len(strings.TrimRight(body, " "))
 		}
 
@@ -1757,8 +1832,17 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 		if curLine.Len() > 0 {
 			emit()
 		}
+		// Whatever `pending` holds now is a run no row will ever show and no
+		// later break will claim: either the final row's own trailing padding
+		// (emit re-armed it and nothing follows), or a space run the wrapper
+		// discarded with no row left to carry it. Either way it is the source
+		// line's own trailing whitespace, so record it against the line's last
+		// row for the line-wise copy path.
+		if len(ownTrailing) > 0 {
+			ownTrailing[len(ownTrailing)-1] = pending
+		}
 	}
-	return strings.Join(result, "\n"), contMap, breaks
+	return strings.Join(result, "\n"), contMap, breaks, ownTrailing
 }
 
 // ScrollLeft scrolls the viewport left by n columns.

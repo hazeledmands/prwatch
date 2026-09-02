@@ -388,7 +388,9 @@ func (d *dragSelection) SelectedText(g dragGeometry) string {
 	if !ok {
 		return ""
 	}
-	return extractSourceRange(g.pane, upper, lower)
+	// A drag is cell-wise: what the highlight covers, trailing render
+	// padding excluded (PROMPT.md, mouse behavior).
+	return extractSourceRange(g.pane, upper, lower, false)
 }
 
 // orderedEnd is a Position paired with the click's viewport row, used
@@ -493,7 +495,17 @@ const maxColumn = (1 << 31) - 1
 // upper.VpRow / lower.VpRow narrow the wrap-row iteration on the
 // endpoint source lines (see selectionRowRange), disambiguating clicks
 // at wrap-row boundaries.
-func extractSourceRange(pane *mainPane, upper, lower orderedEnd) string {
+//
+// lineWise selects the copy semantics PROMPT.md's `### visual mode`
+// adjudicates. A line-wise (`V`) selection is a *source-text* operation:
+// each selected line is reproduced exactly, so the line's own trailing
+// whitespace — which stripGutterText trims off every rendered row — is
+// re-appended from pane.trailingSpacesAfter. A cell-wise selection (`v`,
+// mouse drag) is a *screen* operation: it copies what the highlight
+// covers, and trailing render padding stays excluded. The two mechanisms
+// are disjoint by construction: breakSpacesBefore covers a wrapped line's
+// interior breaks, trailingSpacesAfter only its final row.
+func extractSourceRange(pane *mainPane, upper, lower orderedEnd, lineWise bool) string {
 	vpLines := strings.Split(pane.viewport.GetContent(), "\n")
 	var out strings.Builder
 	wroteFirst := false
@@ -502,6 +514,8 @@ func extractSourceRange(pane *mainPane, upper, lower orderedEnd) string {
 			continue
 		}
 		firstVpRow, rowCount := selectionRowRange(pane, sl, upper, lower)
+		lineFirstRow := pane.sourceLineToViewportOffset(sl)
+		lineLastRow := lineFirstRow + pane.wrapRowCountAtVpRow(lineFirstRow) - 1
 
 		var srcOut strings.Builder
 		// Whether the previous wrap row's fragment ran all the way to that
@@ -545,6 +559,19 @@ func extractSourceRange(pane *mainPane, upper, lower orderedEnd) string {
 			toCol := selEnd - rowStart + 1
 			srcOut.WriteString(extractLineFragment(vpLines[vpRow], fromCol, toCol, pane.gutterWidth))
 			prevRanToRowEnd = selEnd >= rowEnd
+		}
+
+		// Re-append the source line's own trailing whitespace for a line-wise
+		// selection. Guarded on the iteration having actually reached the end
+		// of the line — selection.resolveEnds extends a `V` selection to the
+		// last wrap row's final column, so this holds for every line in a real
+		// V selection, but the guard keeps a partially-clipped range (a
+		// synthesized endpoint, an out-of-range row) from growing spaces it
+		// never covered.
+		if lineWise && prevRanToRowEnd && firstVpRow+rowCount-1 == lineLastRow {
+			if n := pane.trailingSpacesAfter(lineLastRow); n > 0 {
+				srcOut.WriteString(strings.Repeat(" ", n))
+			}
 		}
 
 		if wroteFirst {

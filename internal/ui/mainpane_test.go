@@ -868,6 +868,13 @@ func TestWrapLines_BreaksMidWordWhenTooLong(t *testing.T) {
 // The second case shows the flag has to be a count, not a bool: the
 // tokenizer groups a whole run of consecutive spaces into one token and
 // drops it all-or-nothing, so a break can consume 3 or 6 spaces.
+//
+// wantOwn pins the fourth slice: the source line's *own* trailing spaces,
+// recorded on its last wrap row. It must never overlap wantBreaks — the
+// two together are what makes a line-wise (`V`) yank byte-identical to the
+// source line. See the "space run discarded at the end of the line" cases,
+// where the same run lands in one slice or the other depending on whether
+// the wrapper had a row left to attach it to.
 func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -877,6 +884,7 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 		wantRows   []string
 		wantCont   []bool
 		wantBreaks []int
+		wantOwn    []int
 	}{
 		{
 			name:       "single space fits and becomes trailing padding",
@@ -885,6 +893,7 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 			wantRows:   []string{"aaa ", "bbb"},
 			wantCont:   []bool{false, true},
 			wantBreaks: []int{0, 1},
+			wantOwn:    []int{0, 0},
 		},
 		{
 			name:       "space run does not fit and is discarded",
@@ -893,6 +902,7 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 			wantRows:   []string{"aaa", "bbb"},
 			wantCont:   []bool{false, true},
 			wantBreaks: []int{0, 3},
+			wantOwn:    []int{0, 0},
 		},
 		{
 			name:       "six-space run discarded whole",
@@ -901,6 +911,7 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 			wantRows:   []string{"aaa", "bbb"},
 			wantCont:   []bool{false, true},
 			wantBreaks: []int{0, 6},
+			wantOwn:    []int{0, 0},
 		},
 		{
 			name:       "every break consumes its trailing space",
@@ -909,6 +920,7 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 			wantRows:   []string{"aa bb cc ", "dd ee ff"},
 			wantCont:   []bool{false, true},
 			wantBreaks: []int{0, 1},
+			wantOwn:    []int{0, 0},
 		},
 		{
 			name:       "break after a comment marker (the yank bug)",
@@ -917,6 +929,7 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 			wantRows:   []string{"        added_h0o2  ", "// café"},
 			wantCont:   []bool{false, true},
 			wantBreaks: []int{0, 2},
+			wantOwn:    []int{0, 0},
 		},
 		{
 			name:       "continuation indent is not part of the count",
@@ -926,6 +939,7 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 			wantRows:   []string{"aaa bbb", "  ccc"},
 			wantCont:   []bool{false, true},
 			wantBreaks: []int{0, 1},
+			wantOwn:    []int{0, 0},
 		},
 		{
 			name:       "unwrapped lines consume nothing",
@@ -934,12 +948,65 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 			wantRows:   []string{"aaa bbb", "ccc"},
 			wantCont:   []bool{false, false},
 			wantBreaks: []int{0, 0},
+			wantOwn:    []int{0, 0},
+		},
+		{
+			name:       "unwrapped line keeps its own trailing run",
+			in:         "aaa bbb   ",
+			width:      20,
+			wantRows:   []string{"aaa bbb   "},
+			wantCont:   []bool{false},
+			wantBreaks: []int{0},
+			wantOwn:    []int{3},
+		},
+		{
+			// The run is discarded with no row left to carry it, so it is the
+			// line's own trailing whitespace, not a break's.
+			name:       "trailing run discarded after the last row",
+			in:         "aaa bbb   ",
+			width:      5,
+			wantRows:   []string{"aaa ", "bbb"},
+			wantCont:   []bool{false, true},
+			wantBreaks: []int{0, 1},
+			wantOwn:    []int{0, 3},
+		},
+		{
+			// Same source line, but the continuation indent means the wrapper
+			// still had a row to emit — so the run lands in wantBreaks for that
+			// row and wantOwn stays 0. Counting it in both would double it.
+			name:       "trailing run discarded onto an indent-only final row",
+			in:         "aaa bbb   ",
+			width:      7,
+			indent:     2,
+			wantRows:   []string{"aaa bbb", "  "},
+			wantCont:   []bool{false, true},
+			wantBreaks: []int{0, 3},
+			wantOwn:    []int{0, 0},
+		},
+		{
+			name:       "trailing run survives as padding on the final row",
+			in:         "aaa bbb  ",
+			width:      6,
+			wantRows:   []string{"aaa ", "bbb  "},
+			wantCont:   []bool{false, true},
+			wantBreaks: []int{0, 1},
+			wantOwn:    []int{0, 2},
+		},
+		{
+			name:       "gutter's own trailing spaces are not the line's",
+			in:         "  12   ",
+			width:      20,
+			indent:     7,
+			wantRows:   []string{"  12   "},
+			wantCont:   []bool{false},
+			wantBreaks: []int{0},
+			wantOwn:    []int{0},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, cont, breaks := wrapLinesWithBreaks(tt.in, tt.width, tt.indent)
+			out, cont, breaks, own := wrapLinesWithBreaks(tt.in, tt.width, tt.indent)
 			rows := strings.Split(out, "\n")
 			if len(rows) != len(tt.wantRows) {
 				t.Fatalf("rows = %q, want %q", rows, tt.wantRows)
@@ -949,8 +1016,9 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 					t.Errorf("row %d = %q, want %q", i, rows[i], tt.wantRows[i])
 				}
 			}
-			if len(cont) != len(tt.wantCont) || len(breaks) != len(tt.wantBreaks) {
-				t.Fatalf("cont=%v breaks=%v, want %v / %v", cont, breaks, tt.wantCont, tt.wantBreaks)
+			if len(cont) != len(tt.wantCont) || len(breaks) != len(tt.wantBreaks) || len(own) != len(tt.wantOwn) {
+				t.Fatalf("cont=%v breaks=%v own=%v, want %v / %v / %v",
+					cont, breaks, own, tt.wantCont, tt.wantBreaks, tt.wantOwn)
 			}
 			for i := range cont {
 				if cont[i] != tt.wantCont[i] {
@@ -959,41 +1027,56 @@ func TestWrapLines_BreakSpaceAccounting(t *testing.T) {
 				if breaks[i] != tt.wantBreaks[i] {
 					t.Errorf("breaks[%d] = %d, want %d", i, breaks[i], tt.wantBreaks[i])
 				}
+				if own[i] != tt.wantOwn[i] {
+					t.Errorf("own[%d] = %d, want %d", i, own[i], tt.wantOwn[i])
+				}
 			}
 		})
 	}
 }
 
 // rejoinWrappedLine reconstructs a source line from the wrapper's output
-// the way the copy path does: each row's visible body (continuation
-// indent removed, trailing padding trimmed — i.e. what stripGutterText
-// leaves), rejoined with the break spaces the wrapper consumed.
-func rejoinWrappedLine(rows []string, cont []bool, breaks []int, indent int) string {
+// exactly the way the copy path does: each row's visible body (gutter
+// removed, trailing padding trimmed — i.e. what stripGutterText leaves),
+// rejoined with the break spaces the wrapper consumed, and finally the
+// line's own trailing run from `own`.
+//
+// The gutter strip is uniform across rows because that is what production
+// does: row 0 carries the real gutter and every continuation row carries
+// exactly gw spaces of indent, so stripGutterText takes gw off all of them.
+// Pass own=nil to reconstruct only as far as the break spaces.
+func rejoinWrappedLine(rows []string, breaks, own []int, gw int) string {
 	var out strings.Builder
-	indentStr := strings.Repeat(" ", indent)
 	for i, row := range rows {
-		body := row
-		if cont[i] && indent > 0 {
-			body = strings.TrimPrefix(body, indentStr)
-		}
 		if i > 0 {
 			out.WriteString(strings.Repeat(" ", breaks[i]))
 		}
-		out.WriteString(strings.TrimRight(body, " "))
+		out.WriteString(strings.TrimRight(stripGutterBody(row, gw), " "))
+	}
+	if len(own) > 0 {
+		out.WriteString(strings.Repeat(" ", own[len(rows)-1]))
 	}
 	return out.String()
 }
 
 // TestProperty_WrapLines_JoinWithBreaksRestoresSource is the reversibility
 // invariant behind the copy fix: wrapping is lossy on its own, but wrap →
-// rejoin-with-break-counts is the identity on the source line (modulo the
-// line's own trailing padding, which the copy path trims for unwrapped
-// lines too).
+// rejoin-with-the-counts is the identity on the source line — the break
+// spaces from the third slice and the line's own trailing run from the
+// fourth, together, restore it byte for byte.
+//
+// The line is generated behind a gutter of `indent` columns, the shape
+// production actually wraps: `refreshViewport` hands the wrapper content
+// that already has the gutter prefix, and passes the same width as the
+// continuation indent. Feeding gutterless content while claiming indent > 0
+// would misrepresent trailingSpaceRun, which strips the gutter before it
+// counts.
 func TestProperty_WrapLines_JoinWithBreaksRestoresSource(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		nTok := rapid.IntRange(1, 14).Draw(t, "nTok")
 		var line strings.Builder
+		lastWord := ""
 		for i := range nTok {
 			if i > 0 {
 				line.WriteString(strings.Repeat(" ", rapid.IntRange(1, 6).Draw(t, fmt.Sprintf("gap%d", i))))
@@ -1003,24 +1086,64 @@ func TestProperty_WrapLines_JoinWithBreaksRestoresSource(t *testing.T) {
 				strings.Repeat("y", 17), "🔥", "l0_xxxxxxxxxx",
 			}).Draw(t, fmt.Sprintf("w%d", i))
 			line.WriteString(word)
+			lastWord = word
 		}
-		src := line.String()
 		width := rapid.IntRange(1, 60).Draw(t, "width")
 		indent := rapid.IntRange(0, 6).Draw(t, "indent")
 
-		out, cont, breaks := wrapLinesWithBreaks(src, width, indent)
+		// The line's own trailing run. Keyed on values already drawn rather
+		// than drawn afresh, so the committed .fail seed for this test keeps
+		// replaying against an unchanged draw sequence. Without it the
+		// generator never ended a line in spaces, which made the old
+		// TrimRight comparison vacuous — and left the fourth slice with no
+		// property coverage at all.
+		body := line.String() + strings.Repeat(" ", (nTok+len(lastWord))%5)
+		gutter := strings.Repeat("#", indent)
+		src := gutter + body
+
+		out, cont, breaks, own := wrapLinesWithBreaks(src, width, indent)
 		rows := strings.Split(out, "\n")
-		if len(cont) != len(rows) || len(breaks) != len(rows) {
-			t.Fatalf("map lengths %d/%d != rows %d", len(cont), len(breaks), len(rows))
+		if len(cont) != len(rows) || len(breaks) != len(rows) || len(own) != len(rows) {
+			t.Fatalf("map lengths %d/%d/%d != rows %d", len(cont), len(breaks), len(own), len(rows))
 		}
+
 		effectiveIndent := indent
 		if indent <= 0 || width <= indent {
 			effectiveIndent = 0
 		}
-		got := rejoinWrappedLine(rows, cont, breaks, effectiveIndent)
-		if want := strings.TrimRight(src, " "); got != want {
-			t.Fatalf("rejoin = %q, want %q (rows %q, breaks %v, width %d, indent %d)",
-				got, want, rows, breaks, width, indent)
+		// The gutter model holds only when the rows actually look the way
+		// production's do: the gutter at the head of row 0, and every
+		// continuation row carrying an indent of that same width.
+		if effectiveIndent != indent || !strings.HasPrefix(rows[0], gutter) {
+			// Degenerate geometry, in one of two ways, both requiring a pane
+			// about as narrow as its own gutter: the wrapper flushes an empty
+			// row 0 when the first token overflows, and it drops the
+			// continuation indent entirely once width <= indent. Either way
+			// "the gutter is the first gw columns of every row", the rule
+			// stripGutterText and trailingSpaceRun both encode, no longer
+			// describes these rows.
+			//
+			// Production cannot reach it: the gutter is a few columns, the pane
+			// is the terminal, and a content token too long to fit takes the
+			// cluster-splitting path (which writes into the current row) rather
+			// than flushing an empty one.
+			//
+			// The reversibility claim still holds here, just with the '#'s
+			// counted as ordinary leading content rather than as a gutter: the
+			// rows carry only the continuation indent, so that is what comes
+			// off, and the whole of src must come back.
+			got := rejoinWrappedLine(rows, breaks, own, effectiveIndent)
+			if got != src {
+				t.Fatalf("rejoin = %q, want %q (rows %q, breaks %v, own %v, width %d, indent %d)",
+					got, src, rows, breaks, own, width, indent)
+			}
+			return
+		}
+
+		got := rejoinWrappedLine(rows, breaks, own, indent)
+		if got != body {
+			t.Fatalf("rejoin = %q, want %q (rows %q, breaks %v, own %v, width %d, indent %d)",
+				got, body, rows, breaks, own, width, indent)
 		}
 	})
 }

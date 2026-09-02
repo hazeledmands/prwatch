@@ -249,10 +249,12 @@ whole-line yanks are byte-exact and edge-stopping selections gain no phantom
 space. New tests: `TestWrapLines_BreakSpaceAccounting` and the reversibility
 property `TestProperty_WrapLines_JoinWithBreaksRestoresSource`.
 
-Two adjacent findings from the same pass, both logged rather than fixed: a
-source line's *own* trailing spaces are still dropped from a yank
-(`stripGutterText` trims them, for unwrapped lines too — a trailing-space
-policy question, see INCONSISTENCIES.md), and a fresh seed caught
+Two adjacent findings from the same pass, both logged rather than fixed at
+the time: a source line's *own* trailing spaces were still dropped from a
+yank (`stripGutterText` trims them, for unwrapped lines too — a
+trailing-space policy question, see INCONSISTENCIES.md). That one is now
+**adjudicated and fixed** — see "Done: line-wise yank preserves trailing
+whitespace" below. The other: a fresh seed caught
 `TestProperty_InteractionInvariants` expecting a *raw* control character in a
 rename's title bar, which contradicted the committed
 `TestControlCharFilenames_NeverReachDisplayText`. The latter was a stale test
@@ -261,6 +263,42 @@ both sides of the arrow.
 
 Both of these — `renderTitleRow`'s zero-width mis-padding and the wide-glyph
 half-cell question — are now **fixed** by the unified width oracle (below).
+
+---
+
+## Done: line-wise yank preserves trailing whitespace
+
+**Goal (PROMPT.md `### visual mode`, plus the mouse copy bullets):** copy
+semantics split by selection kind. A line-wise (`V`) selection is a
+*source-text* operation — the copy reproduces each selected source line
+exactly, trailing whitespace included. A cell-wise selection (`v`, mouse
+drag) is a *screen* operation — it copies what the highlight covers, and
+trailing render padding stays excluded.
+
+Same bookkeeping shape as the wrap-break-space fix above, one step further
+along the line. `wrapLinesWithBreaks` returns a fourth per-row slice: the
+source line's own trailing-space count, recorded on the line's **last** wrap
+row. It comes from the wrapper's `pending` after the final emit rather than
+from the source text, which is what keeps it disjoint from the break counts
+— when the wrapper discards a trailing run at a break and then emits an
+indent-only final row, that run is already in `breaks` and `pending` is
+correctly 0. `mainPane.lineTrailingSpaces` / `trailingSpacesAfter` expose
+it; `extractSourceRange` takes a `lineWise` flag and re-appends at the join,
+so `selection.SelectedText` opts in for `V` and drag never does.
+
+The highlight is unchanged: those cells are outside the pane's column model
+(`stripGutterText` trims them, so the row's source-column range stops
+before them) and the spec keeps them there — they render as nothing.
+
+New tests: `TestSelection_LineWiseYankKeepsTrailingSpaces`,
+`TestSelection_StreamYankStillTrimsTrailingSpaces`, a `wantOwn` column plus
+four disjointness cases on `TestWrapLines_BreakSpaceAccounting`, and the
+round-trip property `TestProperty_LineWiseYankRoundTripsSourceLines` (a `V`
+yank of any set of whole lines equals those post-boundary source lines byte
+for byte). `genDiffLineBody` now emits trailing runs — no generator in the
+suite produced any, which is why every property was blind to this — and
+`TestProperty_Model_VisualYankMatchesHighlight` enters with `v` *or* `V` and
+compares mode-aware.
 
 ---
 

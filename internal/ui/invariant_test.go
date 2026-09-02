@@ -66,16 +66,30 @@ func maybeEmoji(t *rapid.T, tag string, s string) string {
 // diff properties stay replayable.
 func genDiffLineBody(kind string, h, op int) string {
 	base := fmt.Sprintf("%s_h%do%d", kind, h, op)
+	var body string
 	switch (h + op) % 4 {
 	case 1:
-		return "\t" + base
+		body = "\t" + base
 	case 2:
-		return "\t\t" + base + "\t// café"
+		body = "\t\t" + base + "\t// café"
 	case 3:
-		return base + " 日本語"
+		body = base + " 日本語"
 	default:
-		return base
+		body = base
 	}
+	// Trailing whitespace. Diff bodies never carried any, so the V-yank
+	// trailing-space contract (PROMPT.md `### visual mode`: a line-wise yank
+	// reproduces the source line exactly) was untestable from every property
+	// built on this generator — the bug survived the whole suite. Varied by
+	// index rather than by a rapid draw, like the cases above, so existing
+	// .fail seeds stay replayable.
+	switch (h*3 + op) % 5 {
+	case 1:
+		body += " "
+	case 3:
+		body += "   "
+	}
+	return body
 }
 
 func genUnifiedDiff(t *rapid.T) (diff, newContent string) {
