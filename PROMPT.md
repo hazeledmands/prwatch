@@ -301,8 +301,6 @@ each command maps to one or more keys. keys listed on the same row are interchan
 | `commits-mode` | `2` | jump to commits mode |
 | `pr-mode` | `3` | jump to pr mode (no-op if no PR) |
 
-single-letter mode aliases (`v`/`c`/`b`) were deliberately retired when `v` became the visual-mode entry key; `1`/`2`/`3` are the only direct mode keys.
-
 ### visual mode
 
 vim-style keyboard selection in the main pane (only when the main pane is focused, no search input, help overlay, or mouse drag active):

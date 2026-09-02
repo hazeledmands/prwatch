@@ -48,6 +48,22 @@ chaining only when the commands genuinely need to share shell state (e.g.
 - `BUG_REPORTS.md` for bugs (add a regression test before fixing)
 - `PLAN.md` for in-progress work
 
+### No tombstones in the spec
+
+`PROMPT.md` describes the product as it should be, in the present tense.
+It is not a changelog. When a feature or keybinding is removed, delete its
+lines — do not leave a note saying it used to exist, why it went away, or
+what replaced it.
+
+That history belongs in the commit that removed it (and in
+`INCONSISTENCIES.md` if a decision was adjudicated). Tombstones in the spec
+make it longer without making it more specific, and a reader can't tell a
+description of current behavior from an epitaph for old behavior.
+
+Example of what not to keep: "single-letter mode aliases (`v`/`c`/`b`) were
+deliberately retired when `v` became the visual-mode entry key" — the
+keybinding table already lists the real keys, which is the whole spec.
+
 ## Encapsulate sub-feature state in its own type
 
 When a feature has its own state — a search input, fetch cache, overlay,
