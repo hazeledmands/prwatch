@@ -79,6 +79,58 @@ func TestRefreshMsg_ErroredLoadReleasesGate(t *testing.T) {
 	}
 }
 
+// The gitDataMsg arm can itself dispatch a load — the branch-switch path
+// resets a stale scrub and reloads the default range. If the gate is released
+// *after* the arm runs, that dispatch's claim on the in-flight slot is undone
+// the moment it is made: the load is genuinely outstanding but the gate reads
+// idle, so the next trigger dispatches a second one concurrently. The release
+// therefore has to happen before the arm can claim the slot.
+//
+// Not reachable from the production message flow today (every gitDataMsg there
+// arrives with the gate already in flight, which masks it), but RenderWithKeys
+// and any new caller that feeds a load result with the gate idle hit it.
+func TestGitData_ArmDispatchKeepsGateInFlight(t *testing.T) {
+	mg := raceFixtureGit()
+	m := NewModel("/tmp", mg)
+	m.width, m.height = 80, 24
+	m.updateLayout()
+	// Synchronous load: establishes repoInfo.Branch without touching the gate.
+	m.Update(m.loadGitData())
+
+	// Scrub the scope the same way the ScopeExtendBack key does, but without
+	// its dispatch, so the gate stays idle.
+	if err := m.scope.ExtendBack(m.git); err != nil {
+		t.Fatalf("setup: ExtendBack: %v", err)
+	}
+	if !m.scope.IsScrubbed() {
+		t.Fatal("setup: expected the scope to be scrubbed")
+	}
+	if m.gitLoads.InFlight() {
+		t.Fatal("setup: expected an idle gate")
+	}
+
+	// A load result reporting a different branch: the arm resets the scrub and
+	// dispatches a fresh load for the default range.
+	res, cmd := m.Update(gitDataMsg{repoInfo: git.RepoInfoResult{Branch: "other"}})
+	m = res.(*Model)
+
+	if cmd == nil {
+		t.Fatal("setup: a branch switch over a scrubbed scope should dispatch a load")
+	}
+	if !m.gitLoads.InFlight() {
+		t.Fatal("the arm dispatched a load, so the gate must read in-flight; " +
+			"releasing after the arm un-claims a slot that is genuinely taken")
+	}
+
+	// And the consequence that makes it a bug: the next trigger must coalesce
+	// rather than start a second concurrent load.
+	res, cmd = m.Update(RefreshMsg{})
+	m = res.(*Model)
+	if cmd != nil {
+		t.Fatal("a trigger arriving while the arm's load is outstanding must not dispatch")
+	}
+}
+
 var errLoadFailed = errStub("load failed")
 
 type errStub string

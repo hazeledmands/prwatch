@@ -281,7 +281,7 @@ func TestGitData_AcceptedWhenNaturalBaseMoves(t *testing.T) {
 	mg.base = "def5678"
 	mg.commits = mg.commits[:7]
 
-	m.Update(m.loadLocalGitData())
+	m.Update(m.gitLoadCmd(false)())
 
 	if m.scope.OldBase() != "def5678" {
 		t.Fatalf("scope base = %q, want def5678", m.scope.OldBase())
@@ -299,7 +299,7 @@ func TestGitData_DiscardedWhenUserScrubsMidFlight(t *testing.T) {
 	m.Update(m.loadGitData())
 
 	// A periodic tick's load is dispatched at the natural position.
-	msg := m.loadLocalGitData()
+	msg := m.gitLoadCmd(false)()
 
 	// The user scrubs before it lands.
 	m.Update(keyMsg("]"))
@@ -331,7 +331,11 @@ func TestGitData_DiscardedWhenUserUnscrubsMidFlight(t *testing.T) {
 		t.Fatal("setup: expected scope to be scrubbed")
 	}
 
-	// Load dispatched while scrubbed...
+	// Load dispatched while scrubbed. The synchronous form, not gitLoadCmd:
+	// the `]` above already claimed the single-flight slot and its cmd was
+	// never run, so a gated dispatch here would be coalesced and return nil.
+	// This test is about the seq/pin protocol, not dispatch policy, and
+	// loadLocalGitData builds the same request against the same state.
 	msg := m.loadLocalGitData()
 
 	// ...user resets the scope before it lands.

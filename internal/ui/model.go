@@ -657,7 +657,7 @@ func (m *Model) gitLoadRequest(withPR bool) gitLoadRequest {
 // one trailing load when the in-flight result lands. Callers therefore have to
 // tolerate a nil cmd — tea.Batch and a bare `return m, nil` both already do.
 func (m *Model) gitLoadCmd(withPR bool) tea.Cmd {
-	if !m.gitLoads.Begin(withPR) {
+	if !m.gitLoads.Begin() {
 		return nil
 	}
 	return m.gitLoadCmdNow(withPR)
@@ -879,19 +879,34 @@ func fetchMoreCommits(g GitDataSource, base string, skip int) tea.Msg {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	result, cmd := m.update(msg)
-	rm := result.(*Model)
-	cmds := []tea.Cmd{cmd}
 	// Release the single-flight gate here rather than inside the gitDataMsg arm:
 	// that arm has half a dozen early returns (load error, stale dispatch,
 	// branch-switch reset, pin mismatch) and a gate released on only some of
 	// them would wedge every later refresh for the session. Every gitDataMsg is
 	// exactly one load's result, whether it was adopted or discarded, so this is
 	// the one place guaranteed to see all of them.
+	//
+	// The release must run BEFORE m.update, because the arm can dispatch a load
+	// of its own (the branch-switch path resets a stale scrub and reloads). With
+	// the release afterwards, an arm that claimed the in-flight slot had it
+	// un-claimed by this same message's Done, leaving a genuinely outstanding
+	// load behind an idle gate — so the next trigger started a second one. The
+	// arm's Begin now runs against the already-released gate: it either claims
+	// the freed slot, or is coalesced into the pending rerun if a trailing load
+	// took it, and either way exactly one load is in flight.
+	trailing := false
 	if _, isGitData := msg.(gitDataMsg); isGitData {
-		if withPR, dispatch := rm.gitLoads.Done(); dispatch {
-			cmds = append(cmds, rm.gitLoadCmdNow(withPR))
-		}
+		trailing = m.gitLoads.Done()
+	}
+
+	result, cmd := m.update(msg)
+	rm := result.(*Model)
+	cmds := []tea.Cmd{cmd}
+	// Built after m.update, not above: the trailing load must snapshot the state
+	// this message just produced (a reset scope, a new base), not the state it
+	// replaced. Done has already counted it as the in-flight load.
+	if trailing {
+		cmds = append(cmds, rm.gitLoadCmdNow(false))
 	}
 	cmds = append(cmds, rm.maybeFetchRWXLog())
 	return result, batchNonNil(cmds...)

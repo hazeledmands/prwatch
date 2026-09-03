@@ -88,6 +88,17 @@ func TestGitCommands_NeverTakeOptionalLocks(t *testing.T) {
 // collapses that extra event into at most one trailing load. This test pins the
 // fixed point that argument depends on.
 func TestChangedFiles_ReadLoopQuiesces(t *testing.T) {
+	// Pin the git environment before creating the repo. Index-refresh behaviour
+	// is configurable — core.fsmonitor, core.untrackedCache and feature.manyFiles
+	// all change when and whether git writes the index — so inheriting the
+	// developer's global config makes this test's result a property of their
+	// machine. Both the control commands and prwatch's own git calls are child
+	// processes of this one and inherit the env, so this covers both without
+	// needing per-command env plumbing.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+
 	dir := setupTestRepo(t)
 	index := filepath.Join(dir, ".git", "index")
 
@@ -121,11 +132,16 @@ func TestChangedFiles_ReadLoopQuiesces(t *testing.T) {
 	// the write prwatch's own flag removes, and confirming it happens here is
 	// what keeps the rest of the test from passing vacuously on a repo git
 	// would never have refreshed.
+	// With the environment pinned this is a hard requirement, not a skip: if an
+	// un-flagged status stops rewriting a stat-dirty index, either dirtyIndex no
+	// longer makes it stat-dirty or git changed, and in both cases the
+	// quiescence assertion below has become vacuous and needs a human.
 	dirtyIndex()
 	before := stamp()
 	runGit(t, dir, "status", "--porcelain=v2", "-z", "-M", "--untracked-files=all")
 	if stamp().Equal(before) {
-		t.Skip("git did not refresh the index for the control case; nothing to prove here")
+		t.Fatalf("control: an un-flagged `git status` left .git/index untouched (%v), so this "+
+			"test can no longer tell a suppressed refresh from no refresh at all", before)
 	}
 
 	g := noGH(dir)

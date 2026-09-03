@@ -24,6 +24,14 @@ package ui
 // go out. So N near-simultaneous triggers cost one load plus at most one
 // trailing load.
 //
+// The gate is deliberately flavour-agnostic, and the trailing load its caller
+// releases is always the local-only one. Every async dispatch site passes
+// withPR=false — gitLoadCmd(true) has no production caller — because PR data
+// has its own independent path (loadPRStatusCmd, driven by the PR tick and the
+// refresh key). So a suppressed trigger can never cost a PR fetch that nothing
+// else would make, and tracking a per-trigger flavour here would be state that
+// only ever holds one value.
+//
 // The zero value is an idle gate. It is Update-goroutine state only: nothing
 // here is safe to touch from a tea.Cmd closure.
 type loadGate struct {
@@ -34,47 +42,38 @@ type loadGate struct {
 	// load reads the world as it is when it runs, so ten suppressed triggers
 	// and one suppressed trigger want exactly the same follow-up.
 	pending bool
-	// pendingPR remembers whether any suppressed trigger wanted PR data. The
-	// trailing load takes the strongest flavor asked for, because a
-	// PR-inclusive trigger downgraded to a local-only rerun would silently
-	// never fetch the PR half.
-	pendingPR bool
 }
 
 // Begin registers a load trigger. It returns true when the caller should
 // dispatch the load, and false when a load is already in flight — in which
 // case the trigger has been recorded as a pending rerun that Done will release.
-func (g *loadGate) Begin(withPR bool) bool {
+func (g *loadGate) Begin() bool {
 	if g.inFlight {
 		g.pending = true
-		g.pendingPR = g.pendingPR || withPR
 		return false
 	}
 	g.inFlight = true
 	return true
 }
 
-// Done registers the arrival of a load result. It returns dispatch=true when a
-// trigger was suppressed while that load was running, in which case the caller
-// must dispatch a trailing load with the returned withPR flavor — the gate has
-// already counted it as in flight.
+// Done registers the arrival of a load result. It returns true when a trigger
+// was suppressed while that load was running, in which case the caller must
+// dispatch one trailing load — the gate has already counted it as in flight.
 //
 // Done on an idle gate is a no-op, so a hand-built gitDataMsg from a test (or
 // a msg from a load that predates the gate) cannot conjure a load.
-func (g *loadGate) Done() (withPR bool, dispatch bool) {
+func (g *loadGate) Done() bool {
 	if !g.inFlight {
-		return false, false
+		return false
 	}
 	if !g.pending {
 		g.inFlight = false
-		return false, false
+		return false
 	}
-	withPR = g.pendingPR
 	g.pending = false
-	g.pendingPR = false
 	// inFlight stays true: the trailing load the caller is about to dispatch is
 	// the load now in flight.
-	return withPR, true
+	return true
 }
 
 // InFlight reports whether a load is outstanding.

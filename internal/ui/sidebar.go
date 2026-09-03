@@ -478,8 +478,16 @@ func (s *sidebar) skipToSelectable() {
 	}
 }
 
-// clampOffset adjusts the scroll offset so the selected item is visible.
-// Use after user navigation (arrow keys, mouse click on item, etc.).
+// clampOffset adjusts the scroll offset so the selected item is visible, and
+// then enforces the offset's own bounds (see clampOffsetBounds) — scrolling to
+// the selection constrains the offset only relative to the cursor, so an offset
+// that arrived out of range with the cursor already inside the window would
+// otherwise survive. Use after user navigation (arrow keys, mouse click on
+// item, etc.).
+//
+// Callers that must preserve the user's scroll position — item-list updates
+// that should not yank the viewport back to the cursor — want
+// clampOffsetBounds on its own instead.
 func (s *sidebar) clampOffset() {
 	visible := s.visibleLines()
 	if visible <= 0 {
