@@ -200,3 +200,20 @@ scroll the main pane whenever main is focused — which matches no common
 terminal-app convention. Is "focused view" a drafting artifact for "the view
 under the pointer", or is focus-follows-wheel intended? Under-pointer is the
 shipped behavior; the spec line likely wants rewording.
+
+## Enter/`y` in main focus while the sidebar selects a directory
+
+Spec: PROMPT.md:338 — Enter in main focus (files mode) "opens `$EDITOR` at
+the line currently at the top of the viewport"; silent on what happens when
+the *sidebar selection* is a directory while the pane still displays the
+previously-selected file (which `updateFilesModeContent` deliberately keeps
+on screen).
+
+Code history: Enter used to open `$EDITOR` on the directory itself; a first
+fix made it inert even with a real file on screen.
+
+**Resolved — pane ownership.** Main-focus Enter and `y` act on the file the
+pane is *displaying* (`displayedFilesModeFile(m.lastMainItem)`), regardless
+of the sidebar selection; they are inert only when no file is on screen.
+Sidebar-focus behavior unchanged (Enter on a directory expands/collapses).
+Implemented in commit 1589957.
