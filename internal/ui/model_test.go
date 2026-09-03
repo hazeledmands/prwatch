@@ -4817,6 +4817,61 @@ func TestToggleIgnored(t *testing.T) {
 	}
 }
 
+// Hiding gitignored files while an ignored file is selected silently moves
+// the selection: the selected item is gone from the rebuilt list, so
+// sidebar.SetItems falls back to index-based placement and lands on some
+// other file. The main pane must follow, or the title bar and body keep
+// describing the file that just vanished.
+func TestToggleIgnored_RefreshesMainPaneWhenSelectionShifts(t *testing.T) {
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "abc",
+		changedFiles: git.ChangedFilesResult{
+			Committed: []string{"alpha.go"},
+		},
+		allFiles:     []string{"alpha.go"},
+		ignoredFiles: []string{".env"},
+		commits:      []git.Commit{{SHA: "abc", Subject: "test"}},
+		fileContent:  "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	m.Update(m.loadGitData())
+
+	idx := -1
+	for i, it := range m.sidebar.items {
+		if it.filePath == ".env" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf(".env is not in the sidebar with showIgnored on")
+	}
+	m.sidebar.selected = idx
+	m.updateMainContent()
+	if m.mainPane.titleLeft != ".env" {
+		t.Fatalf("precondition: titleLeft = %q, want %q", m.mainPane.titleLeft, ".env")
+	}
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "i", Code: 'i'})
+	m = result.(*Model)
+
+	selected := m.sidebar.SelectedItem()
+	if selected == ".env" {
+		t.Fatalf("expected the selection to move off the now-hidden .env")
+	}
+	if m.mainPane.titleLeft == ".env" {
+		t.Errorf("main pane still titled %q after .env was hidden; selection is now %q",
+			m.mainPane.titleLeft, selected)
+	}
+	if m.lastMainItem.item != selected {
+		t.Errorf("lastMainItem = %q, want the selected item %q", m.lastMainItem.item, selected)
+	}
+}
+
 func TestMouseHover_SidebarHighlight(t *testing.T) {
 	mg := &mockGit{
 		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},

@@ -1699,7 +1699,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.ToggleIgnored):
 		if m.mode == FilesMode {
 			m.showIgnored = !m.showIgnored
-			m.updateSidebarItems()
+			m.updateSidebarItemsSyncingMain()
 		}
 		return m, nil
 
@@ -2069,13 +2069,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			if key != "" {
 				m.collapsedDirs[key] = !m.collapsedDirs[key]
 			}
-			selectedBefore := m.sidebar.SelectedItem()
-			m.updateSidebarItems()
-			// Collapsing may shift which item is at the selected index;
-			// update the main panel if the effective selection changed.
-			if m.sidebar.SelectedItem() != selectedBefore {
-				m.updateMainContent()
-			}
+			m.updateSidebarItemsSyncingMain()
 			return m, nil
 		}
 		m.updateMainContent()
@@ -2159,7 +2153,7 @@ func (m *Model) handleSidebarLeft() (tea.Model, tea.Cmd) {
 		key := m.sidebar.SelectedCollapseKey()
 		if key != "" && !m.collapsedDirs[key] {
 			m.collapsedDirs[key] = true
-			m.updateSidebarItems()
+			m.updateSidebarItemsSyncingMain()
 			return m, nil
 		}
 	}
@@ -2199,7 +2193,7 @@ func (m *Model) handleSidebarRight() (tea.Model, tea.Cmd) {
 		if key != "" && m.collapsedDirs[key] {
 			// Expand the directory
 			m.collapsedDirs[key] = false
-			m.updateSidebarItems()
+			m.updateSidebarItemsSyncingMain()
 		} else {
 			// Already expanded — move to first child
 			m.sidebar.SelectNext()
@@ -2482,6 +2476,27 @@ func (m *Model) updateSidebarItems() {
 	case PRMode:
 		items := buildPRSidebar(m.prComments, m.prReviews, m.ciChecks)
 		m.sidebar.SetItems(items)
+	}
+}
+
+// updateSidebarItemsSyncingMain rebuilds the sidebar and, if that changed
+// which item is effectively selected, refreshes the main pane to match.
+//
+// Every rebuild can move the selection out from under the user without any
+// navigation keypress: sidebar.SetItems tracks the selection by identity, so
+// when the selected item is no longer in the list (hiding ignored files) or
+// gets restructured away (single-leaf compaction after a collapse) it falls
+// back to index-based placement and lands on a different file. The main pane
+// is not rebuilt by updateSidebarItems, so without this the title bar and
+// body keep describing the item that just went away.
+//
+// Any callsite that rebuilds the sidebar outside a full reload should call
+// this rather than updateSidebarItems directly.
+func (m *Model) updateSidebarItemsSyncingMain() {
+	selectedBefore := m.sidebar.SelectedItem()
+	m.updateSidebarItems()
+	if m.sidebar.SelectedItem() != selectedBefore {
+		m.updateMainContent()
 	}
 }
 
