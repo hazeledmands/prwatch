@@ -333,6 +333,23 @@ func padToWidth(s string, width int) string {
 	}
 }
 
+// trimLastCluster returns s with its final atom removed — one grapheme cluster,
+// or one ANSI escape sequence when s ends in one. It returns "" for "".
+//
+// This is the primitive behind a text-input backspace. Deleting a byte or a
+// rune from the end is wrong for the same reason no other slice in this package
+// may land inside a cluster: "é" as base-plus-U+0301 would lose its base and
+// leave a floating accent, and a byte-slice would leave invalid UTF-8 outright.
+// One press deletes one user-perceived character.
+func trimLastCluster(s string) string {
+	last := 0
+	eachDisplayCluster(s, func(c displayCluster) bool {
+		last = c.ByteOff
+		return true
+	})
+	return s[:last]
+}
+
 // fitToWidth returns s adjusted to measure exactly width cells: truncated at a
 // cluster boundary if too wide, space-padded if too narrow.
 func fitToWidth(s string, width int) string {

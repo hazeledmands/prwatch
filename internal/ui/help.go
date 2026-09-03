@@ -128,9 +128,7 @@ func (h *helpOverlay) HandleKey(msg tea.KeyPressMsg, visibleHeight int) tea.Cmd 
 			}
 			return nil
 		case msg.Code == tea.KeyBackspace:
-			if len(h.searchQuery) > 0 {
-				h.searchQuery = h.searchQuery[:len(h.searchQuery)-1]
-			}
+			h.searchQuery = trimLastCluster(h.searchQuery)
 			if h.searchQuery == "" {
 				h.searching = false
 				h.searchConfirmed = false

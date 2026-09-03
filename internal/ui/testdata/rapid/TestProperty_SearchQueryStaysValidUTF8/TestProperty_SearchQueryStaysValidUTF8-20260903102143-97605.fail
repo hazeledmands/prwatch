@@ -1,0 +1,19 @@
+# 2026/09/03 10:21:43.573660 [TestProperty_SearchQueryStaysValidUTF8] [rapid] draw steps: 2
+# 2026/09/03 10:21:43.573676 [TestProperty_SearchQueryStaysValidUTF8] [rapid] draw backspace: false
+# 2026/09/03 10:21:43.573685 [TestProperty_SearchQueryStaysValidUTF8] [rapid] draw typedLen: 1
+# 2026/09/03 10:21:43.573696 [TestProperty_SearchQueryStaysValidUTF8] [rapid] draw typedPiece: 6
+# 2026/09/03 10:21:43.573710 [TestProperty_SearchQueryStaysValidUTF8] [rapid] draw backspace: true
+# 2026/09/03 10:21:43.573723 [TestProperty_SearchQueryStaysValidUTF8] query is not valid UTF-8: "\xe0\xa4"
+# 
+v0.4.8#5684794329482717809
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x1
+0x0
+0x6b74f03291620
+0x6
+0x1

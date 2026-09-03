@@ -2573,6 +2573,12 @@ func (m *Model) updateMainContent() {
 			m.updatePRModeContent(setItem)
 		}
 	})
+
+	// Every main-pane content swap funnels through the builders above, and the
+	// search overlay's matches are line indices into that content — so they are
+	// stale the moment it changes. Re-run the query against what is now
+	// displayed. Outside Reflow: this only reads the pane.
+	m.search.RecomputeMatches(m.nav())
 }
 
 // computePRInterval returns the appropriate PR refresh interval based on

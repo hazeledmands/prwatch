@@ -70,6 +70,32 @@ func (s *searchOverlay) updateMatches(view searchView) {
 	s.navigateToCurrent(view)
 }
 
+// RecomputeMatches re-runs the current query against the view's content and
+// clamps matchIdx back into range. It is what a confirmed search needs when a
+// refresh swaps the main pane's content: matches are content-line indices, so
+// against new content the old ones address the wrong lines — or lines that no
+// longer exist, which n/p would then try to scroll to.
+//
+// The query is deliberately kept and re-run rather than the search being
+// dropped: PROMPT.md's "### search" says nothing about refreshes, and silently
+// cancelling a search because a background poll landed is the more surprising
+// of the two. A query with no matches in the new content stays confirmed and
+// reads "0/0" in the bar, exactly as typing a non-matching query does.
+//
+// Unlike updateMatches this neither re-highlights nor scrolls. The highlight is
+// already re-applied by the pane's own refresh (SetContent → refreshViewport
+// re-runs m.searchQuery), and scrolling here would yank the viewport away from
+// wherever the user is on every poll.
+func (s *searchOverlay) RecomputeMatches(view searchView) {
+	if !s.IsActive() || s.query == "" {
+		return
+	}
+	s.matches = view.FindMatches(s.query)
+	if s.matchIdx >= len(s.matches) {
+		s.matchIdx = 0
+	}
+}
+
 // navigateToCurrent scrolls the view to whichever match matchIdx points at.
 func (s *searchOverlay) navigateToCurrent(view searchView) {
 	if len(s.matches) == 0 {
@@ -99,9 +125,7 @@ func (s *searchOverlay) HandleInputKey(msg tea.KeyPressMsg, view searchView) {
 			s.confirmed = true
 		}
 	case msg.Code == tea.KeyBackspace:
-		if len(s.query) > 0 {
-			s.query = s.query[:len(s.query)-1]
-		}
+		s.query = trimLastCluster(s.query)
 		if s.query == "" {
 			s.Clear(view)
 			return
