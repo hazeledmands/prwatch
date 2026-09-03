@@ -2,6 +2,7 @@ package git_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -44,9 +45,103 @@ func (p *probeGH) factory() command.Factory {
 // GitHub, which is what makes gh worth asking about the repo at all.
 func repoWithGitHubRemote(t *testing.T) string {
 	t.Helper()
+	return repoWithRemote(t, "https://github.com/testowner/testrepo.git")
+}
+
+func repoWithRemote(t *testing.T, url string) string {
+	t.Helper()
 	dir := setupTestRepo(t)
-	runGit(t, dir, "remote", "add", "origin", "https://github.com/testowner/testrepo.git")
+	if url != "" {
+		runGit(t, dir, "remote", "add", "origin", url)
+	}
 	return dir
+}
+
+// TestPRAll_GitHubRemoteFormsAreRecognized covers the remote-URL shapes git
+// accepts. The host check drove the absent-verdict shortcut, so a form it
+// failed to parse meant "no GitHub remote" — and every real error on such a
+// repo (auth, throttle, network) was silenced forever, on every poll. Prefix-
+// matching a reconstructed HTTPS string recognized only two of these six.
+//
+// Each case gives the repo one remote and fails the probe with an auth
+// error: a repo gh can speak to must reach the error state, and only a
+// genuinely non-GitHub remote may take the silent shortcut.
+func TestPRAll_GitHubRemoteFormsAreRecognized(t *testing.T) {
+	tests := []struct {
+		name    string
+		remote  string
+		wantErr bool
+	}{
+		{name: "https", remote: "https://github.com/o/r.git", wantErr: true},
+		{name: "scp-like ssh", remote: "git@github.com:o/r.git", wantErr: true},
+		{name: "ssh scheme", remote: "ssh://git@github.com/o/r.git", wantErr: true},
+		{name: "git protocol", remote: "git://github.com/o/r.git", wantErr: true},
+		{name: "non-git ssh user", remote: "ssh://someone@github.com/o/r.git", wantErr: true},
+		{name: "credentials in url", remote: "https://user:token@github.com/o/r.git", wantErr: true},
+		{name: "uppercase host", remote: "https://GitHub.com/o/r.git", wantErr: true},
+		// Negative controls: nothing here is a GitHub remote, so the silent
+		// shortcut is correct and no error should reach the user.
+		{name: "non-github host", remote: "https://gitlab.com/o/r.git", wantErr: false},
+		{name: "scp-like non-github host", remote: "git@gitlab.com:o/r.git", wantErr: false},
+		{name: "local path", remote: "/srv/git/r.git", wantErr: false},
+		{name: "no remote at all", remote: "", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := repoWithRemote(t, tt.remote)
+			// No HTTP evidence in the view error, so the host check is what
+			// decides whether we probe at all.
+			stub := &probeGH{
+				viewErr:  fmt.Errorf("exit status 1: gh: no pull requests found"),
+				probeErr: fmt.Errorf("exit status 1: HTTP 401: Bad credentials"),
+			}
+			g := git.NewWithFactory(dir, stub.factory())
+
+			_, err := g.PRAll()
+			if tt.wantErr && err == nil {
+				t.Errorf("PRAll() = nil error for remote %q; a GitHub remote must not take the silent no-PR shortcut", tt.remote)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("PRAll() error = %v for remote %q; a non-GitHub remote has no PR to find", err, tt.remote)
+			}
+		})
+	}
+}
+
+// TestRepoInfo_RemoteURLForms pins the browse URL built from each remote
+// form. The host check and this URL now share one parser, so the forms that
+// used to come back empty here resolve — and credentials in a remote never
+// reach a URL prwatch might display.
+func TestRepoInfo_RemoteURLForms(t *testing.T) {
+	tests := []struct {
+		remote string
+		want   string
+	}{
+		{"https://github.com/o/r.git", "https://github.com/o/r"},
+		{"http://github.com/o/r.git", "http://github.com/o/r"},
+		{"git@github.com:o/r.git", "https://github.com/o/r"},
+		{"ssh://git@github.com/o/r.git", "https://github.com/o/r"},
+		{"git://github.com/o/r.git", "https://github.com/o/r"},
+		{"ssh://someone@github.com/o/r.git", "https://github.com/o/r"},
+		{"https://user:token@github.com/o/r.git", "https://github.com/o/r"},
+		{"git@gitlab.com:o/r.git", "https://gitlab.com/o/r"},
+		// No host to speak of: no browse URL.
+		{"/srv/git/r.git", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.remote, func(t *testing.T) {
+			dir := repoWithRemote(t, tt.remote)
+			info, err := noGH(dir).RepoInfo()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.RepoURL != tt.want {
+				t.Errorf("RepoURL for %q = %q, want %q", tt.remote, info.RepoURL, tt.want)
+			}
+		})
+	}
 }
 
 // TestPRAll_NoPRIsAStructuredSignal pins the three states a failed
@@ -72,47 +167,56 @@ func TestPRAll_NoPRIsAStructuredSignal(t *testing.T) {
 		probeErr   error
 		wantErr    bool
 		wantProbe  bool
+		// wantProbeHead: the probe must scope itself to the current branch.
+		// False for a detached HEAD, where there is no branch to scope to and
+		// the probe is a reachability check only.
+		wantProbeHead bool
 	}{
 		{
 			name:       "reworded no-PR message, probe reports no PR",
 			withRemote: true,
 			// Would not have matched any of the old English substrings.
-			viewErr:   fmt.Errorf("exit status 1: gh: keine Pull Requests für diesen Branch gefunden"),
-			probeOut:  "[]",
-			wantErr:   false,
-			wantProbe: true,
+			viewErr:       fmt.Errorf("exit status 1: gh: keine Pull Requests für diesen Branch gefunden"),
+			probeOut:      "[]",
+			wantErr:       false,
+			wantProbe:     true,
+			wantProbeHead: true,
 		},
 		{
-			name:       "old-substring wording, but a PR exists: real error",
-			withRemote: true,
-			viewErr:    fmt.Errorf(`exit status 1: gh: no pull requests found for branch "hazel/test/feature"`),
-			probeOut:   `[{"number":7}]`,
-			wantErr:    true,
-			wantProbe:  true,
+			name:          "old-substring wording, but a PR exists: real error",
+			withRemote:    true,
+			viewErr:       fmt.Errorf(`exit status 1: gh: no pull requests found for branch "hazel/test/feature"`),
+			probeOut:      `[{"number":7}]`,
+			wantErr:       true,
+			wantProbe:     true,
+			wantProbeHead: true,
 		},
 		{
-			name:       "old-substring wording, but the probe fails: real error",
-			withRemote: true,
-			viewErr:    fmt.Errorf("exit status 1: gh: no open pull requests found"),
-			probeErr:   fmt.Errorf("exit status 1: HTTP 401: Bad credentials"),
-			wantErr:    true,
-			wantProbe:  true,
+			name:          "old-substring wording, but the probe fails: real error",
+			withRemote:    true,
+			viewErr:       fmt.Errorf("exit status 1: gh: no open pull requests found"),
+			probeErr:      fmt.Errorf("exit status 1: HTTP 401: Bad credentials"),
+			wantErr:       true,
+			wantProbe:     true,
+			wantProbeHead: true,
 		},
 		{
-			name:       "probe output is not JSON: real error, not silence",
-			withRemote: true,
-			viewErr:    fmt.Errorf("exit status 1: gh: no pull requests found"),
-			probeOut:   "gh: something went sideways",
-			wantErr:    true,
-			wantProbe:  true,
+			name:          "probe output is not JSON: real error, not silence",
+			withRemote:    true,
+			viewErr:       fmt.Errorf("exit status 1: gh: no pull requests found"),
+			probeOut:      "gh: something went sideways",
+			wantErr:       true,
+			wantProbe:     true,
+			wantProbeHead: true,
 		},
 		{
-			name:       "rate limit reaches the caller",
-			withRemote: true,
-			viewErr:    fmt.Errorf("exit status 1: HTTP 403: API rate limit exceeded"),
-			probeErr:   fmt.Errorf("exit status 1: HTTP 403: API rate limit exceeded"),
-			wantErr:    true,
-			wantProbe:  true,
+			name:          "rate limit reaches the caller",
+			withRemote:    true,
+			viewErr:       fmt.Errorf("exit status 1: HTTP 403: API rate limit exceeded"),
+			probeErr:      fmt.Errorf("exit status 1: HTTP 403: API rate limit exceeded"),
+			wantErr:       true,
+			wantProbe:     true,
+			wantProbeHead: true,
 		},
 		{
 			name:       "timed-out subprocess is never no-PR",
@@ -145,6 +249,49 @@ func TestPRAll_NoPRIsAStructuredSignal(t *testing.T) {
 			wantErr:    false,
 			wantProbe:  false,
 		},
+		// The structural shortcuts above are only safe when the view failure
+		// shows no sign of having reached GitHub. These rows carry an HTTP
+		// status, so the shortcut must stand aside and let the probe decide.
+		{
+			name:       "403 on a detached HEAD is surfaced, not swallowed",
+			withRemote: true,
+			detached:   true,
+			viewErr:    fmt.Errorf("exit status 1: HTTP 403: Forbidden"),
+			probeErr:   fmt.Errorf("exit status 1: HTTP 403: Forbidden"),
+			wantErr:    true,
+			wantProbe:  true,
+		},
+		{
+			name:       "403 with no GitHub remote is surfaced, not swallowed",
+			withRemote: false,
+			viewErr:    fmt.Errorf("exit status 1: HTTP 403: Forbidden"),
+			probeErr:   fmt.Errorf("exit status 1: HTTP 403: Forbidden"),
+			wantErr:    true,
+			wantProbe:  true,
+			// The branch is still known here — it is the *remote* that looks
+			// absent, and that shortcut is what the HTTP status overrules.
+			wantProbeHead: true,
+		},
+		{
+			name:       "transient view failure on a detached HEAD, GitHub reachable",
+			withRemote: true,
+			detached:   true,
+			viewErr:    fmt.Errorf("exit status 1: HTTP 502: Bad gateway"),
+			// Repo-scoped: the probe only establishes that GitHub is
+			// answering. A detached HEAD has no branch PR either way.
+			probeOut:  "[]",
+			wantErr:   false,
+			wantProbe: true,
+		},
+		{
+			name:          "GraphQL-shaped failure is remote evidence too",
+			withRemote:    true,
+			viewErr:       fmt.Errorf("exit status 1: GraphQL: Something went wrong"),
+			probeErr:      fmt.Errorf("exit status 1: GraphQL: Something went wrong"),
+			wantErr:       true,
+			wantProbe:     true,
+			wantProbeHead: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -166,6 +313,11 @@ func TestPRAll_NoPRIsAStructuredSignal(t *testing.T) {
 			if tt.wantErr && err == nil {
 				t.Errorf("PRAll() = nil error, want the failure surfaced")
 			}
+			if tt.wantErr && err != nil && !errors.Is(err, tt.viewErr) {
+				// The view error is what describes the actual failure; a
+				// probe error standing in its place would misreport it.
+				t.Errorf("PRAll() error = %v, want the original view error %v", err, tt.viewErr)
+			}
 			if !tt.wantErr && err != nil {
 				t.Errorf("PRAll() error = %v, want no PR reported quietly", err)
 			}
@@ -176,10 +328,10 @@ func TestPRAll_NoPRIsAStructuredSignal(t *testing.T) {
 				t.Errorf("probe issued = %v, want %v (args: %v)", got, tt.wantProbe, stub.probeArgs)
 			}
 			if tt.wantProbe && len(stub.probeArgs) > 0 {
-				// The probe must ask about this branch specifically, and must
-				// ask for JSON — an empty array is the whole signal.
-				if !strings.Contains(stub.probeArgs[0], "--head hazel/test/feature") {
-					t.Errorf("probe did not scope to the current branch: %q", stub.probeArgs[0])
+				// The probe must ask for JSON — an empty array is the whole
+				// signal — and must scope to the branch whenever there is one.
+				if got := strings.Contains(stub.probeArgs[0], "--head hazel/test/feature"); got != tt.wantProbeHead {
+					t.Errorf("probe scoped to branch = %v, want %v: %q", got, tt.wantProbeHead, stub.probeArgs[0])
 				}
 				if !strings.Contains(stub.probeArgs[0], "--json number") {
 					t.Errorf("probe did not request JSON: %q", stub.probeArgs[0])

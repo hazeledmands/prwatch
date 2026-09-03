@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1068,18 +1070,30 @@ const (
 // contract; matching them meant a reworded or localized message silently
 // changed which of the three states above prwatch reported.
 //
-// The signals used instead, in order of decisiveness:
-//   - a killed subprocess (context.DeadlineExceeded) is a query failure by
+// The signals used instead, in order:
+//
+//  1. a killed subprocess (context.DeadlineExceeded) is a query failure by
 //     definition, whatever gh managed to print;
-//   - gh not being on PATH (command.ErrNotFound) is not a GitHub failure at all
-//     — there is nothing to report and nothing to fix by retrying;
-//   - a repo with no GitHub remote has no PR by construction, and gh has
-//     nothing to say about it either;
-//   - a detached or unborn HEAD gives gh no branch to match a PR against;
-//   - otherwise `gh pr list --json number` answers structurally: an empty
-//     JSON array means no PR, a non-empty one means the view failure was
-//     real, and a probe that itself fails leaves the question open (prUnknown
-//     — reported, not swallowed).
+//  2. gh not being on PATH (command.ErrNotFound) is not a GitHub failure at
+//     all — gh never ran, so there is nothing to report and nothing that
+//     retrying fixes;
+//  3. the two *local* absent-verdicts — no GitHub remote, and a detached or
+//     unborn HEAD — but ONLY when the view error carries no evidence of
+//     having reached GitHub. This ordering is the fix for a defect in
+//     b1ab48a, where both shortcuts ran first: a 403 during gh's repo
+//     resolution on a detached HEAD was reported as "no PR" and vanished
+//     from the UI, which is precisely the CRITICAL bug the prose matching
+//     was replaced to prevent. A local condition cannot produce an HTTP
+//     status, so a failure that carries one is never explained by one;
+//  4. otherwise `gh pr list --json number` answers structurally. Scoped to
+//     the branch when there is one: an empty JSON array means no PR, a
+//     non-empty one means the view failure was about fetching an existing
+//     PR. With no branch to scope to, the probe is a reachability check
+//     only — it cannot speak for a branch we don't have, but its success
+//     shows GitHub is answering, and a detached HEAD has no branch PR
+//     either way. A probe that fails, or answers with something that isn't
+//     JSON, leaves the question open: prUnknown, reported rather than
+//     swallowed.
 //
 // The probe costs one extra subprocess, and only on the failure path.
 func (g *Git) prPresenceAfterViewFailure(viewErr error) prPresence {
@@ -1089,16 +1103,24 @@ func (g *Git) prPresenceAfterViewFailure(viewErr error) prPresence {
 	if errors.Is(viewErr, command.ErrNotFound) {
 		return prAbsent
 	}
-	if !g.hasGitHubRemote() {
+
+	// local: nothing about this failure suggests it came back from the API,
+	// so a local explanation for it is admissible.
+	local := !errorReachedGitHub(viewErr)
+	if local && !g.hasGitHubRemote() {
 		return prAbsent
 	}
 	branch, err := g.run("rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil || branch == "" || branch == "HEAD" {
+	detached := err != nil || branch == "" || branch == "HEAD"
+	if local && detached {
 		return prAbsent
 	}
 
-	out, err := g.runExternal("gh", "pr", "list", "--state", "all",
-		"--head", branch, "--limit", "1", "--json", "number")
+	args := []string{"pr", "list", "--state", "all", "--limit", "1", "--json", "number"}
+	if !detached {
+		args = append(args, "--head", branch)
+	}
+	out, err := g.runExternal("gh", args...)
 	if err != nil {
 		return prUnknown
 	}
@@ -1110,10 +1132,32 @@ func (g *Git) prPresenceAfterViewFailure(viewErr error) prPresence {
 		// query, not evidence of absence.
 		return prUnknown
 	}
+	if detached {
+		// The probe was repo-scoped, so its contents say nothing about a
+		// branch. It answered, which is all we needed.
+		return prAbsent
+	}
 	if len(prs) == 0 {
 		return prAbsent
 	}
 	return prPresent
+}
+
+// ghAPIErrorRe matches gh's *machine* formats for a failure that came back
+// from GitHub rather than from gh's own local checks: `HTTP <status>` (gh's
+// REST error format), a `GraphQL:` prefix (its GraphQL one), and the
+// rate-limit header. Formats and status codes, not sentences — gh does not
+// translate a status code, and these are the same shapes internal/ui's
+// classifier keys on. Matching them is not a return to prose matching: the
+// question here is only "did this reach the API", and a wording change cannot
+// invent an HTTP status.
+var ghAPIErrorRe = regexp.MustCompile(`(?i)\bhttp[ /]\d{3}\b|\bgraphql:|x-ratelimit-remaining`)
+
+// errorReachedGitHub reports whether an error carries evidence that the
+// request reached GitHub and was answered — which rules out every local
+// explanation for it (no remote, no branch, no repo).
+func errorReachedGitHub(err error) bool {
+	return err != nil && ghAPIErrorRe.MatchString(err.Error())
 }
 
 // hasGitHubRemote reports whether any remote URL names a host gh can speak
@@ -1122,8 +1166,11 @@ func (g *Git) prPresenceAfterViewFailure(viewErr error) prPresence {
 // all, or a GitLab-only checkout — has no pull request to find, and saying so
 // on the status bar every poll would be noise rather than news.
 //
-// This matches remote URLs against a host list, which is configuration, not
-// error prose: nothing here depends on how gh words a failure.
+// This compares parsed remote *hosts* against a host list, which is
+// configuration, not error prose: nothing here depends on how gh words a
+// failure. Comparing a reconstructed URL by prefix instead — the first cut of
+// this — silently failed ssh://, git://, non-git SSH users and URLs carrying
+// credentials, and every such repo then swallowed its real errors.
 func (g *Git) hasGitHubRemote() bool {
 	out, err := g.run("config", "--get-regexp", `^remote\..*\.url$`)
 	if err != nil || out == "" {
@@ -1139,9 +1186,12 @@ func (g *Git) hasGitHubRemote() bool {
 		if len(fields) < 2 {
 			continue
 		}
-		url := strings.ToLower(gitRemoteToHTTPS(fields[len(fields)-1]))
+		host := remoteHost(fields[len(fields)-1])
+		if host == "" {
+			continue
+		}
 		for _, h := range hosts {
-			if strings.HasPrefix(url, "https://"+h+"/") || strings.HasPrefix(url, "http://"+h+"/") {
+			if host == h {
 				return true
 			}
 		}
@@ -1570,25 +1620,68 @@ func (g *Git) PRChecksAll() (PRChecksResult, error) {
 	return PRChecksResult{Checks: checks, Status: status}, nil
 }
 
-// gitRemoteToHTTPS converts a git remote URL to an HTTPS URL.
-// Handles SSH (git@github.com:user/repo.git) and HTTPS formats.
-func gitRemoteToHTTPS(remote string) string {
+// parseRemoteURL parses a git remote into a *url.URL, and is the one place
+// the shapes git accepts are understood: scheme URLs (https, http, ssh, git,
+// with or without credentials) and the scp-like `[user@]host:path` form,
+// which has no scheme and so cannot be parsed as a URL until it is rewritten.
+//
+// Returns nil for anything with no host — a local path or a bare relative
+// remote. Callers that want a host ask u.Hostname(), which strips any
+// userinfo and port; callers that want a browse URL rebuild from the parts.
+func parseRemoteURL(remote string) *url.URL {
 	remote = strings.TrimSpace(remote)
-	remote = strings.TrimSuffix(remote, ".git")
-
-	// SSH format: git@github.com:user/repo
-	if strings.HasPrefix(remote, "git@") {
-		remote = strings.TrimPrefix(remote, "git@")
-		remote = strings.Replace(remote, ":", "/", 1)
-		return "https://" + remote
+	if remote == "" {
+		return nil
 	}
-
-	// Already HTTPS
-	if strings.HasPrefix(remote, "https://") || strings.HasPrefix(remote, "http://") {
-		return remote
+	if !strings.Contains(remote, "://") {
+		// scp-like: everything before the first colon *after* any userinfo is
+		// the host, and the colon is a separator rather than a port marker.
+		// An absolute local path (/srv/git/r.git) has no colon and drops out.
+		hostAndPath := remote
+		userinfo := ""
+		if at := strings.Index(remote, "@"); at >= 0 {
+			userinfo = remote[:at+1]
+			hostAndPath = remote[at+1:]
+		}
+		colon := strings.Index(hostAndPath, ":")
+		if colon < 0 {
+			return nil
+		}
+		remote = "ssh://" + userinfo + hostAndPath[:colon] + "/" + hostAndPath[colon+1:]
 	}
+	u, err := url.Parse(remote)
+	if err != nil || u.Hostname() == "" {
+		return nil
+	}
+	return u
+}
 
-	return ""
+// remoteHost is the lowercased hostname a remote points at, or "" when the
+// remote names no host. Userinfo, port and scheme are all irrelevant to the
+// question "is this a GitHub remote", and every one of them broke a
+// prefix-match against a reconstructed URL.
+func remoteHost(remote string) string {
+	u := parseRemoteURL(remote)
+	if u == nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// gitRemoteToHTTPS converts a git remote URL to a browsable HTTPS URL,
+// through the same parser, so ssh://, git:// and non-git SSH users resolve
+// instead of coming back empty.
+func gitRemoteToHTTPS(remote string) string {
+	u := parseRemoteURL(remote)
+	if u == nil {
+		return ""
+	}
+	scheme := "https"
+	if u.Scheme == "http" {
+		scheme = "http"
+	}
+	// Credentials never belong in a URL we might show or open.
+	return scheme + "://" + u.Host + strings.TrimSuffix(u.Path, ".git")
 }
 
 // IsRWXURL returns true if the URL points to an RWX CI run.
