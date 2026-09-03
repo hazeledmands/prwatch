@@ -62,6 +62,17 @@ func (c *cursor) Pos(pane *mainPane) Position {
 	return Position{SourceLine: sl, Column: col}
 }
 
+// SourceLine returns just the row half of Pos. Pos additionally resolves
+// the display column through absoluteColumnFromDisplay, which splits the
+// row's content — wasted work for callers that only want the line, and
+// this one runs per J/K keypress.
+func (c *cursor) SourceLine(pane *mainPane) int {
+	if c.vpRow < 0 {
+		return 0 // matches Pos's zero Position for an unplaced cursor
+	}
+	return pane.sourceLineAtViewportOffset(c.vpRow)
+}
+
 // Endpoint returns the cursor as a selection endpoint (Pos + VpRow),
 // the shape both keyboard and mouse selection consume. VpRow lets
 // downstream rendering disambiguate decoration rows.

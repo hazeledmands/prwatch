@@ -522,7 +522,11 @@ func TestSeam_MainPaneNavigationGoesThroughNav(t *testing.T) {
 		pattern *regexp.Regexp
 		why     string
 	}{
-		{regexp.MustCompile(`\.cursor\.(?:ApplyHighlight)?`), "cursor access outside mainnav.go (ApplyHighlight excepted)"},
+		// `\.cursor\b`, not `\.cursor\.`: passing m.cursor as an argument or
+		// assigning to it skips the seam just as thoroughly as calling a
+		// method on it, and a pattern requiring the trailing dot let an
+		// argument pass through unnoticed.
+		{regexp.MustCompile(`\.cursor\b`), "cursor access outside mainnav.go (ApplyHighlight excepted)"},
 		{regexp.MustCompile(`mainPane\.(GoToTop|GoToBottom|ScrollToSourceLine|scrollToHunkStart|Update|SetSize|SetWordWrap|SetLineNumbers|ToggleShowRemoved|SetSearchQuery)\(`), "unpaired main-pane scroll/reflow primitive"},
 		{regexp.MustCompile(`mainPane\.viewport\.(SetYOffset|GotoTop|GotoBottom|ScrollUp|ScrollDown)\(`), "raw viewport scroll"},
 		{regexp.MustCompile(`selection\.SetActive\(`), "selection active end set outside the seam"},
@@ -551,8 +555,12 @@ func TestSeam_MainPaneNavigationGoesThroughNav(t *testing.T) {
 					continue
 				}
 				// The one sanctioned cursor read outside the seam: View's
-				// highlight pass, which only renders.
-				if loc == ".cursor.ApplyHighlight" {
+				// highlight pass, which only renders. `\.cursor\b` matches
+				// just ".cursor", so the exception is checked against the
+				// line — and only when *every* cursor mention on it is the
+				// sanctioned call, so a second access can't ride along.
+				if loc == ".cursor" &&
+					strings.Count(line, ".cursor") == strings.Count(line, ".cursor.ApplyHighlight") {
 					continue
 				}
 				t.Errorf("%s:%d: %s — route it through m.nav() (mainnav.go)\n\t%s",

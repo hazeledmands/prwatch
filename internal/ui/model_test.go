@@ -6378,9 +6378,13 @@ func TestJumpToNextDiff_RemovalOnlyHunk(t *testing.T) {
 		commits:     []git.Commit{{SHA: "abc", Subject: "test"}},
 		fileContent: strings.Repeat("kept line\n", 60),
 		// Two hunks: a regular added-line hunk at line 15, then a
-		// deletion-only hunk anchored at line 45. Hunk 1 is far
-		// enough down that the centering margin doesn't get clamped
-		// to viewport top (which would hide the centering effect).
+		// deletion-only hunk anchored at line 45. Hunk 1 sits below the
+		// centering margin so this fixture exercises the unclamped
+		// scroll path only — the clamped geometries (hunks within the
+		// margin of the top, and near EOF) are covered head-on by
+		// TestHunkNav_NoSkipNearTopClamp. Keeping them out of here is
+		// orthogonality, not avoidance: this test is about removal-only
+		// hunks being navigable at all.
 		fileDiff: `@@ -15,2 +15,3 @@
  kept
 +added

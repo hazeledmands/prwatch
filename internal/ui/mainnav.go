@@ -114,6 +114,34 @@ func (n mainNav) JumpToHunkStart(sourceLine int) {
 	n.afterCursorMotion()
 }
 
+// HunkNavAnchor returns the source line hunk navigation treats as "where I
+// am now". That is the cursor's line: JumpToHunkStart puts the cursor
+// exactly on the target hunk's StartLine, so the anchor is the hunk itself
+// and each J/K advances by exactly one hunk. It lives on the seam because
+// its two inputs are the cursor and the pane's row↔source mapping, and the
+// seam owns every read of the cursor by Model-level code.
+//
+// The anchor must not be inferred back from the scroll position
+// (YOffset + hunkNavMargin): the margin subtraction clamps at 0 and at the
+// end-of-file maximum, and a clamped YOffset puts the inferred line below
+// the target hunk (top clamp: J skips hunks) or above it (EOF clamp: J
+// re-finds the current hunk and stalls).
+//
+// The cursor is always placed when this runs, so there is no unplaced
+// fallback: opening a file places it (jumpToFirstDiff, or scroll-memory
+// restore via ScrollToSourceLine), a content refresh or a w/n/D toggle
+// re-derives it through Reflow, and a viewport scroll drags it along via
+// DragAlongScroll — no path leaves vpRow negative.
+//
+// Rows without a source line of their own — removed-line decoration rows,
+// wrap continuation rows — resolve to a *preceding* source line, so a
+// cursor parked on the removals above hunk K anchors just before K's
+// start: J goes to K (no skip) and K's predecessor is reachable with one
+// backward press. TestHunkNavAnchor_OnDecorationRow pins that down.
+func (n mainNav) HunkNavAnchor() int {
+	return n.m.cursor.SourceLine(n.m.mainPane)
+}
+
 // BeginVisualStream / BeginVisualLine anchor a visual-mode selection at the
 // cursor. They live here because the anchor is a cursor endpoint: the seam
 // owns every read of the cursor's position by selection code.
