@@ -96,7 +96,7 @@ func TestFetchPRStatus_ClassifiesErrors(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			mg := &mockGit{prInfo: git.PRInfoResult{Number: 7}, prInfoErr: c.err}
-			msg := fetchPRStatus(mg).(prRefreshMsg)
+			msg := fetchPRStatus(mg, 0).(prRefreshMsg)
 			if msg.errKind != c.wantKind {
 				t.Errorf("errKind = %v, want %v", msg.errKind, c.wantKind)
 			}
@@ -552,7 +552,7 @@ func TestSSO403_NotRateLimited(t *testing.T) {
 
 			const fetches = 5
 			for i := range fetches {
-				res, _ := m.Update(fetchPRStatus(mg))
+				res, _ := m.Update(fetchPRStatus(mg, 0))
 				m = res.(*Model)
 				if !c.wantGrows {
 					if got := m.activity.PRInterval(); got != before {
@@ -684,7 +684,7 @@ func TestGenericError_CarriesRawText(t *testing.T) {
 			m := NewModel("/tmp", mg)
 			m.width, m.height = 200, 24
 			m.updateLayout()
-			res, _ := m.Update(fetchPRStatus(mg))
+			res, _ := m.Update(fetchPRStatus(mg, 0))
 			m = res.(*Model)
 			if m.prError != c.wantLine {
 				t.Errorf("prError = %q, want %q", m.prError, c.wantLine)
@@ -705,7 +705,7 @@ func TestGenericError_RawTextIsSanitizedOnLine3(t *testing.T) {
 	m := NewModel("/tmp", mg)
 	m.width, m.height = 200, 24
 	m.updateLayout()
-	res, _ := m.Update(fetchPRStatus(mg))
+	res, _ := m.Update(fetchPRStatus(mg, 0))
 	m = res.(*Model)
 
 	// The model keeps the raw text; sanitizing is the display boundary's job.

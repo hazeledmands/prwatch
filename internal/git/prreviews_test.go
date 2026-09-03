@@ -2,6 +2,7 @@ package git_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -58,9 +59,13 @@ func reviewsPageJSON(t *testing.T, reviewCount, totalCount int, hasNext bool, cu
 // were fetched and how the cursor was threaded. The deployments GraphQL query
 // gets an empty answer of its own so it cannot consume a reviews page.
 type pagedGH struct {
-	prView  string
-	pages   []string
-	queries []string
+	prView string
+	pages  []string
+	// pageErr, when non-nil and pageErrAt is within range, fails that
+	// zero-based reviews query instead of serving a page.
+	pageErr   error
+	pageErrAt int
+	queries   []string
 }
 
 func (p *pagedGH) factory() command.Factory {
@@ -78,6 +83,9 @@ func (p *pagedGH) factory() command.Factory {
 			}
 			i := len(p.queries)
 			p.queries = append(p.queries, joined)
+			if p.pageErr != nil && i == p.pageErrAt {
+				return command.StubCommand("", p.pageErr)
+			}
 			if i < len(p.pages) {
 				return command.StubCommand(p.pages[i], nil)
 			}
@@ -105,6 +113,13 @@ func TestPRAll_ReviewPagination(t *testing.T) {
 		wantTotal   int
 		wantQueries int
 	}{
+		{
+			name:        "empty first page",
+			pages:       []string{reviewsPageJSON(t, 0, 0, false, "", 0, 0)},
+			wantReviews: 0,
+			wantTotal:   0,
+			wantQueries: 1,
+		},
 		{
 			name:        "single page under the limit",
 			pages:       []string{reviewsPageJSON(t, 3, 3, false, "", 1, 1)},
@@ -175,18 +190,82 @@ func TestPRAll_ReviewPagination(t *testing.T) {
 			if len(stub.queries) != tt.wantQueries {
 				t.Fatalf("reviews queries = %d, want %d", len(stub.queries), tt.wantQueries)
 			}
-			// The first page must not carry a cursor; every later page must
-			// carry the previous page's endCursor.
-			if strings.Contains(stub.queries[0], `after: "`) {
+			// Every input reaches GraphQL as a declared variable, never
+			// interpolated into the query document: Go quoting is not
+			// GraphQL's grammar, and a cursor is server-supplied text.
+			for i, q := range stub.queries {
+				for _, want := range []string{
+					"$cursor: String", "$owner: String!", "$repo: String!", "$number: Int!",
+					"-f owner=testowner", "-f repo=testrepo", "-F number=1",
+				} {
+					if !strings.Contains(q, want) {
+						t.Errorf("reviews query #%d does not contain %q: %s", i+1, want, q)
+					}
+				}
+				if strings.Contains(q, `after: "`) {
+					t.Errorf("reviews query #%d interpolated a cursor into the document: %s", i+1, q)
+				}
+			}
+			// The first page must not carry a cursor at all (an absent
+			// variable is GraphQL null); every later page must carry the
+			// previous page's endCursor.
+			if strings.Contains(stub.queries[0], "cursor=") {
 				t.Errorf("first reviews query threaded a cursor: %s", stub.queries[0])
 			}
 			for i := 1; i < len(stub.queries); i++ {
-				want := fmt.Sprintf(`after: "cur%d"`, i)
+				want := fmt.Sprintf("-f cursor=cur%d", i)
 				if !strings.Contains(stub.queries[i], want) {
-					t.Errorf("reviews query #%d does not contain %s", i+1, want)
+					t.Errorf("reviews query #%d does not contain %q", i+1, want)
 				}
 			}
 		})
+	}
+}
+
+// TestPRAll_ReviewPaginationPartialFailure covers a failure partway through
+// pagination. Discarding the pages already gathered was worse than useless:
+// PRAll's fallback then rebuilt the reviews from `gh pr view`, which has no
+// inline comments and no total, so the sidebar rendered a truncated list as
+// complete ("Reviews (100)") with no error anywhere. The pages we have must
+// survive, carry an honest total, and the failure must still be reported.
+func TestPRAll_ReviewPaginationPartialFailure(t *testing.T) {
+	dir := setupTestRepo(t)
+	pageErr := fmt.Errorf("exit status 1: HTTP 502: Bad gateway")
+	stub := &pagedGH{
+		// `gh pr view` carries reviews too, so a fallback would silently
+		// succeed with worse data — that's the trap being tested.
+		prView: `{"number":1,"reviews":[{"author":{"login":"fallback"},"state":"APPROVED"}]}`,
+		pages: []string{
+			reviewsPageJSON(t, 50, 500, true, "cur1", 2, 2),
+			reviewsPageJSON(t, 50, 500, true, "cur2", 2, 2),
+		},
+		pageErr:   pageErr,
+		pageErrAt: 2, // third query fails
+	}
+	g := git.NewWithFactory(dir, stub.factory())
+
+	result, err := g.PRAll()
+	if err != nil {
+		t.Fatalf("PRAll() = %v; a partial reviews fetch must not fail the whole PR fetch", err)
+	}
+	if len(result.Reviews) != 100 {
+		t.Fatalf("len(Reviews) = %d, want the 100 pages already gathered", len(result.Reviews))
+	}
+	if result.Reviews[0].Author == "fallback" {
+		t.Error("fell back to gh pr view, discarding the GraphQL pages already fetched")
+	}
+	if result.ReviewsTotal != 500 {
+		t.Errorf("ReviewsTotal = %d, want 500 — the total must stay honest so the UI says 100 of 500", result.ReviewsTotal)
+	}
+	// Inline comments are the thing the fallback cannot provide.
+	if len(result.Reviews[0].Comments) != 2 {
+		t.Errorf("len(Reviews[0].Comments) = %d, want 2", len(result.Reviews[0].Comments))
+	}
+	if result.ReviewsErr == nil {
+		t.Fatal("ReviewsErr = nil; the pagination failure must still be reported")
+	}
+	if !errors.Is(result.ReviewsErr, pageErr) {
+		t.Errorf("ReviewsErr = %v, want the underlying page error", result.ReviewsErr)
 	}
 }
 

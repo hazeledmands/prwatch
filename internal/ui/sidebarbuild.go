@@ -111,28 +111,28 @@ func buildFilesSidebar(
 
 	var items []sidebarItem
 	if len(uncommitted) > 0 {
-		items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d)", len(uncommitted)), kind: itemHeader})
+		items = append(items, sidebarItem{label: sectionCount("New Changes", len(uncommitted), len(uncommitted)), kind: itemHeader})
 		items = append(items, buildTreeItems(uncommitted, itemNormal, sectionUncommitted, collapsed, nil)...)
 	}
 	if len(staged) > 0 {
 		if len(items) > 0 {
 			items = append(items, sidebarItem{kind: itemSeparator})
 		}
-		items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d)", len(staged)), kind: itemHeader})
+		items = append(items, sidebarItem{label: sectionCount("Staged", len(staged), len(staged)), kind: itemHeader})
 		items = append(items, buildTreeItems(staged, itemNormal, sectionStaged, collapsed, nil)...)
 	}
 	if len(committed) > 0 {
 		if len(items) > 0 {
 			items = append(items, sidebarItem{kind: itemSeparator})
 		}
-		items = append(items, sidebarItem{label: fmt.Sprintf("Committed (%d)", len(committed)), kind: itemHeader})
+		items = append(items, sidebarItem{label: sectionCount("Committed", len(committed), len(committed)), kind: itemHeader})
 		items = append(items, buildTreeItems(committed, itemNormal, sectionCommitted, collapsed, nil, itemKind)...)
 	}
 	if len(otherFiles) > 0 {
 		if len(items) > 0 {
 			items = append(items, sidebarItem{kind: itemSeparator})
 		}
-		items = append(items, sidebarItem{label: fmt.Sprintf("All Files (%d)", len(otherFiles)), kind: itemHeader})
+		items = append(items, sidebarItem{label: sectionCount("All Files", len(otherFiles), len(otherFiles)), kind: itemHeader})
 		// All-files trees default to collapsed (per spec).
 		for _, d := range extractDirs(otherFiles) {
 			key := dirCollapseKey(sectionAllFiles, d)
@@ -186,7 +186,7 @@ func buildCommitsSidebar(
 		if len(items) > 0 {
 			items = append(items, sidebarItem{kind: itemSeparator})
 		}
-		items = append(items, sidebarItem{label: fmt.Sprintf("Unpushed (%d)", unpushedVisible), kind: itemHeader})
+		items = append(items, sidebarItem{label: sectionCount("Unpushed", unpushedVisible, unpushedVisible), kind: itemHeader})
 		for i := 0; i < unpushedVisible; i++ {
 			items = append(items, commitSidebarItem(commits[i], itemDim))
 		}
@@ -196,7 +196,7 @@ func buildCommitsSidebar(
 		if len(items) > 0 {
 			items = append(items, sidebarItem{kind: itemSeparator})
 		}
-		items = append(items, sidebarItem{label: fmt.Sprintf("Pushed (%d)", pushedCount), kind: itemHeader})
+		items = append(items, sidebarItem{label: sectionCount("Pushed", pushedCount, pushedCount), kind: itemHeader})
 		for i := unpushed; i < len(commits); i++ {
 			items = append(items, commitSidebarItem(commits[i], itemNormal))
 		}
@@ -217,7 +217,7 @@ func buildCommitsSidebar(
 		if len(items) > 0 {
 			items = append(items, sidebarItem{kind: itemCutline})
 		}
-		items = append(items, sidebarItem{label: fmt.Sprintf("Base (%d)", len(baseCommits)), kind: itemHeader})
+		items = append(items, sidebarItem{label: sectionCount("Base", len(baseCommits), len(baseCommits)), kind: itemHeader})
 		for i := range baseCommits {
 			items = append(items, commitSidebarItem(baseCommits[i], itemDim))
 		}
@@ -239,10 +239,13 @@ func commitSidebarItem(c gitpkg.Commit, kind sidebarItemKind) sidebarItem {
 	}
 }
 
-// sectionCount renders a section header's count. When the fetch was
-// truncated — GitHub reported more items than we hold — it reads "N of M", so
-// a partial list can't present itself as the whole thing. A total of 0 means
-// "unknown" (the non-GraphQL fallback reports none) and counts plainly.
+// sectionCount renders every sidebar section header's count — this is the
+// one place the "(N)" form is written. When the fetch was truncated — GitHub
+// reported more items than we hold — it reads "N of M", so a partial list
+// can't present itself as the whole thing. A total that doesn't exceed shown
+// (including 0 for "unknown", which is what the non-GraphQL fallback
+// reports) counts plainly, so sections whose contents are local truths pass
+// their own length as the total.
 func sectionCount(name string, shown, total int) string {
 	if total > shown {
 		return fmt.Sprintf("%s (%d of %d)", name, shown, total)
@@ -258,7 +261,7 @@ func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, chec
 	items = append(items, sidebarItem{label: "Description", kind: itemNormal})
 	items = append(items, sidebarItem{kind: itemSeparator})
 
-	items = append(items, sidebarItem{label: fmt.Sprintf("Comments (%d)", len(comments)), kind: itemHeader})
+	items = append(items, sidebarItem{label: sectionCount("Comments", len(comments), len(comments)), kind: itemHeader})
 	for i, c := range comments {
 		items = append(items, sidebarItem{
 			prefix: prCommentPrefix(i, len(comments)),
@@ -286,7 +289,7 @@ func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, chec
 	}
 
 	items = append(items, sidebarItem{kind: itemSeparator})
-	items = append(items, sidebarItem{label: fmt.Sprintf("CI (%d)", len(checks)), kind: itemHeader})
+	items = append(items, sidebarItem{label: sectionCount("CI", len(checks), len(checks)), kind: itemHeader})
 	for _, check := range checks {
 		indicator := ciCheckPrefix(check)
 		ts := check.CompletedAt

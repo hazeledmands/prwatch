@@ -113,11 +113,25 @@ type Model struct {
 	// the seq protocol above rather than replacing it — seq discards stale
 	// results, the gate stops redundant loads from being started. See
 	// loadgate.go.
-	gitLoads           loadGate
-	prInfo             gitpkg.PRInfoResult
-	ciStatus           gitpkg.CIStatusResult
-	prReviews          []gitpkg.PRReview
-	prReviewsTotal     int // reviews GitHub reports; > len(prReviews) when the fetch was capped
+	gitLoads       loadGate
+	prInfo         gitpkg.PRInfoResult
+	ciStatus       gitpkg.CIStatusResult
+	prReviews      []gitpkg.PRReview
+	prReviewsTotal int // reviews GitHub reports; > len(prReviews) when the fetch was capped
+	// prFetchInFlight single-flights PR-fetch dispatch, and
+	// prFetchSeq/prAdoptedSeq are the PR path's copy of the
+	// gitDispatchSeq/gitAdoptedSeq staleness protocol. See prFetchCmd.
+	//
+	// A plain bool rather than a loadGate: the gate's value is its trailing
+	// rerun, which exists because fs-watcher triggers are events that would
+	// otherwise be lost. Every PR trigger is a tick that has already
+	// re-armed itself (or a keypress the user can repeat), so a suppressed
+	// trigger is retried by the next tick without any pending bit — and PR
+	// fetches have one flavour, so there is no withPR-style choice for a
+	// trailing load to get wrong.
+	prFetchInFlight    bool
+	prFetchSeq         int
+	prAdoptedSeq       int
 	prReviewRequests   []gitpkg.PRReviewRequest
 	prError            string // error message for PR/GitHub API issues
 	prCommentCount     int
@@ -273,10 +287,22 @@ type moreCommitsMsg struct {
 }
 
 type prRefreshMsg struct {
-	prInfo         gitpkg.PRInfoResult
-	ciStatus       gitpkg.CIStatusResult
-	reviews        []gitpkg.PRReview
-	reviewsTotal   int
+	// seq echoes the prFetchCmd dispatch this msg answers, so a fetch that
+	// lands after a newer one can be discarded instead of overwriting fresher
+	// data. seq 0 means "not from a tracked dispatch" — a hand-built msg in a
+	// test, or the synchronous loadPRStatus — and is never treated as stale.
+	// Mirrors gitDataMsg.seq.
+	seq          int
+	prInfo       gitpkg.PRInfoResult
+	ciStatus     gitpkg.CIStatusResult
+	reviews      []gitpkg.PRReview
+	reviewsTotal int
+	// reviewsErrKind/reviewsErrText: the reviews sub-fetch failed partway and
+	// `reviews` holds the pages gathered before that. Unlike errKind below
+	// this does not mean "no data" — the payload applies and the failure is
+	// reported alongside it.
+	reviewsErrKind githubErrorKind
+	reviewsErrText string
 	reviewRequests []gitpkg.PRReviewRequest
 	commentCount   int
 	ciChecks       []gitpkg.CICheck
@@ -365,7 +391,7 @@ func (m *Model) Init() tea.Cmd {
 		return loadNonGitFilesCmd(m.dir)
 	}
 	m.activity.MarkPRFetch(time.Now())
-	return tea.Batch(m.gitLoadCmd(false), loadPRStatusCmd(m.git), schedulePRTick(m.activity.PRInterval()), scheduleGitTick(m.activity.GitInterval()))
+	return tea.Batch(m.gitLoadCmd(false), m.prFetchCmd(), schedulePRTick(m.activity.PRInterval()), scheduleGitTick(m.activity.GitInterval()))
 }
 
 // prTickScheduler builds the delayed prTickMsg command. Indirected through a
@@ -428,16 +454,38 @@ func walkNonGitFiles(dir string) tea.Msg {
 	}
 }
 
+// prFetchCmd is the only supported way to dispatch a PR fetch. It claims the
+// in-flight slot and stamps the dispatch sequence on the Update goroutine,
+// then returns a closure over those locals alone.
+//
+// Returns nil when the git source is absent or a fetch is already
+// outstanding, so callers must tolerate a nil cmd — tea.Batch and a bare
+// `return m, nil` both already do. A suppressed trigger is simply dropped:
+// see the prFetchInFlight field comment for why the PR path needs no
+// trailing rerun.
+func (m *Model) prFetchCmd() tea.Cmd {
+	if m.git == nil || m.prFetchInFlight {
+		return nil
+	}
+	m.prFetchInFlight = true
+	m.prFetchSeq++
+	return loadPRStatusCmd(m.git, m.prFetchSeq)
+}
+
 // loadPRStatusCmd fetches PR state in the background. Closes over the git
-// source only — that's the whole of the Model state this load depends on.
-func loadPRStatusCmd(g GitDataSource) tea.Cmd {
-	return func() tea.Msg { return fetchPRStatus(g) }
+// source and the dispatch seq only — that's the whole of the Model state this
+// load depends on. Dispatch through Model.prFetchCmd, which owns the
+// in-flight slot and the seq; this is exported to the package only for the
+// Init path and tests.
+func loadPRStatusCmd(g GitDataSource, seq int) tea.Cmd {
+	return func() tea.Msg { return fetchPRStatus(g, seq) }
 }
 
 // loadPRStatus runs the PR fetch synchronously. Update-goroutine callers only.
-func (m *Model) loadPRStatus() tea.Msg { return fetchPRStatus(m.git) }
+// seq 0: a synchronous result is never racing a newer dispatch.
+func (m *Model) loadPRStatus() tea.Msg { return fetchPRStatus(m.git, 0) }
 
-func fetchPRStatus(g GitDataSource) tea.Msg {
+func fetchPRStatus(g GitDataSource, seq int) tea.Msg {
 	prAll, err := g.PRAll()
 	if err != nil {
 		// Every fetch error preserves the PR data we already have, but only a
@@ -445,6 +493,7 @@ func fetchPRStatus(g GitDataSource) tea.Msg {
 		// DNS failure as "rate limited" both lies to the user and slows the
 		// poll down for a condition that retrying won't fix.
 		return prRefreshMsg{
+			seq:         seq,
 			fetchFailed: true,
 			errKind:     classifyGitHubError(err),
 			errText:     err.Error(),
@@ -457,7 +506,8 @@ func fetchPRStatus(g GitDataSource) tea.Msg {
 		checksResult, checksErr = g.PRChecksAll()
 		checksFailed = checksErr != nil
 	}
-	return prRefreshMsg{
+	msg := prRefreshMsg{
+		seq:            seq,
 		checksFailed:   checksFailed,
 		prInfo:         prAll.Info,
 		ciStatus:       checksResult.Status,
@@ -469,6 +519,14 @@ func fetchPRStatus(g GitDataSource) tea.Msg {
 		prComments:     prAll.Comments,
 		prDeployments:  prAll.Deployments,
 	}
+	// A reviews fetch that failed partway still handed us usable pages. The
+	// data applies; the failure is classified here — on this goroutine, off
+	// the msg's own inputs — and reported like any other gh failure.
+	if prAll.ReviewsErr != nil {
+		msg.reviewsErrKind = classifyGitHubError(prAll.ReviewsErr)
+		msg.reviewsErrText = prAll.ReviewsErr.Error()
+	}
+	return msg
 }
 
 func (m *Model) fileDiffPrefix(file string) string {
@@ -905,6 +963,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, isGitData := msg.(gitDataMsg); isGitData {
 		trailing = m.gitLoads.Done()
 	}
+	// The PR fetch's in-flight slot is released the same way and for the same
+	// reason: before the arm runs, so an arm that dispatches a fetch of its
+	// own (or a keypress handled in the same Update) sees the freed slot
+	// rather than being suppressed by the result it is reacting to. Released
+	// on every prRefreshMsg — adopted, stale, or failed alike — because the
+	// fetch it answers is over either way, and a slot never released would
+	// wedge the poll permanently.
+	if _, isPRData := msg.(prRefreshMsg); isPRData {
+		m.prFetchInFlight = false
+	}
 
 	result, cmd := m.update(msg)
 	rm := result.(*Model)
@@ -1243,6 +1311,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case prRefreshMsg:
+		// Stale-load guard, mirroring the gitDataMsg arm. A fetch answers the
+		// question asked at dispatch; once a newer fetch's answer has been
+		// adopted, an older one arriving late is not news, and applying it
+		// would walk the UI backwards. Discarded wholesale — payload and
+		// error alike, since a superseded fetch's rate-limit or auth verdict
+		// is equally out of date.
+		if msg.seq != 0 {
+			if msg.seq < m.prAdoptedSeq {
+				return m, nil
+			}
+			m.prAdoptedSeq = msg.seq
+		}
 		// A classified error implies fetchFailed; both are accepted so the two
 		// fields can't disagree about whether there is any data to apply.
 		if msg.fetchFailed || msg.errKind != ghErrNone {
@@ -1284,7 +1364,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.prInfo.ReviewDecision != m.prInfo.ReviewDecision ||
 			ciStateChanged ||
 			msg.commentCount != m.prCommentCount ||
-			len(msg.reviews) != len(m.prReviews) {
+			len(msg.reviews) != len(m.prReviews) ||
+			// The fetched count is pinned at the page cap on a big PR, so it
+			// stops moving while the PR is still busy. The reported total
+			// keeps counting.
+			msg.reviewsTotal != m.prReviewsTotal {
 			m.activity.MarkServerChange(time.Now())
 		}
 		// Detect base-branch change (either newly-learned from PR data, or the
@@ -1296,6 +1380,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// to whatever activity implies, and clear the error.
 		m.activity.MarkPRSuccess(time.Now())
 		m.prError = ""
+		// …except when the reviews sub-fetch failed partway. Its data is
+		// applied below, but the failure is real and goes down the same
+		// classified path as a whole-fetch failure: a throttle discovered
+		// mid-pagination still backs the poll off, and the message still
+		// lands on line 3. Ordered after MarkPRSuccess, which clears the
+		// latch, so the bump is the one that survives.
+		if msg.reviewsErrKind != ghErrNone {
+			kind := msg.reviewsErrKind.reported()
+			if kind.backsOff() {
+				m.activity.BumpRateLimited(time.Now())
+			}
+			m.prError = kind.statusMessageWith(msg.reviewsErrText)
+		}
 		// A checks-fetch failure leaves ciStatus/ciChecks zero on the msg; keep
 		// the CI data we have rather than blanking the panel — but only while it
 		// still describes this PR. Under a new PR number the old checks would
@@ -1349,8 +1446,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.git == nil || !m.activity.PRFetchDue(now) {
 			return m, schedulePRTick(m.activity.PRTickDelay(now))
 		}
+		// A fetch already outstanding: skip this tick's fetch rather than
+		// stacking a second one. A PR big enough to need all five review
+		// pages can easily outlast the interval, and the tick below re-arms
+		// regardless, so the next one picks it up.
+		fetch := m.prFetchCmd()
+		if fetch == nil {
+			return m, schedulePRTick(m.activity.PRTickDelay(now))
+		}
+		// Stamped only when a fetch actually goes out, so a suppressed tick
+		// can't push the next one an interval into the future.
 		m.activity.MarkPRFetch(now)
-		return m, tea.Batch(loadPRStatusCmd(m.git), schedulePRTick(m.activity.PRTickDelay(now)))
+		return m, tea.Batch(fetch, schedulePRTick(m.activity.PRTickDelay(now)))
 
 	case notificationExpiredMsg:
 		m.notifications.Expire(msg)
@@ -1736,7 +1843,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.git == nil {
 			return m, loadNonGitFilesCmd(m.dir)
 		}
-		return m, tea.Batch(m.gitLoadCmd(false), loadPRStatusCmd(m.git))
+		return m, tea.Batch(m.gitLoadCmd(false), m.prFetchCmd())
 
 	case key.Matches(msg, keys.ScopeReset):
 		if !m.scope.IsScrubbed() {

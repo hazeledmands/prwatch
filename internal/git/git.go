@@ -188,6 +188,12 @@ type PRAllResult struct {
 	Comments       []PRComment
 	CommentCount   int
 	Deployments    []PRDeployment
+	// ReviewsErr is set when the reviews fetch failed partway through
+	// pagination and Reviews holds the pages gathered before that. The PR
+	// fetch as a whole succeeded, so the caller must apply the data *and*
+	// report this: dropping the partial made a truncated list render as a
+	// complete one with no error anywhere.
+	ReviewsErr error
 	// ReviewsTotal is how many reviews GitHub says the PR has, which can
 	// exceed len(Reviews) when the paginated fetch stopped at its page cap.
 	// The fallback path can't know a total, so it reports len(Reviews) —
@@ -1193,11 +1199,16 @@ func (g *Git) PRAll() (PRAllResult, error) {
 		CommentCount: len(raw.Comments),
 	}
 
-	// Try to fetch reviews with inline comments via GraphQL.
-	// Falls back to the basic review data from gh pr view if this fails.
-	if reviewsWithComments, total, err := g.fetchReviewsGraphQL(result.Info.Number); err == nil && len(reviewsWithComments) > 0 {
+	// Try to fetch reviews with inline comments via GraphQL. Falls back to
+	// the basic review data from gh pr view only when GraphQL produced
+	// nothing at all: a partial page set beats the fallback, which carries
+	// no inline comments and no total, and the failure travels out on
+	// ReviewsErr rather than being swallowed.
+	reviewsWithComments, total, reviewsErr := g.fetchReviewsGraphQL(result.Info.Number)
+	if len(reviewsWithComments) > 0 {
 		result.Reviews = reviewsWithComments
 		result.ReviewsTotal = total
+		result.ReviewsErr = reviewsErr
 	} else {
 		for _, r := range raw.Reviews {
 			result.Reviews = append(result.Reviews, PRReview{
@@ -1354,17 +1365,20 @@ const (
 	reviewCommentsFirst = 100
 )
 
-// reviewsQuery builds the reviews page query. cursor is the previous page's
-// endCursor; empty means "first page" and emits `after: null`.
-func reviewsQuery(owner, repo string, prNumber int, cursor string) string {
-	after := "null"
-	if cursor != "" {
-		after = fmt.Sprintf("%q", cursor)
-	}
-	return fmt.Sprintf(`query {
-  repository(owner: %q, name: %q) {
-    pullRequest(number: %d) {
-      reviews(first: %d, after: %s) {
+// reviewsQuery is the reviews page document. Every input is a declared
+// GraphQL variable rather than interpolated text: a cursor is opaque
+// server-supplied data, and Go's %q emits Go string escapes, which are not
+// GraphQL's grammar — `\x1b`, for one, is a Go escape GraphQL rejects
+// outright. The page sizes stay literal because they are untainted local
+// constants, not values from the network.
+//
+// $cursor is nullable and simply omitted from the variables on the first
+// page: an absent GraphQL variable is null, which is what `after` wants for
+// "start at the beginning".
+var reviewsQuery = fmt.Sprintf(`query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviews(first: %d, after: $cursor) {
         totalCount
         pageInfo {
           hasNextPage
@@ -1388,18 +1402,25 @@ func reviewsQuery(owner, repo string, prNumber int, cursor string) string {
       }
     }
   }
-}`, owner, repo, prNumber, reviewsPageSize, after, reviewCommentsFirst)
-}
+}`, reviewsPageSize, reviewCommentsFirst)
 
 // fetchReviewsGraphQL fetches reviews with their inline comments via the
 // GitHub GraphQL API, following the reviews cursor up to reviewsMaxPages.
 // Returns the reviews it gathered plus GitHub's reported total, which exceeds
 // len(reviews) exactly when the cap truncated the fetch.
 //
-// Pages are fetched sequentially on the caller's goroutine — PRAll's, i.e.
-// the one PR-fetch Cmd — so this adds no concurrency and stays inside the
-// existing single-flight and seq/staleness discipline.
+// A failure partway through pagination returns the pages already gathered
+// alongside the error, so the caller can prefer honest partial data ("100 of
+// 500") over the comment-less `gh pr view` fallback while still reporting
+// what went wrong. Callers must therefore check the reviews slice, not just
+// the error.
+//
+// Pages are fetched sequentially on the caller's goroutine — PRAll's — so
+// this adds no concurrency of its own.
 func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, int, error) {
+	var reviews []PRReview
+	total := 0
+
 	// Resolve owner/repo via gh so we don't have to parse git remotes ourselves.
 	nwoOut, err := g.runExternal("gh", "repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name")
 	if err != nil {
@@ -1411,15 +1432,33 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, int, error) {
 	}
 	owner, repo := parts[0], parts[1]
 
-	var reviews []PRReview
-	total := 0
+	// honest returns the gathered pages with a total that never undercounts
+	// them, so every exit — clean, capped, or failed partway — reports the
+	// same relationship between total and len(reviews).
+	honest := func(err error) ([]PRReview, int, error) {
+		if total < len(reviews) {
+			total = len(reviews)
+		}
+		return reviews, total, err
+	}
+
 	cursor := ""
 	for page := 0; page < reviewsMaxPages; page++ {
-		out, err := g.runExternal("gh", "api", "graphql", "-f", "query="+reviewsQuery(owner, repo, prNumber, cursor))
+		// -f (not -F) for the string variables: -F infers types, so an owner
+		// or a cursor that looks like a number would be sent as one and
+		// rejected against String!. number is the one genuine Int.
+		args := []string{"api", "graphql",
+			"-f", "query=" + reviewsQuery,
+			"-f", "owner=" + owner,
+			"-f", "repo=" + repo,
+			"-F", fmt.Sprintf("number=%d", prNumber),
+		}
+		if cursor != "" {
+			args = append(args, "-f", "cursor="+cursor)
+		}
+		out, err := g.runExternal("gh", args...)
 		if err != nil {
-			// A mid-pagination failure is still a failure: report it rather
-			// than passing off a partial list as the whole set.
-			return nil, 0, err
+			return honest(err)
 		}
 
 		var resp struct {
@@ -1455,7 +1494,7 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, int, error) {
 			} `json:"data"`
 		}
 		if err := json.Unmarshal([]byte(out), &resp); err != nil {
-			return nil, 0, err
+			return honest(err)
 		}
 
 		gqlReviews := resp.Data.Repository.PullRequest.Reviews
@@ -1489,10 +1528,7 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, int, error) {
 		}
 		cursor = gqlReviews.PageInfo.EndCursor
 	}
-	if total < len(reviews) {
-		total = len(reviews)
-	}
-	return reviews, total, nil
+	return honest(nil)
 }
 
 // PRChecksAll fetches CI checks in a single gh pr checks call, returning
