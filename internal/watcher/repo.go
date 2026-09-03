@@ -13,18 +13,28 @@ import (
 // TrackedFileBudget caps how many tracked files a repo may hold before
 // subdirectory watching is dropped wholesale.
 //
-// The budget counts files rather than directories because files are what the
-// watch actually costs. fsnotify is not recursive on any platform, but its
+// The budget counts files rather than directories because files are roughly
+// what the watch costs. fsnotify is not recursive on any platform, but its
 // backends price a directory watch very differently: inotify takes one watch
-// per directory, while kqueue — the macOS backend — opens a file descriptor
-// for every file inside each watched directory. So on the platform prwatch is
-// mostly used, watching every directory that holds tracked files costs one fd
-// per tracked file, and a monorepo would exhaust the process's descriptor
-// limit at startup.
+// per directory, while kqueue — the macOS backend — calls ReadDir on each
+// watched directory and opens a descriptor for every entry it finds
+// (backend_kqueue.go's watchDirectoryFiles). So on the platform prwatch is
+// mostly used, watching every directory that holds tracked files costs on the
+// order of one descriptor per tracked file.
 //
-// 2048 leaves a wide margin under a typical soft limit while covering
-// essentially every single-project repo. Past it, subdirectory events fall
-// back to the poll.
+// The headroom that makes 2048 safe is not the inherited soft limit, which on
+// macOS is small by default (256 in a stock configuration). It is that Go
+// raises RLIMIT_NOFILE to the hard limit during startup (Go 1.19 and later),
+// which measures 122880 here. 2048 sits far enough under that to leave room
+// for everything else the process opens, while covering essentially every
+// single-project repo.
+//
+// Residual exposure: the budget counts *tracked* files, while kqueue charges
+// for every directory entry — ignored files included, since it reads the
+// directory itself and knows nothing about gitignore. A repo under the budget
+// whose tracked directories are also full of ignored build output therefore
+// costs more descriptors than the count suggests. Past the budget,
+// subdirectory events fall back to the poll.
 const TrackedFileBudget = 2048
 
 // RepoDirs returns the directories worth watching for a working tree at dir,

@@ -8,7 +8,25 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-const debounceInterval = 200 * time.Millisecond
+// DebounceInterval is the quiet period a burst of filesystem events must reach
+// before the refresh callback fires.
+const DebounceInterval = 200 * time.Millisecond
+
+// MaxDebounceWait bounds how long a burst may hold the callback off.
+//
+// Without a bound, a trailing-edge debounce that resets on every event never
+// fires at all while events keep arriving closer together than
+// DebounceInterval — a build writing output, a branch switch rewriting the
+// tree, a formatter sweeping every file. The refresh is what marks filesystem
+// activity for the poll scheduler, so starving it decays the poll to its idle
+// interval at the exact moment the tree is most active.
+//
+// 1s is chosen against both directions. Below it, a burst of ordinary editor
+// saves would stop coalescing and cost a git load each. Above it, the stall is
+// long enough for a user to notice the sidebar lagging their own edit. It also
+// sits an order of magnitude under the 5s active poll, so the bound is always
+// the faster of the two paths to a refresh.
+const MaxDebounceWait = 1 * time.Second
 
 // errNoDirs reports that a watcher was asked to watch nothing.
 var errNoDirs = errors.New("watcher: no directories to watch")
@@ -80,18 +98,56 @@ func (w *Watcher) Watching() []string {
 	return slices.Clone(w.watching)
 }
 
+// loop coalesces filesystem events into refresh calls.
+//
+// Two clocks run per burst. The debounce timer restarts on every event and
+// fires once the tree goes quiet, which is what collapses a flurry of writes
+// into one refresh. The max-wait timer starts with the burst and never
+// restarts, so a stream of events that keeps resetting the debounce still gets
+// a refresh within MaxDebounceWait of when it began.
+//
+// Both timers are selected on here rather than driven by time.AfterFunc, so
+// every refresh and every piece of burst state stays on this one goroutine.
+// The callback sends into a bubbletea program, and burst bookkeeping split
+// across a timer goroutine would need a mutex to be race-free.
 func (w *Watcher) loop(onRefresh func()) {
-	var timer *time.Timer
+	debounce := stoppedTimer()
+	maxWait := stoppedTimer()
+	defer debounce.Stop()
+	defer maxWait.Stop()
+
+	// bursting is true from the first event of a burst until the refresh that
+	// ends it, and is what keeps the max-wait clock per-burst: without it, a
+	// lone event long after a previous burst would fire against an
+	// already-expired deadline instead of getting its own coalescing window.
+	bursting := false
+
+	fire := func() {
+		bursting = false
+		debounce.Stop()
+		maxWait.Stop()
+		onRefresh()
+	}
+
 	for {
 		select {
 		case _, ok := <-w.fsw.Events:
 			if !ok {
 				return
 			}
-			if timer != nil {
-				timer.Stop()
+			if !bursting {
+				bursting = true
+				maxWait.Reset(MaxDebounceWait)
 			}
-			timer = time.AfterFunc(debounceInterval, onRefresh)
+			debounce.Reset(DebounceInterval)
+		case <-debounce.C:
+			if bursting {
+				fire()
+			}
+		case <-maxWait.C:
+			if bursting {
+				fire()
+			}
 		case _, ok := <-w.fsw.Errors:
 			if !ok {
 				return
@@ -100,6 +156,16 @@ func (w *Watcher) loop(onRefresh func()) {
 			return
 		}
 	}
+}
+
+// stoppedTimer returns a timer that is not running. Go 1.23 and later make
+// timer channels unbuffered, so a Stop or Reset cannot leave a stale value
+// behind to be received later — which is what lets the loop above reset these
+// freely without draining them.
+func stoppedTimer() *time.Timer {
+	t := time.NewTimer(time.Hour)
+	t.Stop()
+	return t
 }
 
 func (w *Watcher) Close() error {

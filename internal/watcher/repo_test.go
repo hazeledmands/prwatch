@@ -132,24 +132,29 @@ func TestRepoDirs_NotARepo(t *testing.T) {
 
 // TestRepoDirs_LinkedWorktreeCommitIsSeen is the regression that matters: a
 // commit made in a linked worktree updates a ref under the *common* dir, and
-// the watcher must hear about it. The watch set deliberately excludes the
-// worktree's own tree so only the git-location coverage can satisfy it.
+// the watcher must hear about it.
+//
+// The watch set is narrowed to the common dir's refs/heads alone. Watching
+// every git location the worktree resolves to would pass on the private
+// gitdir's HEAD and index writes and prove nothing about the common dir, which
+// is the location the old IsDir gate actually lost.
 func TestRepoDirs_LinkedWorktreeCommitIsSeen(t *testing.T) {
 	main := newRepo(t)
 	wt := newLinkedWorktree(t, main)
 
-	var gitOnly []string
+	commonRefs := resolved(t, filepath.Join(main, ".git", "refs", "heads"))
+	var refsOnly []string
 	for _, d := range watcher.RepoDirs(wt, command.DefaultFactory) {
-		if d != resolved(t, wt) {
-			gitOnly = append(gitOnly, d)
+		if d == commonRefs {
+			refsOnly = append(refsOnly, d)
 		}
 	}
-	if len(gitOnly) == 0 {
-		t.Fatal("no git locations resolved for the linked worktree")
+	if len(refsOnly) != 1 {
+		t.Fatalf("the common dir's refs/heads (%q) is not in the worktree's watch set", commonRefs)
 	}
 
 	ch := make(chan struct{}, 10)
-	w, err := watcher.NewMulti(gitOnly, func() { ch <- struct{}{} })
+	w, err := watcher.NewMulti(refsOnly, func() { ch <- struct{}{} })
 	if err != nil {
 		t.Fatal(err)
 	}
