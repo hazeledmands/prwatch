@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hazeledmands/prwatch/internal/command"
 	"github.com/hazeledmands/prwatch/internal/git"
 	"github.com/hazeledmands/prwatch/internal/ui"
 	"github.com/hazeledmands/prwatch/internal/watcher"
@@ -93,30 +94,18 @@ func main() {
 		}
 	}
 
-	// Start file watcher
-	w, err := watcher.New(dir, func() {
+	// Start the file watcher. One watcher covers the working tree, the git
+	// locations that hold HEAD and the branch refs, and — for a repo small
+	// enough to afford it — the subdirectories holding tracked files.
+	// watcher.RepoDirs works out which paths those are, including for a linked
+	// worktree, where `.git` is a pointer file and the state lives elsewhere.
+	w, err := watcher.WatchRepo(dir, command.DefaultFactory, func() {
 		p.Send(ui.RefreshMsg{})
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: file watcher failed: %v\n", err)
 	} else {
 		defer w.Close()
-		// Also watch .git dir and key subdirs for ref changes (new commits)
-		gitDir := filepath.Join(dir, ".git")
-		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-			refreshFn := func() { p.Send(ui.RefreshMsg{}) }
-			// Watch .git itself for HEAD changes
-			if wGit, err := watcher.New(gitDir, refreshFn); err == nil {
-				defer wGit.Close()
-			}
-			// Watch .git/refs/heads for new branch commits
-			refsDir := filepath.Join(gitDir, "refs", "heads")
-			if info, err := os.Stat(refsDir); err == nil && info.IsDir() {
-				if wRefs, err := watcher.New(refsDir, refreshFn); err == nil {
-					defer wRefs.Close()
-				}
-			}
-		}
 	}
 
 	if _, err := p.Run(); err != nil {
