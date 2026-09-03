@@ -19,9 +19,16 @@ import (
 )
 
 // Git wraps git CLI operations for a specific working directory.
+// Must not be copied: blobHashes carries a mutex, and every caller holds a
+// *Git anyway.
 type Git struct {
 	dir        string
 	cmdFactory command.Factory
+
+	// blobHashes memoizes working-tree blob hashes for rename detection across
+	// refreshes. Shared by every refresh goroutine; the type is what makes
+	// that safe.
+	blobHashes hashCache
 }
 
 func New(dir string) *Git {
@@ -744,6 +751,10 @@ func parsePorcelainV2Renames(recs []string) []Rename {
 // or `git status --porcelain=v2 -M` can pair on their own. Limited to content-
 // identical pairs (mv with no edits); rename+edits requires staging.
 //
+// A hash only pairs when it identifies exactly one file on each side — see
+// pairUniqueHashes for why anything looser reports renames that never
+// happened.
+//
 // existing carries renames already found via porcelain v2 / diff so we don't
 // double-pair. untrackedSet provides candidate new paths.
 func (g *Git) detectPureMvRenames(existing []Rename, untrackedSet map[string]bool) []Rename {
@@ -757,48 +768,116 @@ func (g *Git) detectPureMvRenames(existing []Rename, untrackedSet map[string]boo
 		pairedNew[r.New] = true
 	}
 
-	// Hash each untracked file once, keyed by blob sha.
-	untrackedByHash := make(map[string]string, len(untrackedSet))
-	for u := range untrackedSet {
-		if pairedNew[u] {
-			continue
-		}
-		h, err := g.run("hash-object", "--", u)
-		if err != nil {
-			continue
-		}
-		untrackedByHash[strings.TrimSpace(h)] = u
-	}
-	if len(untrackedByHash) == 0 {
-		return nil
-	}
-
-	// Find tracked deletions in the working tree.
-	deleted, err := g.runZ("diff", "--name-only", "-z", "--diff-filter=D")
+	// Deletions come first, before any hashing. There is nothing for an
+	// untracked file to pair *with* unless a tracked file was deleted, and the
+	// overwhelmingly common state of a working tree is untracked files and no
+	// deletions at all — so this ordering is what keeps the every-few-seconds
+	// refresh from hashing the untracked set for no reason.
+	deletedAll, err := g.runZ("diff", "--name-only", "-z", "--diff-filter=D")
 	if err != nil {
 		return nil
 	}
+	var deleted []string
+	for _, d := range deletedAll {
+		if !pairedOld[d] {
+			deleted = append(deleted, d)
+		}
+	}
+	if len(deleted) == 0 {
+		return nil
+	}
 
-	var matches []Rename
-	for _, old := range deleted {
-		if pairedOld[old] {
+	oldHash := g.indexHashes(deleted)
+	if len(oldHash) == 0 {
+		return nil
+	}
+
+	candidates := make([]string, 0, len(untrackedSet))
+	for u := range untrackedSet {
+		if !pairedNew[u] {
+			candidates = append(candidates, u)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	// Sorted so the batches handed to git — and therefore anything that ever
+	// depends on their order — do not vary with map iteration.
+	sort.Strings(candidates)
+
+	newHash := g.blobHashes.hashes(candidates, statInDir(g.dir), g.hashObjects)
+	if len(newHash) == 0 {
+		return nil
+	}
+
+	return pairUniqueHashes(deleted, oldHash, newHash)
+}
+
+// indexHashes returns the index blob sha of each given path, in one
+// `git ls-files --stage` call rather than one per path. Records are
+// `<mode> SP <sha> SP <stage> TAB <path>`; a path git does not know is simply
+// absent from the result.
+func (g *Git) indexHashes(paths []string) map[string]string {
+	out := make(map[string]string, len(paths))
+	args := append([]string{"ls-files", "--stage", "-z", "--"}, paths...)
+	recs, err := g.runZ(args...)
+	if err != nil {
+		return out
+	}
+	for _, rec := range recs {
+		meta, path, ok := strings.Cut(rec, "\t")
+		if !ok {
 			continue
 		}
-		// Read the index blob sha for old.
-		stage, err := g.run("ls-files", "--stage", "--", old)
-		if err != nil {
-			continue
-		}
-		stage = strings.TrimSpace(stage)
-		fields := strings.Fields(stage)
+		fields := strings.Fields(meta)
 		if len(fields) < 2 {
 			continue
 		}
-		sha := fields[1]
-		if newPath, ok := untrackedByHash[sha]; ok {
-			matches = append(matches, Rename{Old: old, New: newPath, Pure: true})
-			delete(untrackedByHash, sha) // one-to-one pairing
+		out[path] = fields[1]
+	}
+	return out
+}
+
+// pairUniqueHashes pairs deleted paths with untracked paths that carry the
+// same content hash, but only where that hash identifies exactly one file on
+// each side.
+//
+// The double-uniqueness rule is the whole point. Content hashes are not
+// identities: any two files with the same bytes share one, so a bare
+// hash-to-path map turns every incidental content duplicate into a reported
+// rename — a fresh scratch file that happens to match a deleted one, or two
+// copies of the same generated file, and the user is told a file "moved" to
+// somewhere it has no relation to. When a hash is ambiguous there is no
+// evidence to choose between the candidates, so the honest answer is to report
+// no rename and let the file show up as a plain delete plus a plain add.
+//
+// oldPaths fixes the iteration order; the result is a function of the inputs
+// alone and never of map ordering, so successive refreshes cannot flip a
+// rename's reported target.
+func pairUniqueHashes(oldPaths []string, oldHash, newHash map[string]string) []Rename {
+	oldCount := make(map[string]int, len(oldPaths))
+	for _, p := range oldPaths {
+		if h, ok := oldHash[p]; ok {
+			oldCount[h]++
 		}
+	}
+	newByHash := make(map[string]string, len(newHash))
+	newCount := make(map[string]int, len(newHash))
+	for p, h := range newHash {
+		newCount[h]++
+		newByHash[h] = p
+	}
+
+	var matches []Rename
+	for _, old := range oldPaths {
+		h, ok := oldHash[old]
+		if !ok {
+			continue
+		}
+		if oldCount[h] != 1 || newCount[h] != 1 {
+			continue
+		}
+		matches = append(matches, Rename{Old: old, New: newByHash[h], Pure: true})
 	}
 	return matches
 }

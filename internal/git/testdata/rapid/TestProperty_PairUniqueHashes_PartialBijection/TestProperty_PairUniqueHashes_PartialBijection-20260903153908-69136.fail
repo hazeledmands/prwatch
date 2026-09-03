@@ -1,0 +1,16 @@
+# 2026/09/03 15:39:08.465225 [TestProperty_PairUniqueHashes_PartialBijection] [rapid] draw nOld: 1
+# 2026/09/03 15:39:08.465244 [TestProperty_PairUniqueHashes_PartialBijection] [rapid] draw oldKnown0: true
+# 2026/09/03 15:39:08.465257 [TestProperty_PairUniqueHashes_PartialBijection] [rapid] draw oldHash0: "h0"
+# 2026/09/03 15:39:08.465270 [TestProperty_PairUniqueHashes_PartialBijection] [rapid] draw nNew: 0
+# 2026/09/03 15:39:08.465281 [TestProperty_PairUniqueHashes_PartialBijection] pair git.Rename{Old:"old0", New:"", Pure:true} joins mismatched hashes "h0"/""
+# 
+v0.4.8#17036303490905901509
+0x0
+0x0
+0x1
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
