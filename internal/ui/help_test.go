@@ -19,6 +19,35 @@ import (
 // silent gap.
 var unlistedBindings = map[string]string{}
 
+// helpListingLines is the number of rows helpContentLines produces: the
+// "Keybindings:" header, a blank, 44 command rows in 11 sections separated by
+// 10 blank lines, then a blank and the footer.
+//
+// Pinned as a literal so assertions about the listing's extent are anchored to
+// a committed fact rather than re-derived from helpContentLines itself.
+// TestHelpListing_Golden fails if the real count drifts from this.
+const helpListingLines = 58
+
+// TestHelpListing_Golden pins the full listing — every row, every word.
+//
+// testdata/golden/help_overlay.txt renders the overlay at a terminal height
+// that cuts off after section 4 of 11, so rows 31-58 had no wording coverage
+// at all. And now that each description has exactly one definition, a typo in
+// a withDesc string changes the keymap and the listing in lockstep, which is
+// precisely the kind of edit a correspondence test cannot see. This fixture is
+// height-independent: it asserts helpContentLines directly.
+//
+// Regenerate with: go test ./internal/ui -run TestHelpListing_Golden -update
+func TestHelpListing_Golden(t *testing.T) {
+	lines := helpContentLines()
+	if len(lines) != helpListingLines {
+		t.Errorf("helpContentLines() returned %d lines, want helpListingLines=%d; "+
+			"update the constant if the listing legitimately grew",
+			len(lines), helpListingLines)
+	}
+	assertGolden(t, "help_listing", strings.Join(lines, "\n"))
+}
+
 // bindingID identifies a binding by the two facts the help screen states about
 // it. Keys alone are not unique — `n` is both SearchNext and ToggleLineNums,
 // `N` is both SearchPrev and NextLeaf — so the description disambiguates.
@@ -213,11 +242,17 @@ func TestHelpOverlay_ScrollCommands(t *testing.T) {
 	// the bottom so page-down and go-bottom differ.
 	const startOffset = 20
 
-	maxOffset := max(0, len(helpContentLines())-visibleHeight)
+	// Literal arithmetic, not len(helpContentLines())-visibleHeight: that is
+	// the very expression the GoBottom arm evaluates, so deriving the
+	// expectation from it asserts nothing. helpListingLines is pinned against
+	// the committed fixture by TestHelpListing_Golden, which is what makes 48
+	// a fact about the help screen rather than a restatement of the code.
+	const maxOffset = helpListingLines - visibleHeight // 58 - 10
+
 	if maxOffset <= startOffset {
 		t.Fatalf("help content (%d lines) too short for this fixture; "+
 			"maxOffset=%d must exceed startOffset=%d",
-			len(helpContentLines()), maxOffset, startOffset)
+			helpListingLines, maxOffset, startOffset)
 	}
 
 	tests := []struct {

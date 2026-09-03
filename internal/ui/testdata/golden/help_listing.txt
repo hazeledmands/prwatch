@@ -1,0 +1,58 @@
+Keybindings:
+
+  [m]                   Cycle mode (files → commits → pr)
+  [1]                   Files mode
+  [2]                   Commits mode
+  [3]                   PR mode (when PR exists)
+
+  [H] [shift+left]      Scroll left / switch to sidebar (when wrap off)
+  [L] [shift+right]     Scroll right (when wrap off)
+  [,]                   Focus sidebar
+  [.]                   Focus main pane
+  [tab]                 Toggle focus (sidebar / main pane)
+
+  [j] [down]            Move cursor down / select next (sidebar)
+  [k] [up]              Move cursor up / select prev (sidebar)
+  [h] [left]            Move cursor left (main pane)
+  [l] [right]           Move cursor right (main pane)
+  [pgdown] [space]      Page down
+  [pgup] [shift+space]  Page up
+  [g] [home]            Go to top
+  [G] [end]             Go to bottom
+
+  [+] [=]               Grow sidebar
+  [-]                   Shrink sidebar
+  [f]                   Toggle sidebar visibility
+
+  [w]                   Toggle word wrap
+  [n]                   Toggle line numbers (files mode)
+  [i]                   Toggle gitignored files (files mode)
+  [D]                   Toggle removed lines in diff gutter (files mode)
+
+  [J] [shift+down]      Jump to next diff hunk (files mode)
+  [K] [shift+up]        Jump to previous diff hunk (files mode)
+  [N]                   Jump to next leaf
+  [P]                   Jump to previous leaf
+
+  [v]                   Visual mode (character selection, main pane)
+  [V]                   Visual mode (line selection, main pane)
+  [esc]                 Dismiss visual selection
+  [y]                   Yank selection (visual mode) / copy path (otherwise)
+
+  [enter]               Open file in $EDITOR / switch to main pane
+  [/]                   Search (type to match, enter to confirm)
+  [n]                   Next search result (after search confirmed)
+  [p] [N]               Previous search result (after search confirmed)
+
+  [r]                   Refresh git state
+  [o]                   Open the active PR in the browser
+  [?]                   Show this help (scroll with j/k/mouse)
+
+  []]                   Extend commit-range scope backward
+  [[]                   Contract commit-range scope toward working tree
+  [\]                   Reset commit-range scope to default
+
+  [q] [esc]             Quit (confirm)
+  [Q] [ctrl+c]          Quit immediately
+
+Press q/esc to dismiss. Use j/k or mouse to scroll. / to search.
