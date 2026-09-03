@@ -36,15 +36,29 @@ func (n *notificationState) Text() string { return n.text }
 
 // Show puts text on screen and returns the Cmd that will expire it.
 //
-// The returned closure captures only the generation as a local — never n — so
-// it cannot race Update from the goroutine bubbletea runs it on.
+// The returned closure captures only the msg as a local — never n — so it
+// cannot race Update from the goroutine bubbletea runs it on.
 func (n *notificationState) Show(text string) tea.Cmd {
+	msg := n.show(text)
+	return tea.Tick(notificationTTL, func(time.Time) tea.Msg {
+		return msg
+	})
+}
+
+// show performs the state change and returns the expiry msg identifying the
+// notification it just set — the exact payload Show's timer will deliver.
+//
+// It is split out so tests can exercise the real generation bookkeeping and
+// assert on that payload without waiting notificationTTL for the tick. Testing
+// only through Show forced tests to hand-construct the msg from n.gen, which
+// made them blind to a generation off-by-one here: returning the pre-increment
+// value would arm every timer against a generation that is never current, so no
+// toast would ever expire, and a test that builds its own msg from n.gen would
+// still pass. TestNotification_ShowArmsMatchingExpiry closes that hole.
+func (n *notificationState) show(text string) notificationExpiredMsg {
 	n.text = text
 	n.gen++
-	gen := n.gen
-	return tea.Tick(notificationTTL, func(time.Time) tea.Msg {
-		return notificationExpiredMsg{gen: gen}
-	})
+	return notificationExpiredMsg{gen: n.gen}
 }
 
 // Expire clears the toast if msg was armed for the notification currently on

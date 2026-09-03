@@ -35,6 +35,53 @@ func TestNotification_EarlierExpiryDoesNotClearLaterToast(t *testing.T) {
 	}
 }
 
+// TestNotification_ShowArmsMatchingExpiry is the test the other four cannot be:
+// it takes the expiry msg from the arming path itself rather than building one
+// from n.gen, so it can see a disagreement between the generation Show arms its
+// timer with and the generation Expire compares against.
+//
+// Every other test here hand-constructs notificationExpiredMsg{gen: n.gen},
+// which silently assumes those two agree. They didn't have to: an off-by-one in
+// show (returning the pre-increment generation) arms every timer against a
+// generation that is never current, so no toast ever expires and the toast
+// becomes immortal.
+//
+// Verified by injecting exactly that mutation: this test fails with "the expiry
+// msg show() armed did not clear the toast it armed it for", and every other
+// test in this file passes — TestNotification_StaleExpiryThroughUpdate
+// included, since it too builds its msg from gen and so is equally blind. This
+// test is the only thing standing between that mutation and a green suite.
+//
+// It runs the real Show as well, to pin that Show delegates to show rather than
+// doing its own bookkeeping. The one link neither can reach without sleeping
+// notificationTTL is the literal `return msg` inside the tea.Tick closure.
+func TestNotification_ShowArmsMatchingExpiry(t *testing.T) {
+	t.Parallel()
+
+	// The arming path's own payload must be the one that clears the toast.
+	var n notificationState
+	msg := n.show("copied x")
+	if got := n.Text(); got != "copied x" {
+		t.Fatalf("Text() = %q, want %q", got, "copied x")
+	}
+	n.Expire(msg)
+	if got := n.Text(); got != "" {
+		t.Errorf("the expiry msg show() armed did not clear the toast it armed it for: Text() = %q", got)
+	}
+
+	// Show must route through show, so its generation bookkeeping is the same.
+	var viaCmd notificationState
+	if cmd := viaCmd.Show("copied y"); cmd == nil {
+		t.Fatal("Show returned a nil Cmd, so nothing would ever expire the toast")
+	}
+	if viaCmd.gen != 1 {
+		t.Errorf("Show left gen = %d, want 1 — it is not delegating to show", viaCmd.gen)
+	}
+	if got := viaCmd.Text(); got != "copied y" {
+		t.Errorf("Show left Text() = %q, want %q", got, "copied y")
+	}
+}
+
 // TestProperty_NotificationOnlyCurrentGenerationClears pins the guard over
 // arbitrary interleavings of Show and Expire: a toast is cleared exactly by an
 // expiry carrying its own generation, and never by any other.

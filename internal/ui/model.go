@@ -962,7 +962,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case prTickMsg:
 			m.debugLog.Printf("[timer] prTick")
 		case notificationExpiredMsg:
-			m.debugLog.Printf("[timer] notificationExpired")
+			m.debugLog.Printf("[timer] notificationExpired gen=%d", msg.gen)
 		// Filesystem changes
 		case RefreshMsg:
 			m.debugLog.Printf("[fs] RefreshMsg (file watcher)")

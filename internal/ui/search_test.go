@@ -90,8 +90,17 @@ func TestSearchBackspaceDeletesWholeCluster(t *testing.T) {
 
 // TestProperty_SearchQueryStaysValidUTF8 drives the input state machine with
 // arbitrary interleavings of typed graphemes and backspaces and requires the
-// query to remain valid UTF-8 throughout — and to remain a prefix-by-cluster
-// of what was typed, never a byte-truncated fragment.
+// query to remain valid UTF-8 throughout — never a byte-truncated fragment of
+// a multibyte sequence, which is what the old byte-slicing backspace produced
+// on the first press against any non-ASCII input.
+//
+// Validity is the whole assertion here. An earlier version also re-walked the
+// query with eachDisplayCluster and checked the atoms concatenated back to it,
+// which reads like a whole-cluster check but cannot fail: the walk tiles any
+// string exactly by contract (TestClusterWalkAgreesWithOracle pins that), so it
+// reproduces byte-truncated garbage just as faithfully. Whole-cluster deletion
+// is covered by TestSearchBackspaceDeletesWholeCluster's table, which carries
+// independent expected values.
 func TestProperty_SearchQueryStaysValidUTF8(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
@@ -108,16 +117,6 @@ func TestProperty_SearchQueryStaysValidUTF8(t *testing.T) {
 			}
 			if !utf8.ValidString(s.Query()) {
 				t.Fatalf("query is not valid UTF-8: %q", s.Query())
-			}
-			// A valid query must also be whole clusters: re-walking it must
-			// reconstruct it exactly.
-			var rebuilt strings.Builder
-			eachDisplayCluster(s.Query(), func(c displayCluster) bool {
-				rebuilt.WriteString(c.Text)
-				return true
-			})
-			if rebuilt.String() != s.Query() {
-				t.Fatalf("cluster walk did not reconstruct query %q", s.Query())
 			}
 			// Backspace on an empty query closes search; re-open so the
 			// remaining steps keep exercising the input state machine.
@@ -269,10 +268,21 @@ func TestSearchMatchesRecomputedOnMainContentRefresh(t *testing.T) {
 	}
 }
 
-// TestProperty_TrimLastClusterIsClusterwise checks the primitive directly:
-// dropping the last cluster must leave a valid, whole-cluster string that is a
-// prefix of the input, and repeated application must reach "" and stay there.
-func TestProperty_TrimLastClusterIsClusterwise(t *testing.T) {
+// TestProperty_TrimLastClusterShrinksToEmpty checks the primitive's structural
+// contract: each application strictly shrinks the string, leaves a prefix of
+// it, keeps it valid UTF-8, and repeated application converges on "" and stays
+// there. Those four are what termination and no-corruption rest on, and the
+// convergence loop is the guard against a trim that stalls on some cluster
+// class and would hang a backspace.
+//
+// It deliberately does NOT assert cluster-wiseness, which it cannot honestly
+// check: a rune-wise trim satisfies all four assertions, and the only way to
+// name the expected boundary here is to ask eachDisplayCluster — the same
+// helper trimLastCluster is built on, so the two would agree by construction
+// whatever either did. Cluster-wiseness is owned by
+// TestSearchBackspaceDeletesWholeCluster, whose table states the expected
+// result for each cluster class as a literal, independent of the oracle.
+func TestProperty_TrimLastClusterShrinksToEmpty(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		s := widthyString(t, "s")
