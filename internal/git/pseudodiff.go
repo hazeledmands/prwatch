@@ -49,7 +49,7 @@ func (g *Git) UnstagedDiff() (string, error) {
 // there is no output to go on. That cannot swallow the ordinary
 // differences-found case: it always produces stdout.
 func (g *Git) noIndexDiff(path string) (string, error) {
-	cmd := g.cmdFactory("git", "-c", "core.quotePath=false", "diff", "--no-index", "--", "/dev/null", path)
+	cmd := g.cmdFactory("git", noOptionalLocks, "-c", "core.quotePath=false", "diff", "--no-index", "--", "/dev/null", path)
 	cmd.SetDir(g.dir)
 	var stdout, stderr bytes.Buffer
 	cmd.SetStdout(&stdout)

@@ -189,8 +189,24 @@ type PRChecksResult struct {
 	Status CIStatusResult
 }
 
+// noOptionalLocks is prefixed to every git invocation this package makes.
+//
+// Every call here is a read, but several of them are not read-*only* to git:
+// `status` and `diff` refresh `.git/index` when they find stat-dirty entries,
+// recording what they learned by opening the files. prwatch watches `.git`, so
+// a load's own status call wrote the index, the watcher saw the write, and that
+// fired another load — a self-sustaining refresh loop driven by nothing but
+// prwatch reading the repo. `--no-optional-locks` (git's own switch for exactly
+// this, equivalent to GIT_OPTIONAL_LOCKS=0) makes the reads leave no trace.
+//
+// Applied at the two run primitives rather than per-subcommand: the whole
+// package is read-only, so the invariant "prwatch never takes an optional git
+// lock" is both true and cheap to assert. If a mutating git call is ever added
+// here it must not go through run/runZ.
+const noOptionalLocks = "--no-optional-locks"
+
 func (g *Git) run(args ...string) (string, error) {
-	cmd := g.cmdFactory("git", args...)
+	cmd := g.cmdFactory("git", append([]string{noOptionalLocks}, args...)...)
 	cmd.SetDir(g.dir)
 	var stdout, stderr bytes.Buffer
 	cmd.SetStdout(&stdout)
@@ -250,7 +266,7 @@ func splitNUL(out string) []string {
 // suppresses the quoting and removes the ambiguity of a path that contains the
 // delimiter.
 func (g *Git) runZ(args ...string) ([]string, error) {
-	cmd := g.cmdFactory("git", args...)
+	cmd := g.cmdFactory("git", append([]string{noOptionalLocks}, args...)...)
 	cmd.SetDir(g.dir)
 	var stdout, stderr bytes.Buffer
 	cmd.SetStdout(&stdout)

@@ -267,12 +267,30 @@ func TestPseudoEntryDiffsAreDistinct(t *testing.T) {
 func interceptGit(pick func(args []string) (stdout string, err error, handled bool)) command.Factory {
 	return func(name string, args ...string) command.Command {
 		if name == "git" {
-			if stdout, err, handled := pick(args); handled {
+			if stdout, err, handled := pick(subcommandArgs(args)); handled {
 				return command.StubCommand(stdout, err)
 			}
 		}
 		return command.DefaultFactory(name, args...)
 	}
+}
+
+// subcommandArgs drops the leading global options every git invocation carries
+// (--no-optional-locks, and -c <name>=<value> on the diff producers) so a
+// matcher can index from the subcommand. Without this the pick functions here
+// would be matching against args[0] == "--no-optional-locks" for every call.
+func subcommandArgs(args []string) []string {
+	for len(args) > 0 {
+		switch {
+		case args[0] == "-c" && len(args) > 1:
+			args = args[2:]
+		case strings.HasPrefix(args[0], "-"):
+			args = args[1:]
+		default:
+			return args
+		}
+	}
+	return args
 }
 
 // A file listed as untracked but unreadable by the time it is diffed (deleted

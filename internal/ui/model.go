@@ -106,8 +106,14 @@ type Model struct {
 	// Together they let the handler recognise a load that finished out of
 	// order and refuse to let its stale answer overwrite a newer one. See
 	// gitLoadRequest.seq.
-	gitDispatchSeq     int
-	gitAdoptedSeq      int
+	gitDispatchSeq int
+	gitAdoptedSeq  int
+	// gitLoads single-flights async git-load dispatch: N near-simultaneous
+	// triggers become one load plus at most one trailing load. It composes with
+	// the seq protocol above rather than replacing it — seq discards stale
+	// results, the gate stops redundant loads from being started. See
+	// loadgate.go.
+	gitLoads           loadGate
 	prInfo             gitpkg.PRInfoResult
 	ciStatus           gitpkg.CIStatusResult
 	prReviews          []gitpkg.PRReview
@@ -645,7 +651,23 @@ func (m *Model) gitLoadRequest(withPR bool) gitLoadRequest {
 
 // gitLoadCmd is the only supported way to dispatch a git load. It snapshots on
 // the Update goroutine and returns a closure over the snapshot alone.
+//
+// It is single-flighted through m.gitLoads: while a load is in flight this
+// returns nil and records a pending rerun, which the Update wrapper releases as
+// one trailing load when the in-flight result lands. Callers therefore have to
+// tolerate a nil cmd — tea.Batch and a bare `return m, nil` both already do.
 func (m *Model) gitLoadCmd(withPR bool) tea.Cmd {
+	if !m.gitLoads.Begin(withPR) {
+		return nil
+	}
+	return m.gitLoadCmdNow(withPR)
+}
+
+// gitLoadCmdNow builds a load cmd without consulting the gate. Only two
+// callers: gitLoadCmd, which has just claimed the in-flight slot, and the
+// Update wrapper releasing a trailing load, for which Done has already claimed
+// it. Everything else must go through gitLoadCmd.
+func (m *Model) gitLoadCmdNow(withPR bool) tea.Cmd {
 	req := m.gitLoadRequest(withPR)
 	return func() tea.Msg { return runGitLoad(req) }
 }
@@ -859,13 +881,40 @@ func fetchMoreCommits(g GitDataSource, base string, skip int) tea.Msg {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	result, cmd := m.update(msg)
 	rm := result.(*Model)
-	if rwxCmd := rm.maybeFetchRWXLog(); rwxCmd != nil {
-		if cmd != nil {
-			return result, tea.Batch(cmd, rwxCmd)
+	cmds := []tea.Cmd{cmd}
+	// Release the single-flight gate here rather than inside the gitDataMsg arm:
+	// that arm has half a dozen early returns (load error, stale dispatch,
+	// branch-switch reset, pin mismatch) and a gate released on only some of
+	// them would wedge every later refresh for the session. Every gitDataMsg is
+	// exactly one load's result, whether it was adopted or discarded, so this is
+	// the one place guaranteed to see all of them.
+	if _, isGitData := msg.(gitDataMsg); isGitData {
+		if withPR, dispatch := rm.gitLoads.Done(); dispatch {
+			cmds = append(cmds, rm.gitLoadCmdNow(withPR))
 		}
-		return result, rwxCmd
 	}
-	return result, cmd
+	cmds = append(cmds, rm.maybeFetchRWXLog())
+	return result, batchNonNil(cmds...)
+}
+
+// batchNonNil batches the non-nil cmds, returning nil for none and the cmd
+// itself for exactly one — tea.Batch tolerates nils, but returning a Batch of
+// one wraps a cmd the tests compare against nil.
+func batchNonNil(cmds ...tea.Cmd) tea.Cmd {
+	var live []tea.Cmd
+	for _, c := range cmds {
+		if c != nil {
+			live = append(live, c)
+		}
+	}
+	switch len(live) {
+	case 0:
+		return nil
+	case 1:
+		return live[0]
+	default:
+		return tea.Batch(live...)
+	}
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
