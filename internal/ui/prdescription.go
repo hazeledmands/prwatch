@@ -10,7 +10,7 @@ import (
 // renderPRDescription builds the full PR description panel content from a
 // snapshot of PR data: title, status, dates, labels, assignees, reviewers,
 // milestone, deployments, and the markdown-rendered body. width controls the
-// markdown reflow width; on render error the raw body is included verbatim.
+// markdown reflow width.
 func renderPRDescription(pr gitpkg.PRInfoResult, reviews []gitpkg.PRReview, deployments []gitpkg.PRDeployment, width int) string {
 	var b strings.Builder
 
@@ -89,12 +89,7 @@ func renderPRDescription(pr gitpkg.PRInfoResult, reviews []gitpkg.PRReview, depl
 	b.WriteString("\n")
 
 	if pr.Body != "" {
-		rendered, err := renderMarkdown(pr.Body, width)
-		if err != nil {
-			b.WriteString(pr.Body)
-		} else {
-			b.WriteString(rendered)
-		}
+		b.WriteString(renderMarkdown(pr.Body, width))
 	}
 
 	return b.String()

@@ -269,11 +269,7 @@ func buildCommentContent(c gitpkg.PRComment, width int) string {
 	if !c.CreatedAt.IsZero() {
 		header += fmt.Sprintf("  •  %s (%s)", c.CreatedAt.Local().Format("Jan 2, 2006 3:04 PM"), relativeTime(c.CreatedAt))
 	}
-	body := c.Body
-	if rendered, err := renderMarkdown(body, width); err == nil {
-		body = rendered
-	}
-	return fmt.Sprintf("%s\n\n%s", header, body)
+	return fmt.Sprintf("%s\n\n%s", header, renderMarkdown(c.Body, width))
 }
 
 // buildReviewContent assembles the main-pane body for a PR review (header,
@@ -285,11 +281,7 @@ func buildReviewContent(r gitpkg.PRReview, width int) string {
 	}
 	content += fmt.Sprintf("\nState: %s", r.State)
 	if r.Body != "" {
-		body := r.Body
-		if rendered, err := renderMarkdown(body, width); err == nil {
-			body = rendered
-		}
-		content += "\n\n" + body
+		content += "\n\n" + renderMarkdown(r.Body, width)
 	}
 	for _, c := range r.Comments {
 		content += fmt.Sprintf("\n\n--- %s:%d ---\n%s", c.Path, c.Line, c.Body)

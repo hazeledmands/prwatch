@@ -13,7 +13,7 @@ import (
 
 // renderMarkdown converts markdown text to ANSI-formatted terminal text.
 // Uses goldmark for parsing and a custom ANSI renderer for output.
-func renderMarkdown(md string, width int) (string, error) {
+func renderMarkdown(md string, width int) string {
 	if width <= 0 {
 		width = 80
 	}
@@ -31,8 +31,7 @@ func renderMarkdown(md string, width int) (string, error) {
 	r.render(doc)
 
 	// Trim trailing whitespace but keep structure
-	result := strings.TrimRight(buf.String(), "\n")
-	return result, nil
+	return strings.TrimRight(buf.String(), "\n")
 }
 
 // cleanHTML preprocesses raw HTML in markdown source so the goldmark renderer
