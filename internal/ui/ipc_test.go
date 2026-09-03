@@ -379,6 +379,39 @@ func TestHandleIPC_StuckClientDoesNotBlockUpdate(t *testing.T) {
 	restore()
 }
 
+// A model left corrupt by a follow-up can panic on render. The client must
+// still get a response carrying the error — an unguarded render would kill
+// the report that explains what went wrong, which is the exact failure the
+// panic-reporting exists to eliminate.
+func TestHandleIPC_RenderPanicStillReportsToTheClient(t *testing.T) {
+	m := NewModel("/tmp/test", nil)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	// loading must be false or View early-returns before it reaches the panes.
+	m.loading = false
+	m.sidebar = nil // corruption of the kind a half-applied Update leaves
+
+	server, client := net.Pipe()
+	defer client.Close()
+	ipc := ipcMsg{req: IPCRequest{Action: "render"}, conn: server, done: make(chan struct{})}
+
+	go func() { m.handleIPC(ipc) }()
+
+	var resp IPCResponse
+	if err := json.NewDecoder(client).Decode(&resp); err != nil {
+		t.Fatalf("no response reached the client: %v", err)
+	}
+	<-ipc.done
+
+	if resp.Error == "" {
+		t.Fatal("a panicking render must be reported in IPCResponse.Error")
+	}
+	if !strings.Contains(resp.Error, "report render") {
+		t.Errorf("error should name the failing activity, got %q", resp.Error)
+	}
+}
+
 func TestIPCSocketPathFromEnv(t *testing.T) {
 	os.Setenv("PRWATCH_IPC_SOCKET", "/tmp/test.sock")
 	defer os.Unsetenv("PRWATCH_IPC_SOCKET")

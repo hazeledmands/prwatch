@@ -8,11 +8,12 @@ import (
 	"github.com/hazeledmands/prwatch/internal/command"
 )
 
-// githubErrorKind classifies a failed GitHub call into the three outcomes the
+// githubErrorKind classifies a failed GitHub call into the four outcomes the
 // UI treats differently: a rate limit (back the poll off and say so), an
 // auth-or-permission failure (say so, but keep polling at the normal cadence
-// — no amount of waiting grants a scope or clears SAML enforcement), and
-// everything else (network, JSON, gh itself).
+// — no amount of waiting grants a scope or clears SAML enforcement), gh
+// missing from PATH (say so; installing it is the remedy), and everything
+// else (network, JSON, gh itself).
 //
 // The distinction is load-bearing: the rate-limit branch drives the
 // exponential backoff in activityTracker (PROMPT.md:21), which doubles out to

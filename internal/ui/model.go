@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"github.com/hazeledmands/prwatch/internal/command"
 	"io/fs"
@@ -1711,7 +1712,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.CommitsMode):
-		if m.git == nil {
+		if !m.canEnterCommitsMode() {
 			return m, nil
 		}
 		m.setMode(CommitsMode)
@@ -2097,13 +2098,7 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 			if x >= label.start && x < label.end {
 				switch label.target {
 				case line2CommitsMode:
-					// Same gate as the `2`/`m` key: a git repo is
-					// enough. Zero in-scope commits is the normal
-					// state on the main branch, where commits mode
-					// still has the Base section to show — gating on
-					// len(m.commits) made the always-published branch
-					// label silently inert there.
-					if m.git != nil {
+					if m.canEnterCommitsMode() {
 						m.setMode(CommitsMode)
 					}
 				case line2FilesMode:
@@ -2601,6 +2596,17 @@ func (m *Model) updateSidebarItemsSyncingMain() {
 	}
 }
 
+// canEnterCommitsMode reports whether commits mode is reachable. A git repo is
+// the whole requirement: zero in-scope commits is the normal state on the main
+// branch, where commits mode still has the Base section to show.
+//
+// Every entry point asks this one function — the `2`/`m` key and the status-bar
+// line-2 click. They previously carried separate copies of the condition and
+// drifted, so the key worked on main while clicking the branch label was
+// silently inert. See CLAUDE.md, "Layout geometry comes from one function" —
+// the same reasoning applies to a reachability predicate.
+func (m *Model) canEnterCommitsMode() bool { return m.git != nil }
+
 // setMode changes the active mode, saving the current mode's view state
 // (sidebar selection, scroll positions, focus) and restoring the new mode's
 // previously-saved state if any. After swapping state, it refreshes sidebar
@@ -2780,28 +2786,53 @@ func (m *Model) RenderWithKeys(width, height int, keys string) string {
 		}
 	}
 
-	v := m.View()
+	content, renderErr := m.renderReport()
+	if renderErr != nil {
+		followUpErrs = append(followUpErrs, renderErr.Error())
+	}
 	if len(followUpErrs) > 0 {
 		// The screen above this line half-updated; say so where whoever
 		// piped the output will see it rather than letting it read as a
 		// clean render.
-		return v.Content + "\n\n=== prwatch follow-up command failures ===\n" +
+		return content + "\n\n=== prwatch follow-up command failures ===\n" +
 			strings.Join(followUpErrs, "\n")
 	}
-	return v.Content
+	return content
 }
 
-// followUpPanic is the error execFollowUps returns when a follow-up command
-// panics. It carries the panic value and the stack captured at the point of
-// recovery, so a harness caller can report which command blew up rather than
-// staring at a screen that silently half-updated.
+// followUpPanic is the error the exploration harness returns when something it
+// ran panicked — a follow-up command, or the render of the report itself. It
+// carries the panic value and the stack captured at the point of recovery, so
+// a harness caller can report what blew up rather than staring at a screen
+// that silently half-updated. what names the activity, for the message.
 type followUpPanic struct {
+	what  string
 	value any
 	stack []byte
 }
 
 func (e *followUpPanic) Error() string {
-	return fmt.Sprintf("panic in follow-up command: %v\n%s", e.value, e.stack)
+	return fmt.Sprintf("panic in %s: %v\n%s", e.what, e.value, e.stack)
+}
+
+// renderReport renders the view for a harness report, recovering a panic
+// thrown by a model that a follow-up left corrupt.
+//
+// Without this guard the reporting path defeats itself in exactly the case it
+// exists for: a follow-up corrupts the model, the corruption is what makes
+// View panic, and the panic escapes before the report describing it can be
+// written. The caller gets an error-only report instead of nothing at all.
+func (m *Model) renderReport() (content string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			content = ""
+			err = &followUpPanic{what: "report render", value: r, stack: debug.Stack()}
+			if m.debugLog != nil {
+				m.debugLog.Printf("[followups] %v", err)
+			}
+		}
+	}()
+	return m.View().Content, nil
 }
 
 // execFollowUps executes safe follow-up commands from Update, recursively
@@ -2826,7 +2857,7 @@ func (m *Model) execFollowUps(cmd tea.Cmd) (err error) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			err = &followUpPanic{value: r, stack: debug.Stack()}
+			err = &followUpPanic{what: "follow-up command", value: r, stack: debug.Stack()}
 			if m.debugLog != nil {
 				m.debugLog.Printf("[followups] %v", err)
 			}
@@ -2839,14 +2870,23 @@ func (m *Model) execFollowUps(cmd tea.Cmd) (err error) {
 	}
 	switch msg := msg.(type) {
 	case tea.BatchMsg:
+		// Every sub-command runs, even after one panics, and every failure is
+		// collected. Bailing at the first panic would leave the model *more*
+		// half-updated than seeing the batch out: the sub-commands after the
+		// failure are precisely the updates that would have finished the job,
+		// and they are independent of the one that blew up. Reporting only
+		// the first failure would likewise let a caller believe the rest of
+		// the batch landed.
+		var errs []error
 		for _, sub := range msg {
 			if sub == nil {
 				continue
 			}
 			if subErr := m.execFollowUps(sub); subErr != nil {
-				return subErr
+				errs = append(errs, subErr)
 			}
 		}
+		return errors.Join(errs...)
 	case gitDataMsg, prRefreshMsg, allFilesMsg, moreCommitsMsg, ignoredDirLoadedMsg:
 		result, cmd2 := m.Update(msg)
 		*m = *(result.(*Model))

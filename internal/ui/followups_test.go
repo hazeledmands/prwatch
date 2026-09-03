@@ -47,11 +47,12 @@ func TestExecFollowUps_PanicIsReportedWithStack(t *testing.T) {
 
 func TestExecFollowUps_PanicInsideBatchPropagates(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	var ranSibling bool
+	var ranBefore, ranAfter bool
 	batch := func() tea.Msg {
 		return tea.BatchMsg{
-			func() tea.Msg { ranSibling = true; return nil },
+			func() tea.Msg { ranBefore = true; return nil },
 			func() tea.Msg { panic("nested boom") },
+			func() tea.Msg { ranAfter = true; return nil },
 		}
 	}
 	err := m.execFollowUps(batch)
@@ -61,8 +62,75 @@ func TestExecFollowUps_PanicInsideBatchPropagates(t *testing.T) {
 	if !strings.Contains(err.Error(), "nested boom") {
 		t.Errorf("error should carry the nested panic value, got %q", err.Error())
 	}
-	if !ranSibling {
+	if !ranBefore {
 		t.Error("sibling commands ahead of the panicking one should still have run")
+	}
+	// Bailing at the first panic leaves the model MORE half-updated than
+	// running the batch out does: the remaining sub-commands are exactly the
+	// updates that would have finished the job. Collect the failures and keep
+	// going.
+	if !ranAfter {
+		t.Error("sibling commands behind the panicking one must still run")
+	}
+}
+
+// Every panic in a batch is reported, not just the first: a caller told about
+// one of two failures would wrongly believe the rest of the batch landed.
+func TestExecFollowUps_AllBatchPanicsAreReported(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	batch := func() tea.Msg {
+		return tea.BatchMsg{
+			func() tea.Msg { panic("first boom") },
+			func() tea.Msg { panic("second boom") },
+		}
+	}
+	err := m.execFollowUps(batch)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	got := err.Error()
+	for _, want := range []string{"first boom", "second boom"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("error should carry %q, got %q", want, got)
+		}
+	}
+}
+
+// The report render is the last step of the harness, and it runs on a model
+// the follow-ups may have left corrupt. If the corruption is what panics
+// View, an unguarded render destroys the very report describing it.
+func TestRenderReport_PanicBecomesAnError(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width, m.height = 120, 40
+	m.updateLayout()
+	// loading must be false or View early-returns before it touches the
+	// panes, and the corruption below would never be reached.
+	m.loading = false
+	m.sidebar = nil // the shape a half-applied Update can leave behind
+
+	content, err := m.renderReport()
+	if err == nil {
+		t.Fatal("a View that panics must be reported, not allowed to escape")
+	}
+	if content != "" {
+		t.Errorf("content = %q, want empty when the render failed", content)
+	}
+	if !strings.Contains(err.Error(), "report render") {
+		t.Errorf("error should name the failing activity, got %q", err.Error())
+	}
+}
+
+func TestRenderReport_HealthyModelHasNoError(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width, m.height = 120, 40
+	m.updateLayout()
+
+	content, err := m.renderReport()
+	if err != nil {
+		t.Fatalf("healthy render should not error: %v", err)
+	}
+	if content == "" {
+		t.Error("healthy render should produce content")
 	}
 }
 

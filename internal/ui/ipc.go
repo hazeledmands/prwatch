@@ -186,9 +186,14 @@ func (m *Model) handleIPC(msg ipcMsg) (tea.Model, tea.Cmd) {
 		m.updateLayout()
 	}
 
-	// Render and respond
-	v := m.View()
-	resp := IPCResponse{Screen: ansiStripRE.ReplaceAllString(v.Content, "")}
+	// Render and respond. The render is guarded because the follow-ups above
+	// may have left the model corrupt, and a panic here would take the report
+	// of that corruption down with it.
+	content, renderErr := m.renderReport()
+	if renderErr != nil {
+		followUpErrs = append(followUpErrs, renderErr.Error())
+	}
+	resp := IPCResponse{Screen: ansiStripRE.ReplaceAllString(content, "")}
 	// A follow-up command that panicked leaves the screen half-updated. The
 	// client asked for these keystrokes, so it is the right place to hear
 	// that they did not fully land.
