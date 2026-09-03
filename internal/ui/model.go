@@ -1173,12 +1173,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.baseCommits = msg.baseCommits
 		m.behindCount = msg.behindCount
 		m.behindKnown = msg.behindKnown
-		// On first load, default to PR mode if a PR exists and mode hasn't been changed
-		if wasLoading && m.prInfo.Number > 0 && m.mode == FilesMode {
-			m.mode = PRMode
-		}
 		// Recalculate layout — status bar height may have changed
 		m.updateLayout()
+		// On first load, default to PR mode if a PR exists and mode hasn't
+		// been changed. Goes through setMode so the files-mode view state the
+		// user was looking at is saved and comes back with them; a direct
+		// assignment silently dropped it. Layout is settled first so the
+		// restore inside setMode measures against the final pane size.
+		if wasLoading && m.prInfo.Number > 0 && m.mode == FilesMode {
+			m.setMode(PRMode)
+		}
 		m.updateSidebarItems()
 		m.updateMainContent()
 		return m, nil
@@ -1302,12 +1306,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prComments = msg.prComments
 		m.prDeployments = msg.prDeployments
 		m.sortPRData()
-		// On first PR data arrival, switch to PR mode if user hasn't changed modes
-		if !m.prLoadedOnce && m.prInfo.Number > 0 && m.mode == FilesMode {
-			m.mode = PRMode
-		}
+		prLoadedBefore := m.prLoadedOnce
 		m.prLoadedOnce = true
 		m.updateLayout()
+		// On first PR data arrival, switch to PR mode if user hasn't changed
+		// modes. Through setMode for the same reason as the gitDataMsg arm:
+		// the outgoing mode's view state has to be saved, or switching back
+		// lands on whatever index PR mode left behind.
+		if !prLoadedBefore && m.prInfo.Number > 0 && m.mode == FilesMode {
+			m.setMode(PRMode)
+		}
 		m.updateSidebarItems()
 		m.updateMainContent()
 		if baseRefChanged && m.git != nil {
