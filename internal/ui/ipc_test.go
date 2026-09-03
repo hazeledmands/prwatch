@@ -223,6 +223,162 @@ func TestStartIPCListener_RoundTrip(t *testing.T) {
 	}
 }
 
+// The default socket used to be a fixed, world-accessible /tmp/prwatch.sock:
+// any user on the box could connect to it and drive another user's TUI, and
+// any user could squat the name first. The default must be per-user and live
+// in a directory only its owner can traverse.
+func TestDefaultIPCSocketPath_IsPerUserAndPrivate(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+
+	got, err := DefaultIPCSocketPath()
+	if err != nil {
+		t.Fatalf("DefaultIPCSocketPath: %v", err)
+	}
+	if got == "/tmp/prwatch.sock" {
+		t.Fatal("default socket path is still the shared world-accessible /tmp path")
+	}
+	if !strings.HasPrefix(got, runtimeDir) {
+		t.Errorf("path %q should live under XDG_RUNTIME_DIR %q when it is set", got, runtimeDir)
+	}
+
+	info, err := os.Stat(filepath.Dir(got))
+	if err != nil {
+		t.Fatalf("socket directory should have been created: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("socket directory mode = %o, want 700", perm)
+	}
+}
+
+// With no XDG_RUNTIME_DIR the path falls back to the user cache dir — still
+// per-user, still not /tmp.
+func TestDefaultIPCSocketPath_FallsBackToUserCacheDir(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+
+	got, err := DefaultIPCSocketPath()
+	if err != nil {
+		t.Fatalf("DefaultIPCSocketPath: %v", err)
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Skipf("no user cache dir on this system: %v", err)
+	}
+	if !strings.HasPrefix(got, cache) {
+		t.Errorf("path %q should live under the user cache dir %q", got, cache)
+	}
+	if strings.HasPrefix(got, "/tmp/") {
+		t.Errorf("path %q must not fall back to /tmp", got)
+	}
+}
+
+// The listener must not leave a world-accessible socket behind even when the
+// caller supplied the path (PRWATCH_IPC_SOCKET can point anywhere).
+func TestStartIPCListener_SocketIsNotWorldAccessible(t *testing.T) {
+	socketPath := filepath.Join(shortTempDir(t), "s.sock")
+	cleanup, err := StartIPCListener(socketPath, func(tea.Msg) {})
+	if err != nil {
+		t.Fatalf("failed to start listener: %v", err)
+	}
+	defer cleanup()
+
+	info, err := os.Stat(socketPath)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("socket mode = %o, want no group/other access", perm)
+	}
+}
+
+// shortTempDir is t.TempDir() for things that must hold a unix socket. macOS
+// caps a socket path at ~104 bytes and t.TempDir() spends most of that on the
+// test's own name, so a socket under it fails to bind with EINVAL.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "pw")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
+// shortIPCTimeouts shrinks both IPC deadlines for the duration of a test and
+// restores them only once the goroutines that read them have finished — the
+// caller signals that by closing/receiving on the returned wait function.
+func shortIPCTimeouts(t *testing.T, d time.Duration) (restore func()) {
+	t.Helper()
+	oldRead, oldWrite := ipcReadTimeout, ipcWriteTimeout
+	ipcReadTimeout, ipcWriteTimeout = d, d
+	return func() { ipcReadTimeout, ipcWriteTimeout = oldRead, oldWrite }
+}
+
+// A client that connects and then says nothing must not tie up a goroutine
+// and a connection forever.
+func TestHandleIPCConn_ReadDeadlineReleasesASilentClient(t *testing.T) {
+	restore := shortIPCTimeouts(t, 50*time.Millisecond)
+
+	server, client := net.Pipe()
+	defer client.Close()
+
+	returned := make(chan struct{})
+	go func() {
+		handleIPCConn(server, func(tea.Msg) {
+			t.Error("a request that never arrived must not be dispatched to the model")
+		})
+		close(returned)
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handleIPCConn hung on a client that sent nothing; read deadline missing")
+	}
+	// Restore only after the goroutine reading these vars is done.
+	restore()
+}
+
+// The response encode used to run on the Update goroutine. A client that
+// stops reading fills the socket buffer, and the whole TUI wedges behind a
+// write that never completes. handleIPC must return promptly regardless of
+// what the client does.
+func TestHandleIPC_StuckClientDoesNotBlockUpdate(t *testing.T) {
+	restore := shortIPCTimeouts(t, 50*time.Millisecond)
+
+	m := NewModel("/tmp/test", nil)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+
+	// net.Pipe is unbuffered and synchronous: a client that never reads
+	// blocks the writer indefinitely, which is exactly the stuck client.
+	server, client := net.Pipe()
+	defer client.Close()
+
+	ipc := ipcMsg{req: IPCRequest{Action: "render"}, conn: server, done: make(chan struct{})}
+
+	returned := make(chan struct{})
+	go func() {
+		m.handleIPC(ipc)
+		close(returned)
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handleIPC blocked on a client that never read the response")
+	}
+
+	// And the connection is not leaked: the write eventually gives up.
+	select {
+	case <-ipc.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the response writer never finished; connection leaked")
+	}
+	restore()
+}
+
 func TestIPCSocketPathFromEnv(t *testing.T) {
 	os.Setenv("PRWATCH_IPC_SOCKET", "/tmp/test.sock")
 	defer os.Unsetenv("PRWATCH_IPC_SOCKET")

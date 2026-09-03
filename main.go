@@ -73,7 +73,11 @@ func main() {
 	var opts []tea.ProgramOption
 	socketPath := ui.IPCSocketPathFromEnv()
 	if socketPath == "" && ipcMode {
-		socketPath = "/tmp/prwatch.sock"
+		socketPath, err = ui.DefaultIPCSocketPath()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	if socketPath != "" {
 		// Headless mode: disable terminal I/O so the program runs without a TTY.

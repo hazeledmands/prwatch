@@ -6,11 +6,14 @@
 //	prwatch-ctl <socket> --render   Print current screen without sending keys
 //	prwatch-ctl <socket> --quit     Tell prwatch to quit
 //
+// With no <socket>, the per-user default is used — the same path prwatch
+// itself picks (under XDG_RUNTIME_DIR, else the user cache dir).
+//
 // Examples:
 //
-//	prwatch-ctl /tmp/prwatch.sock "j,j,j"
-//	prwatch-ctl /tmp/prwatch.sock "c"
-//	prwatch-ctl /tmp/prwatch.sock "v,down,down,tab"
+//	prwatch-ctl "j,j,j"
+//	prwatch-ctl --render
+//	prwatch-ctl /custom/path.sock "v,down,down,tab"
 package main
 
 import (
@@ -18,6 +21,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+
+	"github.com/hazeledmands/prwatch/internal/ui"
 )
 
 type request struct {
@@ -41,7 +46,13 @@ func main() {
 		socketPath = os.Args[1]
 		arg = os.Args[2]
 	} else {
-		socketPath = "/tmp/prwatch.sock"
+		// Same function the server uses, so both ends cannot drift apart.
+		var err error
+		socketPath, err = ui.DefaultIPCSocketPath()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		arg = os.Args[1]
 	}
 

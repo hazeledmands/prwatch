@@ -3,9 +3,12 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -31,6 +34,49 @@ type ipcMsg struct {
 	done chan struct{} // closed after the model writes the response
 }
 
+// ipcReadTimeout bounds how long a connected client may take to send its
+// request, and ipcWriteTimeout how long the reply may take to drain. Both
+// exist so a client that connects and then stalls — deliberately or by
+// crashing mid-request — cannot pin a goroutine and a connection forever.
+// Ten seconds is far longer than a local request needs and far shorter than
+// "never". They are vars so tests can shorten them.
+var (
+	ipcReadTimeout  = 10 * time.Second
+	ipcWriteTimeout = 10 * time.Second
+)
+
+// DefaultIPCSocketPath returns the per-user socket path used when no explicit
+// one is given, creating its parent directory with mode 0700.
+//
+// It is deliberately not in /tmp. A fixed /tmp/prwatch.sock is a shared name
+// in a world-writable directory: on a multi-user box any other user could
+// connect to it and drive the TUI — the IPC protocol sends keystrokes and
+// returns screen contents — or squat the name before prwatch got there. Under
+// XDG_RUNTIME_DIR (already per-user and 0700 by spec) or the user cache dir,
+// the containing directory's mode is what keeps other users out, since
+// permissions on the socket file itself are not honoured on every platform.
+func DefaultIPCSocketPath() (string, error) {
+	base := os.Getenv("XDG_RUNTIME_DIR")
+	if base == "" {
+		var err error
+		base, err = os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("ipc socket dir: %w", err)
+		}
+	}
+	dir := filepath.Join(base, "prwatch")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("ipc socket dir: %w", err)
+	}
+	// MkdirAll leaves an existing directory's mode alone, so tighten it: a
+	// directory left over from an earlier, looser version would otherwise
+	// keep its permissions and the guarantee above would not hold.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", fmt.Errorf("ipc socket dir: %w", err)
+	}
+	return filepath.Join(dir, "prwatch.sock"), nil
+}
+
 // StartIPCListener starts a Unix domain socket listener that accepts
 // IPC commands and sends them as tea messages.
 func StartIPCListener(socketPath string, send func(tea.Msg)) (cleanup func(), err error) {
@@ -40,6 +86,13 @@ func StartIPCListener(socketPath string, send func(tea.Msg)) (cleanup func(), er
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("ipc listen: %w", err)
+	}
+	// Belt and braces over the 0700 directory: the caller may have supplied a
+	// path in a shared directory via PRWATCH_IPC_SOCKET.
+	if err := os.Chmod(socketPath, 0o600); err != nil {
+		ln.Close()
+		os.Remove(socketPath)
+		return nil, fmt.Errorf("ipc socket perms: %w", err)
 	}
 
 	go func() {
@@ -58,12 +111,27 @@ func StartIPCListener(socketPath string, send func(tea.Msg)) (cleanup func(), er
 	}, nil
 }
 
+// writeIPCResponse encodes resp to conn under a write deadline, so a client
+// that has stopped reading cannot block the writer forever.
+func writeIPCResponse(conn net.Conn, resp IPCResponse) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(ipcWriteTimeout)); err != nil {
+		return err
+	}
+	return json.NewEncoder(conn).Encode(resp)
+}
+
 func handleIPCConn(conn net.Conn, send func(tea.Msg)) {
+	// The request should already be in flight; a client that connects and
+	// then says nothing gets dropped rather than holding the connection.
+	if err := conn.SetReadDeadline(time.Now().Add(ipcReadTimeout)); err != nil {
+		conn.Close()
+		return
+	}
 	dec := json.NewDecoder(conn)
 	var req IPCRequest
 	if err := dec.Decode(&req); err != nil {
 		resp := IPCResponse{Error: fmt.Sprintf("invalid request: %v", err)}
-		json.NewEncoder(conn).Encode(resp)
+		writeIPCResponse(conn, resp)
 		conn.Close()
 		return
 	}
@@ -76,14 +144,21 @@ func handleIPCConn(conn net.Conn, send func(tea.Msg)) {
 }
 
 // handleIPC processes an IPC request within the model's Update loop.
+//
+// The reply is encoded off the Update goroutine (see replyIPC): the model
+// state it reports is a finished string by then, and writing it here meant a
+// client that stopped reading wedged the entire TUI behind a socket write
+// that never completed.
 func (m *Model) handleIPC(msg ipcMsg) (tea.Model, tea.Cmd) {
-	defer close(msg.done)
 	req := msg.req
 
 	if req.Action == "quit" {
-		resp := IPCResponse{Screen: "quitting"}
-		json.NewEncoder(msg.conn).Encode(resp)
+		// The one synchronous reply: tea.Quit may tear the process down
+		// before a background writer got its turn. The write deadline is what
+		// bounds this one.
+		writeIPCResponse(msg.conn, IPCResponse{Screen: "quitting"})
 		msg.conn.Close()
+		close(msg.done)
 		return m, tea.Quit
 	}
 
@@ -123,14 +198,24 @@ func (m *Model) handleIPC(msg ipcMsg) (tea.Model, tea.Cmd) {
 			m.debugLog.Printf("[ipc] follow-up failures: %s", resp.Error)
 		}
 	}
-	if err := json.NewEncoder(msg.conn).Encode(resp); err != nil {
-		if m.debugLog != nil {
-			m.debugLog.Printf("[ipc] write error: %v", err)
-		}
-	}
-	msg.conn.Close()
+	replyIPC(msg.conn, msg.done, resp, m.debugLog)
 
 	return m, nil
+}
+
+// replyIPC writes one response and closes the connection, off the Update
+// goroutine. It captures only finished values — the connection, the channel,
+// the already-rendered response — and never touches the Model, per CLAUDE.md
+// ("tea.Cmd closures must not read Model state"); the same reasoning applies
+// to any goroutine Update spawns. The logger is safe to share.
+func replyIPC(conn net.Conn, done chan struct{}, resp IPCResponse, debugLog *log.Logger) {
+	go func() {
+		defer close(done)
+		defer conn.Close()
+		if err := writeIPCResponse(conn, resp); err != nil && debugLog != nil {
+			debugLog.Printf("[ipc] write error: %v", err)
+		}
+	}()
 }
 
 // IPCSocketPathFromEnv returns the socket path from PRWATCH_IPC_SOCKET, or empty string.
