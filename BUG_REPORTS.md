@@ -275,6 +275,17 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
   no longer be replayed. `View()` has since gotten ~14x faster on an empty
   render (see the padding-complexity entry above), which may or may not cover
   this configuration; `BenchmarkViewEmpty` is now the standing guard.
+  *More evidence (2026-09-03):* a single `./scripts/rapid 300` sweep failed
+  four property tests at once — `DragSelectsCorrectText`,
+  `InteractionInvariants`, `Model_VisualYankMatchesHighlight`,
+  `TreeModeNavigation` — and *none* reproduces on seed replay (seeds
+  committed in `e927e7b` as evidence). All four are `t.Parallel`, so the
+  correlated one-run failure pattern points at load-dependent timing (the
+  same class as this entry), not at the commits-mode change that was under
+  test — three of the four never touch commits mode. The O(content)-work-
+  per-keystroke finding in CODE_REVIEW.md remains the leading mechanism
+  candidate; when that lands, re-run the stress sweep before considering
+  this closed.
 
 - **Confirming a no-match search orphans the highlight with no dismiss
   path.** `HandleInputKey`'s Enter arm (`search.go:118-126`) sets
