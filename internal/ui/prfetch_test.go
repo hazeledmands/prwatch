@@ -95,6 +95,57 @@ func TestPRRefresh_StaleResultDiscarded(t *testing.T) {
 	}
 }
 
+// TestPRRefresh_StaleErrorDoesNotClobberNewerSuccess covers the other half
+// of the staleness guard. A superseded fetch's *error* is as out of date as
+// its payload: applying it would paint a rate limit or an auth failure over
+// data that just arrived fine, and would back the poll off on evidence a
+// later fetch has already contradicted.
+func TestPRRefresh_StaleErrorDoesNotClobberNewerSuccess(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, _ := m.Update(prRefreshMsg{
+		seq:    2,
+		prInfo: gitpkg.PRInfoResult{Number: 20, Title: "current"},
+	})
+	m = result.(*Model)
+	interval := m.activity.PRInterval()
+
+	// The older fetch failed, and says so far too late.
+	result, _ = m.Update(prRefreshMsg{
+		seq:         1,
+		fetchFailed: true,
+		errKind:     ghErrRateLimited,
+		errText:     "API rate limit exceeded",
+	})
+	m = result.(*Model)
+
+	if m.prError != "" {
+		t.Errorf("prError = %q, want empty — a stale failure must not report over a newer success", m.prError)
+	}
+	if m.activity.PRInterval() != interval {
+		t.Errorf("PR interval = %v, want %v — a stale rate limit must not back the poll off", m.activity.PRInterval(), interval)
+	}
+	if m.prInfo.Number != 20 {
+		t.Errorf("prInfo.Number = %d, want 20", m.prInfo.Number)
+	}
+}
+
+// TestPRRefresh_EqualSeqApplies pins the boundary: the guard discards only
+// what is strictly older. A result carrying the seq already adopted is that
+// same dispatch's answer, so it applies — the comparison must not be <=.
+func TestPRRefresh_EqualSeqApplies(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+
+	result, _ := m.Update(prRefreshMsg{seq: 3, prInfo: gitpkg.PRInfoResult{Number: 30, Title: "first"}})
+	m = result.(*Model)
+	result, _ = m.Update(prRefreshMsg{seq: 3, prInfo: gitpkg.PRInfoResult{Number: 31, Title: "same dispatch"}})
+	m = result.(*Model)
+
+	if m.prInfo.Number != 31 {
+		t.Errorf("prInfo.Number = %d, want 31 — an equal seq is not stale", m.prInfo.Number)
+	}
+}
+
 // TestPRRefresh_UnsequencedMsgAlwaysApplies pins the escape hatch gitDataMsg
 // uses: seq 0 means "not from a tracked dispatch" — a hand-built msg from a
 // test or RenderOnce — and must never be judged stale.
@@ -196,6 +247,44 @@ func TestPRRefresh_PartialReviewsRateLimitBacksOff(t *testing.T) {
 
 	if m.activity.PRInterval() <= before {
 		t.Errorf("PR interval = %v, want a backoff above %v", m.activity.PRInterval(), before)
+	}
+}
+
+// TestPRFetch_ReviewsErrReachesTheBackoff closes the chain end to end: a
+// reviews failure recorded by internal/git must arrive classified, so a
+// throttle backs the poll off no matter which page hit it. Asserted on the
+// msg the fetch actually produces, not a hand-built one, because the
+// classification step is the link that was missing.
+func TestPRFetch_ReviewsErrReachesTheBackoff(t *testing.T) {
+	mg := &mockGit{
+		prInfo:       gitpkg.PRInfoResult{Number: 4, Title: "big"},
+		reviews:      []gitpkg.PRReview{{Author: "fallback", State: "APPROVED"}},
+		reviewsTotal: 1,
+		reviewsErr:   fmt.Errorf("exit status 1: HTTP 403: API rate limit exceeded"),
+	}
+
+	msg, ok := fetchPRStatus(mg, 0).(prRefreshMsg)
+	if !ok {
+		t.Fatal("fetchPRStatus did not return a prRefreshMsg")
+	}
+	// Not a whole-fetch failure: the data is good.
+	if msg.fetchFailed {
+		t.Error("fetchFailed = true; a reviews-only failure must not discard the PR data")
+	}
+	if msg.reviewsErrKind != ghErrRateLimited {
+		t.Errorf("reviewsErrKind = %v, want %v", msg.reviewsErrKind, ghErrRateLimited)
+	}
+
+	m := NewModel("/tmp", testGit())
+	interval := m.activity.PRInterval()
+	result, _ := m.Update(msg)
+	m = result.(*Model)
+
+	if m.activity.PRInterval() <= interval {
+		t.Errorf("PR interval = %v, want a backoff above %v", m.activity.PRInterval(), interval)
+	}
+	if len(m.prReviews) != 1 {
+		t.Errorf("len(prReviews) = %d, want 1 — the fallback data must still apply", len(m.prReviews))
 	}
 }
 

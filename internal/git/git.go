@@ -1151,7 +1151,14 @@ func (g *Git) prPresenceAfterViewFailure(viewErr error) prPresence {
 // classifier keys on. Matching them is not a return to prose matching: the
 // question here is only "did this reach the API", and a wording change cannot
 // invent an HTTP status.
-var ghAPIErrorRe = regexp.MustCompile(`(?i)\bhttp[ /]\d{3}\b|\bgraphql:|x-ratelimit-remaining`)
+//
+// The graphql alternative is anchored to where gh emits it — start of the
+// message, or straight after the "<exit status>: " runExternal prefixes.
+// Unanchored, it matched the *path* of a quoted endpoint URL, so
+// `Post "https://api.github.com/graphql: dial tcp ...: connection refused`
+// read as evidence GitHub had answered — turning a correctly silent verdict
+// on an unreachable or non-GitHub repo into status-line noise every poll.
+var ghAPIErrorRe = regexp.MustCompile(`(?i)\bhttp[ /]\d{3}\b|(^|: )graphql:|x-ratelimit-remaining`)
 
 // errorReachedGitHub reports whether an error carries evidence that the
 // request reached GitHub and was answered — which rules out every local
@@ -1272,6 +1279,17 @@ func (g *Git) PRAll() (PRAllResult, error) {
 		// it has: no truncation is *known*, and inventing one would put a
 		// permanent "showing N of M" on every PR whose GraphQL fetch failed.
 		result.ReviewsTotal = len(result.Reviews)
+		// Whether a reviews failure is worth reporting depends on the
+		// failure, not on how far pagination got. A throttle or an auth
+		// failure must back the poll off from page one as surely as from
+		// page two — the alternative made prwatch's response to a rate limit
+		// depend on which page hit it. But a GraphQL path that is simply
+		// unavailable would then pin an error to the status line on every
+		// poll while the fallback data is perfectly serviceable, so the
+		// split is by evidence that GitHub actually answered.
+		if errorReachedGitHub(reviewsErr) {
+			result.ReviewsErr = reviewsErr
+		}
 	}
 
 	for _, rr := range raw.ReviewRequests {
@@ -1680,8 +1698,16 @@ func gitRemoteToHTTPS(remote string) string {
 	if u.Scheme == "http" {
 		scheme = "http"
 	}
-	// Credentials never belong in a URL we might show or open.
-	return scheme + "://" + u.Host + strings.TrimSuffix(u.Path, ".git")
+	// Hostname(), not Host: a port belongs in a browse URL only when it is a
+	// web port. An SSH port describes the transport being translated away
+	// from, and https://github.com:22/o/r points nowhere.
+	host := u.Hostname()
+	if port := u.Port(); port != "" && (u.Scheme == "http" || u.Scheme == "https") {
+		host += ":" + port
+	}
+	// Credentials never belong in a URL we might show or open; Hostname()
+	// drops the userinfo with them.
+	return scheme + "://" + host + strings.TrimSuffix(u.Path, ".git")
 }
 
 // IsRWXURL returns true if the URL points to an RWX CI run.

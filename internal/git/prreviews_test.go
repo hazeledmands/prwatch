@@ -269,6 +269,86 @@ func TestPRAll_ReviewPaginationPartialFailure(t *testing.T) {
 	}
 }
 
+// TestPRAll_ReviewsZeroPageFailure covers a GraphQL failure that yielded no
+// pages at all. The partial path reported its error, so a rate limit on page
+// 2 backed the poll off while the same limit on page 1 reported nothing —
+// whether prwatch noticed a throttle depended on which page it hit.
+//
+// The split is by *evidence*, not by page: a failure that came back from
+// GitHub is reported and classified from any page, while a GraphQL path that
+// is structurally unavailable stays silently on the fallback rather than
+// pinning a permanent error to the status line.
+func TestPRAll_ReviewsZeroPageFailure(t *testing.T) {
+	tests := []struct {
+		name    string
+		pageErr error
+		wantErr bool
+	}{
+		{
+			name:    "rate limit on the first page is reported",
+			pageErr: fmt.Errorf("exit status 1: HTTP 403: API rate limit exceeded"),
+			wantErr: true,
+		},
+		{
+			name:    "auth failure on the first page is reported",
+			pageErr: fmt.Errorf("exit status 1: HTTP 401: Bad credentials"),
+			wantErr: true,
+		},
+		{
+			name:    "server failure on the first page is reported",
+			pageErr: fmt.Errorf("exit status 1: HTTP 502: Bad gateway"),
+			wantErr: true,
+		},
+		{
+			name:    "a GraphQL error from GitHub is reported",
+			pageErr: fmt.Errorf("exit status 1: GraphQL: Something went wrong"),
+			wantErr: true,
+		},
+		{
+			name: "a structurally unavailable GraphQL path stays silent",
+			// No status, no GraphQL envelope: nothing says GitHub answered.
+			// The fallback data is fine and a permanent status-line error
+			// would be noise on every poll.
+			pageErr: fmt.Errorf("exit status 1: gh: command graphql not supported"),
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := setupTestRepo(t)
+			stub := &pagedGH{
+				prView:    `{"number":1,"reviews":[{"author":{"login":"fallback"},"state":"APPROVED"}]}`,
+				pageErr:   tt.pageErr,
+				pageErrAt: 0, // the very first query fails
+			}
+			g := git.NewWithFactory(dir, stub.factory())
+
+			result, err := g.PRAll()
+			if err != nil {
+				t.Fatalf("PRAll() = %v; a reviews failure must not fail the whole PR fetch", err)
+			}
+			// Either way the fallback data applies: something is better than
+			// an empty reviews list.
+			if len(result.Reviews) != 1 || result.Reviews[0].Author != "fallback" {
+				t.Fatalf("Reviews = %+v, want the gh pr view fallback", result.Reviews)
+			}
+			if result.ReviewsTotal != 1 {
+				t.Errorf("ReviewsTotal = %d, want 1", result.ReviewsTotal)
+			}
+			if tt.wantErr && result.ReviewsErr == nil {
+				t.Error("ReviewsErr = nil; a failure GitHub answered must be reported and classified")
+			}
+			if !tt.wantErr && result.ReviewsErr != nil {
+				t.Errorf("ReviewsErr = %v, want nil — no evidence this reached GitHub", result.ReviewsErr)
+			}
+			if tt.wantErr && result.ReviewsErr != nil && !errors.Is(result.ReviewsErr, tt.pageErr) {
+				t.Errorf("ReviewsErr = %v, want the underlying page error", result.ReviewsErr)
+			}
+		})
+	}
+}
+
 // TestPRAll_ReviewsTotalUnknownOnFallback checks the non-GraphQL path. When
 // the GraphQL fetch fails, reviews come from `gh pr view` and no total is
 // reported — the result must claim exactly as many reviews as it carries, so

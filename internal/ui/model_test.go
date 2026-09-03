@@ -92,6 +92,11 @@ type mockGit struct {
 
 	lastCommitForFile    git.Commit
 	lastCommitForFileErr error
+
+	// reviewsErr: the reviews sub-fetch failed while the PR fetch as a whole
+	// succeeded. Carries data and a failure at once.
+	reviewsErr   error
+	reviewsTotal int
 }
 
 func (m *mockGit) RepoInfo() (git.RepoInfoResult, error) { return m.repoInfo, m.repoInfoErr }
@@ -102,6 +107,8 @@ func (m *mockGit) PRAll() (git.PRAllResult, error) {
 	return git.PRAllResult{
 		Info:           m.prInfo,
 		Reviews:        m.reviews,
+		ReviewsTotal:   m.reviewsTotal,
+		ReviewsErr:     m.reviewsErr,
 		ReviewRequests: m.reviewRequests,
 		Comments:       m.prComments,
 		CommentCount:   m.commentCount,

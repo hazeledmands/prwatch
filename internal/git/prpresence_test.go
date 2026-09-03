@@ -126,6 +126,11 @@ func TestRepoInfo_RemoteURLForms(t *testing.T) {
 		{"ssh://someone@github.com/o/r.git", "https://github.com/o/r"},
 		{"https://user:token@github.com/o/r.git", "https://github.com/o/r"},
 		{"git@gitlab.com:o/r.git", "https://gitlab.com/o/r"},
+		// An SSH port is meaningless in a browse URL — and worse, wrong:
+		// https://github.com:22/… points nowhere.
+		{"ssh://git@github.com:22/o/r.git", "https://github.com/o/r"},
+		// An http(s) port is part of the address and stays.
+		{"https://ghe.example.com:8443/o/r.git", "https://ghe.example.com:8443/o/r"},
 		// No host to speak of: no browse URL.
 		{"/srv/git/r.git", ""},
 	}
@@ -282,6 +287,18 @@ func TestPRAll_NoPRIsAStructuredSignal(t *testing.T) {
 			probeOut:  "[]",
 			wantErr:   false,
 			wantProbe: true,
+		},
+		{
+			// Negative control for the graphql evidence pattern. A
+			// connectivity error quotes the endpoint URL, so an unanchored
+			// match on "graphql:" read the *URL path* as gh's error prefix
+			// and turned a correctly-silent verdict on a non-GitHub repo into
+			// a status-line error on every poll.
+			name:       "a connectivity error quoting the graphql URL is not remote evidence",
+			withRemote: false,
+			viewErr:    fmt.Errorf("exit status 1: Post \"https://api.github.com/graphql: dial tcp 140.82.114.6:443: connect: connection refused"),
+			wantErr:    false,
+			wantProbe:  false,
 		},
 		{
 			name:          "GraphQL-shaped failure is remote evidence too",
