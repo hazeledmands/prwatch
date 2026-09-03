@@ -1858,8 +1858,13 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 	if m.git == nil {
 		return m, nil
 	}
+	// Row indices come from the same authority render and hover use, so a
+	// coordinate never resolves against a line that isn't on that row —
+	// line 3 sits on row 1, not row 2, when there is no line 2. See
+	// CLAUDE.md, "Layout geometry comes from one function".
+	rows := statusBarRows(m.statusBarData())
 	switch y {
-	case 0:
+	case rows.line1:
 		// Line 1: click on specific mode label to switch to that mode
 		for _, label := range m.modeLabels {
 			if x >= label.start && x < label.end {
@@ -1876,7 +1881,7 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-	case 1:
+	case rows.line2:
 		// Line 2: local git status — click on specific elements
 		for _, label := range m.line2Labels {
 			if x >= label.start && x < label.end {
@@ -1891,11 +1896,14 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		// Fallback: anywhere on line 2 goes to commits mode
-		if len(m.commits) > 0 {
-			m.setMode(CommitsMode)
-		}
-	case 2:
+		// No row-wide fallback: a coordinate no label covers does nothing.
+		// PROMPT.md requires hover regions and click regions to be the same
+		// regions, and hover only ever highlights a published label — so a
+		// row-wide target would be a large invisible one, which is exactly
+		// what the hover state exists to rule out. Separators, the padding
+		// past the last label, and anything beyond a truncation cut are all
+		// inert. Same shape as line 3, which never had a fallback.
+	case rows.line3:
 		// Line 3: PR status — click on specific elements. Clicking any
 		// label jumps to a specific item, overriding the restored state.
 		if m.prInfo.Number > 0 {

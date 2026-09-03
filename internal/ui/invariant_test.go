@@ -2977,3 +2977,169 @@ func TestProperty_FileViewRender_PreservesAllRemovedLines(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Status-bar hover regions == click regions
+// ---------------------------------------------------------------------------
+
+// genStatusBarData draws a status-bar input covering the shapes that change
+// the bar's row layout (git repo / no git repo, PR / error / loading /
+// nothing, confirm prompt) and content wide enough — with emoji and combining
+// marks — to exercise truncation and the width oracle.
+func genStatusBarData(t *rapid.T) statusBarData {
+	repo := rapid.SampledFrom([]string{"", "repo", "prwatch"}).Draw(t, "repoName")
+	branch := rapid.SampledFrom([]string{"", "main", "feature/x", "a-really-quite-long-branch-name"}).Draw(t, "branch")
+	title := rapid.SampledFrom([]string{
+		"short",
+		"a considerably longer pull request title 🔥 with emoji",
+		"éclair ̃ combining marks",
+	}).Draw(t, "prTitle")
+	prNum := rapid.SampledFrom([]int{0, 42}).Draw(t, "prNumber")
+
+	data := statusBarData{
+		info: git.RepoInfoResult{
+			Branch:     branch,
+			RepoName:   repo,
+			DirName:    repo,
+			AheadCount: rapid.SampledFrom([]int{0, 2}).Draw(t, "ahead"),
+		},
+		mode:             rapid.SampledFrom([]Mode{FilesMode, CommitsMode, PRMode, HelpMode}).Draw(t, "mode"),
+		uncommitCount:    rapid.SampledFrom([]int{0, 3}).Draw(t, "uncommitted"),
+		commitCount:      rapid.SampledFrom([]int{0, 5}).Draw(t, "commits"),
+		changedFileCount: rapid.SampledFrom([]int{0, 16}).Draw(t, "changedFiles"),
+		behindCount:      rapid.SampledFrom([]int{0, 4}).Draw(t, "behind"),
+		behindKnown:      rapid.Bool().Draw(t, "behindKnown"),
+		commentCount:     rapid.SampledFrom([]int{0, 7}).Draw(t, "comments"),
+		showHelp:         rapid.Bool().Draw(t, "showHelp"),
+		confirming:       rapid.Float64Range(0, 1).Draw(t, "confirming") < 0.1,
+		prLoading:        rapid.Bool().Draw(t, "prLoading"),
+		prError:          rapid.SampledFrom([]string{"", "GitHub API rate limited"}).Draw(t, "prError"),
+	}
+	if prNum > 0 {
+		data.pr = git.PRInfoResult{
+			Number:         prNum,
+			Title:          title,
+			URL:            "https://example.com/pull/42",
+			IsDraft:        rapid.Bool().Draw(t, "draft"),
+			State:          rapid.SampledFrom([]string{"", "OPEN", "MERGED"}).Draw(t, "prState"),
+			ReviewDecision: rapid.SampledFrom([]string{"", "APPROVED", "REVIEW_REQUIRED"}).Draw(t, "reviewDecision"),
+		}
+		if rapid.Bool().Draw(t, "hasReviews") {
+			data.reviews = []git.PRReview{{Author: "alice", State: "APPROVED"}}
+		}
+		if rapid.Bool().Draw(t, "hasRequests") {
+			data.reviewRequests = []git.PRReviewRequest{{Name: "bob"}}
+		}
+		data.ciStatus = git.CIStatusResult{
+			State: rapid.SampledFrom([]string{"", "SUCCESS", "FAILURE", "PENDING"}).Draw(t, "ciState"),
+			URL:   "https://ci.example.com",
+		}
+	}
+	if rapid.Bool().Draw(t, "scrubbed") {
+		data.scopeHandle = &scopeHandleInfo{sha7: "a3f7d21", headOffset: 7}
+	}
+	return data
+}
+
+// underlineSpan locates the single underlined run in a rendered row and
+// returns the display columns it covers, present=false when the row carries
+// no underline. Columns are measured from the row's own start, the same frame
+// the click regions live in; escape sequences occupy no cells, so the byte
+// prefix before each SGR marker measures to that marker's column.
+func underlineSpan(t *rapid.T, row string) (start, end int, present bool) {
+	i := strings.Index(row, ansiUlOn)
+	if i < 0 {
+		return 0, 0, false
+	}
+	if strings.Contains(row[i+len(ansiUlOn):], ansiUlOn) {
+		t.Fatalf("row carries more than one underlined run: %q", row)
+	}
+	rest := row[i+len(ansiUlOn):]
+	j := strings.Index(rest, ansiUlOff)
+	if j < 0 {
+		t.Fatalf("underline is never turned off: %q", row)
+	}
+	start = displayWidth(row[:i])
+	end = displayWidth(row[:i+len(ansiUlOn)+j])
+	return start, end, true
+}
+
+// TestProperty_StatusBarHoverMatchesClickRegions is the load-bearing
+// invariant for PROMPT.md's "hover regions and click regions are the same
+// regions": for every (width, hoverX, hoverY), the underlined columns on the
+// hovered row are exactly the columns of the label a click at that same
+// coordinate would dispatch — and no row carries an underline when no label
+// contains the coordinate.
+//
+// It also pins the row indices: which row line 2 and line 3 land on comes
+// from statusBarRows, so a coordinate on line 3's row can never resolve
+// against line 2's labels (which is what the hard-coded `case 1:`/`case 2:`
+// in handleStatusBarClick did when line 2 was absent).
+func TestProperty_StatusBarHoverMatchesClickRegions(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		data := genStatusBarData(t)
+		width := rapid.IntRange(8, 160).Draw(t, "width")
+		rows := statusBarRows(data)
+
+		hoverY := rapid.IntRange(0, rows.rows).Draw(t, "hoverY")
+		hoverX := rapid.IntRange(0, width+4).Draw(t, "hoverX")
+		data.hoverX, data.hoverY = hoverX, hoverY
+
+		bar, modeLabels, l2Labels, l3Labels := renderStatusBar(width, data)
+		lines := strings.Split(bar, "\n")
+		if len(lines) != rows.rows {
+			t.Fatalf("renderStatusBar produced %d rows, statusBarRows promised %d: %q", len(lines), rows.rows, bar)
+		}
+
+		// The click regions for the hovered row, in the row's own frame.
+		type region struct{ start, end int }
+		var regions []region
+		switch hoverY {
+		case rows.line1:
+			for _, l := range modeLabels {
+				regions = append(regions, region{l.start, l.end})
+			}
+		case rows.line2:
+			for _, l := range l2Labels {
+				regions = append(regions, region{l.start, l.end})
+			}
+		case rows.line3:
+			for _, l := range l3Labels {
+				regions = append(regions, region{l.start, l.end})
+			}
+		}
+
+		want, wantPresent := region{}, false
+		for _, r := range regions {
+			if r.start >= r.end {
+				t.Fatalf("empty click region %+v was published (row %d, width %d)", r, hoverY, width)
+			}
+			if hoverX >= r.start && hoverX < r.end {
+				if wantPresent {
+					t.Fatalf("click regions overlap at x=%d on row %d: %+v", hoverX, hoverY, regions)
+				}
+				want, wantPresent = r, true
+			}
+		}
+
+		for y, row := range lines {
+			start, end, present := underlineSpan(t, row)
+			if y != hoverY {
+				if present {
+					t.Fatalf("row %d is underlined at [%d,%d) but the cursor is on row %d: %q", y, start, end, hoverY, row)
+				}
+				continue
+			}
+			if present != wantPresent {
+				t.Fatalf("row %d: underlined=%v (at [%d,%d)) but a click at x=%d would %s (regions %+v, width %d, row %q)",
+					y, present, start, end, hoverX,
+					map[bool]string{true: "hit a label", false: "hit nothing"}[wantPresent], regions, width, row)
+			}
+			if present && (start != want.start || end != want.end) {
+				t.Fatalf("row %d: underlined [%d,%d) but the click region at x=%d is [%d,%d) (width %d, row %q)",
+					y, start, end, hoverX, want.start, want.end, width, row)
+			}
+		}
+	})
+}
