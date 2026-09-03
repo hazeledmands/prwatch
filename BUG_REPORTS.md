@@ -276,6 +276,20 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
   render (see the padding-complexity entry above), which may or may not cover
   this configuration; `BenchmarkViewEmpty` is now the standing guard.
 
+- **Confirming a no-match search orphans the highlight with no dismiss
+  path.** `HandleInputKey`'s Enter arm (`search.go:118-126`) sets
+  `searching = false` but leaves `confirmed = false` when there are zero
+  matches, so `/zzz<Enter>` lands in a state where `IsActive()` is false
+  while `s.query` is non-empty and `mainPane.searchQuery` still carries the
+  query from the last `updateMatches`: the user sees a (no-op) highlight
+  query with no search bar and Escape doesn't clear it. Also means
+  `RecomputeMatches` (078d346) deliberately skips this state on refresh —
+  correct given `IsActive()`, but the state itself shouldn't exist. Found
+  by the batch-5 review (2026-09-03); predates the search fixes. Fix wants
+  a decision: either Enter-with-no-matches keeps the bar open (reading
+  0/0), or it fully clears query + pane searchQuery. Add a regression test
+  before fixing, per house rules.
+
 ## Fixed Bugs
 
 ### Whole-line yank dropped the line's own trailing spaces
