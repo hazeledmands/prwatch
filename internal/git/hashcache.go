@@ -2,6 +2,7 @@ package git
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,29 +157,60 @@ func statInDir(dir string) statFunc {
 const hashObjectBatchSize = 256
 
 // hashObjects is the production hashFunc: it asks git for the blob hashes of
-// paths, in batches. `git hash-object` emits one hash per line in argument
-// order, which is what pairs the answers back to their paths.
+// paths, in batches, and returns every hash it could obtain.
+//
+// A batch is all-or-nothing at the subprocess level — git exits nonzero for the
+// whole invocation if any one path is unreadable, and run() discards stdout on
+// a nonzero exit — so a single file that vanished between the listing and the
+// hashing would otherwise cost the hashes of up to 255 innocent neighbours,
+// and with them rename detection for the entire refresh. A failed batch is
+// therefore retried one path at a time, which confines the loss to the file
+// that actually caused it.
+//
+// The error is always nil: partial success is the normal outcome here, and a
+// caller cannot do anything with "some path somewhere failed" that it cannot
+// do better by noticing which hashes are absent. The signature keeps its error
+// to satisfy hashFunc.
 func (g *Git) hashObjects(paths []string) (map[string]string, error) {
 	out := make(map[string]string, len(paths))
 	for start := 0; start < len(paths); start += hashObjectBatchSize {
 		end := min(start+hashObjectBatchSize, len(paths))
 		batch := paths[start:end]
 
-		args := append([]string{"hash-object", "--"}, batch...)
-		res, err := g.run(args...)
-		if err != nil {
-			return out, err
+		hashes, err := g.hashObjectBatch(batch)
+		if err == nil {
+			maps.Copy(out, hashes)
+			continue
 		}
-		lines := splitLines(res)
-		if len(lines) != len(batch) {
-			// A short or over-long answer means the line-to-argument
-			// correspondence is broken; guessing which hash belongs to which
-			// path is how a false rename gets reported.
-			return out, errHashObjectMismatch
+		// Degrade to one subprocess per path for this batch only. The cost is
+		// paid on the rare failing batch, not on the common path.
+		for _, p := range batch {
+			if one, err := g.hashObjectBatch([]string{p}); err == nil {
+				maps.Copy(out, one)
+			}
 		}
-		for i, h := range lines {
-			out[batch[i]] = h
-		}
+	}
+	return out, nil
+}
+
+// hashObjectBatch runs one `git hash-object` over paths. Git emits one hash per
+// line in argument order, which is what pairs the answers back to their paths.
+func (g *Git) hashObjectBatch(paths []string) (map[string]string, error) {
+	args := append([]string{"hash-object", "--"}, paths...)
+	res, err := g.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	lines := splitLines(res)
+	if len(lines) != len(paths) {
+		// A short or over-long answer means the line-to-argument
+		// correspondence is broken; guessing which hash belongs to which path
+		// is how a false rename gets reported.
+		return nil, errHashObjectMismatch
+	}
+	out := make(map[string]string, len(paths))
+	for i, h := range lines {
+		out[paths[i]] = h
 	}
 	return out, nil
 }

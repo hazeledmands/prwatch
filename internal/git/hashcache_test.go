@@ -2,8 +2,10 @@ package git
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
+	"sync"
 	"testing"
 )
 
@@ -139,11 +141,9 @@ func TestHashCache_ReuseAndInvalidation(t *testing.T) {
 			wantSecondBatch: []string{"a"},
 		},
 		{
-			name: "a rewritten file with identical size and mtime stays cached",
-			// The stat identity is the whole contract: this is the documented
-			// blind spot, asserted so a change of key is a deliberate one.
-			mutate:          func(fakeStats) {},
-			wantSecondBatch: nil,
+			name:            "a changed size and mtime together invalidate",
+			mutate:          func(s fakeStats) { s["a"] = fileStat{size: 42, mtimeNano: 7} },
+			wantSecondBatch: []string{"a"},
 		},
 	}
 
@@ -181,6 +181,105 @@ func TestHashCache_ReuseAndInvalidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHashCache_ServesAStaleHashWhenTheStatDoesNotMove pins the documented
+// blind spot rather than asserting around it. The cache key is (size, mtime),
+// so content that changes without moving either — a same-length write inside
+// one filesystem timestamp tick — is served from cache.
+//
+// This is a deliberate trade, not an oversight: the alternative is rehashing
+// every untracked file every few seconds, which is the cost the cache exists
+// to remove. The consequence is bounded to a missed or spurious pure-rename
+// pairing for one refresh, and the next real edit to the file corrects it. The
+// test exists so that changing the key is a decision someone makes on purpose.
+func TestHashCache_ServesAStaleHashWhenTheStatDoesNotMove(t *testing.T) {
+	stats := fakeStats{"a": {size: 3, mtimeNano: 1}}
+	h := &recordingHasher{hashes: map[string]string{"a": "original"}}
+	var c hashCache
+
+	if got := c.hashes([]string{"a"}, stats.statFunc(), h.hashFunc()); got["a"] != "original" {
+		t.Fatalf("first call = %v, want a=original", got)
+	}
+
+	// The file's content changes; its size and mtime do not.
+	h.hashes["a"] = "rewritten"
+
+	got := c.hashes([]string{"a"}, stats.statFunc(), h.hashFunc())
+	if got["a"] != "original" {
+		t.Errorf("second call = %v, want the stale a=original (the cache key did not move)", got)
+	}
+	if len(h.calls) != 1 {
+		t.Errorf("hasher calls = %v, want 1: an unmoved stat must not rehash", h.calls)
+	}
+
+	// Any movement in the stat brings the new content in.
+	stats["a"] = fileStat{size: 3, mtimeNano: 2}
+	if got := c.hashes([]string{"a"}, stats.statFunc(), h.hashFunc()); got["a"] != "rewritten" {
+		t.Errorf("after the mtime moved = %v, want a=rewritten", got)
+	}
+}
+
+// TestHashCache_ConcurrentUse is the justification for the mutex: one *Git is
+// shared by every refresh goroutine, so hashes() is called concurrently. Run
+// under -race, this pins both the map access and the deliberate gap where the
+// lock is released across the hasher call — a second caller may hash the same
+// path redundantly there, which is wasted work but never a wrong answer.
+func TestHashCache_ConcurrentUse(t *testing.T) {
+	const (
+		goroutines = 8
+		iterations = 50
+		nPaths     = 12
+	)
+
+	stats := fakeStats{}
+	hashes := map[string]string{}
+	paths := make([]string, 0, nPaths)
+	for i := range nPaths {
+		p := fmt.Sprintf("f%d", i)
+		paths = append(paths, p)
+		stats[p] = fileStat{size: int64(i + 1), mtimeNano: 1}
+		hashes[p] = fmt.Sprintf("h%d", i)
+	}
+
+	// A hasher with no shared mutable state of its own, so anything the race
+	// detector reports belongs to the cache.
+	hashOf := func(req []string) (map[string]string, error) {
+		out := make(map[string]string, len(req))
+		for _, p := range req {
+			out[p] = hashes[p]
+		}
+		return out, nil
+	}
+	statOf := func(p string) (fileStat, bool) {
+		st, ok := stats[p]
+		return st, ok
+	}
+
+	var c hashCache
+	var wg sync.WaitGroup
+	for g := range goroutines {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := range iterations {
+				// Vary the request set so entries are also being evicted while
+				// other goroutines read and write them.
+				req := paths
+				if (g+i)%3 == 0 {
+					req = paths[:nPaths/2]
+				}
+				got := c.hashes(req, statOf, hashOf)
+				for p, h := range got {
+					if h != hashes[p] {
+						t.Errorf("hash for %s = %q, want %q", p, h, hashes[p])
+						return
+					}
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
 }
 
 func TestHashCache_EvictsPathsNoLongerAsked(t *testing.T) {

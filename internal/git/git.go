@@ -813,27 +813,49 @@ func (g *Git) detectPureMvRenames(existing []Rename, untrackedSet map[string]boo
 	return pairUniqueHashes(deleted, oldHash, newHash)
 }
 
-// indexHashes returns the index blob sha of each given path, in one
-// `git ls-files --stage` call rather than one per path. Records are
-// `<mode> SP <sha> SP <stage> TAB <path>`; a path git does not know is simply
-// absent from the result.
+// indexHashes returns the index blob sha of each given path, batching paths
+// onto as few `git ls-files --stage` calls as fit rather than one per path.
+// Records are `<mode> SP <sha> SP <stage> TAB <path>`; a path git does not know
+// is simply absent from the result.
+//
+// Batched, but chunked at the same width as hash-object: `git rm -r` on a large
+// tree can delete thousands of files, and an unbounded argv would exceed
+// ARG_MAX (1MB on darwin), fail the exec, and silently switch rename detection
+// off for the refresh.
+//
+// Paths at a nonzero stage are skipped. A conflicted path has three index
+// entries — base, ours, theirs — and taking any one of them means picking a
+// content identity for a file that does not have one yet; last-writer-wins
+// over the records happened to pick "theirs". A path in the middle of a merge
+// conflict is not a clean deletion, and pairing it with an untracked file on
+// one of its three candidate blobs would be exactly the kind of guess the
+// double-uniqueness rule exists to refuse. So a conflicted path is reported as
+// a plain deletion instead.
 func (g *Git) indexHashes(paths []string) map[string]string {
 	out := make(map[string]string, len(paths))
-	args := append([]string{"ls-files", "--stage", "-z", "--"}, paths...)
-	recs, err := g.runZ(args...)
-	if err != nil {
-		return out
-	}
-	for _, rec := range recs {
-		meta, path, ok := strings.Cut(rec, "\t")
-		if !ok {
+	for start := 0; start < len(paths); start += hashObjectBatchSize {
+		end := min(start+hashObjectBatchSize, len(paths))
+
+		args := append([]string{"ls-files", "--stage", "-z", "--"}, paths[start:end]...)
+		recs, err := g.runZ(args...)
+		if err != nil {
 			continue
 		}
-		fields := strings.Fields(meta)
-		if len(fields) < 2 {
-			continue
+		for _, rec := range recs {
+			meta, path, ok := strings.Cut(rec, "\t")
+			if !ok {
+				continue
+			}
+			fields := strings.Fields(meta)
+			if len(fields) < 3 {
+				continue
+			}
+			if fields[2] != "0" {
+				delete(out, path)
+				continue
+			}
+			out[path] = fields[1]
 		}
-		out[path] = fields[1]
 	}
 	return out
 }

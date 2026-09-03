@@ -8,6 +8,7 @@
 #   scripts/rapid                                          # 200 iterations, all rapid tests
 #   scripts/rapid 50 -run TestProperty_TreeModeNavigation  # focused, 50 iterations
 #   scripts/rapid 1000 -run TestRenderTitleRow             # heavy, single test
+#   scripts/rapid 500 ./internal/git/                      # one package
 #
 # The first positional arg sets PRWATCH_RAPID_CHECKS. Anything after is forwarded
 # to `go test`, so you can pass -run, -v, -timeout, etc.
@@ -28,4 +29,22 @@ for arg in "$@"; do
 	esac
 done
 
-PRWATCH_RAPID_CHECKS="$checks" exec go test -race -count=1 "${timeout_args[@]}" ./internal/ui/... "$@"
+# Sweep every internal package, not just ./internal/ui/... — property tests
+# live in internal/git too, and honour PRWATCH_RAPID_CHECKS via
+# internal/rapidcheck. A sweep that named one package silently left the others
+# at rapid's built-in default.
+#
+# A package pattern in the forwarded args replaces the default rather than
+# adding to it, so `scripts/rapid 500 ./internal/git/` sweeps that package
+# alone instead of running it twice over.
+packages=(./internal/...)
+for arg in "$@"; do
+	case "$arg" in
+	./* | github.com/* | all)
+		packages=()
+		break
+		;;
+	esac
+done
+
+PRWATCH_RAPID_CHECKS="$checks" exec go test -race -count=1 "${timeout_args[@]}" "${packages[@]+"${packages[@]}"}" "$@"

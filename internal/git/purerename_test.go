@@ -140,6 +140,29 @@ func TestProperty_PairUniqueHashes_PartialBijection(t *testing.T) {
 			newCount[h]++
 		}
 
+		// Completeness, checked before soundness because it is what a
+		// `return nil` would sail through: every hash unique on both sides
+		// must actually be paired.
+		wantOld := map[string]bool{}
+		for _, p := range oldPaths {
+			h, ok := oldHash[p]
+			if !ok {
+				continue
+			}
+			if oldCount[h] == 1 && newCount[h] == 1 {
+				wantOld[p] = true
+			}
+		}
+		if len(got) != len(wantOld) {
+			t.Fatalf("got %d pairs %#v, want exactly the %d unambiguous ones %v",
+				len(got), got, len(wantOld), wantOld)
+		}
+		for _, r := range got {
+			if !wantOld[r.Old] {
+				t.Fatalf("pair %#v is not one of the unambiguous ones %v", r, wantOld)
+			}
+		}
+
 		seenOld := map[string]bool{}
 		seenNew := map[string]bool{}
 		for _, r := range got {

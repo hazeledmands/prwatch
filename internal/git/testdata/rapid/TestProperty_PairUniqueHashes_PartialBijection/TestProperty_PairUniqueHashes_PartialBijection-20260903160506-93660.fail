@@ -1,0 +1,19 @@
+# 2026/09/03 16:05:06.315550 [TestProperty_PairUniqueHashes_PartialBijection] [rapid] draw nOld: 1
+# 2026/09/03 16:05:06.315568 [TestProperty_PairUniqueHashes_PartialBijection] [rapid] draw oldKnown0: true
+# 2026/09/03 16:05:06.315587 [TestProperty_PairUniqueHashes_PartialBijection] [rapid] draw oldHash0: "h1"
+# 2026/09/03 16:05:06.315598 [TestProperty_PairUniqueHashes_PartialBijection] [rapid] draw nNew: 1
+# 2026/09/03 16:05:06.315608 [TestProperty_PairUniqueHashes_PartialBijection] [rapid] draw newHash0: "h1"
+# 2026/09/03 16:05:06.315620 [TestProperty_PairUniqueHashes_PartialBijection] got 0 pairs []git.Rename(nil), want exactly the 1 unambiguous ones map[old0:true]
+# 
+v0.4.8#10821520369116858997
+0x0
+0x0
+0x1
+0x1
+0x0
+0x1
+0x0
+0x0
+0x1
+0x0
+0x1
