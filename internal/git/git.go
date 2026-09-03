@@ -2,7 +2,9 @@ package git
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1038,6 +1040,109 @@ func (g *Git) AllFiles() ([]string, error) {
 	return files, nil
 }
 
+// prPresence is what a failed `gh pr view` turns out to have meant. The
+// three states are distinct on purpose: collapsing "the query failed" into
+// "there is no PR" makes an expired token, a 502 or a rate limit look exactly
+// like a branch nobody has opened a PR for, and the UI then shows an empty PR
+// pane with no error at all.
+type prPresence int
+
+const (
+	// prUnknown: we could not establish that the branch has no PR, so the
+	// view failure stands as a failure.
+	prUnknown prPresence = iota
+	// prAbsent: there is genuinely no PR to fetch (or nothing to ask).
+	prAbsent
+	// prPresent: a PR exists, so the view failure was about fetching it.
+	prPresent
+)
+
+// prPresenceAfterViewFailure decides why `gh pr view` failed, without reading
+// gh's error prose. gh's messages are English UI text with no stability
+// contract; matching them meant a reworded or localized message silently
+// changed which of the three states above prwatch reported.
+//
+// The signals used instead, in order of decisiveness:
+//   - a killed subprocess (context.DeadlineExceeded) is a query failure by
+//     definition, whatever gh managed to print;
+//   - gh not being on PATH (command.ErrNotFound) is not a GitHub failure at all
+//     — there is nothing to report and nothing to fix by retrying;
+//   - a repo with no GitHub remote has no PR by construction, and gh has
+//     nothing to say about it either;
+//   - a detached or unborn HEAD gives gh no branch to match a PR against;
+//   - otherwise `gh pr list --json number` answers structurally: an empty
+//     JSON array means no PR, a non-empty one means the view failure was
+//     real, and a probe that itself fails leaves the question open (prUnknown
+//     — reported, not swallowed).
+//
+// The probe costs one extra subprocess, and only on the failure path.
+func (g *Git) prPresenceAfterViewFailure(viewErr error) prPresence {
+	if errors.Is(viewErr, context.DeadlineExceeded) {
+		return prUnknown
+	}
+	if errors.Is(viewErr, command.ErrNotFound) {
+		return prAbsent
+	}
+	if !g.hasGitHubRemote() {
+		return prAbsent
+	}
+	branch, err := g.run("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil || branch == "" || branch == "HEAD" {
+		return prAbsent
+	}
+
+	out, err := g.runExternal("gh", "pr", "list", "--state", "all",
+		"--head", branch, "--limit", "1", "--json", "number")
+	if err != nil {
+		return prUnknown
+	}
+	var prs []struct {
+		Number int `json:"number"`
+	}
+	if err := json.Unmarshal([]byte(out), &prs); err != nil {
+		// gh promised JSON and delivered something else. That is a broken
+		// query, not evidence of absence.
+		return prUnknown
+	}
+	if len(prs) == 0 {
+		return prAbsent
+	}
+	return prPresent
+}
+
+// hasGitHubRemote reports whether any remote URL names a host gh can speak
+// to: github.com, or whatever GH_HOST points at (gh's own switch for a
+// GitHub Enterprise instance). A repo with no such remote — no remotes at
+// all, or a GitLab-only checkout — has no pull request to find, and saying so
+// on the status bar every poll would be noise rather than news.
+//
+// This matches remote URLs against a host list, which is configuration, not
+// error prose: nothing here depends on how gh words a failure.
+func (g *Git) hasGitHubRemote() bool {
+	out, err := g.run("config", "--get-regexp", `^remote\..*\.url$`)
+	if err != nil || out == "" {
+		return false
+	}
+	hosts := []string{"github.com"}
+	if h := strings.ToLower(strings.TrimSpace(os.Getenv("GH_HOST"))); h != "" {
+		hosts = append(hosts, h)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		// `remote.<name>.url <url>` — the URL is the last field.
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		url := strings.ToLower(gitRemoteToHTTPS(fields[len(fields)-1]))
+		for _, h := range hosts {
+			if strings.HasPrefix(url, "https://"+h+"/") || strings.HasPrefix(url, "http://"+h+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // PRAll fetches all PR data in a single gh pr view call.
 // Returns zero-value PRAllResult if no PR exists.
 // Returns an error if the gh command fails for reasons other than "no PR" (e.g. rate limiting, auth issues).
@@ -1045,20 +1150,12 @@ func (g *Git) PRAll() (PRAllResult, error) {
 	out, err := g.runExternal("gh", "pr", "view", "--json",
 		"number,title,url,state,baseRefName,isDraft,reviewDecision,body,labels,assignees,milestone,mergedBy,reviews,reviewRequests,comments,createdAt,updatedAt,mergedAt,closedAt")
 	if err != nil {
-		errMsg := strings.ToLower(err.Error())
-		// These errors mean genuinely no PR or no remote — not a transient failure
-		if strings.Contains(errMsg, "no pull requests found") ||
-			strings.Contains(errMsg, "no open pull requests") ||
-			strings.Contains(errMsg, "not a git repository") ||
-			strings.Contains(errMsg, "none of the remotes") ||
-			strings.Contains(errMsg, "no github remotes") ||
-			strings.Contains(errMsg, "no git remotes") ||
-			strings.Contains(errMsg, "could not determine") ||
-			strings.Contains(errMsg, "gh not found") ||
-			strings.Contains(errMsg, "executable file not found") {
+		if g.prPresenceAfterViewFailure(err) == prAbsent {
 			return PRAllResult{}, nil
 		}
-		// Everything else (rate limit, auth, network) is a real error
+		// A PR exists (or we could not establish that one doesn't): the
+		// failure is real — rate limit, auth, network — and belongs to the
+		// caller, which classifies it (internal/ui.classifyGitHubError).
 		return PRAllResult{}, err
 	}
 

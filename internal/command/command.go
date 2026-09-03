@@ -26,6 +26,13 @@ type Command interface {
 // Factory creates a Command for the given program name and arguments.
 type Factory func(name string, args ...string) Command
 
+// ErrNotFound appears in the error chain from Run when the program isn't on
+// PATH. Re-exported here because this package is the module's only door to
+// os/exec (enforced by TestNoExternalExecImports), so callers that need to
+// tell "this tool isn't installed" apart from "this tool failed" can ask
+// errors.Is(err, command.ErrNotFound) without importing os/exec.
+var ErrNotFound = exec.ErrNotFound
+
 // DefaultTimeout bounds every background subprocess.
 //
 // 45s is chosen against the two things that constrain it. Below, the slowest
