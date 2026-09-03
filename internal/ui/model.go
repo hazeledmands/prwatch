@@ -82,13 +82,20 @@ type GitDataSource interface {
 }
 
 type Model struct {
-	debugLog   *log.Logger
-	git        GitDataSource
+	debugLog *log.Logger
+	git      GitDataSource
+	// cmdFactory is the background lane: every subprocess the app runs on its
+	// own initiative comes from here and is killed if it overruns
+	// command.DefaultTimeout. New call sites belong on this one.
 	cmdFactory command.Factory
-	mode       Mode
-	focus      Focus
-	width      int
-	height     int
+	// interactiveFactory is the untimed lane, for foreground programs handed to
+	// tea.Exec with the TUI suspended — an $EDITOR session the user may keep
+	// open for an hour, or a browser opener that blocks until the browser does.
+	interactiveFactory command.Factory
+	mode               Mode
+	focus              Focus
+	width              int
+	height             int
 	// scope describes the commit range currently in view: (oldBase, newBase].
 	// It owns the scope-extend / scope-contract / scope-reset state and feeds
 	// the in-scope commit/file queries below. See scope.go.
@@ -298,6 +305,11 @@ func (m *Model) maybeFetchRWXLog() tea.Cmd {
 // same package can override this to prevent accidental exec calls.
 var defaultCmdFactory command.Factory = command.DefaultFactory
 
+// defaultInteractiveFactory is the untimed factory used by NewModel for
+// foreground programs. Tests do not need to stub it: interactive commands are
+// only ever constructed in tests, never run.
+var defaultInteractiveFactory command.Factory = command.InteractiveFactory
+
 func NewModel(dir string, g GitDataSource) *Model {
 	var debugLog *log.Logger
 	if path := os.Getenv("PRWATCH_DEBUG_LOG"); path != "" {
@@ -309,30 +321,31 @@ func NewModel(dir string, g GitDataSource) *Model {
 	}
 
 	return &Model{
-		debugLog:      debugLog,
-		git:           g,
-		cmdFactory:    defaultCmdFactory,
-		dir:           dir,
-		mode:          FilesMode,
-		focus:         SidebarFocus,
-		scope:         &scope{},
-		sidebar:       newSidebar(),
-		mainPane:      newMainPane(),
-		sidebarPct:    30, // default 30% of width
-		showIgnored:   true,
-		collapsedDirs: make(map[string]bool),
-		rwxFetcher:    newRWXFetcher(),
-		viewMemory:    newViewMemory(),
-		wordWrap:      true,
-		lineNumbers:   true,
-		activity:      newActivityTracker(time.Now()),
-		help:          newHelpOverlay(),
-		search:        newSearchOverlay(),
-		drag:          newDragSelection(),
-		cursor:        newCursor(),
-		selection:     newSelection(),
-		loading:       g != nil,
-		changes:       gitpkg.NewChangedFiles(),
+		debugLog:           debugLog,
+		git:                g,
+		cmdFactory:         defaultCmdFactory,
+		interactiveFactory: defaultInteractiveFactory,
+		dir:                dir,
+		mode:               FilesMode,
+		focus:              SidebarFocus,
+		scope:              &scope{},
+		sidebar:            newSidebar(),
+		mainPane:           newMainPane(),
+		sidebarPct:         30, // default 30% of width
+		showIgnored:        true,
+		collapsedDirs:      make(map[string]bool),
+		rwxFetcher:         newRWXFetcher(),
+		viewMemory:         newViewMemory(),
+		wordWrap:           true,
+		lineNumbers:        true,
+		activity:           newActivityTracker(time.Now()),
+		help:               newHelpOverlay(),
+		search:             newSearchOverlay(),
+		drag:               newDragSelection(),
+		cursor:             newCursor(),
+		selection:          newSelection(),
+		loading:            g != nil,
+		changes:            gitpkg.NewChangedFiles(),
 	}
 }
 
@@ -2124,7 +2137,7 @@ func (m *Model) openEditor() tea.Cmd {
 	}
 
 	editor, args := m.buildEditorCmd(file)
-	cmd := m.cmdFactory(editor, args...)
+	cmd := m.interactiveFactory(editor, args...)
 	cmd.SetDir(m.dir)
 	return tea.Exec(cmd, func(err error) tea.Msg {
 		return RefreshMsg{}
@@ -2167,9 +2180,9 @@ func (m *Model) openInBrowser(url string) tea.Cmd {
 	var cmd command.Command
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = m.cmdFactory("open", url)
+		cmd = m.interactiveFactory("open", url)
 	case "linux":
-		cmd = m.cmdFactory("xdg-open", url)
+		cmd = m.interactiveFactory("xdg-open", url)
 	default:
 		return nil
 	}

@@ -40,17 +40,30 @@ func (g *Git) UnstagedDiff() (string, error) {
 // with empty stdout and a message on stderr — identical exit code, so stderr
 // is the only signal. Callers get ("", err) for that case rather than an empty
 // string that would silently drop the file from the body.
+//
+// Some failures write nowhere at all, so output alone cannot see them: a
+// subprocess killed by its deadline (command.DefaultTimeout), and one that
+// never started (git missing from PATH, a fork that hit EAGAIN). Both leave
+// empty stdout AND empty stderr, which reads as "no differences" and drops the
+// file exactly as described above, so the exit error is consulted whenever
+// there is no output to go on. That cannot swallow the ordinary
+// differences-found case: it always produces stdout.
 func (g *Git) noIndexDiff(path string) (string, error) {
 	cmd := g.cmdFactory("git", "-c", "core.quotePath=false", "diff", "--no-index", "--", "/dev/null", path)
 	cmd.SetDir(g.dir)
 	var stdout, stderr bytes.Buffer
 	cmd.SetStdout(&stdout)
 	cmd.SetStderr(&stderr)
-	cmd.Run() // exit 1 means "differences found", which is expected
+	err := cmd.Run() // exit 1 means "differences found", which is expected
 	out := strings.TrimRight(stdout.String(), "\n")
 	if out == "" {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return "", fmt.Errorf("git diff --no-index %s: %s", path, msg)
+		}
+		if err != nil {
+			// No output at all and a failure: not "no differences". %w keeps
+			// errors.Is(err, context.DeadlineExceeded) working for callers.
+			return "", fmt.Errorf("git diff --no-index %s: %w", path, err)
 		}
 	}
 	return out, nil

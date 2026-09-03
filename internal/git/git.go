@@ -41,7 +41,10 @@ func (g *Git) runExternal(name string, args ...string) (string, error) {
 		errMsg := stderr.String()
 		out := strings.TrimSpace(stdout.String())
 		if errMsg != "" {
-			return out, fmt.Errorf("%s: %s", err, strings.TrimSpace(errMsg))
+			// %w, not %s: the message is unchanged, but callers can still ask
+			// what kind of failure this was (errors.Is(err,
+			// context.DeadlineExceeded) for a killed subprocess).
+			return out, fmt.Errorf("%w: %s", err, strings.TrimSpace(errMsg))
 		}
 		return out, err
 	}

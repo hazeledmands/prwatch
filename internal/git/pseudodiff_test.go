@@ -1,7 +1,9 @@
 package git_test
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,6 +302,56 @@ func TestUntrackedDiff_UnreadableFileGetsPlaceholder(t *testing.T) {
 	// The readable file alongside it still renders normally.
 	if !strings.Contains(diff, "+var onlyUntracked = 3") {
 		t.Errorf("readable untracked file should still render, got:\n%s", diff)
+	}
+}
+
+// A `git diff --no-index` that fails without writing anywhere — killed by its
+// deadline, or never started at all — is indistinguishable from "no
+// differences" if only the output is consulted. That would drop the file from
+// the body while the sidebar header still counts it, the very failure the
+// placeholder exists to prevent, so any outputless failure has to be treated
+// as a read failure.
+func TestUntrackedDiff_OutputlessFailureGetsPlaceholder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "killed by its deadline",
+			err:  fmt.Errorf("git timed out after 45s: %w", context.DeadlineExceeded),
+		},
+		{
+			// Cmd.Start returns this before it ever consults the context, so
+			// it carries no deadline and cannot be caught by looking for one.
+			name: "never started",
+			err:  errors.New(`exec: "git": executable file not found in $PATH`),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, _ := setupPseudoRepo(t)
+			g := git.NewWithFactory(dir, interceptGit(func(args []string) (string, error, bool) {
+				if len(args) > 0 && args[0] == "ls-files" {
+					return "untracked.go\x00", nil, true
+				}
+				for _, a := range args {
+					if a == "--no-index" {
+						// No stdout, no stderr: what both failures leave.
+						return "", tt.err, true
+					}
+				}
+				return "", nil, false
+			}))
+
+			diff, err := g.UntrackedDiff()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(diff, "[could not read untracked.go]") {
+				t.Errorf("an outputless failure should leave a placeholder, got:\n%s", diff)
+			}
+		})
 	}
 }
 
