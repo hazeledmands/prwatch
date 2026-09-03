@@ -31,6 +31,9 @@ func TestCommandLaneClassification(t *testing.T) {
 			name: "editor is interactive",
 			invoke: func(m *Model) {
 				m.sidebar.SetItems([]sidebarItem{{label: "a.go", filePath: "a.go"}})
+				// openEditor targets the displayed file, so this fixture has
+				// to say what the pane is showing.
+				m.lastMainItem = mainItemKey{FilesMode, "a.go"}
 				m.openEditor()
 			},
 			wantLane:    "interactive",

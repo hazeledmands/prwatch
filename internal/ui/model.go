@@ -2211,14 +2211,31 @@ func (m *Model) handleSidebarRight() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// displayedFilesModeFile returns the file the main pane is currently
+// showing, or "" when the pane is not showing a files-mode file at all.
+//
+// This is the target for every main-pane action, and it is deliberately not
+// the sidebar selection: updateFilesModeContent early-returns on a directory
+// selection so the previously-shown file stays on screen (maincontent.go),
+// which leaves the pane and the sidebar legitimately disagreeing. The mode
+// check matters too — switching into files mode while a directory is
+// selected takes that same early return, so the key can still name the
+// previous mode's item while its content sits in the pane.
+func displayedFilesModeFile(key mainItemKey) string {
+	if key.mode != FilesMode {
+		return ""
+	}
+	return key.item
+}
+
 func (m *Model) openEditor() tea.Cmd {
-	// A directory is not a thing $EDITOR can open, so Enter over one is
-	// inert. The sidebar's own Enter path never gets here (it routes a
-	// directory to expand/collapse via handleSidebarRight); this is the
-	// main-pane path, which reads the sidebar selection and can find a
-	// directory under it. Same guard, same reason, as yankPath.
-	file := m.sidebar.SelectedItem()
-	if file == "" || m.sidebar.SelectedIsDir() {
+	// Acts on what the pane is showing, per PROMPT.md's `confirm` row: "main
+	// pane (files mode): open $EDITOR at the line currently at the top of
+	// the viewport" — the viewport's file, at the viewport's line. Reading
+	// the sidebar here opened $EDITOR on a directory; guarding on the
+	// sidebar instead made Enter dead while a real file filled the pane.
+	file := displayedFilesModeFile(m.lastMainItem)
+	if file == "" {
 		return nil
 	}
 

@@ -5909,6 +5909,9 @@ func TestHandleEnter_MainPane_FileMode_OpensEditor(t *testing.T) {
 	m.updateLayout()
 	m.updateSidebarItems()
 	m.mainPane.SetContent("line1\nline2\nline3")
+	// Installing pane content by hand means recording what the pane shows:
+	// main-pane Enter opens the displayed file, not the sidebar selection.
+	m.lastMainItem = mainItemKey{FilesMode, "file.go"}
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
@@ -7586,6 +7589,10 @@ func TestYankPath_MainPaneFocused(t *testing.T) {
 	m.updateLayout()
 	m.updateSidebarItems()
 	m.mainPane.SetContent("line1\nline2\nline3\nline4\nline5")
+	// This fixture installs pane content by hand rather than through
+	// updateMainContent, so it has to record what the pane is showing too:
+	// main-pane `y` names the displayed file, not the sidebar selection.
+	m.lastMainItem = mainItemKey{FilesMode, "auth.go"}
 
 	result, cmd := m.Update(tea.KeyPressMsg{Text: "y", Code: 'y'})
 	m = result.(*Model)

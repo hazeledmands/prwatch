@@ -29,8 +29,22 @@ func wheelModel(t *testing.T, sidebarHidden bool) *Model {
 	m.wordWrap = false
 	m.mainPane.SetWordWrap(false)
 	m.mainPane.SetPlainContent(strings.Repeat("line of content\n", 200))
+	// The wheel cases below derive their y from statusBarLines() — the same
+	// helper the oracle consumes — so pin it against a literal once here.
+	// Otherwise a change in the bar's height would silently move every
+	// coordinate in this file and the tests would keep passing while
+	// testing different rows than they name.
+	if got := m.statusBarLines(); got != wheelFixtureStatusRows {
+		t.Fatalf("fixture expects a %d-row status bar, got %d — retune the wheel coordinates",
+			wheelFixtureStatusRows, got)
+	}
 	return m
 }
+
+// wheelFixtureStatusRows is the status-bar height wheelModel is built around.
+// Not a source of truth for anything — just the literal that anchors the
+// derivation in this file.
+const wheelFixtureStatusRows = 2
 
 func TestResolveMouseRegion(t *testing.T) {
 	tests := []struct {

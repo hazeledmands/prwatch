@@ -144,7 +144,12 @@ func (g dragGeometry) clickAt(x, y int) endpoint {
 	// Only the sidebar proper is "outside": the gutter sits inside the pane,
 	// so a gutter x clamps to column 0 (matching what a gutter *click* has
 	// always done) rather than being treated as a miss.
-	outsideSidebar := g.sidebarW > 0 && x < g.sidebarW
+	//
+	// Asks the oracle rather than re-testing sidebarW: the early returns
+	// above have already established that y sits in the pane's content rows
+	// (y >= mainPaneContentTop, i.e. statusRows + 2), so regionAt cannot
+	// answer regionStatusBar here and its sidebar arm is exactly this test.
+	outsideSidebar := g.regionAt(x, y) == regionSidebar
 	if displayCol < 0 {
 		displayCol = 0
 	}
@@ -653,14 +658,24 @@ func mainPaneContentTop(g dragGeometry) int {
 // copies the relative path of the selected file. Main pane focused: copies
 // path:startLine-endLine for the visible range.
 func (m *Model) yankPath() tea.Cmd {
-	file := m.sidebar.SelectedItem()
-	if file == "" || m.sidebar.SelectedIsDir() {
-		return nil
-	}
 	var text string
 	if m.focus == SidebarFocus {
+		// Sidebar focused: `y` names the sidebar's selection, and a
+		// directory has no path worth copying.
+		file := m.sidebar.SelectedItem()
+		if file == "" || m.sidebar.SelectedIsDir() {
+			return nil
+		}
 		text = file
 	} else {
+		// Main pane focused: `y` copies the *displayed* file's visible line
+		// range, so it must name the pane's file rather than the sidebar's
+		// selection — the two legitimately disagree while a directory is
+		// selected. Same ownership rule as openEditor.
+		file := displayedFilesModeFile(m.lastMainItem)
+		if file == "" {
+			return nil
+		}
 		vr := m.mainPane.visibleRange()
 		if vr.Start.SourceLine == vr.End.SourceLine {
 			text = fmt.Sprintf("%s:%d", file, vr.Start.SourceLine)
