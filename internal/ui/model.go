@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -2760,7 +2761,10 @@ func (m *Model) RenderWithKeys(width, height int, keys string) string {
 	result, cmd := m.Update(msg)
 	m = result.(*Model)
 	// Execute safe follow-up commands (like PR load, all-files load)
-	m.execFollowUps(cmd)
+	var followUpErrs []string
+	if err := m.execFollowUps(cmd); err != nil {
+		followUpErrs = append(followUpErrs, err.Error())
+	}
 
 	// Apply each key
 	for _, k := range strings.Split(keys, ",") {
@@ -2771,38 +2775,84 @@ func (m *Model) RenderWithKeys(width, height int, keys string) string {
 		keyMsg := parseKeyName(k)
 		result, cmd := m.Update(keyMsg)
 		m = result.(*Model)
-		m.execFollowUps(cmd)
+		if err := m.execFollowUps(cmd); err != nil {
+			followUpErrs = append(followUpErrs, fmt.Sprintf("after key %q: %s", k, err))
+		}
 	}
 
 	v := m.View()
+	if len(followUpErrs) > 0 {
+		// The screen above this line half-updated; say so where whoever
+		// piped the output will see it rather than letting it read as a
+		// clean render.
+		return v.Content + "\n\n=== prwatch follow-up command failures ===\n" +
+			strings.Join(followUpErrs, "\n")
+	}
 	return v.Content
 }
 
+// followUpPanic is the error execFollowUps returns when a follow-up command
+// panics. It carries the panic value and the stack captured at the point of
+// recovery, so a harness caller can report which command blew up rather than
+// staring at a screen that silently half-updated.
+type followUpPanic struct {
+	value any
+	stack []byte
+}
+
+func (e *followUpPanic) Error() string {
+	return fmt.Sprintf("panic in follow-up command: %v\n%s", e.value, e.stack)
+}
+
 // execFollowUps executes safe follow-up commands from Update, recursively
-// processing batched commands. Used by RenderWithKeys to resolve async loads.
-func (m *Model) execFollowUps(cmd tea.Cmd) {
+// processing batched commands. Used by RenderWithKeys and the IPC handler to
+// resolve async loads.
+//
+// A panic escaping a command is recovered and returned as a *followUpPanic
+// rather than propagated. Both callers are the non-interactive exploration
+// harness, and both have somewhere better to put the failure than a process
+// abort: the IPC handler puts it in IPCResponse.Error, where the client that
+// asked for the keystroke sees it, and RenderWithKeys appends it to the
+// output it prints. Crashing instead would destroy the very session the
+// agent loop needs in order to read the report.
+//
+// The recovered state is not necessarily clean — a panic partway through
+// m.Update leaves the model half-mutated — which is exactly why the error
+// must reach the caller: whatever screen comes back afterwards is not to be
+// trusted.
+func (m *Model) execFollowUps(cmd tea.Cmd) (err error) {
 	if cmd == nil {
-		return
+		return nil
 	}
-	func() {
-		defer func() { recover() }()
-		msg := cmd()
-		if msg == nil {
-			return
-		}
-		switch msg := msg.(type) {
-		case tea.BatchMsg:
-			for _, sub := range msg {
-				if sub != nil {
-					m.execFollowUps(sub)
-				}
+	defer func() {
+		if r := recover(); r != nil {
+			err = &followUpPanic{value: r, stack: debug.Stack()}
+			if m.debugLog != nil {
+				m.debugLog.Printf("[followups] %v", err)
 			}
-		case gitDataMsg, prRefreshMsg, allFilesMsg, moreCommitsMsg, ignoredDirLoadedMsg:
-			result, cmd2 := m.Update(msg)
-			*m = *(result.(*Model))
-			m.execFollowUps(cmd2)
 		}
 	}()
+
+	msg := cmd()
+	if msg == nil {
+		return nil
+	}
+	switch msg := msg.(type) {
+	case tea.BatchMsg:
+		for _, sub := range msg {
+			if sub == nil {
+				continue
+			}
+			if subErr := m.execFollowUps(sub); subErr != nil {
+				return subErr
+			}
+		}
+	case gitDataMsg, prRefreshMsg, allFilesMsg, moreCommitsMsg, ignoredDirLoadedMsg:
+		result, cmd2 := m.Update(msg)
+		*m = *(result.(*Model))
+		return m.execFollowUps(cmd2)
+	}
+	return nil
 }
 
 // parseKeyName converts a key name string to a tea.KeyPressMsg.

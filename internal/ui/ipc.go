@@ -88,6 +88,7 @@ func (m *Model) handleIPC(msg ipcMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Apply key sequence
+	var followUpErrs []string
 	if req.Keys != "" {
 		for _, k := range strings.Split(req.Keys, ",") {
 			k = strings.TrimSpace(k)
@@ -97,7 +98,9 @@ func (m *Model) handleIPC(msg ipcMsg) (tea.Model, tea.Cmd) {
 			keyMsg := parseKeyName(k)
 			result, cmd := m.Update(keyMsg)
 			m = result.(*Model)
-			m.execFollowUps(cmd)
+			if err := m.execFollowUps(cmd); err != nil {
+				followUpErrs = append(followUpErrs, fmt.Sprintf("after key %q: %s", k, err))
+			}
 		}
 	}
 
@@ -111,6 +114,15 @@ func (m *Model) handleIPC(msg ipcMsg) (tea.Model, tea.Cmd) {
 	// Render and respond
 	v := m.View()
 	resp := IPCResponse{Screen: ansiStripRE.ReplaceAllString(v.Content, "")}
+	// A follow-up command that panicked leaves the screen half-updated. The
+	// client asked for these keystrokes, so it is the right place to hear
+	// that they did not fully land.
+	if len(followUpErrs) > 0 {
+		resp.Error = strings.Join(followUpErrs, "\n")
+		if m.debugLog != nil {
+			m.debugLog.Printf("[ipc] follow-up failures: %s", resp.Error)
+		}
+	}
 	if err := json.NewEncoder(msg.conn).Encode(resp); err != nil {
 		if m.debugLog != nil {
 			m.debugLog.Printf("[ipc] write error: %v", err)

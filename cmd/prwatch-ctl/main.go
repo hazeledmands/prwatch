@@ -73,10 +73,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Print the screen even alongside an error: when a follow-up command
+	// panicked, the half-updated screen is the evidence of what went wrong.
+	// The non-zero exit is what says not to trust it.
+	fmt.Print(resp.Screen)
+
 	if resp.Error != "" {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", resp.Error)
 		os.Exit(1)
 	}
-
-	fmt.Print(resp.Screen)
 }
