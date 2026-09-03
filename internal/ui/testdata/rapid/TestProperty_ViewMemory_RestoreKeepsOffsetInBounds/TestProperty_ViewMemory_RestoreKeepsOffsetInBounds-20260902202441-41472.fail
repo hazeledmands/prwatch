@@ -1,0 +1,36 @@
+# 2026/09/02 20:24:41.907821 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] [rapid] draw save_n: 1
+# 2026/09/02 20:24:41.907836 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] [rapid] draw save_kind0: "file"
+# 2026/09/02 20:24:41.907848 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] [rapid] draw save_depth0: 0
+# 2026/09/02 20:24:41.907859 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] [rapid] draw height: 2
+# 2026/09/02 20:24:41.907866 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] [rapid] draw savedOffset: 1
+# 2026/09/02 20:24:41.907876 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] [rapid] draw restore_n: 2
+# 2026/09/02 20:24:41.907885 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] [rapid] draw restore_kind0: "sep"
+# 2026/09/02 20:24:41.907894 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] [rapid] draw restore_kind1: "file"
+# 2026/09/02 20:24:41.907902 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] [rapid] draw restore_depth1: 0
+# 2026/09/02 20:24:41.907916 [TestProperty_ViewMemory_RestoreKeepsOffsetInBounds] restored offset 1 outside [0, 0] (items=2, visible=2)
+# 
+v0.4.8#4378291365186848586
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1
+0x6b74f03291620
+0x4
+0x0
+0x0
+0x0
+0x0
+0x0

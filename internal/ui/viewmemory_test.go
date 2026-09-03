@@ -99,6 +99,50 @@ func TestProperty_ViewMemory_SidebarRestoreByIdentity(t *testing.T) {
 	})
 }
 
+// Property: RestoreSidebar leaves the sidebar's scroll offset inside
+// [0, max(0, len(items)-visible)]. The offset is saved against one mode's item
+// list and replayed against whatever that mode rebuilt to, so a stale offset
+// can easily exceed the new list's ceiling. Restoring it unbounded scrolls the
+// top items off screen with blank rows below, and the next periodic refresh
+// (SetItems → clampOffsetBounds) yanks it back under the user.
+func TestProperty_ViewMemory_RestoreKeepsOffsetInBounds(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		saveItems := genSidebarItems(t, "save")
+		if len(selectableIndices(saveItems)) == 0 {
+			return
+		}
+		height := rapid.IntRange(1, 20).Draw(t, "height")
+
+		sb := newSidebar()
+		sb.SetItems(saveItems)
+		sb.SetSize(20, height)
+		// Any offset the user could have scrolled to in the saving mode.
+		sb.offset = rapid.IntRange(0, len(saveItems)).Draw(t, "savedOffset")
+
+		vm := newViewMemory()
+		vm.SaveSidebar(FilesMode, sb, SidebarFocus)
+
+		// The mode is rebuilt with an independent list — typically shorter,
+		// which is what invalidates the saved offset.
+		restoreItems := genSidebarItems(t, "restore")
+		if len(selectableIndices(restoreItems)) == 0 {
+			return
+		}
+		sb2 := newSidebar()
+		sb2.SetItems(restoreItems)
+		sb2.SetSize(20, height)
+
+		vm.RestoreSidebar(FilesMode, sb2, SidebarFocus)
+
+		maxOffset := max(0, len(restoreItems)-sb2.visibleLines())
+		if sb2.offset < 0 || sb2.offset > maxOffset {
+			t.Fatalf("restored offset %d outside [0, %d] (items=%d, visible=%d)",
+				sb2.offset, maxOffset, len(restoreItems), sb2.visibleLines())
+		}
+	})
+}
+
 // Property: the focus stored by SaveSidebar comes back out of
 // RestoreSidebar, and a mode never saved returns the caller's current focus.
 func TestProperty_ViewMemory_FocusRoundTrip(t *testing.T) {

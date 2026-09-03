@@ -497,6 +497,12 @@ func (s *sidebar) clampOffset() {
 	if s.selected == s.offset && s.stickyHeaderIndex() >= 0 && s.offset > 0 {
 		s.offset--
 	}
+	// Scrolling to the selection only ever constrains the offset relative to
+	// the cursor; it can leave an offset that came in out of range untouched
+	// (cursor already inside the window). Enforce the bounds too, from the one
+	// function that owns them. Lowering the offset to the ceiling can't hide
+	// the cursor: selected <= len-1 == maxOffset+visible-1.
+	s.clampOffsetBounds()
 }
 
 // stickyHeaderIndex returns the index of the section header that should be

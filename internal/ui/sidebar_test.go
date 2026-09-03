@@ -573,6 +573,66 @@ func TestSidebar_ClampOffset_KeepsCursorVisible(t *testing.T) {
 	}
 }
 
+// clampOffset must leave the offset inside [0, max(0, len(items)-visible)] for
+// every starting offset, not just correct the ones that hide the cursor. An
+// offset above that ceiling scrolls the top items off screen while leaving
+// blank rows at the bottom, and the next SetItems (a periodic refresh) snaps it
+// back — visibly moving the sidebar under the user.
+func TestSidebar_ClampOffset_KeepsOffsetInBounds(t *testing.T) {
+	tests := []struct {
+		name       string
+		nItems     int
+		height     int
+		selected   int
+		offset     int
+		wantOffset int
+	}{
+		// All items fit: the only valid offset is 0.
+		{"all fit, stale offset", 15, 30, 14, 2, 0},
+		{"all fit, offset past end", 15, 30, 0, 40, 0},
+		{"exact fit, stale offset", 10, 10, 9, 3, 0},
+		// Taller list than pane: ceiling is len-visible.
+		{"overflow, offset above ceiling", 20, 10, 19, 15, 10},
+		{"overflow, offset at ceiling", 20, 10, 19, 10, 10},
+		{"overflow, offset below ceiling", 20, 10, 5, 3, 3},
+		// Negative offsets are floored.
+		{"negative offset", 15, 5, 0, -4, 0},
+		// Cursor-visibility clamping still wins where it applies.
+		{"cursor below window", 20, 5, 19, 0, 15},
+		{"cursor above window", 20, 5, 1, 10, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newSidebar()
+			labels := make([]string, tt.nItems)
+			for i := range labels {
+				labels[i] = "item"
+			}
+			s.SetItems(items(labels...))
+			s.SetSize(20, tt.height)
+			s.selected = tt.selected
+			s.offset = tt.offset
+
+			s.clampOffset()
+
+			if s.offset != tt.wantOffset {
+				t.Errorf("offset = %d, want %d", s.offset, tt.wantOffset)
+			}
+			// The ceiling and floor hold unconditionally.
+			maxOffset := max(0, tt.nItems-s.visibleLines())
+			if s.offset < 0 || s.offset > maxOffset {
+				t.Errorf("offset %d outside [0, %d]", s.offset, maxOffset)
+			}
+			// And the cursor stays visible.
+			if s.selected < s.offset || s.selected >= s.offset+s.visibleLines() {
+				t.Errorf("selected %d not visible in [%d, %d)",
+					s.selected, s.offset, s.offset+s.visibleLines())
+			}
+		})
+	}
+}
+
 // View output: row 0 should contain the sticky header text rather than the
 // hidden item's label when an overlay is active.
 func TestSidebar_View_OverlaysStickyHeader(t *testing.T) {
