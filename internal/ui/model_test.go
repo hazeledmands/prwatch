@@ -3106,6 +3106,42 @@ func TestMouseClick_StatusBar_Line2SwitchesToCommits(t *testing.T) {
 	}
 }
 
+// TestMouseClick_StatusBar_Line2CommitsWithZeroCommits pins the line-2
+// commits label and the `2`/`m` key on the same gate: a git repo is enough.
+// On the main branch there are no in-scope commits, but commits mode still has
+// the Base section to show, and the branch label is published unconditionally
+// — so clicking it must switch modes rather than silently doing nothing.
+func TestMouseClick_StatusBar_Line2CommitsWithZeroCommits(t *testing.T) {
+	m := NewModel("/tmp", testGit())
+	m.width = 120
+	m.height = 24
+	m.repoInfo = git.RepoInfoResult{Branch: "main", RepoName: "repo"}
+	m.loading = false
+	m.updateLayout()
+	m.mode = FilesMode
+	m.commits = nil // main branch: no in-scope commits
+	m.updateSidebarItems()
+	m.View()
+
+	var x int
+	var found bool
+	for _, l := range m.line2Labels {
+		if l.target == line2CommitsMode {
+			x, found = l.start+(l.end-l.start)/2, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected a line2CommitsMode label on line 2 even with zero commits")
+	}
+
+	result, _ := m.Update(tea.MouseClickMsg{X: x, Y: 1})
+	m = result.(*Model)
+	if m.mode != CommitsMode {
+		t.Errorf("clicking the commits label at x=%d with zero in-scope commits should switch to CommitsMode, got %d", x, m.mode)
+	}
+}
+
 // TestMouseClick_StatusBar_Line2DeadSpaceDoesNothing pins the removal of the
 // "anywhere on line 2 goes to commits mode" fallback. PROMPT.md requires hover
 // regions and click regions to be the same regions, and hover only ever

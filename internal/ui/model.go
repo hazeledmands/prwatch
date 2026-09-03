@@ -2096,7 +2096,13 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 			if x >= label.start && x < label.end {
 				switch label.target {
 				case line2CommitsMode:
-					if len(m.commits) > 0 {
+					// Same gate as the `2`/`m` key: a git repo is
+					// enough. Zero in-scope commits is the normal
+					// state on the main branch, where commits mode
+					// still has the Base section to show — gating on
+					// len(m.commits) made the always-published branch
+					// label silently inert there.
+					if m.git != nil {
 						m.setMode(CommitsMode)
 					}
 				case line2FilesMode:
