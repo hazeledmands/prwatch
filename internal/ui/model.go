@@ -2361,26 +2361,6 @@ func (m *Model) jumpToNextLeaf(direction int) {
 	}
 }
 
-// commitIndexFromSidebarItem extracts the commit index from a sidebar label
-// of the form "abcdef0 subject".
-func (m *Model) commitIndexFromSidebarItem(label string) int {
-	parts := strings.SplitN(label, " ", 2)
-	if len(parts) == 0 {
-		return -1
-	}
-	sha := parts[0]
-	for i, c := range m.commits {
-		short := c.SHA
-		if len(short) > 7 {
-			short = short[:7]
-		}
-		if short == sha {
-			return i
-		}
-	}
-	return -1
-}
-
 func (m *Model) fileItemKind(file string, defaultKind sidebarItemKind) sidebarItemKind {
 	if m.isDeletedFile(file) {
 		return itemDeleted

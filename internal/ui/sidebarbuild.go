@@ -188,11 +188,7 @@ func buildCommitsSidebar(
 		}
 		items = append(items, sidebarItem{label: fmt.Sprintf("Unpushed (%d)", unpushedVisible), kind: itemHeader})
 		for i := 0; i < unpushedVisible; i++ {
-			c := commits[i]
-			items = append(items, sidebarItem{
-				label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
-				kind:  itemDim,
-			})
+			items = append(items, commitSidebarItem(commits[i], itemDim))
 		}
 	}
 
@@ -202,11 +198,7 @@ func buildCommitsSidebar(
 		}
 		items = append(items, sidebarItem{label: fmt.Sprintf("Pushed (%d)", pushedCount), kind: itemHeader})
 		for i := unpushed; i < len(commits); i++ {
-			c := commits[i]
-			items = append(items, sidebarItem{
-				label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
-				kind:  itemNormal,
-			})
+			items = append(items, commitSidebarItem(commits[i], itemNormal))
 		}
 	}
 
@@ -226,15 +218,25 @@ func buildCommitsSidebar(
 			items = append(items, sidebarItem{kind: itemCutline})
 		}
 		items = append(items, sidebarItem{label: fmt.Sprintf("Base (%d)", len(baseCommits)), kind: itemHeader})
-		for _, c := range baseCommits {
-			items = append(items, sidebarItem{
-				label: fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
-				kind:  itemDim,
-			})
+		for i := range baseCommits {
+			items = append(items, commitSidebarItem(baseCommits[i], itemDim))
 		}
 	}
 
 	return items
+}
+
+// commitSidebarItem builds one commits-mode commit row. Every section builds
+// its rows through here, so a row's label and the commit it resolves to are
+// produced together and cannot disagree — the Base section's rows come from a
+// different list than Unpushed/Pushed, and nothing downstream has to know
+// which.
+func commitSidebarItem(c gitpkg.Commit, kind sidebarItemKind) sidebarItem {
+	return sidebarItem{
+		label:  fmt.Sprintf("%.7s %s", c.SHA, c.Subject),
+		kind:   kind,
+		commit: &c,
+	}
 }
 
 // buildPRSidebar constructs the sidebar for PR mode.

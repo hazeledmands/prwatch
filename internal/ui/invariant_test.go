@@ -3143,3 +3143,41 @@ func TestProperty_StatusBarHoverMatchesClickRegions(t *testing.T) {
 		}
 	})
 }
+
+// TestProperty_EveryCommitsRowHasBody pins the commits-mode seam: every
+// selectable sidebar row, in any section, must put something in the main pane.
+//
+// The Base section's rows are built from m.baseCommits while Unpushed/Pushed
+// come from m.commits, and the content path used to resolve the selection by
+// searching m.commits alone — so every Base row rendered an empty pane. A
+// per-section invariant would have missed it; "every row, whichever list fed
+// it" is the shape that catches a new section wired up without a content path.
+func TestProperty_EveryCommitsRowHasBody(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		mock, _ := genScenario(t)
+		if mock == nil {
+			return // non-git scenarios have no commits mode
+		}
+		width := rapid.IntRange(60, 160).Draw(t, "width")
+		height := rapid.IntRange(15, 50).Draw(t, "height")
+
+		m := initModel(mock, CommitsMode, width, height)
+		if m.scope.OldBase() == "" {
+			return // updateMainContent is a deliberate no-op with no base yet
+		}
+
+		for i := range m.sidebar.items {
+			it := m.sidebar.items[i]
+			if !it.kind.selectable() {
+				continue
+			}
+			m.sidebar.SelectIndex(i)
+			m.updateMainContent()
+			if m.mainPane.content == "" {
+				t.Fatalf("commits-mode row %d (%q, carriesCommit=%v) rendered an empty main pane",
+					i, it.label, it.commit != nil)
+			}
+		}
+	})
+}

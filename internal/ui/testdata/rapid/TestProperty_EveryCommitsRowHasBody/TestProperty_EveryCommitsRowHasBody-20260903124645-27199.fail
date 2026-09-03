@@ -1,0 +1,199 @@
+# 2026/09/03 12:46:45.919650 [TestProperty_EveryCommitsRowHasBody] [rapid] draw isGit: 1
+# 2026/09/03 12:46:45.919682 [TestProperty_EveryCommitsRowHasBody] [rapid] draw nCommitted: 2
+# 2026/09/03 12:46:45.919692 [TestProperty_EveryCommitsRowHasBody] [rapid] draw nUncommitted: 0
+# 2026/09/03 12:46:45.919701 [TestProperty_EveryCommitsRowHasBody] [rapid] draw nStaged: 5
+# 2026/09/03 12:46:45.919709 [TestProperty_EveryCommitsRowHasBody] [rapid] draw nCommits: 0
+# 2026/09/03 12:46:45.919728 [TestProperty_EveryCommitsRowHasBody] [rapid] draw changeType_file0.go: 1
+# 2026/09/03 12:46:45.919736 [TestProperty_EveryCommitsRowHasBody] [rapid] draw changeType_file1_café.go: 1
+# 2026/09/03 12:46:45.919754 [TestProperty_EveryCommitsRowHasBody] [rapid] draw addStaged_staged0.go: 1
+# 2026/09/03 12:46:45.919762 [TestProperty_EveryCommitsRowHasBody] [rapid] draw addStaged_staged1_café.go: 1
+# 2026/09/03 12:46:45.919773 [TestProperty_EveryCommitsRowHasBody] [rapid] draw addStaged_staged 2.go: 1
+# 2026/09/03 12:46:45.919783 [TestProperty_EveryCommitsRowHasBody] [rapid] draw addStaged_staged3_日本.go: 1
+# 2026/09/03 12:46:45.919791 [TestProperty_EveryCommitsRowHasBody] [rapid] draw addStaged_staged4	control.go: 1
+# 2026/09/03 12:46:45.919799 [TestProperty_EveryCommitsRowHasBody] [rapid] draw rename_s_staged0.go: 1
+# 2026/09/03 12:46:45.919808 [TestProperty_EveryCommitsRowHasBody] [rapid] draw rename_s_staged1_café.go: 1
+# 2026/09/03 12:46:45.919815 [TestProperty_EveryCommitsRowHasBody] [rapid] draw rename_s_staged 2.go: 1
+# 2026/09/03 12:46:45.919822 [TestProperty_EveryCommitsRowHasBody] [rapid] draw rename_s_staged3_日本.go: 1
+# 2026/09/03 12:46:45.919833 [TestProperty_EveryCommitsRowHasBody] [rapid] draw rename_s_staged4	control.go: 1
+# 2026/09/03 12:46:45.919840 [TestProperty_EveryCommitsRowHasBody] [rapid] draw rename_c_file0.go: 1
+# 2026/09/03 12:46:45.919846 [TestProperty_EveryCommitsRowHasBody] [rapid] draw rename_c_file1_café.go: 1
+# 2026/09/03 12:46:45.919853 [TestProperty_EveryCommitsRowHasBody] [rapid] draw nOtherFiles: 0
+# 2026/09/03 12:46:45.919860 [TestProperty_EveryCommitsRowHasBody] [rapid] draw nIgnored: 0
+# 2026/09/03 12:46:45.919869 [TestProperty_EveryCommitsRowHasBody] [rapid] draw branch: "main"
+# 2026/09/03 12:46:45.919876 [TestProperty_EveryCommitsRowHasBody] [rapid] draw detached: false
+# 2026/09/03 12:46:45.919884 [TestProperty_EveryCommitsRowHasBody] [rapid] draw prNum: 0
+# 2026/09/03 12:46:45.919890 [TestProperty_EveryCommitsRowHasBody] [rapid] draw aheadCount: 0
+# 2026/09/03 12:46:45.919897 [TestProperty_EveryCommitsRowHasBody] [rapid] draw diff_nHunks: 0
+# 2026/09/03 12:46:45.919904 [TestProperty_EveryCommitsRowHasBody] [rapid] draw commitPatch_emoji: 1
+# 2026/09/03 12:46:45.919913 [TestProperty_EveryCommitsRowHasBody] [rapid] draw hasAPIError: false
+# 2026/09/03 12:46:45.919919 [TestProperty_EveryCommitsRowHasBody] [rapid] draw hasBaseCommits: true
+# 2026/09/03 12:46:45.919925 [TestProperty_EveryCommitsRowHasBody] [rapid] draw nBaseCommits: 1
+# 2026/09/03 12:46:45.919940 [TestProperty_EveryCommitsRowHasBody] [rapid] draw base0_emoji: 1
+# 2026/09/03 12:46:45.919948 [TestProperty_EveryCommitsRowHasBody] [rapid] draw mode: 0
+# 2026/09/03 12:46:45.919961 [TestProperty_EveryCommitsRowHasBody] [rapid] draw width: 60
+# 2026/09/03 12:46:45.919968 [TestProperty_EveryCommitsRowHasBody] [rapid] draw height: 15
+# 2026/09/03 12:46:45.927587 [TestProperty_EveryCommitsRowHasBody] commits-mode row 4 ("base000 base commit 0", carriesCommit=true) rendered an empty main pane
+# 
+v0.4.8#9623675540369831979
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x5
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

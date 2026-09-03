@@ -71,21 +71,24 @@ type mockGit struct {
 	fileContent       string
 	contentErr        error
 	commitPatch       string
-	patchErr          error
-	allFiles          []string // tracked + untracked (excluding ignored)
-	ignoredFiles      []string // gitignored files; included in AllFiles(true) only
-	allFilesErr       error
-	baseCommits       []git.Commit
-	baseCommitsErr    error
-	behindRefs        []string          // refs passed to BehindCount, in call order
-	behindCount       int               // value BehindCount returns
-	behindErr         error             // error BehindCount returns
-	parents           map[string]string // sha → parent sha; empty entry / missing key → "no parent" (root)
-	firstChildren     map[string]string // sha → first-parent child sha toward HEAD; missing key → no child
-	prComments        []git.PRComment
-	prDeployments     []git.PRDeployment
-	ciChecks          []git.CICheck
-	reviewRequests    []git.PRReviewRequest
+	// commitPatches gives per-sha patches, so a test can tell which commit's
+	// body the main pane actually rendered. Falls back to commitPatch.
+	commitPatches  map[string]string
+	patchErr       error
+	allFiles       []string // tracked + untracked (excluding ignored)
+	ignoredFiles   []string // gitignored files; included in AllFiles(true) only
+	allFilesErr    error
+	baseCommits    []git.Commit
+	baseCommitsErr error
+	behindRefs     []string          // refs passed to BehindCount, in call order
+	behindCount    int               // value BehindCount returns
+	behindErr      error             // error BehindCount returns
+	parents        map[string]string // sha → parent sha; empty entry / missing key → "no parent" (root)
+	firstChildren  map[string]string // sha → first-parent child sha toward HEAD; missing key → no child
+	prComments     []git.PRComment
+	prDeployments  []git.PRDeployment
+	ciChecks       []git.CICheck
+	reviewRequests []git.PRReviewRequest
 
 	lastCommitForFile    git.Commit
 	lastCommitForFileErr error
@@ -168,7 +171,12 @@ func (m *mockGit) FileContent(file string) (string, error) { return m.fileConten
 func (m *mockGit) LastCommitForFile(file string) (git.Commit, error) {
 	return m.lastCommitForFile, m.lastCommitForFileErr
 }
-func (m *mockGit) CommitPatch(sha string) (string, error) { return m.commitPatch, m.patchErr }
+func (m *mockGit) CommitPatch(sha string) (string, error) {
+	if p, ok := m.commitPatches[sha]; ok {
+		return p, m.patchErr
+	}
+	return m.commitPatch, m.patchErr
+}
 func (m *mockGit) AllFiles() ([]string, error) {
 	return m.allFiles, m.allFilesErr
 }
@@ -6063,34 +6071,6 @@ func TestBuildEditorCmd(t *testing.T) {
 	}
 	if !hasFile {
 		t.Error("args should contain filename")
-	}
-}
-
-func TestCommitIndexFromSidebarItem(t *testing.T) {
-	m := NewModel("/tmp", testGit())
-	m.commits = []git.Commit{
-		{SHA: "abc1234567890", Subject: "first"},
-		{SHA: "def4567890123", Subject: "second"},
-	}
-
-	idx := m.commitIndexFromSidebarItem("abc1234 first")
-	if idx != 0 {
-		t.Errorf("expected commit index 0, got %d", idx)
-	}
-
-	idx = m.commitIndexFromSidebarItem("def4567 second")
-	if idx != 1 {
-		t.Errorf("expected commit index 1, got %d", idx)
-	}
-
-	idx = m.commitIndexFromSidebarItem("unknown")
-	if idx != -1 {
-		t.Errorf("expected -1 for unknown, got %d", idx)
-	}
-
-	idx = m.commitIndexFromSidebarItem("")
-	if idx != -1 {
-		t.Errorf("expected -1 for empty, got %d", idx)
 	}
 }
 

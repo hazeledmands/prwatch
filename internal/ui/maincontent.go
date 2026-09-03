@@ -166,14 +166,17 @@ func (m *Model) updateCommitsModeContent(setItem itemSetter) {
 		setItem(mainItemKey{m.mode, selected})
 		return
 	}
-	commitIdx := m.commitIndexFromSidebarItem(selected)
-	if commitIdx < 0 || commitIdx >= len(m.commits) {
+	// The selected row carries the commit it was built from (sidebarItem.commit).
+	// Resolving it here rather than searching a commit list by sha is what lets
+	// the Base section — built from m.baseCommits — render at all.
+	selectedCommit := m.sidebar.SelectedCommit()
+	if selectedCommit == nil {
 		m.mainPane.SetContent("")
 		m.mainPane.SetTitle("", "")
 		setItem(mainItemKey{m.mode, ""})
 		return
 	}
-	commit := m.commits[commitIdx]
+	commit := *selectedCommit
 	patch, err := m.git.CommitPatch(commit.SHA)
 	titleLeft := commitTitleLeft(commit)
 	titleRight := formatAuthorAndTime(commit.Author, commit.AuthorDate)

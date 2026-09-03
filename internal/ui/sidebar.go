@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+
+	gitpkg "github.com/hazeledmands/prwatch/internal/git"
 )
 
 type sidebarItemKind int
@@ -38,6 +40,18 @@ type sidebarItem struct {
 	// in multiple sections (e.g. "pkg/" under both Committed and All Files)
 	// has independent collapse state.
 	collapseKey string
+	// commit is the commit a commits-mode row stands for, recorded by the
+	// builder that placed the row. Nil on every other row (headers,
+	// separators, the pseudo-entries, "load more", and all of files/pr
+	// mode).
+	//
+	// The row label (`<sha7> <subject>`) cannot say which list a commit came
+	// from: Unpushed/Pushed rows are built from m.commits while Base rows
+	// are built from m.baseCommits. The content path used to re-derive
+	// "which commit" by searching m.commits for a matching sha-7, which no
+	// Base row could ever satisfy — so selecting one rendered an empty main
+	// pane. The builder already knows the answer; it records it here instead.
+	commit *gitpkg.Commit
 }
 
 // dirCollapseKey returns the section-qualified collapse-state key for a
@@ -373,6 +387,17 @@ func (s *sidebar) SelectedCollapseKey() string {
 		return ""
 	}
 	return s.items[s.selected].collapseKey
+}
+
+// SelectedCommit returns the commit the selected row stands for, or nil when
+// the row isn't a commit row. Commits-mode content resolves the selection
+// through this rather than matching the label against a commit list — see
+// sidebarItem.commit.
+func (s *sidebar) SelectedCommit() *gitpkg.Commit {
+	if s.selected < 0 || s.selected >= len(s.items) {
+		return nil
+	}
+	return s.items[s.selected].commit
 }
 
 // SelectedIsDir returns true if the selected item is a directory.
