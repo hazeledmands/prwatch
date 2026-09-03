@@ -1394,17 +1394,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sidebar.SetHoverIndex(-1)
 			return m, nil
 		}
+		g := m.dragGeom()
 		var autoScrollCmd tea.Cmd
 		if m.drag.IsActive() {
-			g := m.dragGeom()
 			m.drag.MoveEnd(g.clickAt(msg.X, msg.Y))
 			autoScrollCmd = m.drag.UpdateAutoScroll(msg.Y, g)
 		}
 		// Update sidebar hover index
-		sidebarW := m.sidebarPixelWidth()
-		sbLines := m.statusBarLines()
-		if !m.sidebarHidden && msg.X < sidebarW && msg.Y >= sbLines {
-			contentY := msg.Y - sbLines
+		if g.regionAt(msg.X, msg.Y) == regionSidebar {
+			contentY := msg.Y - g.statusRows
 			itemIdx := contentY - 1 + m.sidebar.offset
 			m.sidebar.SetHoverIndex(itemIdx)
 		} else {
@@ -2018,17 +2016,17 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	x, y := msg.X, msg.Y
+	g := m.dragGeom()
+	region := g.regionAt(x, y)
 
-	// Status bar is rows 0-2
-	if y < m.statusBarLines() {
+	if region == regionStatusBar {
 		m.drag.Cancel()
 		return m.handleStatusBarClick(x, y)
 	}
 
-	// Adjust y for the 3-line status bar
-	contentY := y - m.statusBarLines()
-	sidebarW := m.sidebarPixelWidth()
-	if !m.sidebarHidden && x < sidebarW {
+	// Adjust y for the status bar above the panes
+	contentY := y - g.statusRows
+	if region == regionSidebar {
 		// Clicked in sidebar — no drag tracking
 		m.drag.Cancel()
 		m.focus = SidebarFocus
@@ -2079,7 +2077,6 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// visual-mode selection (mouse expresses fresh intent).
 		m.focus = MainFocus
 		m.selection.Cancel()
-		g := m.dragGeom()
 		ep := g.clickAt(x, y)
 		m.drag.Begin(ep)
 		if ep.OutsideDir == 0 {
@@ -2090,17 +2087,19 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	x := msg.X
-	sidebarW := m.sidebarPixelWidth()
-
-	if x < sidebarW {
+	switch m.dragGeom().regionAt(msg.X, msg.Y) {
+	case regionStatusBar:
+		// The status bar doesn't scroll, so a wheel over it does nothing —
+		// it must not reach the pane underneath.
+		return m, nil
+	case regionSidebar:
 		// Scroll sidebar view without changing selection
 		if msg.Button == tea.MouseWheelUp {
 			m.sidebar.ScrollUp()
 		} else {
 			m.sidebar.ScrollDown()
 		}
-	} else {
+	case regionMainPane:
 		// Horizontal scrolling (when word wrap is off)
 		// Support both native horizontal wheel events and Shift+vertical wheel
 		if !m.wordWrap {

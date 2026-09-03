@@ -79,6 +79,41 @@ type dragGeometry struct {
 	pane       *mainPane
 }
 
+// screenRegion names the interactive region that owns a screen coordinate.
+type screenRegion int
+
+const (
+	// regionStatusBar is the status bar at the top of the screen. It is
+	// clickable but not scrollable.
+	regionStatusBar screenRegion = iota
+	// regionSidebar is the sidebar column, including its borders. Never
+	// returned when the sidebar is hidden.
+	regionSidebar
+	// regionMainPane is everything else: the main pane's content rows plus
+	// the box around them (top border, title row, bottom border). The pane
+	// owns its whole box — clickAt is what narrows a coordinate inside it
+	// down to content rows.
+	regionMainPane
+)
+
+// regionAt resolves a screen coordinate to the region that owns it. It is
+// the single authority every mouse path consults — click, drag, hover and
+// wheel — so no handler re-derives "is this the sidebar?" or "is this the
+// status bar?" from widths and row counts of its own. See CLAUDE.md,
+// "Layout geometry comes from one function".
+//
+// A hidden sidebar is encoded as sidebarW == 0 (see Model.dragGeom), which
+// makes the main pane the owner of the leftmost columns automatically.
+func (g dragGeometry) regionAt(x, y int) screenRegion {
+	if y < g.statusRows {
+		return regionStatusBar
+	}
+	if g.sidebarW > 0 && x < g.sidebarW {
+		return regionSidebar
+	}
+	return regionMainPane
+}
+
 // clickAt translates a screen pixel coordinate to a source-space
 // endpoint. Returns an OutsideDir endpoint when the click lands:
 //   - vertically outside the main pane's content rows (title row, status
