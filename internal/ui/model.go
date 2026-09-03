@@ -2212,8 +2212,13 @@ func (m *Model) handleSidebarRight() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) openEditor() tea.Cmd {
+	// A directory is not a thing $EDITOR can open, so Enter over one is
+	// inert. The sidebar's own Enter path never gets here (it routes a
+	// directory to expand/collapse via handleSidebarRight); this is the
+	// main-pane path, which reads the sidebar selection and can find a
+	// directory under it. Same guard, same reason, as yankPath.
 	file := m.sidebar.SelectedItem()
-	if file == "" {
+	if file == "" || m.sidebar.SelectedIsDir() {
 		return nil
 	}
 
