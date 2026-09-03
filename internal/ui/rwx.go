@@ -19,6 +19,22 @@ import (
 type rwxFetcher struct {
 	cache   map[string]string
 	pending *gitpkg.CICheck
+	// inFlight holds the check URLs with an outstanding fetch.
+	//
+	// The pending slot alone was not enough. Lookup runs on every render of the
+	// selected check, and a miss re-staged pending every time, so each redraw
+	// while a fetch was outstanding dispatched another full `rwx runs` +
+	// per-task `rwx logs` subprocess chain over the same run. The cache is only
+	// populated when the *first* one finally lands, so nothing upstream could
+	// stop it. Keyed by URL, like the cache, so an in-flight fetch for one
+	// check does not block a different one the user selects meanwhile.
+	inFlight map[string]bool
+	// failed marks the cache entries that hold an error message rather than a
+	// log. Those entries are display state, not results: without this set a
+	// single transient network failure was cached under the check URL and never
+	// invalidated, so the pane showed the error for the rest of the session.
+	// InvalidateErrors drops exactly these.
+	failed map[string]bool
 }
 
 // rwxLogMsg is the result of an async RWX log fetch.
@@ -31,12 +47,18 @@ type rwxLogMsg struct {
 const rwxLoadingPlaceholder = "Loading RWX logs..."
 
 func newRWXFetcher() *rwxFetcher {
-	return &rwxFetcher{cache: make(map[string]string)}
+	return &rwxFetcher{
+		cache:    make(map[string]string),
+		inFlight: make(map[string]bool),
+		failed:   make(map[string]bool),
+	}
 }
 
 // Lookup returns the additional content for an RWX CI check.
 //   - For checks without an RWX URL, returns "" — callers should skip.
 //   - On cache hit, returns the cached log.
+//   - While a fetch for the URL is already outstanding, returns the loading
+//     placeholder and stages nothing.
 //   - On cache miss, marks check as pending and returns the loading placeholder.
 //
 // The cached bool distinguishes a real result from a placeholder.
@@ -46,6 +68,11 @@ func (f *rwxFetcher) Lookup(check gitpkg.CICheck) (content string, cached bool) 
 	}
 	if c, ok := f.cache[check.URL]; ok {
 		return c, true
+	}
+	// Already fetching this URL: show the placeholder but stage nothing, so the
+	// render loop can't pile up duplicate fetches behind one outstanding one.
+	if f.inFlight[check.URL] {
+		return rwxLoadingPlaceholder, false
 	}
 	c := check
 	f.pending = &c
@@ -60,16 +87,46 @@ func (f *rwxFetcher) Cmd(git GitDataSource) tea.Cmd {
 	}
 	check := *f.pending
 	f.pending = nil
+	// Claimed before returning, not when the closure runs: Cmd is called on the
+	// Update goroutine and the closure is not, so marking it here is what makes
+	// the very next Lookup see the fetch as outstanding.
+	f.inFlight[check.URL] = true
 	return func() tea.Msg { return fetchRWXLog(git, check) }
 }
 
-// Apply stores a fetched log (or an error message) in the cache.
+// Apply stores a fetched log (or an error message) in the cache and releases
+// the URL's in-flight mark. Both outcomes release it — an error that left the
+// mark set would make the check permanently unfetchable.
 func (f *rwxFetcher) Apply(msg rwxLogMsg) {
+	delete(f.inFlight, msg.checkURL)
 	if msg.err != nil {
 		f.cache[msg.checkURL] = fmt.Sprintf("Error fetching RWX logs: %v", msg.err)
+		f.failed[msg.checkURL] = true
 		return
 	}
 	f.cache[msg.checkURL] = msg.log
+	delete(f.failed, msg.checkURL)
+}
+
+// InFlight reports whether a fetch for this check URL is outstanding.
+func (f *rwxFetcher) InFlight(url string) bool { return f.inFlight[url] }
+
+// InvalidateErrors drops every cached error so the next Lookup misses and
+// refetches. Successful logs are kept: they are expensive to fetch and remain
+// accurate for the run they describe.
+//
+// Chosen over expiring errors on a TTL. The cache is read from render, which
+// gives a TTL no natural moment to fire — the pane would silently swap an error
+// for a spinner on an unrelated redraw, and testing it means injecting a clock.
+// Invalidation instead rides the two events that already mean "the CI picture
+// may have changed": the explicit refresh key, which is the user asking for a
+// retry, and the arrival of fresh PR check data, which bounds the retry rate to
+// the PR poll interval without any timer of its own.
+func (f *rwxFetcher) InvalidateErrors() {
+	for url := range f.failed {
+		delete(f.cache, url)
+		delete(f.failed, url)
+	}
 }
 
 // fetchRWXLog does the actual fetch + log assembly synchronously, intended to

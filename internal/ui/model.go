@@ -1046,6 +1046,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !keepChecks {
 					m.ciStatus = msg.ciStatus
 					m.ciChecks = msg.ciChecks
+					// Fresh CI data means the run may have moved on, so an RWX
+					// log fetch that failed earlier is worth retrying. Riding
+					// the poll like this bounds the retry rate without a timer.
+					m.rwxFetcher.InvalidateErrors()
 				}
 				m.prReviews = msg.prReviews
 				m.prReviewRequests = msg.reviewRequests
@@ -1274,6 +1278,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !keepChecks {
 			m.ciStatus = msg.ciStatus
 			m.ciChecks = msg.ciChecks
+			// See the gitDataMsg arm: fresh CI data re-opens failed RWX fetches.
+			m.rwxFetcher.InvalidateErrors()
 		}
 		m.prReviews = msg.reviews
 		m.prReviewRequests = msg.reviewRequests
@@ -1693,6 +1699,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.yankPath()
 
 	case key.Matches(msg, keys.Refresh):
+		// An explicit refresh is the user asking to retry everything that
+		// failed, RWX log fetches included — otherwise one transient network
+		// error stays on screen for the rest of the session.
+		m.rwxFetcher.InvalidateErrors()
 		if m.git == nil {
 			return m, loadNonGitFilesCmd(m.dir)
 		}
