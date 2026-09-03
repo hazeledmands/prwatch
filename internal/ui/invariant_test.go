@@ -619,7 +619,7 @@ func checkSidebarInvariants(t *rapid.T, m *Model, context string) {
 // active notifications (which temporarily replace the bottom border).
 func checkBottomBorder(t *rapid.T, m *Model, context string) {
 	t.Helper()
-	if m.help.IsOpen() || m.confirming || m.loading || m.err != nil || m.sidebarHidden || m.notification != "" {
+	if m.help.IsOpen() || m.confirming || m.loading || m.err != nil || m.sidebarHidden || m.notifications.Text() != "" {
 		return
 	}
 	v := viewWithTimeout(t, m, context)

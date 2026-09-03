@@ -215,8 +215,8 @@ func TestSelection_YankCopiesAndDismisses(t *testing.T) {
 	if m.selection.IsActive() {
 		t.Errorf("y should dismiss the selection")
 	}
-	if !copySelectionNotificationRE.MatchString(m.notification) {
-		t.Errorf("expected copied-selection notification, got %q", m.notification)
+	if !copySelectionNotificationRE.MatchString(m.notifications.Text()) {
+		t.Errorf("expected copied-selection notification, got %q", m.notifications.Text())
 	}
 }
 

@@ -684,10 +684,7 @@ func (m *Model) yankPath() tea.Cmd {
 		}
 	}
 	m.copyToClipboard(text)
-	m.notification = "copied " + text
-	return tea.Tick(4*time.Second, func(time.Time) tea.Msg {
-		return notificationExpiredMsg{}
-	})
+	return m.notifications.Show("copied " + text)
 }
 
 func (m *Model) copySelection() tea.Cmd {
@@ -719,10 +716,7 @@ func (m *Model) copyAndNotify(text string) tea.Cmd {
 	if bytes == 1 {
 		byteWord = "byte"
 	}
-	m.notification = fmt.Sprintf("copied selection (%d %s, %d %s)", lines, lineWord, bytes, byteWord)
-	return tea.Tick(4*time.Second, func(time.Time) tea.Msg {
-		return notificationExpiredMsg{}
-	})
+	return m.notifications.Show(fmt.Sprintf("copied selection (%d %s, %d %s)", lines, lineWord, bytes, byteWord))
 }
 
 // copyToClipboard copies the given text to the system clipboard using

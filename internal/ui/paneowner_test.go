@@ -137,8 +137,8 @@ func TestYankPath_MainFocusFollowsPaneNotSidebar(t *testing.T) {
 	if cmd := m.yankPath(); cmd == nil {
 		t.Fatal("yankPath returned nil with a file on screen")
 	}
-	if !strings.HasPrefix(m.notification, "copied "+wantFile+":") {
-		t.Errorf("notification = %q, want a %q line range", m.notification, wantFile+":N-M")
+	if !strings.HasPrefix(m.notifications.Text(), "copied "+wantFile+":") {
+		t.Errorf("notification = %q, want a %q line range", m.notifications.Text(), wantFile+":N-M")
 	}
 }
 
@@ -148,13 +148,13 @@ func TestYankPath_MainFocusFollowsPaneNotSidebar(t *testing.T) {
 func TestYankPath_SidebarFocusOnDirectoryStillDeclines(t *testing.T) {
 	m, _ := paneOwnerModel(t)
 	m.focus = SidebarFocus
-	m.notification = ""
+	m.notifications.text = ""
 
 	if cmd := m.yankPath(); cmd != nil {
 		t.Error("sidebar-focused yankPath on a directory should return nil")
 	}
-	if m.notification != "" {
-		t.Errorf("sidebar-focused yankPath on a directory set notification %q", m.notification)
+	if m.notifications.Text() != "" {
+		t.Errorf("sidebar-focused yankPath on a directory set notification %q", m.notifications.Text())
 	}
 }
 

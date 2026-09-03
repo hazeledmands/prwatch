@@ -1,0 +1,23 @@
+# 2026/09/03 10:29:27.288545 [TestProperty_NotificationOnlyCurrentGenerationClears] [rapid] draw steps: 2
+# 2026/09/03 10:29:27.288559 [TestProperty_NotificationOnlyCurrentGenerationClears] [rapid] draw op: 0
+# 2026/09/03 10:29:27.288569 [TestProperty_NotificationOnlyCurrentGenerationClears] [rapid] draw text: "copied a"
+# 2026/09/03 10:29:27.288579 [TestProperty_NotificationOnlyCurrentGenerationClears] [rapid] draw op: 1
+# 2026/09/03 10:29:27.288586 [TestProperty_NotificationOnlyCurrentGenerationClears] [rapid] draw expireGen: 0x0
+# 2026/09/03 10:29:27.288595 [TestProperty_NotificationOnlyCurrentGenerationClears] [rapid] draw useSeen: false
+# 2026/09/03 10:29:27.288602 [TestProperty_NotificationOnlyCurrentGenerationClears] expiry for stale generation 0 (current 1) changed "copied a" to ""
+# 
+v0.4.8#5748809514879413167
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0

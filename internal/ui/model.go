@@ -143,25 +143,24 @@ type Model struct {
 	sidebarPct         int // sidebar width as percentage of total width (10-50)
 	dir                string
 	confirming         bool
-	help               *helpOverlay     // help overlay subsystem
-	showIgnored        bool             // whether to show gitignored files in all-files section
-	collapsedDirs      map[string]bool  // tracks collapsed directory paths
-	sidebarHidden      bool             // [f] toggles sidebar visibility
-	wordWrap           bool             // [w] toggles word wrapping in main pane
-	lineNumbers        bool             // [n] toggles line numbers in files mode
-	search             *searchOverlay   // cross-pane search overlay
-	hoverX, hoverY     int              // last mouse position for hover highlighting
-	activity           *activityTracker // adaptive refresh-interval bookkeeping
-	drag               *dragSelection   // click-drag-release selection state
-	cursor             *cursor          // persistent pointing position in the main pane
-	selection          *selection       // vim-style visual-mode selection state
-	notification       string           // transient notification text (bottom-left)
-	notificationExpiry time.Time        // when the notification should disappear
-	loading            bool             // true until first local data load completes
-	prLoadedOnce       bool             // true after first successful PR data fetch
-	modeLabels         []modeLabel      // clickable mode label positions from last render
-	line2Labels        []line2Label     // clickable positions on git status line
-	line3Labels        []line3Label     // clickable positions on PR status line
+	help               *helpOverlay      // help overlay subsystem
+	showIgnored        bool              // whether to show gitignored files in all-files section
+	collapsedDirs      map[string]bool   // tracks collapsed directory paths
+	sidebarHidden      bool              // [f] toggles sidebar visibility
+	wordWrap           bool              // [w] toggles word wrapping in main pane
+	lineNumbers        bool              // [n] toggles line numbers in files mode
+	search             *searchOverlay    // cross-pane search overlay
+	hoverX, hoverY     int               // last mouse position for hover highlighting
+	activity           *activityTracker  // adaptive refresh-interval bookkeeping
+	drag               *dragSelection    // click-drag-release selection state
+	cursor             *cursor           // persistent pointing position in the main pane
+	selection          *selection        // vim-style visual-mode selection state
+	notifications      notificationState // transient toast (bottom-left)
+	loading            bool              // true until first local data load completes
+	prLoadedOnce       bool              // true after first successful PR data fetch
+	modeLabels         []modeLabel       // clickable mode label positions from last render
+	line2Labels        []line2Label      // clickable positions on git status line
+	line3Labels        []line3Label      // clickable positions on PR status line
 	err                error
 }
 
@@ -299,7 +298,10 @@ type prRefreshMsg struct {
 type prTickMsg struct{}
 type gitTickMsg struct{}
 
-type notificationExpiredMsg struct{}
+// notificationExpiredMsg is a toast's expiry timer firing. gen names the
+// notification it was armed for, so a timer belonging to a toast that has since
+// been replaced is recognized and ignored rather than clearing its successor.
+type notificationExpiredMsg struct{ gen uint64 }
 
 // maybeFetchRWXLog returns a tea.Cmd to fetch RWX logs if there's a pending
 // check staged by the previous render. Forwards to rwxFetcher.
@@ -1344,7 +1346,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(loadPRStatusCmd(m.git), schedulePRTick(m.activity.PRTickDelay(now)))
 
 	case notificationExpiredMsg:
-		m.notification = ""
+		m.notifications.Expire(msg)
 		return m, nil
 
 	case gitTickMsg:
@@ -2795,10 +2797,10 @@ func (m *Model) View() tea.View {
 	}
 
 	// Show notification on the last line (unless search bar is active)
-	if m.notification != "" && !m.search.IsActive() {
+	if m.notifications.Text() != "" && !m.search.IsActive() {
 		lines := strings.Split(padded, "\n")
 		if len(lines) > 0 {
-			lines[len(lines)-1] = sidebarDimStyle.Render(m.notification)
+			lines[len(lines)-1] = sidebarDimStyle.Render(m.notifications.Text())
 			padded = strings.Join(lines, "\n")
 			padded = padToHeight(padded, m.width, m.height)
 		}

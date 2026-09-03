@@ -7571,8 +7571,8 @@ func TestYankPath_SidebarFocused(t *testing.T) {
 	}
 
 	// Should show a notification with the copied path
-	if !strings.Contains(m.notification, "config.go") {
-		t.Errorf("notification should mention copied file path, got %q", m.notification)
+	if !strings.Contains(m.notifications.Text(), "config.go") {
+		t.Errorf("notification should mention copied file path, got %q", m.notifications.Text())
 	}
 }
 
@@ -7602,8 +7602,8 @@ func TestYankPath_MainPaneFocused(t *testing.T) {
 	}
 
 	// Notification should contain file:line format
-	if !strings.Contains(m.notification, "auth.go:") {
-		t.Errorf("notification should contain path:line format, got %q", m.notification)
+	if !strings.Contains(m.notifications.Text(), "auth.go:") {
+		t.Errorf("notification should contain path:line format, got %q", m.notifications.Text())
 	}
 }
 
@@ -7634,8 +7634,8 @@ func TestYankPath_DirectoryIgnored(t *testing.T) {
 	if cmd != nil {
 		t.Error("[y] on directory should be a no-op (nil cmd)")
 	}
-	if m.notification != "" {
-		t.Errorf("no notification expected for directory yank, got %q", m.notification)
+	if m.notifications.Text() != "" {
+		t.Errorf("no notification expected for directory yank, got %q", m.notifications.Text())
 	}
 }
 
@@ -7651,8 +7651,8 @@ func TestCopySelection_NoDrag(t *testing.T) {
 	if cmd != nil {
 		t.Error("no-drag copySelection should return nil cmd")
 	}
-	if m.notification != "" {
-		t.Errorf("no-drag copySelection should not set notification, got %q", m.notification)
+	if m.notifications.Text() != "" {
+		t.Errorf("no-drag copySelection should not set notification, got %q", m.notifications.Text())
 	}
 }
 
@@ -7679,8 +7679,8 @@ func TestCopySelection_WithContent(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("copySelection with content should return a notification timer cmd")
 	}
-	if !copySelectionNotificationRE.MatchString(m.notification) {
-		t.Errorf("notification should match 'copied selection (N line[s], M byte[s])', got %q", m.notification)
+	if !copySelectionNotificationRE.MatchString(m.notifications.Text()) {
+		t.Errorf("notification should match 'copied selection (N line[s], M byte[s])', got %q", m.notifications.Text())
 	}
 }
 
@@ -8030,8 +8030,8 @@ func TestMouseDragRelease_ShowsCopiedNotification(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("mouse-release after drag should return a notification timer cmd")
 	}
-	if !copySelectionNotificationRE.MatchString(m.notification) {
-		t.Errorf("mouse-release notification should match 'copied selection (N line[s], M byte[s])', got %q", m.notification)
+	if !copySelectionNotificationRE.MatchString(m.notifications.Text()) {
+		t.Errorf("mouse-release notification should match 'copied selection (N line[s], M byte[s])', got %q", m.notifications.Text())
 	}
 }
 
