@@ -184,3 +184,19 @@ its own shortstat. Untracked content lands in the "new changes" body, since
 PROMPT.md groups untracked and unstaged under that one sidebar entry rather
 than giving untracked an entry of its own. See BUG_REPORTS.md, "Commits-mode
 pseudo-entry bodies were all the same diff".
+
+## Wheel scrolling: focused view vs view under the pointer
+
+Spec: PROMPT.md:386 — "scrolling independently scrolls the focused view,
+keeping selections the same."
+
+Code: the wheel scrolls the view *under the pointer* (region-resolved via
+`dragGeometry.regionAt`), regardless of focus. This predates the mouse-region
+unification (commit 6001423), which kept the under-pointer behavior and made
+wheel consistent with click/drag hit-testing.
+
+Open question: a literal reading of the spec would make wheel-over-sidebar
+scroll the main pane whenever main is focused — which matches no common
+terminal-app convention. Is "focused view" a drafting artifact for "the view
+under the pointer", or is focus-follows-wheel intended? Under-pointer is the
+shipped behavior; the spec line likely wants rewording.
