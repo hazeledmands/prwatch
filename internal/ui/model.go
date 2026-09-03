@@ -2826,12 +2826,6 @@ func (m *Model) renderPRDescription() string {
 	return renderPRDescription(m.prInfo, m.prReviews, m.prDeployments, m.mainPane.width)
 }
 
-// helpEntry pairs one or more key bindings with a description line.
-type helpEntry struct {
-	bindings []key.Binding
-	desc     string
-}
-
 // keyList formats a set of bindings as "[key1] [key2] ..." so the help overlay
 // always reflects the actual keymap in keys.go rather than hard-coded strings.
 func keyList(bs ...key.Binding) string {
