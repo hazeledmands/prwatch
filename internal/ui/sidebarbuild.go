@@ -239,8 +239,21 @@ func commitSidebarItem(c gitpkg.Commit, kind sidebarItemKind) sidebarItem {
 	}
 }
 
-// buildPRSidebar constructs the sidebar for PR mode.
-func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, checks []gitpkg.CICheck) []sidebarItem {
+// sectionCount renders a section header's count. When the fetch was
+// truncated — GitHub reported more items than we hold — it reads "N of M", so
+// a partial list can't present itself as the whole thing. A total of 0 means
+// "unknown" (the non-GraphQL fallback reports none) and counts plainly.
+func sectionCount(name string, shown, total int) string {
+	if total > shown {
+		return fmt.Sprintf("%s (%d of %d)", name, shown, total)
+	}
+	return fmt.Sprintf("%s (%d)", name, shown)
+}
+
+// buildPRSidebar constructs the sidebar for PR mode. reviewsTotal is how many
+// reviews GitHub says the PR has, which can exceed len(reviews) when the
+// paginated fetch hit its page cap.
+func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, checks []gitpkg.CICheck, reviewsTotal int) []sidebarItem {
 	var items []sidebarItem
 	items = append(items, sidebarItem{label: "Description", kind: itemNormal})
 	items = append(items, sidebarItem{kind: itemSeparator})
@@ -259,7 +272,7 @@ func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, chec
 	}
 
 	items = append(items, sidebarItem{kind: itemSeparator})
-	items = append(items, sidebarItem{label: fmt.Sprintf("Reviews (%d)", len(reviews)), kind: itemHeader})
+	items = append(items, sidebarItem{label: sectionCount("Reviews", len(reviews), reviewsTotal), kind: itemHeader})
 	for i, r := range reviews {
 		items = append(items, sidebarItem{
 			prefix: prReviewPrefix(i, len(reviews), r),

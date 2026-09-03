@@ -158,6 +158,11 @@ type PRReview struct {
 	SubmittedAt time.Time         `json:"submittedAt"`
 	URL         string            `json:"url"`
 	Comments    []PRReviewComment `json:"comments"`
+	// CommentsTotal is how many inline comments GitHub says this review has.
+	// Equal to len(Comments) in the ordinary case; larger when the review has
+	// more inline comments than one page carries, which is the signal the UI
+	// renders as "showing N of M". Never smaller.
+	CommentsTotal int `json:"commentsTotal"`
 }
 
 // PRReviewComment is an inline code comment attached to a review.
@@ -181,6 +186,12 @@ type PRAllResult struct {
 	Comments       []PRComment
 	CommentCount   int
 	Deployments    []PRDeployment
+	// ReviewsTotal is how many reviews GitHub says the PR has, which can
+	// exceed len(Reviews) when the paginated fetch stopped at its page cap.
+	// The fallback path can't know a total, so it reports len(Reviews) —
+	// every path leaves ReviewsTotal >= len(Reviews), and equality means
+	// "nothing was dropped".
+	ReviewsTotal int
 }
 
 // PRChecksResult holds both the raw CI checks and the aggregated status.
@@ -1087,8 +1098,9 @@ func (g *Git) PRAll() (PRAllResult, error) {
 
 	// Try to fetch reviews with inline comments via GraphQL.
 	// Falls back to the basic review data from gh pr view if this fails.
-	if reviewsWithComments, err := g.fetchReviewsGraphQL(result.Info.Number); err == nil && len(reviewsWithComments) > 0 {
+	if reviewsWithComments, total, err := g.fetchReviewsGraphQL(result.Info.Number); err == nil && len(reviewsWithComments) > 0 {
 		result.Reviews = reviewsWithComments
+		result.ReviewsTotal = total
 	} else {
 		for _, r := range raw.Reviews {
 			result.Reviews = append(result.Reviews, PRReview{
@@ -1098,6 +1110,10 @@ func (g *Git) PRAll() (PRAllResult, error) {
 				SubmittedAt: r.SubmittedAt,
 			})
 		}
+		// `gh pr view` reports no total, so the fallback claims exactly what
+		// it has: no truncation is *known*, and inventing one would put a
+		// permanent "showing N of M" on every PR whose GraphQL fetch failed.
+		result.ReviewsTotal = len(result.Reviews)
 	}
 
 	for _, rr := range raw.ReviewRequests {
@@ -1224,30 +1240,47 @@ func (g *Git) fetchDeployments(prNumber int) ([]PRDeployment, error) {
 	return deployments, nil
 }
 
-// fetchReviewsGraphQL fetches reviews with their inline comments via the GitHub GraphQL API.
-func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
-	// Resolve owner/repo via gh so we don't have to parse git remotes ourselves.
-	nwoOut, err := g.runExternal("gh", "repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name")
-	if err != nil {
-		return nil, err
-	}
-	parts := strings.SplitN(strings.TrimSpace(nwoOut), "/", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("unexpected repo format: %q", nwoOut)
-	}
-	owner, repo := parts[0], parts[1]
+// Bounds on the reviews fetch. Every page is one `gh api graphql`
+// subprocess with its own 45s deadline, and this fetch runs on the PR poll,
+// so "page until GitHub runs out" is not an option: a PR with thousands of
+// reviews would turn each refresh into an unbounded run of subprocesses.
+//
+// The outer collection pages properly, capped at reviewsMaxPages — worst
+// case 5 subprocesses and 250 reviews per refresh. The inner comments
+// collection hangs off a paginated parent, so paging it would mean an extra
+// query per review (N+1); it is capped at one page instead. Both caps report
+// GitHub's own totalCount alongside the nodes, so a truncated fetch is
+// visible as "showing N of M" rather than silently short.
+const (
+	reviewsPageSize     = 50
+	reviewsMaxPages     = 5
+	reviewCommentsFirst = 100
+)
 
-	query := fmt.Sprintf(`query {
+// reviewsQuery builds the reviews page query. cursor is the previous page's
+// endCursor; empty means "first page" and emits `after: null`.
+func reviewsQuery(owner, repo string, prNumber int, cursor string) string {
+	after := "null"
+	if cursor != "" {
+		after = fmt.Sprintf("%q", cursor)
+	}
+	return fmt.Sprintf(`query {
   repository(owner: %q, name: %q) {
     pullRequest(number: %d) {
-      reviews(first: 50) {
+      reviews(first: %d, after: %s) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         nodes {
           author { login }
           state
           body
           submittedAt
           url
-          comments(first: 100) {
+          comments(first: %d) {
+            totalCount
             nodes {
               path
               line
@@ -1258,62 +1291,111 @@ func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, error) {
       }
     }
   }
-}`, owner, repo, prNumber)
+}`, owner, repo, prNumber, reviewsPageSize, after, reviewCommentsFirst)
+}
 
-	out, err := g.runExternal("gh", "api", "graphql", "-f", "query="+query)
+// fetchReviewsGraphQL fetches reviews with their inline comments via the
+// GitHub GraphQL API, following the reviews cursor up to reviewsMaxPages.
+// Returns the reviews it gathered plus GitHub's reported total, which exceeds
+// len(reviews) exactly when the cap truncated the fetch.
+//
+// Pages are fetched sequentially on the caller's goroutine — PRAll's, i.e.
+// the one PR-fetch Cmd — so this adds no concurrency and stays inside the
+// existing single-flight and seq/staleness discipline.
+func (g *Git) fetchReviewsGraphQL(prNumber int) ([]PRReview, int, error) {
+	// Resolve owner/repo via gh so we don't have to parse git remotes ourselves.
+	nwoOut, err := g.runExternal("gh", "repo", "view", "--json", "owner,name", "--jq", ".owner.login + \"/\" + .name")
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-
-	var resp struct {
-		Data struct {
-			Repository struct {
-				PullRequest struct {
-					Reviews struct {
-						Nodes []struct {
-							Author struct {
-								Login string `json:"login"`
-							} `json:"author"`
-							State       string    `json:"state"`
-							Body        string    `json:"body"`
-							SubmittedAt time.Time `json:"submittedAt"`
-							URL         string    `json:"url"`
-							Comments    struct {
-								Nodes []struct {
-									Path string `json:"path"`
-									Line int    `json:"line"`
-									Body string `json:"body"`
-								} `json:"nodes"`
-							} `json:"comments"`
-						} `json:"nodes"`
-					} `json:"reviews"`
-				} `json:"pullRequest"`
-			} `json:"repository"`
-		} `json:"data"`
+	parts := strings.SplitN(strings.TrimSpace(nwoOut), "/", 2)
+	if len(parts) != 2 {
+		return nil, 0, fmt.Errorf("unexpected repo format: %q", nwoOut)
 	}
-	if err := json.Unmarshal([]byte(out), &resp); err != nil {
-		return nil, err
-	}
+	owner, repo := parts[0], parts[1]
 
 	var reviews []PRReview
-	for _, r := range resp.Data.Repository.PullRequest.Reviews.Nodes {
-		review := PRReview{
-			Author:      r.Author.Login,
-			State:       r.State,
-			Body:        r.Body,
-			SubmittedAt: r.SubmittedAt,
-			URL:         r.URL,
+	total := 0
+	cursor := ""
+	for page := 0; page < reviewsMaxPages; page++ {
+		out, err := g.runExternal("gh", "api", "graphql", "-f", "query="+reviewsQuery(owner, repo, prNumber, cursor))
+		if err != nil {
+			// A mid-pagination failure is still a failure: report it rather
+			// than passing off a partial list as the whole set.
+			return nil, 0, err
 		}
-		for _, c := range r.Comments.Nodes {
-			review.Comments = append(review.Comments, PRReviewComment{
-				Path: c.Path,
-				Line: c.Line,
-				Body: c.Body,
-			})
+
+		var resp struct {
+			Data struct {
+				Repository struct {
+					PullRequest struct {
+						Reviews struct {
+							TotalCount int `json:"totalCount"`
+							PageInfo   struct {
+								HasNextPage bool   `json:"hasNextPage"`
+								EndCursor   string `json:"endCursor"`
+							} `json:"pageInfo"`
+							Nodes []struct {
+								Author struct {
+									Login string `json:"login"`
+								} `json:"author"`
+								State       string    `json:"state"`
+								Body        string    `json:"body"`
+								SubmittedAt time.Time `json:"submittedAt"`
+								URL         string    `json:"url"`
+								Comments    struct {
+									TotalCount int `json:"totalCount"`
+									Nodes      []struct {
+										Path string `json:"path"`
+										Line int    `json:"line"`
+										Body string `json:"body"`
+									} `json:"nodes"`
+								} `json:"comments"`
+							} `json:"nodes"`
+						} `json:"reviews"`
+					} `json:"pullRequest"`
+				} `json:"repository"`
+			} `json:"data"`
 		}
-		reviews = append(reviews, review)
+		if err := json.Unmarshal([]byte(out), &resp); err != nil {
+			return nil, 0, err
+		}
+
+		gqlReviews := resp.Data.Repository.PullRequest.Reviews
+		total = gqlReviews.TotalCount
+		for _, r := range gqlReviews.Nodes {
+			review := PRReview{
+				Author:        r.Author.Login,
+				State:         r.State,
+				Body:          r.Body,
+				SubmittedAt:   r.SubmittedAt,
+				URL:           r.URL,
+				CommentsTotal: r.Comments.TotalCount,
+			}
+			for _, c := range r.Comments.Nodes {
+				review.Comments = append(review.Comments, PRReviewComment{
+					Path: c.Path,
+					Line: c.Line,
+					Body: c.Body,
+				})
+			}
+			// A totalCount GitHub didn't report (or reported low) must never
+			// leave the review claiming fewer comments than it carries.
+			if review.CommentsTotal < len(review.Comments) {
+				review.CommentsTotal = len(review.Comments)
+			}
+			reviews = append(reviews, review)
+		}
+
+		if !gqlReviews.PageInfo.HasNextPage || gqlReviews.PageInfo.EndCursor == "" {
+			break
+		}
+		cursor = gqlReviews.PageInfo.EndCursor
 	}
-	return reviews, nil
+	if total < len(reviews) {
+		total = len(reviews)
+	}
+	return reviews, total, nil
 }
 
 // PRChecksAll fetches CI checks in a single gh pr checks call, returning

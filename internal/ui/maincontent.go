@@ -294,6 +294,13 @@ func buildReviewContent(r gitpkg.PRReview, width int) string {
 	for _, c := range r.Comments {
 		content += fmt.Sprintf("\n\n--- %s:%d ---\n%s", c.Path, c.Line, c.Body)
 	}
+	// Inline comments are fetched one page deep (they hang off the paginated
+	// reviews collection, so paging them would be a query per review). Say so
+	// when GitHub reported more than we hold — the sidebar row counts reviews
+	// and cannot carry this.
+	if r.CommentsTotal > len(r.Comments) {
+		content += fmt.Sprintf("\n\n(showing %d of %d inline comments)", len(r.Comments), r.CommentsTotal)
+	}
 	return content
 }
 

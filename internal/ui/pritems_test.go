@@ -29,7 +29,7 @@ func TestPRItemURL_ExactIdentity(t *testing.T) {
 
 	// The sidebar is the source of the labels the user activates: resolve
 	// against exactly what buildPRSidebar renders.
-	items := buildPRSidebar(comments, reviews, checks)
+	items := buildPRSidebar(comments, reviews, checks, len(reviews))
 	labelOf := func(want string) string {
 		for _, it := range items {
 			if it.kind != itemNormal {
@@ -77,7 +77,7 @@ func TestPRItemURL_ExactIdentity(t *testing.T) {
 		{Name: "build-arm", Bucket: "pass", URL: "https://ci/build-arm"},
 		{Name: "build", Bucket: "fail", URL: "https://ci/build"},
 	}
-	ritems := buildPRSidebar(nil, nil, reordered)
+	ritems := buildPRSidebar(nil, nil, reordered, 0)
 	ridx := firstCIFailureIndex(ritems, reordered)
 	if ridx < 0 {
 		t.Fatalf("firstCIFailureIndex found nothing in %+v", ritems)

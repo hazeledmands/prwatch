@@ -117,6 +117,7 @@ type Model struct {
 	prInfo             gitpkg.PRInfoResult
 	ciStatus           gitpkg.CIStatusResult
 	prReviews          []gitpkg.PRReview
+	prReviewsTotal     int // reviews GitHub reports; > len(prReviews) when the fetch was capped
 	prReviewRequests   []gitpkg.PRReviewRequest
 	prError            string // error message for PR/GitHub API issues
 	prCommentCount     int
@@ -190,6 +191,7 @@ type gitDataMsg struct {
 	prInfo         gitpkg.PRInfoResult
 	ciStatus       gitpkg.CIStatusResult
 	prReviews      []gitpkg.PRReview
+	prReviewsTotal int
 	prCommentCount int
 	// queryOldBase is the base SHA the load actually queried against: the
 	// user's scrubbed endpoint when scrubbed, otherwise the natural base the
@@ -274,6 +276,7 @@ type prRefreshMsg struct {
 	prInfo         gitpkg.PRInfoResult
 	ciStatus       gitpkg.CIStatusResult
 	reviews        []gitpkg.PRReview
+	reviewsTotal   int
 	reviewRequests []gitpkg.PRReviewRequest
 	commentCount   int
 	ciChecks       []gitpkg.CICheck
@@ -459,6 +462,7 @@ func fetchPRStatus(g GitDataSource) tea.Msg {
 		prInfo:         prAll.Info,
 		ciStatus:       checksResult.Status,
 		reviews:        prAll.Reviews,
+		reviewsTotal:   prAll.ReviewsTotal,
 		reviewRequests: prAll.ReviewRequests,
 		commentCount:   prAll.CommentCount,
 		ciChecks:       checksResult.Checks,
@@ -829,6 +833,7 @@ func runGitLoad(req gitLoadRequest) tea.Msg {
 		msg.ciStatus = ciStatus
 		msg.ciChecks = ciChecks
 		msg.prReviews = prAll.Reviews
+		msg.prReviewsTotal = prAll.ReviewsTotal
 		msg.prCommentCount = prAll.CommentCount
 		msg.prComments = prAll.Comments
 		msg.prDeployments = prAll.Deployments
@@ -1069,6 +1074,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.rwxFetcher.InvalidateErrors()
 				}
 				m.prReviews = msg.prReviews
+				m.prReviewsTotal = msg.prReviewsTotal
 				m.prReviewRequests = msg.reviewRequests
 				m.prCommentCount = msg.prCommentCount
 				m.prComments = msg.prComments
@@ -1303,6 +1309,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rwxFetcher.InvalidateErrors()
 		}
 		m.prReviews = msg.reviews
+		m.prReviewsTotal = msg.reviewsTotal
 		m.prReviewRequests = msg.reviewRequests
 		m.prCommentCount = msg.commentCount
 		m.prComments = msg.prComments
@@ -2454,7 +2461,7 @@ func (m *Model) updateSidebarItems() {
 		)
 		m.sidebar.SetItems(items)
 	case PRMode:
-		items := buildPRSidebar(m.prComments, m.prReviews, m.ciChecks)
+		items := buildPRSidebar(m.prComments, m.prReviews, m.ciChecks, m.prReviewsTotal)
 		m.sidebar.SetItems(items)
 	}
 }
