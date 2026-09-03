@@ -33,10 +33,11 @@ type sgrState struct {
 //
 // The scan is by hand rather than through ansiStripRE because this runs on
 // every wrapped row of every refresh, and on a syntax-highlighted file that is
-// thousands of sequences per keystroke — the regexp walk cost more than the
-// rest of the wrapper put together. It needs only the SGR shape, which
-// sgrParams already spells out. TestProperty_SGRSeqAtAgreesWithTheEscapeOracle
-// pins it to ansiStripRE so the two cannot drift on what an escape is.
+// thousands of sequences per keystroke. Routing it through the regexp instead
+// costs 45% on BenchmarkRefreshViewportStyled (25ms to 37ms). It needs only the
+// SGR shape, which sgrParams already spells out, and
+// TestProperty_SGRSeqAtAgreesWithTheEscapeOracle pins it to ansiStripRE so the
+// two cannot drift on what an escape is.
 func (s *sgrState) feed(text string) {
 	// Shortcut, and the reason a styled file is not measurably slower to wrap
 	// than an unstyled one: when the last escape in text is a bare reset,
@@ -61,9 +62,10 @@ func (s *sgrState) feed(text string) {
 		i += j
 		seq, ok := sgrSeqAt(text, i)
 		if !ok {
-			// Not an SGR sequence. Step past this ESC and keep looking; an OSC
-			// 8 hyperlink's body cannot contain one, so nothing inside another
-			// escape can be mistaken for styling.
+			// Not an SGR sequence — step past this ESC and keep looking. Only
+			// ESC-anchored positions are ever examined, so a byte sequence that
+			// looks like SGR can only be read as styling if it genuinely starts
+			// with ESC [; the body of a non-SGR escape is otherwise skipped.
 			i++
 			continue
 		}
@@ -74,6 +76,12 @@ func (s *sgrState) feed(text string) {
 
 // sgrSeqAt returns the SGR sequence (CSI, numeric parameters, final 'm')
 // starting at i, reporting false when what starts there is anything else.
+//
+// Colon sub-parameter forms (`ESC[4:3m` for a curly underline, `ESC[38:2::r:g:bm`)
+// are deliberately out of scope, matching ansiStripRE, which does not accept a
+// colon either: neither chroma nor lipgloss emits them, and treating one as
+// styling here while the rest of the package does not count it as an escape at
+// all would be worse than ignoring it.
 func sgrSeqAt(s string, i int) (string, bool) {
 	if !strings.HasPrefix(s[i:], "\x1b[") {
 		return "", false
@@ -122,15 +130,40 @@ func (s *sgrState) active() bool { return len(s.seqs) > 0 }
 
 // openSeq returns the sequences that re-establish the current styling from a
 // clean terminal. Empty when nothing is open.
-func (s *sgrState) openSeq() string {
-	switch len(s.seqs) {
-	case 0:
-		return ""
-	case 1:
-		return s.seqs[0]
-	default:
-		return strings.Join(s.seqs, "")
+func (s *sgrState) openSeq() string { return strings.Join(s.seqs, "") }
+
+// openStyleAfterGutter inserts open into row just past its first gutterCols
+// display columns, so re-established styling never paints the gutter.
+//
+// A rendered row starts with a gutter: the real one (line number, diff mark) on
+// a source line's first row, and on a continuation row the blank stand-in the
+// wrapper invents for it — PROMPT.md's "wrapped text does not wrap into the
+// gutter — continuation lines have an empty gutter". Styling carried over from
+// the row above belongs to the content, so it resumes after those columns; put
+// it first and a search highlight's background paints the gutter.
+//
+// Escapes already in row are stepped over rather than counted, since they
+// occupy no columns. A row with fewer than gutterCols columns of its own is
+// all gutter, and open lands at its end.
+func openStyleAfterGutter(row, open string, gutterCols int) string {
+	if open == "" {
+		return row
 	}
+	if gutterCols <= 0 {
+		return open + row
+	}
+	off := len(row)
+	eachDisplayCluster(row, func(c displayCluster) bool {
+		if c.IsEscape {
+			return true
+		}
+		if c.Col >= gutterCols {
+			off = c.ByteOff
+			return false
+		}
+		return true
+	})
+	return row[:off] + open + row[off:]
 }
 
 // sgrParams splits an escape sequence into its SGR parameters, reporting false

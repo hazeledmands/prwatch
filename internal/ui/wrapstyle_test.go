@@ -188,6 +188,145 @@ func TestWrapLines_SearchHighlightDoesNotPaintContinuationIndent(t *testing.T) {
 	}
 }
 
+// TestWrapLines_StylingDoesNotChangeGeometry is the regression that closing and
+// re-opening rows first introduced: styling must not change how many rows a
+// line wraps to, where the breaks land, or the space accounting.
+//
+// It did, in the one shape where the wrapper's row buffer holds no content: a
+// source line whose trailing space run overflows its last row is flushed and
+// then discarded, and the re-opened styling written into that buffer read as
+// content, emitting a spurious blank row. That also quietly moved the line's
+// trailing-space count out of the fourth slice (its own run) into the third (a
+// break's), the two ce53460 went to some trouble to keep disjoint.
+func TestWrapLines_StylingDoesNotChangeGeometry(t *testing.T) {
+	t.Parallel()
+
+	longWords := strings.Repeat("word ", 32)
+
+	tests := []struct {
+		name   string
+		plain  string
+		styled string
+		width  int
+		indent int
+	}{
+		{
+			// The reviewer's case: a styled diff line whose trailing run
+			// overflows the last row, with no gutter (diff mode).
+			name:   "trailing run overflows the last row",
+			plain:  "+" + longWords + "  ",
+			styled: diffAddStyle.Render("+" + longWords + "  "),
+			width:  20,
+		},
+		{
+			name:   "same, behind a gutter",
+			plain:  "  12 " + longWords + "  ",
+			styled: "  12 " + diffAddStyle.Render(longWords+"  "),
+			width:  20,
+			indent: 5,
+		},
+		{
+			name:   "trailing run fits on the last row",
+			plain:  "+" + longWords + "x  ",
+			styled: diffAddStyle.Render("+" + longWords + "x  "),
+			width:  20,
+		},
+		{
+			name:   "no trailing run",
+			plain:  "+" + strings.TrimSpace(longWords),
+			styled: diffAddStyle.Render("+" + strings.TrimSpace(longWords)),
+			width:  20,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// The plain line is the same content with the styling taken out, so
+			// the two must wrap to the same shape.
+			if got := stripANSIForWidth(tt.styled); got != tt.plain {
+				t.Fatalf("styled input strips to %q, want the plain input %q", got, tt.plain)
+			}
+			assertSameWrapGeometry(t, tt.plain, tt.styled, tt.width, tt.indent)
+		})
+	}
+}
+
+// assertSameWrapGeometry wraps a styled line and its unstyled equivalent and
+// requires everything but the escapes to match: the rows' visible text and all
+// three accounting slices.
+func assertSameWrapGeometry(t testingT, plain, styled string, width, indent int) {
+	plainOut, plainCont, plainBreaks, plainOwn := wrapLinesWithBreaks(plain, width, indent)
+	styledOut, styledCont, styledBreaks, styledOwn := wrapLinesWithBreaks(styled, width, indent)
+
+	plainRows := strings.Split(plainOut, "\n")
+	styledRows := strings.Split(styledOut, "\n")
+	if len(plainRows) != len(styledRows) {
+		t.Fatalf("styled wrapped to %d rows %q, plain to %d rows %q",
+			len(styledRows), styledRows, len(plainRows), plainRows)
+	}
+	for i := range plainRows {
+		if got, want := stripANSIForWidth(styledRows[i]), plainRows[i]; got != want {
+			t.Fatalf("row %d: styled renders %q, plain renders %q", i, got, want)
+		}
+		if styledCont[i] != plainCont[i] {
+			t.Fatalf("row %d: cont %v styled, %v plain", i, styledCont[i], plainCont[i])
+		}
+		if styledBreaks[i] != plainBreaks[i] {
+			t.Fatalf("row %d: breaks %d styled, %d plain (breaks=%v vs %v)",
+				i, styledBreaks[i], plainBreaks[i], styledBreaks, plainBreaks)
+		}
+		if styledOwn[i] != plainOwn[i] {
+			t.Fatalf("row %d: own trailing %d styled, %d plain (own=%v vs %v)",
+				i, styledOwn[i], plainOwn[i], styledOwn, plainOwn)
+		}
+	}
+}
+
+// testingT is the slice of *testing.T and *rapid.T that assertSameWrapGeometry
+// needs, so the table test and the property can share it.
+type testingT interface {
+	Fatalf(format string, args ...any)
+}
+
+// TestProperty_WrapGeometryIgnoresStyling generalizes it: for any content the
+// pane's producers could emit, wrapping is blind to the styling. Escapes are
+// zero-width to the oracle and never sit between a space and a non-space — every
+// producer attaches an opening sequence to the text it styles — so they cannot
+// move a token boundary, a break, or a space count.
+func TestProperty_WrapGeometryIgnoresStyling(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		styled := styledContent(t)
+		width := rapid.IntRange(1, 40).Draw(t, "width")
+		indent := rapid.IntRange(0, 6).Draw(t, "indent")
+		assertSameWrapGeometry(t, stripANSIForWidth(styled), styled, width, indent)
+	})
+}
+
+// TestWrapLines_ReopenedStylingDoesNotPaintTheNextLinesGutter is the gutter rule
+// applied to the other kind of row that can inherit styling: not a continuation
+// row, but the first row of the *next* source line, when a line leaves styling
+// open. Its gutter is a real one — a line number — and it must stay unpainted
+// for the same reason a continuation row's blank stand-in must.
+func TestWrapLines_ReopenedStylingDoesNotPaintTheNextLinesGutter(t *testing.T) {
+	t.Parallel()
+
+	const indent = 5
+	open := styleOpenSeq(diffAddStyle)
+	// The first line opens styling and never closes it.
+	content := "  12 " + open + "code\n" + "  13 " + "more code"
+
+	out, _, _, _ := wrapLinesWithBreaks(content, 40, indent)
+	rows := strings.Split(out, "\n")
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows, got %q", rows)
+	}
+	if want := "  13 " + open; !strings.HasPrefix(rows[1], want) {
+		t.Errorf("row 1 = %q, want the carried styling to resume after the gutter (prefix %q)",
+			rows[1], want)
+	}
+}
+
 // TestProperty_WrapRowsAreStyleSelfContained is the invariant behind both
 // symptoms: every row the wrapper emits renders identically whether it is
 // written to the terminal on its own or after all of its predecessors.
@@ -261,7 +400,13 @@ func styledContent(t *rapid.T) string {
 				b.WriteString(sgrReset)
 			}
 		}
-		lines = append(lines, b.String())
+		// A trailing space run, so lines can end the way the wrapper's lossy
+		// cases need them to: the run overflowing the last row is what used to
+		// leave an escapes-only buffer behind and emit a blank row. Keyed on
+		// values already drawn rather than drawn afresh, so the committed .fail
+		// seeds keep replaying against an unchanged draw sequence — the same
+		// reason TestProperty_WrapLines_JoinWithBreaksRestoresSource does it.
+		lines = append(lines, b.String()+strings.Repeat(" ", (nSeg+l)%4))
 	}
 	return strings.Join(lines, "\n")
 }

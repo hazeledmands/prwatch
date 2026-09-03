@@ -1718,7 +1718,7 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 			// line above left open and closes whatever it leaves open itself.
 			// Both are no-ops for content whose styled spans close on the line
 			// that opened them, which is everything the pane renders.
-			row := sgr.openSeq() + line
+			row := openStyleAfterGutter(line, sgr.openSeq(), indent)
 			sgr.feed(row)
 			result = append(result, closeRow(row))
 			contMap = append(contMap, false)
@@ -1781,12 +1781,20 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 			if !first && effectiveIndent > 0 {
 				body = strings.TrimPrefix(body, indentStr)
 			}
+			// Re-open the styling the row above closed, behind this row's
+			// gutter: the real gutter on the source line's first row, the
+			// invented blank one on a continuation row.
+			//
+			// This happens here, and not by writing into curLine, so that
+			// curLine holds nothing but content. The end-of-line check below
+			// tests curLine.Len(), so an escapes-only buffer read as content
+			// and emitted a spurious blank row whenever a source line's
+			// trailing space run overflowed its last row.
+			gutterCols := effectiveIndent
 			if first {
-				// Continuation rows already opened their own styling in flush,
-				// after their indent; the source line's first row has no indent
-				// to sit behind, so it opens here.
-				row = sgr.openSeq() + row
+				gutterCols = indent
 			}
+			row = openStyleAfterGutter(row, sgr.openSeq(), gutterCols)
 			sgr.feed(row)
 			// The trailing-space accounting below reads `body`, which was taken
 			// before any of this: escapes are stripped for width, so neither the
@@ -1807,11 +1815,6 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 			} else {
 				lineWidth = 0
 			}
-			// After the indent, never before it: the indent is padding the
-			// wrapper invented to stand in for the gutter, and the gutter is
-			// never styled. Opening first would paint a search highlight's
-			// background across those columns.
-			curLine.WriteString(sgr.openSeq())
 			first = false
 		}
 

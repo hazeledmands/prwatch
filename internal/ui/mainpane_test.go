@@ -2093,3 +2093,57 @@ func TestProperty_SanitizedFilenameIsSafeForDisplay(t *testing.T) {
 		}
 	})
 }
+
+// benchStyledGoSource generates Go-shaped source of roughly n lines, so a
+// benchmark over syntax-highlighted content does not depend on the size of a
+// file in the repo.
+func benchStyledGoSource(n int) string {
+	var b strings.Builder
+	b.WriteString("package bench\n\nimport \"strings\"\n\n")
+	for i := 0; i < n/12; i++ {
+		fmt.Fprintf(&b, `
+// helper%d does something with its argument and returns a count.
+func helper%d(name string, values []string) (int, error) {
+	total := 0
+	for _, v := range values {
+		if strings.HasPrefix(v, name) && len(v) > %d {
+			total += len(v) * %d
+		}
+	}
+	return total, nil
+}
+`, i, i, i%7, i%3+1)
+	}
+	return b.String()
+}
+
+// BenchmarkRefreshViewportStyled is the cost of a full refresh over a
+// syntax-highlighted file — the path a keystroke in search mode runs, and the
+// budget the wrap-time SGR tracking has to fit inside. It is why sgrState scans
+// escapes by hand and skips a row whose last escape is a bare reset: routing
+// that scan through ansiStripRE instead cost ~44% here.
+func BenchmarkRefreshViewportStyled(b *testing.B) {
+	src := benchStyledGoSource(1900)
+	mp := newMainPane()
+	mp.SetSize(100, 40)
+	mp.SetFilename("bench.go")
+	mp.SetPlainContent(src)
+	b.ReportMetric(float64(strings.Count(src, "\n")+1), "lines")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mp.refreshViewport()
+	}
+}
+
+// BenchmarkRefreshViewportPlain is the same refresh with no styling at all, so
+// the two together separate the tracker's cost from the rest of the work.
+func BenchmarkRefreshViewportPlain(b *testing.B) {
+	src := benchStyledGoSource(1900)
+	mp := newMainPane()
+	mp.SetSize(100, 40)
+	mp.SetPlainContent(src)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mp.refreshViewport()
+	}
+}

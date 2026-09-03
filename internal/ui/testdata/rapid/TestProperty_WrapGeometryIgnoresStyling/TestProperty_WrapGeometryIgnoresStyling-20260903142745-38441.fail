@@ -1,0 +1,29 @@
+# 2026/09/03 14:27:45.897975 [TestProperty_WrapGeometryIgnoresStyling] [rapid] draw nLines: 1
+# 2026/09/03 14:27:45.897994 [TestProperty_WrapGeometryIgnoresStyling] [rapid] draw nSeg_0: 1
+# 2026/09/03 14:27:45.898005 [TestProperty_WrapGeometryIgnoresStyling] [rapid] draw styled_0_0: true
+# 2026/09/03 14:27:45.898017 [TestProperty_WrapGeometryIgnoresStyling] [rapid] draw open_0_0: "\x1b[38;2;166;227;161m"
+# 2026/09/03 14:27:45.898031 [TestProperty_WrapGeometryIgnoresStyling] [rapid] draw word_0_0: "a"
+# 2026/09/03 14:27:45.898041 [TestProperty_WrapGeometryIgnoresStyling] [rapid] draw close_0_0: false
+# 2026/09/03 14:27:45.898049 [TestProperty_WrapGeometryIgnoresStyling] [rapid] draw width: 1
+# 2026/09/03 14:27:45.898258 [TestProperty_WrapGeometryIgnoresStyling] [rapid] draw indent: 0
+# 2026/09/03 14:27:45.898415 [TestProperty_WrapGeometryIgnoresStyling] styled wrapped to 2 rows ["\x1b[38;2;166;227;161ma\x1b[0m" "\x1b[38;2;166;227;161m\x1b[0m"], plain to 1 rows ["a"]
+# 
+v0.4.8#8764893885871546846
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
