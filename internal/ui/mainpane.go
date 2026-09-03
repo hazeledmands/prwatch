@@ -1119,15 +1119,23 @@ func (m *mainPane) scrollToHunkStart(sourceLine int) {
 	m.viewport.SetYOffset(yOffset)
 }
 
-// hunkNavCursor returns the source line at the row hunkNavMargin below
-// the viewport top — i.e., where a scrollToHunkStart would place the
-// target line. After scrollToHunkStart this equals the hunk's
-// StartLine, so jumpToNextDiff uses it as the "current hunk" reference
-// for advancing through the hunk list. Without this, the reference
-// would be viewportTop.SourceLine (= hunkStart - margin) and J would
-// re-find the current hunk instead of advancing.
-func (m *mainPane) hunkNavCursor() int {
-	return m.sourceLineAtViewportOffset(m.viewport.YOffset() + m.hunkNavMargin())
+// hunkNavAnchor returns the source line hunk navigation treats as "where
+// I am now" — the cursor's line. JumpToHunkStart puts the cursor exactly
+// on the target hunk's StartLine, so the anchor is the hunk itself and
+// each J/K advances by one hunk.
+//
+// The anchor must not be inferred back from the scroll position
+// (YOffset + hunkNavMargin): the margin subtraction clamps at 0 and at
+// the end-of-file maximum, and a clamped YOffset puts the inferred line
+// below the target hunk (top clamp: J skips hunks) or above it (EOF
+// clamp: J re-finds the current hunk and stalls). The cursor carries the
+// anchor forward instead, and ClampToContent keeps it valid across
+// content refreshes.
+func hunkNavAnchor(c *cursor, pane *mainPane) int {
+	if !c.IsPlaced() {
+		return pane.viewportToSourceLine()
+	}
+	return c.Pos(pane).SourceLine
 }
 
 // viewportToSourceLine converts the viewport's scroll offset to the closest

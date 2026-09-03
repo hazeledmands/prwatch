@@ -2355,7 +2355,7 @@ func (m *Model) jumpToFirstDiff() {
 }
 
 func (m *Model) jumpToNextDiff(direction int) {
-	if line, ok := nextHunkStart(m.mainPane.diffHunks, m.mainPane.hunkNavCursor(), direction); ok {
+	if line, ok := nextHunkStart(m.mainPane.diffHunks, hunkNavAnchor(m.cursor, m.mainPane), direction); ok {
 		m.nav().JumpToHunkStart(line)
 	}
 }

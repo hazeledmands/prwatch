@@ -1,0 +1,25 @@
+# 2026/09/03 11:01:27.012639 [TestProperty_HunkNavAdjacency] [rapid] draw height: 9
+# 2026/09/03 11:01:27.012654 [TestProperty_HunkNavAdjacency] [rapid] draw lines: 2
+# 2026/09/03 11:01:27.012663 [TestProperty_HunkNavAdjacency] [rapid] draw n: 2
+# 2026/09/03 11:01:27.012679 [TestProperty_HunkNavAdjacency] [rapid] draw starts: []int{1, 2}
+# 2026/09/03 11:01:27.012761 [TestProperty_HunkNavAdjacency] J from hunk 0 → 0, want 1 (starts=[1 2] h=9 lines=2)
+# 
+v0.4.8#5050539661895286733
+0x0
+0x38e38e38e38e4
+0x3
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
