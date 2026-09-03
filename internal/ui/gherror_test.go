@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hazeledmands/prwatch/internal/command"
+	"github.com/hazeledmands/prwatch/internal/git"
 	"pgregory.net/rapid"
 )
 
@@ -137,6 +139,72 @@ func TestClassifyGitHubError(t *testing.T) {
 				t.Errorf("classifyGitHubError(%v) = %v, want %v", c.err, got, c.want)
 			}
 		})
+	}
+}
+
+// TestClassifyGitHubError_GhNotInstalled: gh missing from PATH is a distinct
+// outcome from "the API said no". internal/git only lets this reach the
+// classifier when the repo has a GitHub remote — i.e. when there really is a
+// PR question we now cannot answer — so it has to say so on line 3 rather
+// than leaving an empty PR pane and no explanation.
+//
+// It is matched structurally (errors.Is), not by prose: exec's "executable
+// file not found in $PATH" is not a stability contract, and the wrapped
+// sentinel is exact.
+func TestClassifyGitHubError_GhNotInstalled(t *testing.T) {
+	err := fmt.Errorf(`exec: "gh": %w`, command.ErrNotFound)
+
+	kind := classifyGitHubError(err)
+	if kind != ghErrGhMissing {
+		t.Fatalf("classifyGitHubError = %v, want %v", kind, ghErrGhMissing)
+	}
+	// Installing gh is the remedy; waiting is not. Backing off here would
+	// stretch the poll to 15 minutes for a condition no delay can fix.
+	if kind.backsOff() {
+		t.Error("a missing gh must not back the PR poll off")
+	}
+	msg := kind.statusMessageWith(err.Error())
+	if !strings.Contains(msg, "gh not installed") {
+		t.Errorf("status message = %q, want it to name gh as not installed", msg)
+	}
+	// Not the generic bucket's raw-error passthrough: the classifier already
+	// knows exactly what this is.
+	if strings.Contains(msg, "$PATH") || strings.Contains(msg, "exec:") {
+		t.Errorf("status message = %q, want the summary rather than exec's raw text", msg)
+	}
+}
+
+// TestGhMissingReachesLine3 closes the loop: the hint is useless unless the
+// status bar actually publishes a line 3 for it. There is no PR in this state
+// — that is the whole problem — so the row exists only because prError is
+// non-empty.
+func TestGhMissingReachesLine3(t *testing.T) {
+	data := statusBarData{
+		info:      git.RepoInfoResult{Branch: "main", RepoName: "repo", DirName: "repo"},
+		prError:   ghErrGhMissing.statusMessage(),
+		prLoading: false,
+	}
+	rows := statusBarRows(data)
+	if rows.line3 < 0 {
+		t.Fatalf("no line 3 published for a gh-missing error: %+v", rows)
+	}
+	bar, _, _, _ := renderStatusBar(120, data)
+	lines := strings.Split(bar, "\n")
+	if len(lines) <= rows.line3 {
+		t.Fatalf("bar has %d rows, no row %d", len(lines), rows.line3)
+	}
+	if got := stripANSI(lines[rows.line3]); !strings.Contains(got, "gh not installed") {
+		t.Errorf("line 3 = %q, want it to mention gh not being installed", got)
+	}
+}
+
+// A missing gh stays distinguishable from the generic bucket even when it
+// arrives with no wrapped sentinel — a plain string mentioning gh is not
+// evidence the binary is absent.
+func TestClassifyGitHubError_GhInErrorTextIsNotGhMissing(t *testing.T) {
+	err := fmt.Errorf("exit status 1: gh: HTTP 502: Bad gateway")
+	if got := classifyGitHubError(err); got != ghErrOther {
+		t.Errorf("classifyGitHubError = %v, want %v", got, ghErrOther)
 	}
 }
 

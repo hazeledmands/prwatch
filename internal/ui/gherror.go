@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"errors"
 	"regexp"
 	"strings"
+
+	"github.com/hazeledmands/prwatch/internal/command"
 )
 
 // githubErrorKind classifies a failed GitHub call into the three outcomes the
@@ -22,6 +25,11 @@ const (
 	ghErrNone githubErrorKind = iota
 	ghErrRateLimited
 	ghErrAuth
+	// ghErrGhMissing: the gh binary is not on PATH, so no GitHub call ran at
+	// all. internal/git only lets this reach us when the repo has a GitHub
+	// remote — a repo with no such remote has no PR to fetch, and stays
+	// silent as before. Installing gh is the remedy, so it does not back off.
+	ghErrGhMissing
 	ghErrOther
 )
 
@@ -51,6 +59,8 @@ func (k githubErrorKind) String() string {
 		return "rate-limited"
 	case ghErrAuth:
 		return "auth"
+	case ghErrGhMissing:
+		return "gh-missing"
 	case ghErrOther:
 		return "other"
 	default:
@@ -84,6 +94,12 @@ func (k githubErrorKind) statusMessageWith(detail string) string {
 		return "GitHub API rate limited"
 	case ghErrAuth:
 		return "GitHub API auth/permission error — check: gh auth status"
+	case ghErrGhMissing:
+		// Fixed text, like the other two classified outcomes: exec's raw
+		// `exec: "gh": executable file not found in $PATH` names the cause
+		// but not the consequence, and the consequence is what a status row
+		// has space to say.
+		return "gh not installed — PR data unavailable"
 	case ghErrOther:
 		if detail = strings.TrimSpace(detail); detail != "" {
 			return "GitHub API error: " + detail
@@ -159,6 +175,13 @@ func classifyGitHubError(err error) githubErrorKind {
 	if err == nil {
 		return ghErrNone
 	}
+	// Structural, and checked before any prose: gh never ran, so nothing in
+	// the message is a GitHub verdict to classify. The wrapped sentinel is
+	// exact where exec's "executable file not found in $PATH" wording is not.
+	if errors.Is(err, command.ErrNotFound) {
+		return ghErrGhMissing
+	}
+
 	msg := strings.ToLower(err.Error())
 
 	if rateLimitHeaderRe.MatchString(msg) {

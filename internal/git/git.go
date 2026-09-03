@@ -1175,9 +1175,10 @@ const (
 //
 //  1. a killed subprocess (context.DeadlineExceeded) is a query failure by
 //     definition, whatever gh managed to print;
-//  2. gh not being on PATH (command.ErrNotFound) is not a GitHub failure at
-//     all — gh never ran, so there is nothing to report and nothing that
-//     retrying fixes;
+//  2. gh not being on PATH (command.ErrNotFound) means gh never ran, so the
+//     verdict turns on whether the repo is on GitHub at all: with a GitHub
+//     remote there is a PR question we cannot answer, and it is reported;
+//     without one there was never a PR to find, and it stays silent;
 //  3. the two *local* absent-verdicts — no GitHub remote, and a detached or
 //     unborn HEAD — but ONLY when the view error carries no evidence of
 //     having reached GitHub. This ordering is the fix for a defect in
@@ -1202,6 +1203,19 @@ func (g *Git) prPresenceAfterViewFailure(viewErr error) prPresence {
 		return prUnknown
 	}
 	if errors.Is(viewErr, command.ErrNotFound) {
+		// gh never ran. Whether that matters depends entirely on whether
+		// there was a PR to fetch: with no GitHub remote there was never a
+		// question to answer, and saying so every poll would be noise. With
+		// one, PR data is simply missing and nothing in the UI would
+		// otherwise explain why — so the failure stands and the caller
+		// reports it (as ghErrGhMissing, which does not back the poll off,
+		// since retrying is not the remedy — installing gh is).
+		//
+		// No `gh pr list` probe either way: it would be the same missing
+		// binary, one more doomed subprocess for no new information.
+		if g.hasGitHubRemote() {
+			return prUnknown
+		}
 		return prAbsent
 	}
 

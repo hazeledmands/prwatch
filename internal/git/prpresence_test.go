@@ -240,8 +240,24 @@ func TestPRAll_NoPRIsAStructuredSignal(t *testing.T) {
 			wantProbe:  false,
 		},
 		{
-			name:       "gh is not installed: no PR, no error",
+			// gh missing used to read as "no PR" on every repo, so a
+			// GitHub-backed checkout silently showed an empty PR pane with
+			// nothing anywhere explaining why. There IS a PR question to
+			// answer here and we cannot answer it, so the failure stands and
+			// the UI reports it (as ghErrGhMissing, which does not back off).
+			name:       "gh is not installed, but the repo is on GitHub: reported",
 			withRemote: true,
+			viewErr:    fmt.Errorf(`exec: "gh": %w`, command.ErrNotFound),
+			wantErr:    true,
+			// gh is missing; spending another doomed subprocess to learn that
+			// again would tell us nothing.
+			wantProbe: false,
+		},
+		{
+			// …and with no GitHub remote there was never a PR to fetch, so a
+			// missing gh changes nothing and must stay silent.
+			name:       "gh is not installed and the repo is not on GitHub: silent",
+			withRemote: false,
 			viewErr:    fmt.Errorf(`exec: "gh": %w`, command.ErrNotFound),
 			wantErr:    false,
 			wantProbe:  false,
