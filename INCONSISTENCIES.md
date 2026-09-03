@@ -217,3 +217,26 @@ pane is *displaying* (`displayedFilesModeFile(m.lastMainItem)`), regardless
 of the sidebar selection; they are inert only when no file is on screen.
 Sidebar-focus behavior unchanged (Enter on a directory expands/collapses).
 Implemented in commit 1589957.
+
+## Keybinding table: stale focus rows, and two shadowed keys
+
+Spec: PROMPT.md:324-325 binds `focus-left`/`focus-right` to `h`,`left` /
+`l`,`right`.
+
+Code: those keys are `CursorLeft`/`CursorRight` (character-grained cursor
+motion in main focus); focus switching is promoted to `H`/`shift+left` and
+`L`/`shift+right` (`keys.go:78-91`, whose comment records this as a
+deliberate adjudication when `v` became visual-mode entry). The spec table
+has no cursor-left/cursor-right command at all, so it documents bindings
+that no longer exist.
+
+Also, two real key collisions the spec doesn't acknowledge, both resolved
+only by dispatch precedence (search handling runs first):
+- `n` = search-next during a confirmed search, toggle-line-numbers
+  otherwise — line numbers cannot be toggled while a search is confirmed.
+- `N` = search-prev during a confirmed search, next-leaf otherwise; the
+  help listing shows `N` twice under two names with no shadowing note.
+
+Open question: update the spec table to the implemented bindings (and add
+cursor-left/right rows), and decide whether the `n`/`N` shadowing is
+acceptable-and-documented or wants rebinding.
