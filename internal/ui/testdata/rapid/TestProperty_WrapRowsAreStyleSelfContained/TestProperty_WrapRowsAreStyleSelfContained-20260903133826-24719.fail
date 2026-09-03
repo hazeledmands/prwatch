@@ -1,0 +1,40 @@
+# 2026/09/03 13:38:26.091107 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw nLines: 1
+# 2026/09/03 13:38:26.091123 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw nSeg_0: 2
+# 2026/09/03 13:38:26.091134 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_0_0: true
+# 2026/09/03 13:38:26.091145 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw open_0_0: "\x1b[38;2;166;227;161m"
+# 2026/09/03 13:38:26.091157 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_0_0: "a"
+# 2026/09/03 13:38:26.091166 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_0_0: false
+# 2026/09/03 13:38:26.091174 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw gap_0_1: 1
+# 2026/09/03 13:38:26.091181 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_0_1: false
+# 2026/09/03 13:38:26.091192 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_0_1: "a"
+# 2026/09/03 13:38:26.091200 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_0_1: false
+# 2026/09/03 13:38:26.091208 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw width: 1
+# 2026/09/03 13:38:26.091215 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw indent: 0
+# 2026/09/03 13:38:26.091338 [TestProperty_WrapRowsAreStyleSelfContained] row 1 "a" cell 0: renders {fg: bg: ul: bold:false faint:false italic:false underline:false blink:false reverse:false conceal:false strike:false unknownSeen:false} alone but {fg:2:166:227:161 bg: ul: bold:false faint:false italic:false underline:false blink:false reverse:false conceal:false strike:false unknownSeen:false} after its predecessors
+# 
+v0.4.8#7040156612767964111
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

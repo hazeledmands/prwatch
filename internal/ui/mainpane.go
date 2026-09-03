@@ -1692,10 +1692,35 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 		indentStr = strings.Repeat(" ", effectiveIndent)
 	}
 
+	// Styling open at the end of a row is closed there and re-opened at the
+	// start of the next, so every row renders the same alone as it does after
+	// its predecessors. Rows cannot rely on inheriting styling by SGR bleed:
+	// the viewport renders a window of rows, so a row whose opening sequence
+	// lives in a row above the window would render unstyled the moment it
+	// became the top visible row. The tracker spans the whole content — a
+	// source line that leaves styling open bleeds into the next line's first
+	// row exactly the same way.
+	var sgr sgrState
+
+	// closeRow appends the reset that ends the row's styling, if any is open.
+	// Callers must have fed the row to the tracker first.
+	closeRow := func(row string) string {
+		if sgr.active() {
+			return row + sgrReset
+		}
+		return row
+	}
+
 	for _, line := range lines {
 		lineW := displayWidth(line)
 		if lineW <= width {
-			result = append(result, line)
+			// Unwrapped, but still made self-contained: it opens whatever the
+			// line above left open and closes whatever it leaves open itself.
+			// Both are no-ops for content whose styled spans close on the line
+			// that opened them, which is everything the pane renders.
+			row := sgr.openSeq() + line
+			sgr.feed(row)
+			result = append(result, closeRow(row))
 			contMap = append(contMap, false)
 			breaks = append(breaks, 0)
 			// Unwrapped: this row is the source line's only row, so its
@@ -1756,7 +1781,17 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 			if !first && effectiveIndent > 0 {
 				body = strings.TrimPrefix(body, indentStr)
 			}
-			result = append(result, row)
+			if first {
+				// Continuation rows already opened their own styling in flush,
+				// after their indent; the source line's first row has no indent
+				// to sit behind, so it opens here.
+				row = sgr.openSeq() + row
+			}
+			sgr.feed(row)
+			// The trailing-space accounting below reads `body`, which was taken
+			// before any of this: escapes are stripped for width, so neither the
+			// re-opened styling nor the closing reset can move a space count.
+			result = append(result, closeRow(row))
 			contMap = append(contMap, !first) // first line of source is not a continuation
 			breaks = append(breaks, pending)
 			ownTrailing = append(ownTrailing, 0)
@@ -1772,6 +1807,11 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 			} else {
 				lineWidth = 0
 			}
+			// After the indent, never before it: the indent is padding the
+			// wrapper invented to stand in for the gutter, and the gutter is
+			// never styled. Opening first would paint a search highlight's
+			// background across those columns.
+			curLine.WriteString(sgr.openSeq())
 			first = false
 		}
 
