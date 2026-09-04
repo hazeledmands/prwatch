@@ -458,12 +458,12 @@ func (m *mainPane) SetDiffPrefix(prefix string) {
 //
 // Format:
 //   - 0 hunks visible:
-//     "before hunk 1" / "between hunks (N–N+1)" / "after hunk M"
+//     "before hunk 1/N" / "between hunks M-M+1/N" / "after hunk N/N"
 //     (classified from the top visible source line)
 //   - 1 hunk visible:
 //     "hunk N/M"
 //   - 2+ hunks visible:
-//     "viewing hunks N through M"
+//     "hunks L-M/N"
 //   - no hunks at all in the file:
 //     "no changes"
 func (m *mainPane) hunkTitleRight() string {
@@ -483,16 +483,16 @@ func (m *mainPane) hunkTitleRight() string {
 		pos := hunkPositionForLine(m.diffHunks, topLine)
 		switch {
 		case pos.afterIdx < 0 && pos.beforeIdx == 0:
-			return "before hunk 1"
+			return fmt.Sprintf("before hunk 1/%d", pos.total)
 		case pos.beforeIdx < 0 && pos.afterIdx == pos.total-1:
-			return fmt.Sprintf("after hunk %d", pos.total)
+			return fmt.Sprintf("after hunk %d/%d", pos.total, pos.total)
 		default:
-			return fmt.Sprintf("between hunks (%d–%d)", pos.afterIdx+1, pos.beforeIdx+1)
+			return fmt.Sprintf("between hunks %d-%d/%d", pos.afterIdx+1, pos.beforeIdx+1, pos.total)
 		}
 	case first == last:
 		return fmt.Sprintf("hunk %d/%d", first+1, len(m.diffHunks))
 	default:
-		return fmt.Sprintf("viewing hunks %d through %d", first+1, last+1)
+		return fmt.Sprintf("hunks %d-%d/%d", first+1, last+1, len(m.diffHunks))
 	}
 }
 

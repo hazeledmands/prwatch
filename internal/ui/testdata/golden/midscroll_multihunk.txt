@@ -2,7 +2,7 @@
   feature/add-auth → main · 1 uncommitted · 2 commits · 3 changed files                             
   PR #42: Add authentication                                                                        
 ╭──────────────────────────────╮╭──────────────────────────────────────────────────────────────────╮
-│New Changes (1)               ││README.md            uncommitted · viewing hunks 2 through 3 · 82%│
+│New Changes (1)               ││README.md                          uncommitted · hunks 2-3/3 · 82%│
 │  README.md                [+]││11   filler line                                                  │
 │──────────────────────────────││12   filler line                                                  │
 │Committed (2)                 ││13   filler line                                                  │

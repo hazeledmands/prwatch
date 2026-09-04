@@ -802,7 +802,7 @@ func TestHunkTitleRight_BeforeFirst(t *testing.T) {
 	hunks := []diffHunk{{StartLine: 10, EndLine: 12}}
 	mp := hunkTitleHarness(hunks, 50)
 	mp.viewport.SetYOffset(0) // top of file → source line 1 (before hunk)
-	if got := mp.hunkTitleRight(); got != "before hunk 1" {
+	if got := mp.hunkTitleRight(); got != "before hunk 1/1" {
 		t.Errorf("before first: got %q", got)
 	}
 }
@@ -832,16 +832,16 @@ func TestHunkTitleRight_BetweenHunks(t *testing.T) {
 		{StartLine: 50, EndLine: 51},
 	}
 	mp := hunkTitleHarness(hunks, 80)
-	// Scroll between hunk 1 and hunk 2 → should report (1–2).
+	// Scroll between hunk 1 and hunk 2 → should report 1-2/3.
 	mp.viewport.SetYOffset(15) // source line 16
 	got := mp.hunkTitleRight()
-	if got != "between hunks (1–2)" {
+	if got != "between hunks 1-2/3" {
 		t.Errorf("between 1 and 2: got %q", got)
 	}
-	// Scroll between hunk 2 and hunk 3 → (2–3).
+	// Scroll between hunk 2 and hunk 3 → 2-3/3.
 	mp.viewport.SetYOffset(40) // source line 41
 	got = mp.hunkTitleRight()
-	if got != "between hunks (2–3)" {
+	if got != "between hunks 2-3/3" {
 		t.Errorf("between 2 and 3: got %q", got)
 	}
 }
@@ -865,7 +865,7 @@ func TestHunkTitleRight_MultipleVisible(t *testing.T) {
 	mp.viewport.SetYOffset(0)
 
 	got := mp.hunkTitleRight()
-	if got != "viewing hunks 1 through 3" {
+	if got != "hunks 1-3/3" {
 		t.Errorf("multiple visible: got %q", got)
 	}
 }
@@ -879,7 +879,7 @@ func TestHunkTitleRight_MultipleVisible(t *testing.T) {
 // Viewport shows lines 1-16. Hunk 1's adds (lines 6-9) are visible.
 // Hunk 2's actual change (line 17) is off-screen below; only its
 // leading *context* (lines 14-16) is in the viewport. Title used to
-// say "viewing hunks 1 through 2" because visibleHunkRange checked
+// count hunk 2 as visible because visibleHunkRange checked
 // against the header span (14-20). Fix: parseDiffHunks emits the
 // change-line bounds (the +/- lines), so hunk 2 is at [17, 17] and
 // correctly counts as off-screen here.
@@ -939,7 +939,7 @@ func TestHunkTitleRight_AfterLast(t *testing.T) {
 	mp := hunkTitleHarness(hunks, 50)
 	mp.viewport.SetYOffset(40) // far past hunk 1
 	got := mp.hunkTitleRight()
-	if got != "after hunk 1" {
+	if got != "after hunk 1/1" {
 		t.Errorf("after last: got %q", got)
 	}
 }
@@ -1009,7 +1009,7 @@ func TestMainPane_DynamicTitle_IncludesProgressSuffix(t *testing.T) {
 	mp.viewport.SetYOffset(0)
 	out := stripANSI(mp.View(false))
 	titleRow := strings.Split(out, "\n")[1]
-	if !strings.Contains(titleRow, "before hunk 1") {
+	if !strings.Contains(titleRow, "before hunk 1/1") {
 		t.Errorf("title row missing hunk text: %q", titleRow)
 	}
 	if !suffixRE.MatchString(titleRow) {
@@ -1055,11 +1055,11 @@ func TestMainPane_DynamicTitle_RendersFromScroll(t *testing.T) {
 	})
 	mp.SetTitleWithHunks("file.go")
 
-	// At top of file, no hunks are visible — should report "before hunk 1".
+	// At top of file, no hunks are visible — should report "before hunk 1/2".
 	mp.viewport.SetYOffset(0)
 	out := stripANSI(mp.View(false))
 	titleRow := strings.Split(out, "\n")[1]
-	if !strings.Contains(titleRow, "before hunk 1") {
+	if !strings.Contains(titleRow, "before hunk 1/2") {
 		t.Errorf("before-hunk-1 frame: title row = %q", titleRow)
 	}
 

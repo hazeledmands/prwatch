@@ -133,8 +133,8 @@ renames are detected via git's similarity heuristic and treated as a single chan
 title bar: file path on the left — for renamed files, the left side shows `<old-path> → <new-path>` instead of a single path. on the right:
 - when the file has a diff, derived from the visible viewport range against the file's hunk list:
   - single hunk visible: `hunk N/M`
-  - multiple hunks visible: `viewing hunks N through M`
-  - no hunks visible: `between hunks (N–N+1)` / `before hunk 1` / `after hunk M`
+  - multiple hunks visible: `hunks L-M/N`, where L and M are the first and last visible hunk indexes and N is the total
+  - no hunks visible: `between hunks M-M+1/N` / `before hunk 1/N` / `after hunk N/N`
   - "visible" tracks the hunk's *change-line* range — the new-file lines spanned by its `+`/`-` markers — not the diff header's full range (which includes leading and trailing context). So a hunk is only counted as visible when something it actually *changed* is on screen; seeing only a hunk's leading or trailing context doesn't qualify.
   - the hunk-position string above is preceded by the file's most-recently-changed metadata (joined with ` · `):
     - uncommitted changes: `uncommitted · <relative-time>` (working-tree mtime); falls back to just `uncommitted` when the mtime is unavailable
