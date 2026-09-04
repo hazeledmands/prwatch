@@ -1139,9 +1139,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.ciStatus = msg.ciStatus
 					m.ciChecks = msg.ciChecks
 					// Fresh CI data means the run may have moved on, so an RWX
-					// log fetch that failed earlier is worth retrying. Riding
-					// the poll like this bounds the retry rate without a timer.
-					m.rwxFetcher.InvalidateErrors()
+					// log fetch that failed earlier is worth retrying, subject
+					// to its backoff window. Riding the poll like this bounds
+					// the retry rate without a timer. Adoption is also the only
+					// moment a superseded run can be spotted, so prune here.
+					m.rwxFetcher.Prune(m.ciChecks)
+					m.rwxFetcher.InvalidateReadyErrors(time.Now())
 				}
 				m.prReviews = msg.prReviews
 				m.prReviewsTotal = msg.prReviewsTotal
@@ -1404,8 +1407,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !keepChecks {
 			m.ciStatus = msg.ciStatus
 			m.ciChecks = msg.ciChecks
-			// See the gitDataMsg arm: fresh CI data re-opens failed RWX fetches.
-			m.rwxFetcher.InvalidateErrors()
+			// See the gitDataMsg arm: fresh CI data prunes superseded runs and
+			// re-opens failed RWX fetches whose backoff window has closed.
+			m.rwxFetcher.Prune(m.ciChecks)
+			m.rwxFetcher.InvalidateReadyErrors(time.Now())
 		}
 		m.prReviews = msg.reviews
 		m.prReviewsTotal = msg.reviewsTotal
@@ -1432,7 +1437,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case rwxLogMsg:
-		m.rwxFetcher.Apply(msg)
+		m.rwxFetcher.Apply(msg, time.Now())
 		m.updateMainContent()
 		return m, nil
 
@@ -1840,8 +1845,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Refresh):
 		// An explicit refresh is the user asking to retry everything that
 		// failed, RWX log fetches included — otherwise one transient network
-		// error stays on screen for the rest of the session.
-		m.rwxFetcher.InvalidateErrors()
+		// error stays on screen for the rest of the session. It overrides the
+		// retry backoff, which exists only to stand in for the user not having
+		// asked.
+		m.rwxFetcher.ForceRetryErrors()
 		if m.git == nil {
 			return m, loadNonGitFilesCmd(m.dir)
 		}

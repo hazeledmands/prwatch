@@ -1,0 +1,27 @@
+# 2026/09/03 20:08:01.753018 [TestProperty_RWXFetcher] [rapid] draw steps: 3
+# 2026/09/03 20:08:01.753033 [TestProperty_RWXFetcher] [rapid] draw url: "https://cloud.rwx.com/mint/org/runs/a"
+# 2026/09/03 20:08:01.753045 [TestProperty_RWXFetcher] [rapid] draw op: "render"
+# 2026/09/03 20:08:01.753058 [TestProperty_RWXFetcher] [rapid] draw url: "https://cloud.rwx.com/mint/org/runs/a"
+# 2026/09/03 20:08:01.753068 [TestProperty_RWXFetcher] [rapid] draw op: "result"
+# 2026/09/03 20:08:01.753078 [TestProperty_RWXFetcher] [rapid] draw failed: true
+# 2026/09/03 20:08:01.753089 [TestProperty_RWXFetcher] [rapid] draw url: "https://cloud.rwx.com/mint/org/runs/a"
+# 2026/09/03 20:08:01.753097 [TestProperty_RWXFetcher] [rapid] draw op: "poll-later"
+# 2026/09/03 20:08:01.753105 [TestProperty_RWXFetcher] after poll-later: https://cloud.rwx.com/mint/org/runs/a backoff present=true, want false
+# 
+v0.4.8#15780778185025981234
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x1
+0x0
+0x0
+0x38e38e38e38e4
+0x3

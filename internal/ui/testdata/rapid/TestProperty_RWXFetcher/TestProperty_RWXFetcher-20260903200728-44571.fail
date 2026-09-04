@@ -1,0 +1,25 @@
+# 2026/09/03 20:07:28.698710 [TestProperty_RWXFetcher] [rapid] draw steps: 2
+# 2026/09/03 20:07:28.698724 [TestProperty_RWXFetcher] [rapid] draw url: "https://cloud.rwx.com/mint/org/runs/a"
+# 2026/09/03 20:07:28.698738 [TestProperty_RWXFetcher] [rapid] draw op: "prune"
+# 2026/09/03 20:07:28.698747 [TestProperty_RWXFetcher] [rapid] draw keep: false
+# 2026/09/03 20:07:28.698754 [TestProperty_RWXFetcher] [rapid] draw keep: false
+# 2026/09/03 20:07:28.698763 [TestProperty_RWXFetcher] [rapid] draw keep: false
+# 2026/09/03 20:07:28.698773 [TestProperty_RWXFetcher] [rapid] draw url: "https://cloud.rwx.com/mint/org/runs/a"
+# 2026/09/03 20:07:28.698782 [TestProperty_RWXFetcher] [rapid] draw op: "render"
+# 2026/09/03 20:07:28.698791 [TestProperty_RWXFetcher] after render: https://cloud.rwx.com/mint/org/runs/a survived a prune that dropped it
+# 
+v0.4.8#9833952682460642137
+0x0
+0x0
+0x1
+0x0
+0x0
+0x6b74f03291620
+0x5
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	gitpkg "github.com/hazeledmands/prwatch/internal/git"
 	"pgregory.net/rapid"
@@ -48,7 +49,7 @@ func TestRWXFetcher_NoDuplicateDispatchWhileInFlight(t *testing.T) {
 	}
 
 	// The result clears the in-flight mark and caches the log.
-	f.Apply(rwxLogMsg{checkURL: rwxURL, log: "log body"})
+	f.Apply(rwxLogMsg{checkURL: rwxURL, log: "log body"}, time.Unix(1_700_000_000, 0))
 	if f.InFlight(rwxURL) {
 		t.Fatal("Apply must clear the in-flight mark")
 	}
@@ -71,7 +72,7 @@ func TestRWXFetcher_ErrorsAreRefetchableAfterInvalidation(t *testing.T) {
 
 	f.Lookup(rwxCheck(rwxURL))
 	f.Cmd(git)
-	f.Apply(rwxLogMsg{checkURL: rwxURL, err: errFake("connection reset")})
+	f.Apply(rwxLogMsg{checkURL: rwxURL, err: errFake("connection reset")}, time.Unix(1_700_000_000, 0))
 
 	// The error is cached and displayed — no refetch storm in the meantime.
 	content, cached := f.Lookup(rwxCheck(rwxURL))
@@ -82,7 +83,7 @@ func TestRWXFetcher_ErrorsAreRefetchableAfterInvalidation(t *testing.T) {
 		t.Fatal("a cached error must not refetch on every render")
 	}
 
-	f.InvalidateErrors()
+	f.ForceRetryErrors()
 
 	// Now it retries.
 	content, cached = f.Lookup(rwxCheck(rwxURL))
@@ -103,9 +104,10 @@ func TestRWXFetcher_InvalidateErrorsKeepsGoodLogs(t *testing.T) {
 	f := newRWXFetcher()
 	const other = "https://cloud.rwx.com/mint/org/runs/def456"
 
-	f.Apply(rwxLogMsg{checkURL: rwxURL, log: "good log"})
-	f.Apply(rwxLogMsg{checkURL: other, err: errFake("boom")})
-	f.InvalidateErrors()
+	now := time.Unix(1_700_000_000, 0)
+	f.Apply(rwxLogMsg{checkURL: rwxURL, log: "good log"}, now)
+	f.Apply(rwxLogMsg{checkURL: other, err: errFake("boom")}, now)
+	f.InvalidateReadyErrors(now.Add(rwxRetryCap))
 
 	if content, cached := f.Lookup(rwxCheck(rwxURL)); !cached || content != "good log" {
 		t.Fatalf("successful log was dropped: content=%q cached=%v", content, cached)
@@ -124,15 +126,20 @@ func TestRWXFetcher_ErrorClearsInFlight(t *testing.T) {
 	if !f.InFlight(rwxURL) {
 		t.Fatal("dispatch should mark the URL in flight")
 	}
-	f.Apply(rwxLogMsg{checkURL: rwxURL, err: errFake("boom")})
+	f.Apply(rwxLogMsg{checkURL: rwxURL, err: errFake("boom")}, time.Unix(1_700_000_000, 0))
 	if f.InFlight(rwxURL) {
 		t.Fatal("an errored Apply must clear the in-flight mark")
 	}
 }
 
-// Property: across any interleaving of renders, dispatches, results and
-// invalidations, at most one fetch per URL is ever outstanding, and the
-// in-flight set always drains once results arrive.
+// Property: across any interleaving of renders, dispatches, results, polls,
+// forced retries and prunes, at most one fetch per URL is ever outstanding,
+// the in-flight set drains once results arrive, a poll inside the backoff
+// window changes nothing, and no map ever holds a URL that has left ciChecks.
+//
+// Time is advanced only by zero or by more than the cap, so the model never has
+// to reproduce the delay formula — the schedule itself is pinned by
+// TestRWXFetcher_RetryDelaySchedule.
 func TestProperty_RWXFetcher(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		f := newRWXFetcher()
@@ -142,13 +149,33 @@ func TestProperty_RWXFetcher(t *testing.T) {
 			"https://cloud.rwx.com/mint/org/runs/b",
 			"https://cloud.rwx.com/mint/org/runs/c",
 		}
+		now := time.Unix(1_700_000_000, 0)
+
 		// outstanding tracks dispatches we have not yet fed a result for.
 		outstanding := map[string]int{}
+		// cached/failedURL mirror what we expect the fetcher to be holding, and
+		// keep is the current ciChecks URL set once anything has been pruned.
+		cached := map[string]bool{}
+		failedURL := map[string]bool{}
+		// escalating is the URLs carrying a retry schedule. It outlives the
+		// cached error on purpose: a poll clears the error to allow one retry
+		// but keeps the failure count, so a URL that fails again waits the next
+		// step up rather than the base again. Only a success, a forced retry or
+		// a prune ends the escalation.
+		escalating := map[string]bool{}
+		keep := map[string]bool{}
+		everPruned := false
 
-		n := rapid.IntRange(1, 50).Draw(t, "steps")
+		accepts := func(u string) bool { return !everPruned || keep[u] }
+
+		n := rapid.IntRange(1, 60).Draw(t, "steps")
 		for i := 0; i < n; i++ {
 			url := rapid.SampledFrom(urls).Draw(t, "url")
-			switch rapid.SampledFrom([]string{"render", "result", "invalidate"}).Draw(t, "op") {
+			op := rapid.SampledFrom([]string{
+				"render", "result", "poll", "poll-later", "force", "prune",
+			}).Draw(t, "op")
+
+			switch op {
 			case "render":
 				// One render: Lookup then Cmd, exactly as the Update wrapper does.
 				f.Lookup(rwxCheck(url))
@@ -160,13 +187,60 @@ func TestProperty_RWXFetcher(t *testing.T) {
 					continue
 				}
 				outstanding[url]--
-				if rapid.Bool().Draw(t, "failed") {
-					f.Apply(rwxLogMsg{checkURL: url, err: errFake("boom")})
+				failed := rapid.Bool().Draw(t, "failed")
+				if failed {
+					f.Apply(rwxLogMsg{checkURL: url, err: errFake("boom")}, now)
 				} else {
-					f.Apply(rwxLogMsg{checkURL: url, log: "body"})
+					f.Apply(rwxLogMsg{checkURL: url, log: "body"}, now)
 				}
-			case "invalidate":
-				f.InvalidateErrors()
+				if accepts(url) {
+					cached[url] = true
+					failedURL[url] = failed
+					escalating[url] = failed
+				}
+			case "poll":
+				// Inside every open window: the base delay is positive, so a
+				// poll at the same instant as the failure can retry nothing.
+				f.InvalidateReadyErrors(now)
+			case "poll-later":
+				now = now.Add(rwxRetryCap + time.Second)
+				f.InvalidateReadyErrors(now)
+				for u := range failedURL {
+					if failedURL[u] {
+						cached[u] = false
+						failedURL[u] = false
+					}
+				}
+			case "force":
+				f.ForceRetryErrors()
+				for u := range failedURL {
+					if failedURL[u] {
+						cached[u] = false
+						failedURL[u] = false
+						escalating[u] = false
+					}
+				}
+			case "prune":
+				var checks []gitpkg.CICheck
+				keep = map[string]bool{}
+				for _, u := range urls {
+					if rapid.Bool().Draw(t, "keep") {
+						keep[u] = true
+						checks = append(checks, rwxCheck(u))
+					}
+				}
+				everPruned = true
+				f.Prune(checks)
+				for _, u := range urls {
+					if !keep[u] {
+						cached[u] = false
+						failedURL[u] = false
+						escalating[u] = false
+						// A pruned URL's outstanding fetch is orphaned: the mark
+						// is gone and Apply will discard the result.
+						outstanding[u] = 0
+					}
+				}
 			}
 
 			for _, u := range urls {
@@ -176,6 +250,35 @@ func TestProperty_RWXFetcher(t *testing.T) {
 				if f.InFlight(u) != (outstanding[u] == 1) {
 					t.Fatalf("%s: InFlight()=%v but %d outstanding", u, f.InFlight(u), outstanding[u])
 				}
+				if _, ok := f.cache[u]; ok != cached[u] {
+					t.Fatalf("after %s: %s cached=%v, want %v", op, u, ok, cached[u])
+				}
+				if f.failed[u] != failedURL[u] {
+					t.Fatalf("after %s: %s failed=%v, want %v", op, u, f.failed[u], failedURL[u])
+				}
+				// A URL that has succeeded, been forced or been pruned carries
+				// no schedule: a stale window would otherwise suppress a retry
+				// of something that is no longer failing.
+				if _, ok := f.backoff[u]; ok != escalating[u] {
+					t.Fatalf("after %s: %s backoff present=%v, want %v", op, u, ok, escalating[u])
+				}
+			}
+			if everPruned {
+				for _, m := range []map[string]bool{f.inFlight, f.failed} {
+					for u := range m {
+						if !keep[u] {
+							t.Fatalf("after %s: %s survived a prune that dropped it", op, u)
+						}
+					}
+				}
+				for u := range f.cache {
+					if !keep[u] {
+						t.Fatalf("after %s: %s cache entry survived a prune that dropped it", op, u)
+					}
+				}
+				if f.pending != nil && !keep[f.pending.URL] {
+					t.Fatalf("after %s: pending %s survived a prune that dropped it", op, f.pending.URL)
+				}
 			}
 		}
 
@@ -183,7 +286,7 @@ func TestProperty_RWXFetcher(t *testing.T) {
 		for _, u := range urls {
 			for outstanding[u] > 0 {
 				outstanding[u]--
-				f.Apply(rwxLogMsg{checkURL: u, log: "body"})
+				f.Apply(rwxLogMsg{checkURL: u, log: "body"}, now)
 			}
 		}
 		for _, u := range urls {
@@ -198,7 +301,7 @@ func TestProperty_RWXFetcher(t *testing.T) {
 // errors so a transient failure isn't permanent.
 func TestRefreshKey_InvalidatesRWXErrors(t *testing.T) {
 	m := NewModel("/tmp", testGit())
-	m.rwxFetcher.Apply(rwxLogMsg{checkURL: rwxURL, err: errFake("connection reset")})
+	m.rwxFetcher.Apply(rwxLogMsg{checkURL: rwxURL, err: errFake("connection reset")}, time.Now())
 
 	if _, cached := m.rwxFetcher.Lookup(rwxCheck(rwxURL)); !cached {
 		t.Fatal("setup: the error should be cached")

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	gitpkg "github.com/hazeledmands/prwatch/internal/git"
@@ -33,8 +34,52 @@ type rwxFetcher struct {
 	// log. Those entries are display state, not results: without this set a
 	// single transient network failure was cached under the check URL and never
 	// invalidated, so the pane showed the error for the rest of the session.
-	// InvalidateErrors drops exactly these.
+	// InvalidateReadyErrors drops exactly these.
 	failed map[string]bool
+	// backoff holds the retry schedule for URLs whose last fetch failed.
+	// Present only while an entry is failing: a success deletes it.
+	backoff map[string]rwxBackoff
+	// known is the URL set from the most recently adopted ciChecks, or nil
+	// before the first Prune. It is what makes a late result identifiable as
+	// stale — see Apply.
+	known map[string]bool
+}
+
+// rwxBackoff is one URL's retry schedule: how many times in a row its fetch
+// has failed, and the earliest moment a poll may retry it.
+type rwxBackoff struct {
+	failures int
+	retryAt  time.Time
+}
+
+// rwxRetryBase and rwxRetryCap bound the automatic retry schedule.
+//
+// The base matches the PR poll interval: one failure costs at most one extra
+// poll's worth of delay, which is the smallest step that actually removes work
+// rather than reshuffling it. The cap keeps a long outage from becoming
+// permanent — after ten minutes a retry costs one subprocess chain and might
+// find a re-authenticated `rwx`, which is cheap enough to keep doing forever.
+const (
+	rwxRetryBase = 30 * time.Second
+	rwxRetryCap  = 10 * time.Minute
+)
+
+// rwxRetryDelay is the wait after the nth consecutive failure: the base
+// doubled n-1 times, clamped at the cap. Clamping inside the loop rather than
+// shifting and comparing afterwards keeps a long-lived failing check from
+// overflowing the duration.
+func rwxRetryDelay(failures int) time.Duration {
+	if failures < 1 {
+		failures = 1
+	}
+	d := rwxRetryBase
+	for i := 1; i < failures; i++ {
+		d *= 2
+		if d >= rwxRetryCap {
+			return rwxRetryCap
+		}
+	}
+	return d
 }
 
 // rwxLogMsg is the result of an async RWX log fetch.
@@ -51,6 +96,7 @@ func newRWXFetcher() *rwxFetcher {
 		cache:    make(map[string]string),
 		inFlight: make(map[string]bool),
 		failed:   make(map[string]bool),
+		backoff:  make(map[string]rwxBackoff),
 	}
 }
 
@@ -64,6 +110,14 @@ func newRWXFetcher() *rwxFetcher {
 // The cached bool distinguishes a real result from a placeholder.
 func (f *rwxFetcher) Lookup(check gitpkg.CICheck) (content string, cached bool) {
 	if !gitpkg.IsRWXURL(check.URL) {
+		return "", false
+	}
+	// A check that has left ciChecks is not fetchable. In practice callers only
+	// ever pass checks drawn from ciChecks (applyCICheckContent matches against
+	// it), so this changes no display; it is what makes "nothing outside
+	// ciChecks is cached or in flight" hold unconditionally rather than by the
+	// grace of the caller. known is nil until the first Prune.
+	if f.known != nil && !f.known[check.URL] {
 		return "", false
 	}
 	if c, ok := f.cache[check.URL]; ok {
@@ -96,36 +150,122 @@ func (f *rwxFetcher) Cmd(git GitDataSource) tea.Cmd {
 
 // Apply stores a fetched log (or an error message) in the cache and releases
 // the URL's in-flight mark. Both outcomes release it — an error that left the
-// mark set would make the check permanently unfetchable.
-func (f *rwxFetcher) Apply(msg rwxLogMsg) {
+// mark set would make the check permanently unfetchable. now is when the
+// result landed, and dates the retry schedule an error opens.
+//
+// A result whose URL has left ciChecks since the fetch was dispatched is
+// dropped: caching it would undo the Prune that just evicted it, and nothing
+// can display it anyway. known is nil until the first Prune, so a fetcher that
+// has never seen check data accepts everything.
+func (f *rwxFetcher) Apply(msg rwxLogMsg, now time.Time) {
 	delete(f.inFlight, msg.checkURL)
+	if f.known != nil && !f.known[msg.checkURL] {
+		return
+	}
 	if msg.err != nil {
 		f.cache[msg.checkURL] = fmt.Sprintf("Error fetching RWX logs: %v", msg.err)
 		f.failed[msg.checkURL] = true
+		b := f.backoff[msg.checkURL]
+		b.failures++
+		b.retryAt = now.Add(rwxRetryDelay(b.failures))
+		f.backoff[msg.checkURL] = b
 		return
 	}
 	f.cache[msg.checkURL] = msg.log
 	delete(f.failed, msg.checkURL)
+	// A success ends the outage: the next failure starts over at the base delay
+	// instead of inheriting an escalation that no longer describes anything.
+	delete(f.backoff, msg.checkURL)
 }
 
 // InFlight reports whether a fetch for this check URL is outstanding.
 func (f *rwxFetcher) InFlight(url string) bool { return f.inFlight[url] }
 
-// InvalidateErrors drops every cached error so the next Lookup misses and
-// refetches. Successful logs are kept: they are expensive to fetch and remain
-// accurate for the run they describe.
+// InvalidateReadyErrors drops the cached errors whose backoff window has
+// closed, so the next Lookup misses and refetches them. Successful logs are
+// kept: they are expensive to fetch and remain accurate for the run they
+// describe.
 //
-// Chosen over expiring errors on a TTL. The cache is read from render, which
-// gives a TTL no natural moment to fire — the pane would silently swap an error
-// for a spinner on an unrelated redraw, and testing it means injecting a clock.
-// Invalidation instead rides the two events that already mean "the CI picture
-// may have changed": the explicit refresh key, which is the user asking for a
-// retry, and the arrival of fresh PR check data, which bounds the retry rate to
-// the PR poll interval without any timer of its own.
-func (f *rwxFetcher) InvalidateErrors() {
+// Event-driven invalidation was chosen over expiring errors on a TTL, and the
+// backoff composes with that rather than replacing it. The cache is read from
+// render, which gives a TTL no natural moment to fire — the pane would silently
+// swap an error for a spinner on an unrelated redraw. Invalidation instead
+// rides the arrival of fresh PR check data, which already means "the CI picture
+// may have changed" and needs no timer of its own.
+//
+// What the poll alone could not do is stop asking. It fires every ~30s whether
+// or not a retry has any chance of succeeding, so a permanently broken `rwx`
+// (missing binary, expired token) cost an `rwx runs` plus a per-task `rwx logs`
+// chain every poll for as long as a failing check stayed selected. The
+// schedule in backoff gates exactly that: the poll still drives the retry, it
+// just skips the URLs whose window is still open. now is the poll's moment; no
+// clock lives in this type, matching activityTracker.
+func (f *rwxFetcher) InvalidateReadyErrors(now time.Time) {
+	for url := range f.failed {
+		if now.Before(f.backoff[url].retryAt) {
+			continue
+		}
+		delete(f.cache, url)
+		delete(f.failed, url)
+		// The failure count deliberately survives: this is a retry of a URL
+		// still known to be failing, and if it fails again the wait should be
+		// the next step up, not the base again.
+	}
+}
+
+// ForceRetryErrors drops every cached error and resets the retry schedule,
+// whatever the backoff windows say. This is the refresh key: the user asking
+// for a retry now outranks a throttle whose whole purpose is to stand in for
+// them not having asked.
+func (f *rwxFetcher) ForceRetryErrors() {
 	for url := range f.failed {
 		delete(f.cache, url)
 		delete(f.failed, url)
+		delete(f.backoff, url)
+	}
+}
+
+// Prune drops every entry for a URL absent from checks, and is called wherever
+// fresh ciChecks are adopted — the only moment a run can be known to have left
+// the PR.
+//
+// Every push mints new run URLs, so without this the cache accumulated a full
+// log body per superseded run for the life of the session, and inFlight and
+// backoff grew alongside it. The pending slot is cleared too: a fetch for a
+// check that has left ciChecks can never be displayed.
+func (f *rwxFetcher) Prune(checks []gitpkg.CICheck) {
+	known := make(map[string]bool, len(checks))
+	for _, c := range checks {
+		known[c.URL] = true
+	}
+	f.known = known
+
+	for url := range f.cache {
+		if !known[url] {
+			delete(f.cache, url)
+		}
+	}
+	for url := range f.failed {
+		if !known[url] {
+			delete(f.failed, url)
+		}
+	}
+	for url := range f.backoff {
+		if !known[url] {
+			delete(f.backoff, url)
+		}
+	}
+	// An outstanding fetch for a pruned URL is not cancellable — the Cmd is
+	// already running — so the mark goes and Apply discards the result when it
+	// lands. Keeping the mark instead would be a slow leak: one entry per
+	// superseded run, held until a result that nothing displays arrives.
+	for url := range f.inFlight {
+		if !known[url] {
+			delete(f.inFlight, url)
+		}
+	}
+	if f.pending != nil && !known[f.pending.URL] {
+		f.pending = nil
 	}
 }
 

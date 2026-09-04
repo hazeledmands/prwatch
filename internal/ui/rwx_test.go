@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	gitpkg "github.com/hazeledmands/prwatch/internal/git"
 )
@@ -55,11 +56,12 @@ func TestRWXCmdLifecycle(t *testing.T) {
 func TestRWXApplyCaches(t *testing.T) {
 	f := newRWXFetcher()
 	url := "https://cloud.rwx.com/mint/org/runs/abc123"
-	f.Apply(rwxLogMsg{checkURL: url, log: "log body"})
+	now := time.Unix(1_700_000_000, 0)
+	f.Apply(rwxLogMsg{checkURL: url, log: "log body"}, now)
 	if f.cache[url] != "log body" {
 		t.Errorf("cache=%q want 'log body'", f.cache[url])
 	}
-	f.Apply(rwxLogMsg{checkURL: url, err: errFake("boom")})
+	f.Apply(rwxLogMsg{checkURL: url, err: errFake("boom")}, now)
 	if got := f.cache[url]; got == "log body" || got == "" {
 		t.Errorf("cache after err=%q expected error message overwrite", got)
 	}
