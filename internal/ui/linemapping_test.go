@@ -51,7 +51,7 @@ func TestSearch_NavigatesToSourceLine_Wrapped(t *testing.T) {
 			s := newSearchOverlay()
 			s.Open()
 			s.query = "needle"
-			s.updateMatches(mp)
+			s.refresh(searchHooks(mp))
 
 			if len(s.matches) != 1 {
 				t.Fatalf("expected exactly one match, got %v", s.matches)

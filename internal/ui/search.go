@@ -15,155 +15,71 @@ type searchView interface {
 	ScrollToSourceLine(sourceLine int)
 }
 
-// searchOverlay owns the global search input state machine that lives at the
-// bottom of the screen across all modes. Per the spec, search only matches
-// against main-pane content; the sidebar-pane branch from the original
-// searchMatch type is no longer needed.
+// searchOverlay is the global search input that lives at the bottom of the
+// screen across all modes. Per the spec, search only matches against main-pane
+// content; the sidebar-pane branch from the original searchMatch type is no
+// longer needed.
 //
-// State diagram:
+// It is a searchInput bound to the main pane: the state machine and every key
+// it understands live there and are shared with the help overlay's search, and
+// what this type adds is the view plumbing — where matches come from, what
+// scrolling to one means — plus the search bar.
 //
-//	closed --Open()--> active --Enter (non-empty)--> confirmed
-//	   ↑                  │                              │
-//	   ╰───── Clear() ────┴── Enter (empty) ─── Escape ──╯
+// The view is a per-call parameter rather than a field. Model hands in a fresh
+// one each time, so storing it would mean holding a reference across refreshes
+// that replace it.
 type searchOverlay struct {
-	searching bool
-	confirmed bool
-	query     string
-	matches   []int
-	matchIdx  int
+	searchInput
 }
 
 func newSearchOverlay() *searchOverlay { return &searchOverlay{} }
 
-func (s *searchOverlay) IsSearching() bool { return s.searching }
-func (s *searchOverlay) IsConfirmed() bool { return s.confirmed }
-func (s *searchOverlay) IsActive() bool    { return s.searching || s.confirmed }
-func (s *searchOverlay) Query() string     { return s.query }
+// searchHooks binds the input to a main-pane view for the duration of one
+// call. A nil view still yields usable hooks so that clearing a search without
+// a view attached stays a no-op rather than a panic.
+func searchHooks(view searchView) searchInputHooks {
+	if view == nil {
+		return searchInputHooks{Find: func(string) []int { return nil }}
+	}
+	return searchInputHooks{
+		Find:      view.FindMatches,
+		AfterEdit: view.SetSearchQuery,
+		// FindMatches returns 0-indexed content lines; ScrollToSourceLine
+		// takes 1-indexed source lines and maps them through formatting +
+		// wrapping.
+		Navigate: func(line int) { view.ScrollToSourceLine(line + 1) },
+		OnReset:  func() { view.SetSearchQuery("") },
+	}
+}
 
 // Open begins a fresh input.
-func (s *searchOverlay) Open() {
-	s.searching = true
-	s.confirmed = false
-	s.query = ""
-	s.matches = nil
-	s.matchIdx = 0
-}
+func (s *searchOverlay) Open() { s.begin() }
 
 // Clear cancels search entirely and tells view to drop its highlight query.
-func (s *searchOverlay) Clear(view searchView) {
-	s.searching = false
-	s.confirmed = false
-	s.query = ""
-	s.matches = nil
-	s.matchIdx = 0
-	if view != nil {
-		view.SetSearchQuery("")
-	}
-}
-
-// updateMatches refreshes the match index list against the current query and
-// scrolls the view to the first match if any.
-func (s *searchOverlay) updateMatches(view searchView) {
-	s.matches = view.FindMatches(s.query)
-	s.matchIdx = 0
-	view.SetSearchQuery(s.query)
-	s.navigateToCurrent(view)
-}
+func (s *searchOverlay) Clear(view searchView) { s.reset(searchHooks(view)) }
 
 // RecomputeMatches re-runs the current query against the view's content and
-// clamps matchIdx back into range. It is what a confirmed search needs when a
-// refresh swaps the main pane's content: matches are content-line indices, so
-// against new content the old ones address the wrong lines — or lines that no
-// longer exist, which n/p would then try to scroll to.
-//
-// The query is deliberately kept and re-run rather than the search being
-// dropped: PROMPT.md's "### search" says nothing about refreshes, and silently
-// cancelling a search because a background poll landed is the more surprising
-// of the two. A query with no matches in the new content stays confirmed and
-// reads "0/0" in the bar, exactly as typing a non-matching query does.
-//
-// Unlike updateMatches this neither re-highlights nor scrolls. The highlight is
-// already re-applied by the pane's own refresh (SetContent → refreshViewport
-// re-runs m.searchQuery), and scrolling here would yank the viewport away from
-// wherever the user is on every poll.
-func (s *searchOverlay) RecomputeMatches(view searchView) {
-	if !s.IsActive() || s.query == "" {
-		return
-	}
-	s.matches = view.FindMatches(s.query)
-	if s.matchIdx >= len(s.matches) {
-		s.matchIdx = 0
-	}
-}
-
-// navigateToCurrent scrolls the view to whichever match matchIdx points at.
-func (s *searchOverlay) navigateToCurrent(view searchView) {
-	if len(s.matches) == 0 {
-		return
-	}
-	// FindMatches returns 0-indexed content lines; ScrollToSourceLine takes
-	// 1-indexed source lines and maps them through formatting + wrapping.
-	view.ScrollToSourceLine(s.matches[s.matchIdx] + 1)
-}
+// clamps matchIdx back into range, without re-highlighting or scrolling. See
+// searchInput.recompute for why a refresh keeps the query.
+func (s *searchOverlay) RecomputeMatches(view searchView) { s.recompute(searchHooks(view)) }
 
 // HandleInputKey processes a key while the user is typing into the search
-// input. Returns true when the key was consumed (which is always, while
-// searching). After Enter on empty input the overlay closes (Clear was
-// called); after Enter on non-empty input it transitions to confirmed (if
-// there were matches) or stays open without matches.
+// input. Every key is consumed while searching.
 func (s *searchOverlay) HandleInputKey(msg tea.KeyPressMsg, view searchView) {
-	switch {
-	case key.Matches(msg, keys.QuitImmediate), msg.Code == tea.KeyEscape:
+	// Unlike the help overlay's search, the global one takes ctrl+c as a
+	// cancel rather than passing it through as text.
+	if key.Matches(msg, keys.QuitImmediate) {
 		s.Clear(view)
-	case msg.Code == tea.KeyEnter:
-		if s.query == "" {
-			s.Clear(view)
-			return
-		}
-		s.searching = false
-		if len(s.matches) > 0 {
-			s.confirmed = true
-		}
-	case msg.Code == tea.KeyBackspace:
-		s.query = trimLastCluster(s.query)
-		if s.query == "" {
-			s.Clear(view)
-			return
-		}
-		s.updateMatches(view)
-	default:
-		if msg.Text != "" {
-			s.query += msg.Text
-		}
-		s.updateMatches(view)
+		return
 	}
+	s.applyEditKey(msg, searchHooks(view))
 }
 
 // HandleNavKey processes a key while in confirmed (n/p navigation) mode.
-// Returns true when the key was handled here. On unhandled keys (anything
-// other than search-next/search-prev/escape/quit) the overlay clears so the
-// caller can re-dispatch the same key as a normal mode key.
+// Returns true when the key was handled here. On unhandled keys the overlay
+// clears so the caller can re-dispatch the same key as a normal mode key.
 func (s *searchOverlay) HandleNavKey(msg tea.KeyPressMsg, view searchView) bool {
-	switch {
-	case key.Matches(msg, keys.SearchNext):
-		if len(s.matches) > 0 {
-			s.matchIdx = (s.matchIdx + 1) % len(s.matches)
-			s.navigateToCurrent(view)
-		}
-		return true
-	case key.Matches(msg, keys.SearchPrev):
-		if len(s.matches) > 0 {
-			s.matchIdx = (s.matchIdx - 1 + len(s.matches)) % len(s.matches)
-			s.navigateToCurrent(view)
-		}
-		return true
-	case msg.Code == tea.KeyEscape, key.Matches(msg, keys.QuitConfirm):
-		s.Clear(view)
-		return true
-	default:
-		s.Clear(view)
-		return false
-	}
+	return s.applyNavKey(msg, searchHooks(view))
 }
 
 // RenderBar returns the search-bar line shown at the bottom of the screen

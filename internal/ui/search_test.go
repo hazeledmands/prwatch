@@ -147,16 +147,16 @@ func TestHelpSearchBackspaceDeletesWholeCluster(t *testing.T) {
 			t.Parallel()
 			h := newHelpOverlay()
 			h.Open()
-			h.searching = true
+			h.search.searching = true
 			for _, r := range []rune(tc.typed) {
 				h.HandleKey(tea.KeyPressMsg{Code: r, Text: string(r)}, 20)
 			}
 			h.HandleKey(tea.KeyPressMsg{Code: tea.KeyBackspace}, 20)
-			if got := h.searchQuery; got != tc.want {
+			if got := h.search.query; got != tc.want {
 				t.Errorf("after backspace searchQuery = %q, want %q", got, tc.want)
 			}
-			if !utf8.ValidString(h.searchQuery) {
-				t.Errorf("searchQuery %q is not valid UTF-8", h.searchQuery)
+			if !utf8.ValidString(h.search.query) {
+				t.Errorf("searchQuery %q is not valid UTF-8", h.search.query)
 			}
 		})
 	}

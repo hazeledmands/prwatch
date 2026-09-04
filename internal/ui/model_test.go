@@ -3356,7 +3356,7 @@ func TestHandleEnter_MainFocus_CommitMode(t *testing.T) {
 func TestUpdateSearchMatches_EmptyQuery(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.search.query = ""
-	m.search.updateMatches(m.mainPane) // should not panic
+	m.search.refresh(searchHooks(m.mainPane)) // should not panic
 	if len(m.search.matches) != 0 {
 		t.Error("empty query should produce no matches")
 	}
@@ -5258,7 +5258,7 @@ func TestHelpSearch(t *testing.T) {
 
 	result, _ = m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
 	m = result.(*Model)
-	if !m.help.searching {
+	if !m.help.search.searching {
 		t.Fatal("help search should be active")
 	}
 
@@ -5267,17 +5267,17 @@ func TestHelpSearch(t *testing.T) {
 		result, _ = m.Update(tea.KeyPressMsg{Text: string(ch), Code: rune(ch)})
 		m = result.(*Model)
 	}
-	if m.help.searchQuery != "quit" {
-		t.Errorf("expected search query 'quit', got %q", m.help.searchQuery)
+	if m.help.search.query != "quit" {
+		t.Errorf("expected search query 'quit', got %q", m.help.search.query)
 	}
 
 	// Esc cancels search
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = result.(*Model)
-	if m.help.searching {
+	if m.help.search.searching {
 		t.Error("esc should cancel help search")
 	}
-	if m.help.searchQuery != "" {
+	if m.help.search.query != "" {
 		t.Error("esc should clear help search query")
 	}
 
@@ -5301,17 +5301,17 @@ func TestHelpSearch_BackspaceCancelsWhenEmpty(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	m = result.(*Model)
 
-	if !m.help.searching {
+	if !m.help.search.searching {
 		t.Fatal("help search should be active")
 	}
 
 	// Backspace removes the 'q'
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
-	if m.help.searchQuery != "" {
-		t.Errorf("expected empty query after backspace, got %q", m.help.searchQuery)
+	if m.help.search.query != "" {
+		t.Errorf("expected empty query after backspace, got %q", m.help.search.query)
 	}
-	if m.help.searching {
+	if m.help.search.searching {
 		t.Error("backspace on empty help search should cancel search")
 	}
 
@@ -5764,22 +5764,22 @@ func TestHelpSearch_WithNavigation(t *testing.T) {
 	}
 
 	// Should have matches
-	if len(m.help.searchMatches) == 0 {
+	if len(m.help.search.matches) == 0 {
 		t.Fatal("'mode' should match in help content")
 	}
 
 	// Press enter to confirm search
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
-	if !m.help.searchConfirmed {
+	if !m.help.search.confirmed {
 		t.Error("enter should confirm help search")
 	}
 
 	// Press n to go to next match
-	initialIdx := m.help.searchIdx
+	initialIdx := m.help.search.matchIdx
 	result, _ = m.Update(tea.KeyPressMsg{Text: "n", Code: 'n'})
 	m = result.(*Model)
-	if m.help.searchIdx == initialIdx && len(m.help.searchMatches) > 1 {
+	if m.help.search.matchIdx == initialIdx && len(m.help.search.matches) > 1 {
 		t.Error("n should advance to next match")
 	}
 
@@ -5790,7 +5790,7 @@ func TestHelpSearch_WithNavigation(t *testing.T) {
 	// Press esc to exit search mode
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = result.(*Model)
-	if m.help.searchConfirmed {
+	if m.help.search.confirmed {
 		t.Error("esc should exit help search navigation")
 	}
 
@@ -5806,10 +5806,10 @@ func TestRenderHelp_SearchBar(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.help.Open()
-	m.help.searchConfirmed = true
-	m.help.searchQuery = "test"
-	m.help.searchMatches = []int{1, 5, 10}
-	m.help.searchIdx = 1
+	m.help.search.confirmed = true
+	m.help.search.query = "test"
+	m.help.search.matches = []int{1, 5, 10}
+	m.help.search.matchIdx = 1
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -6140,7 +6140,7 @@ func TestNavigateToCurrentMatch_MainPane(t *testing.T) {
 
 	m.search.matches = []int{30}
 	m.search.matchIdx = 0
-	m.search.navigateToCurrent(m.mainPane)
+	m.search.navigate(searchHooks(m.mainPane))
 
 	if m.mainPane.ScrollTop() < 20 {
 		t.Errorf("expected scroll near line 30, got %d", m.mainPane.ScrollTop())
@@ -6269,7 +6269,7 @@ func TestNavigateToCurrentMatch_Empty(t *testing.T) {
 	m.height = 24
 	m.updateLayout()
 	m.search.matches = nil
-	m.search.navigateToCurrent(m.mainPane) // should not panic
+	m.search.navigate(searchHooks(m.mainPane)) // should not panic
 }
 
 // These previously exercised wrapLinesWithIndent, a wrapper over the dead
@@ -7376,21 +7376,21 @@ func TestHelpOverlay_SearchAndScroll(t *testing.T) {
 	// Search in help
 	result, _ = m.Update(tea.KeyPressMsg{Text: "/", Code: '/'})
 	m = result.(*Model)
-	if !m.help.searching {
+	if !m.help.search.searching {
 		t.Error("should be searching in help")
 	}
 
 	// Type search query
 	result, _ = m.Update(tea.KeyPressMsg{Text: "q", Code: 'q'})
 	m = result.(*Model)
-	if m.help.searchQuery != "q" {
-		t.Errorf("search query should be 'q', got %q", m.help.searchQuery)
+	if m.help.search.query != "q" {
+		t.Errorf("search query should be 'q', got %q", m.help.search.query)
 	}
 
 	// Confirm search
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
-	if !m.help.searchConfirmed {
+	if !m.help.search.confirmed {
 		t.Error("search should be confirmed")
 	}
 
@@ -7427,7 +7427,7 @@ func TestRenderHelp_SearchHighlighting(t *testing.T) {
 	m.width = 80
 	m.height = 40
 	m.help.Open()
-	m.help.searchQuery = "scroll"
+	m.help.search.query = "scroll"
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -7449,9 +7449,9 @@ func TestRenderHelp_SearchingBarWithMatches(t *testing.T) {
 	m.width = 80
 	m.height = 40
 	m.help.Open()
-	m.help.searching = true
-	m.help.searchQuery = "wrap"
-	m.help.searchMatches = []int{3}
+	m.help.search.searching = true
+	m.help.search.query = "wrap"
+	m.help.search.matches = []int{3}
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -7469,8 +7469,8 @@ func TestRenderHelp_SearchingBarNoMatches(t *testing.T) {
 	m.width = 80
 	m.height = 40
 	m.help.Open()
-	m.help.searching = true
-	m.help.searchQuery = "zzzzz"
+	m.help.search.searching = true
+	m.help.search.query = "zzzzz"
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -7485,10 +7485,10 @@ func TestRenderHelp_ConfirmedSearchBar(t *testing.T) {
 	m.width = 80
 	m.height = 40
 	m.help.Open()
-	m.help.searchConfirmed = true
-	m.help.searchQuery = "mode"
-	m.help.searchMatches = []int{2, 4, 6}
-	m.help.searchIdx = 2
+	m.help.search.confirmed = true
+	m.help.search.query = "mode"
+	m.help.search.matches = []int{2, 4, 6}
+	m.help.search.matchIdx = 2
 	m.updateLayout()
 
 	rendered := m.renderHelp()
@@ -7520,26 +7520,26 @@ func TestHandleHelpKey_SearchBackspace(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.help.Open()
-	m.help.searching = true
-	m.help.searchQuery = "ab"
+	m.help.search.searching = true
+	m.help.search.query = "ab"
 	m.updateLayout()
 
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
-	if m.help.searchQuery != "a" {
-		t.Errorf("backspace should remove last char, got %q", m.help.searchQuery)
+	if m.help.search.query != "a" {
+		t.Errorf("backspace should remove last char, got %q", m.help.search.query)
 	}
 
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
-	if m.help.searchQuery != "" {
-		t.Errorf("backspace should remove last char, got %q", m.help.searchQuery)
+	if m.help.search.query != "" {
+		t.Errorf("backspace should remove last char, got %q", m.help.search.query)
 	}
 
 	// Backspace on empty should not panic
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(*Model)
-	if m.help.searchQuery != "" {
+	if m.help.search.query != "" {
 		t.Error("backspace on empty should stay empty")
 	}
 }
@@ -7550,16 +7550,16 @@ func TestHandleHelpKey_SearchEnterNoMatches(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.help.Open()
-	m.help.searching = true
-	m.help.searchQuery = "zzzznotfound"
+	m.help.search.searching = true
+	m.help.search.query = "zzzznotfound"
 	m.updateLayout()
 
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = result.(*Model)
-	if m.help.searching {
+	if m.help.search.searching {
 		t.Error("enter should end searching mode")
 	}
-	if m.help.searchConfirmed {
+	if m.help.search.confirmed {
 		t.Error("enter with no matches should not confirm")
 	}
 }
@@ -7570,16 +7570,16 @@ func TestHandleHelpKey_ConfirmedOtherKeyFallthrough(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.help.Open()
-	m.help.searchConfirmed = true
-	m.help.searchQuery = "mode"
-	m.help.searchMatches = []int{2, 4}
-	m.help.searchIdx = 0
+	m.help.search.confirmed = true
+	m.help.search.query = "mode"
+	m.help.search.matches = []int{2, 4}
+	m.help.search.matchIdx = 0
 	m.updateLayout()
 
 	// 'j' should clear confirmed and fall through to scroll down
 	result, _ := m.Update(tea.KeyPressMsg{Text: "j", Code: 'j'})
 	m = result.(*Model)
-	if m.help.searchConfirmed {
+	if m.help.search.confirmed {
 		t.Error("other key should clear confirmed mode")
 	}
 }
@@ -7590,17 +7590,17 @@ func TestHandleHelpKey_ConfirmedPrevNav(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.help.Open()
-	m.help.searchConfirmed = true
-	m.help.searchQuery = "mode"
-	m.help.searchMatches = []int{2, 4, 6}
-	m.help.searchIdx = 0
+	m.help.search.confirmed = true
+	m.help.search.query = "mode"
+	m.help.search.matches = []int{2, 4, 6}
+	m.help.search.matchIdx = 0
 	m.updateLayout()
 
 	// p should go to previous (wrap around to last)
 	result, _ := m.Update(tea.KeyPressMsg{Text: "p", Code: 'p'})
 	m = result.(*Model)
-	if m.help.searchIdx != 2 {
-		t.Errorf("p should wrap to last match, got idx=%d", m.help.searchIdx)
+	if m.help.search.matchIdx != 2 {
+		t.Errorf("p should wrap to last match, got idx=%d", m.help.search.matchIdx)
 	}
 	if m.help.scrollOffset != 6 {
 		t.Errorf("scroll should follow match, got offset=%d", m.help.scrollOffset)

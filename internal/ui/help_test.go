@@ -221,8 +221,8 @@ func TestHelpOverlay_AdvertisedKeys(t *testing.T) {
 			if got := cmd != nil; got != tc.wantQuit {
 				t.Errorf("returned a command = %v, want %v", got, tc.wantQuit)
 			}
-			if h.searching != tc.wantSearching {
-				t.Errorf("searching = %v, want %v", h.searching, tc.wantSearching)
+			if h.search.searching != tc.wantSearching {
+				t.Errorf("searching = %v, want %v", h.search.searching, tc.wantSearching)
 			}
 		})
 	}

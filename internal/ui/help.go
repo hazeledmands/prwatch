@@ -24,39 +24,41 @@ import (
 //	   ↑                                                         │
 //	   ╰─────── q/esc/Help/any-unhandled-key ────────────────────╯
 type helpOverlay struct {
-	visible         bool
-	scrollOffset    int
-	searching       bool
-	searchConfirmed bool
-	searchQuery     string
-	searchMatches   []int
-	searchIdx       int
+	visible      bool
+	scrollOffset int
+	// search is the same input state machine the global search overlay uses;
+	// what differs is only where matches come from and that a match snaps
+	// scrollOffset instead of scrolling a viewport. See searchInput.
+	search searchInput
 }
 
 func newHelpOverlay() *helpOverlay { return &helpOverlay{} }
 
 func (h *helpOverlay) IsOpen() bool { return h.visible }
 
+// searchHooks binds the shared input to the help overlay's own content and
+// scroll offset.
+func (h *helpOverlay) searchHooks() searchInputHooks {
+	return searchInputHooks{
+		Find: helpSearchMatches,
+		// The overlay highlights at render time from the query itself, so
+		// there is nothing to re-apply on an edit.
+		Navigate: func(line int) { h.scrollOffset = line },
+	}
+}
+
 // Open shows the help overlay. Resets scroll and clears search state.
 func (h *helpOverlay) Open() {
 	h.visible = true
 	h.scrollOffset = 0
-	h.searchQuery = ""
-	h.searchMatches = nil
-	h.searchIdx = 0
-	h.searching = false
-	h.searchConfirmed = false
+	h.search = searchInput{}
 }
 
 // Close dismisses the overlay back to the no-help state.
 func (h *helpOverlay) Close() {
 	h.visible = false
 	h.scrollOffset = 0
-	h.searchQuery = ""
-	h.searchMatches = nil
-	h.searchIdx = 0
-	h.searching = false
-	h.searchConfirmed = false
+	h.search = searchInput{}
 }
 
 // helpContentLines renders helpSections as a flat slice of lines, one per row,
@@ -90,23 +92,21 @@ func helpContentLines() []string {
 	return lines
 }
 
-// updateSearchMatches refreshes the match index list against the current
-// helpContentLines() and snaps scrollOffset to the first match (if any).
-func (h *helpOverlay) updateSearchMatches() {
-	h.searchMatches = nil
-	if h.searchQuery == "" {
-		return
+// helpSearchMatches returns the helpContentLines() indices matching query
+// case-insensitively. An empty query matches nothing, the same as
+// mainPane.FindMatches.
+func helpSearchMatches(query string) []int {
+	if query == "" {
+		return nil
 	}
-	q := strings.ToLower(h.searchQuery)
+	q := strings.ToLower(query)
+	var matches []int
 	for i, line := range helpContentLines() {
 		if strings.Contains(strings.ToLower(line), q) {
-			h.searchMatches = append(h.searchMatches, i)
+			matches = append(matches, i)
 		}
 	}
-	h.searchIdx = 0
-	if len(h.searchMatches) > 0 {
-		h.scrollOffset = h.searchMatches[0]
-	}
+	return matches
 }
 
 // HandleKey processes a key press while help is open. Returns a tea.Cmd
@@ -114,63 +114,20 @@ func (h *helpOverlay) updateSearchMatches() {
 // inside the overlay. visibleHeight is the number of help rows that fit
 // on screen above the search bar.
 func (h *helpOverlay) HandleKey(msg tea.KeyPressMsg, visibleHeight int) tea.Cmd {
-	if h.searching {
-		switch {
-		case msg.Code == tea.KeyEscape:
-			h.searching = false
-			h.searchQuery = ""
-			h.searchMatches = nil
-			return nil
-		case msg.Code == tea.KeyEnter:
-			h.searching = false
-			if len(h.searchMatches) > 0 {
-				h.searchConfirmed = true
-			}
-			return nil
-		case msg.Code == tea.KeyBackspace:
-			h.searchQuery = trimLastCluster(h.searchQuery)
-			if h.searchQuery == "" {
-				h.searching = false
-				h.searchConfirmed = false
-				h.searchMatches = nil
-				return nil
-			}
-			h.updateSearchMatches()
-			return nil
-		default:
-			if msg.Text != "" {
-				h.searchQuery += msg.Text
-			}
-			h.updateSearchMatches()
-			return nil
-		}
+	if h.search.IsSearching() {
+		// Note that ctrl+c is not a cancel here, unlike in the global search:
+		// it carries no text, so it falls through as an inert key.
+		h.search.applyEditKey(msg, h.searchHooks())
+		return nil
 	}
 
-	if h.searchConfirmed {
-		switch {
-		case key.Matches(msg, keys.SearchNext):
-			if len(h.searchMatches) > 0 {
-				h.searchIdx = (h.searchIdx + 1) % len(h.searchMatches)
-				h.scrollOffset = h.searchMatches[h.searchIdx]
-			}
+	if h.search.IsConfirmed() {
+		if h.search.applyNavKey(msg, h.searchHooks()) {
 			return nil
-		case key.Matches(msg, keys.SearchPrev):
-			if len(h.searchMatches) > 0 {
-				h.searchIdx = (h.searchIdx - 1 + len(h.searchMatches)) % len(h.searchMatches)
-				h.scrollOffset = h.searchMatches[h.searchIdx]
-			}
-			return nil
-		case msg.Code == tea.KeyEscape, key.Matches(msg, keys.QuitConfirm):
-			h.searchConfirmed = false
-			h.searchQuery = ""
-			h.searchMatches = nil
-			return nil
-		default:
-			h.searchConfirmed = false
-			h.searchQuery = ""
-			h.searchMatches = nil
-			return h.HandleKey(msg, visibleHeight)
 		}
+		// The key wasn't a search key, so the search dismissed itself and the
+		// key is re-dispatched as a normal help-overlay key.
+		return h.HandleKey(msg, visibleHeight)
 	}
 
 	helpLines := helpContentLines()
@@ -180,9 +137,7 @@ func (h *helpOverlay) HandleKey(msg tea.KeyPressMsg, visibleHeight int) tea.Cmd 
 		h.Close()
 		return nil
 	case key.Matches(msg, keys.Search):
-		h.searching = true
-		h.searchQuery = ""
-		h.searchMatches = nil
+		h.search.begin()
 		return nil
 	case key.Matches(msg, keys.Down):
 		if h.scrollOffset < len(helpLines)-visibleHeight {
@@ -235,9 +190,9 @@ func (h *helpOverlay) PageUp(visibleHeight int) {
 func (h *helpOverlay) Render(visibleHeight int) string {
 	lines := helpContentLines()
 
-	if h.searchQuery != "" {
+	if q := h.search.Query(); q != "" {
 		for i, line := range lines {
-			lines[i] = highlightMatchInLine(line, h.searchQuery)
+			lines[i] = highlightMatchInLine(line, q)
 		}
 	}
 
@@ -253,16 +208,16 @@ func (h *helpOverlay) Render(visibleHeight int) string {
 
 	result := strings.Join(visible, "\n")
 
-	if h.searching {
-		searchBar := "/" + h.searchQuery + "_"
-		if len(h.searchMatches) > 0 {
-			searchBar += fmt.Sprintf("  %d/%d", h.searchIdx+1, len(h.searchMatches))
-		} else if h.searchQuery != "" {
+	if h.search.IsSearching() {
+		searchBar := "/" + h.search.query + "_"
+		if len(h.search.matches) > 0 {
+			searchBar += fmt.Sprintf("  %d/%d", h.search.matchIdx+1, len(h.search.matches))
+		} else if h.search.query != "" {
 			searchBar += "  0/0"
 		}
 		result += "\n" + searchBar
-	} else if h.searchConfirmed {
-		searchBar := fmt.Sprintf("/%s  %d/%d", h.searchQuery, h.searchIdx+1, len(h.searchMatches))
+	} else if h.search.IsConfirmed() {
+		searchBar := fmt.Sprintf("/%s  %d/%d", h.search.query, h.search.matchIdx+1, len(h.search.matches))
 		result += "\n" + searchBar
 	}
 
