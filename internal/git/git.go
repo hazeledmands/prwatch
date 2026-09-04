@@ -927,16 +927,23 @@ func (g *Git) FileDiffCommitted(base, file string) (string, error) {
 	return g.runDiff("diff", base+"..HEAD", "--", file)
 }
 
-// FileDiffUncommitted returns the working tree diff for a file against HEAD.
+// FileDiffUncommitted returns the diff for a file with uncommitted changes,
+// spanning base → working tree. The left endpoint is the same base the
+// committed diff uses: a file with both committed and uncommitted changes
+// sits in the uncommitted section, and diffing it against HEAD dropped its
+// committed base..HEAD layer from view entirely. An empty base degrades to
+// HEAD → working tree (scope not yet loaded, or no detectable base).
 // If file is empty, returns the diff for all files.
-func (g *Git) FileDiffUncommitted(file string) (string, error) {
-	// Try tracked diff first (staged + unstaged vs HEAD)
+func (g *Git) FileDiffUncommitted(base, file string) (string, error) {
+	if base == "" {
+		base = "HEAD"
+	}
 	var diff string
 	var err error
 	if file == "" {
-		diff, err = g.runDiff("diff", "HEAD")
+		diff, err = g.runDiff("diff", base)
 	} else {
-		diff, err = g.runDiff("diff", "HEAD", "--", file)
+		diff, err = g.runDiff("diff", base, "--", file)
 	}
 	if err == nil && diff != "" {
 		return diff, nil

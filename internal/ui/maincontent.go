@@ -84,7 +84,10 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 		// diff branch below would render the file as all-additions or "no
 		// changes" instead.
 	} else if m.isUncommittedFile(file) {
-		diff, _ = m.git.FileDiffUncommitted(file)
+		// Same left endpoint as the committed branch: a file with both
+		// committed and uncommitted changes lands in the uncommitted section,
+		// and diffing it against HEAD hid its committed base..HEAD layer.
+		diff, _ = m.git.FileDiffUncommitted(m.scope.OldBase(), file)
 	} else if m.isCommittedFile(file) {
 		diff, _ = m.git.FileDiffCommitted(m.scope.OldBase(), file)
 	}

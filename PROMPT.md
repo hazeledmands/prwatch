@@ -6,7 +6,7 @@ it can be started with:
 
 if [dir] is provided, then it should run against that directory; if not, it should run against the current working directory.
 
-the UI should show the delta between the merge-base of the current branch and the origin's base branch (like GitHub's three-dot diff). for committed files, diff against HEAD. for uncommitted files, diff against the working tree. the tool should use origin/<base> rather than the local base branch ref to stay consistent with GitHub's view.
+the UI should show the delta between the merge-base of the current branch and the origin's base branch (like GitHub's three-dot diff). the left endpoint of every file's diff is that merge-base; only the right endpoint varies with the file's state: HEAD for files whose changes are all committed, the working tree for files with uncommitted changes. a file with both committed and uncommitted changes therefore shows one blended merge-base → working-tree diff (the uncommitted layer on its own is viewable via the commits-mode pseudo-entries). the tool should use origin/<base> rather than the local base branch ref to stay consistent with GitHub's view.
 
 ## live refresh
 

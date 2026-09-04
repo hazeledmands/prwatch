@@ -25,7 +25,7 @@ func (linearGit) ChangedFiles(string) (git.ChangedFilesResult, error) {
 func (linearGit) Commits(string, int, int) ([]git.Commit, error)     { return nil, nil }
 func (linearGit) CommitCountRange(string) (int, error)               { return 0, nil }
 func (linearGit) FileDiffCommitted(string, string) (string, error)   { return "", nil }
-func (linearGit) FileDiffUncommitted(string) (string, error)         { return "", nil }
+func (linearGit) FileDiffUncommitted(string, string) (string, error) { return "", nil }
 func (linearGit) StagedDiff() (string, error)                        { return "", nil }
 func (linearGit) NewChangesDiff() (string, error)                    { return "", nil }
 func (linearGit) FileContent(string) (string, error)                 { return "", nil }

@@ -56,7 +56,7 @@ func TestGitCommands_NeverTakeOptionalLocks(t *testing.T) {
 	_, _ = g.UntrackedDiff()
 	_, _ = g.NewChangesDiff()
 	_, _ = g.FileDiffCommitted(base, "README.md")
-	_, _ = g.FileDiffUncommitted("README.md")
+	_, _ = g.FileDiffUncommitted(base, "README.md")
 	_, _ = g.FileContent("README.md")
 	_, _ = g.LastCommitForFile("README.md")
 	_, _ = g.CommitPatch(info.HeadSHA)

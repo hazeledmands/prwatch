@@ -402,10 +402,61 @@ func TestFileDiffUncommitted(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
 
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Modify a tracked file
 	writeFile(t, dir, "feature.go", "package feature\n\nvar x = 1\n")
 
-	diff, err := g.FileDiffUncommitted("feature.go")
+	diff, err := g.FileDiffUncommitted(base, "feature.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff, "+var x = 1") {
+		t.Errorf("diff should contain uncommitted change, got:\n%s", diff)
+	}
+}
+
+func TestFileDiffUncommitted_MixedCommittedAndUncommitted(t *testing.T) {
+	// A file with both committed (base..HEAD) and uncommitted changes must
+	// show the blended base → working-tree diff. Diffing against HEAD here
+	// silently dropped the committed layer from files mode: the file sits in
+	// the uncommitted section, so the committed branch of the diff dispatch
+	// never ran for it.
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// feature.go landed in the branch commit; edit it again without committing.
+	writeFile(t, dir, "feature.go", "package feature\n\nvar x = 1\n")
+
+	diff, err := g.FileDiffUncommitted(base, "feature.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff, "+package feature") {
+		t.Errorf("diff should contain the committed layer (+package feature), got:\n%s", diff)
+	}
+	if !strings.Contains(diff, "+var x = 1") {
+		t.Errorf("diff should contain the uncommitted layer (+var x = 1), got:\n%s", diff)
+	}
+}
+
+func TestFileDiffUncommitted_EmptyBaseFallsBackToHEAD(t *testing.T) {
+	// Before the first load (or with no detectable base) the scope's old base
+	// is empty; the diff must degrade to HEAD → working tree, not error.
+	dir := setupTestRepo(t)
+	g := noGH(dir)
+
+	writeFile(t, dir, "feature.go", "package feature\n\nvar x = 1\n")
+
+	diff, err := g.FileDiffUncommitted("", "feature.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,9 +469,14 @@ func TestFileDiffUncommitted_UntrackedFile(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
 
+	base, err := g.DetectBaseLocal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	writeFile(t, dir, "newfile.go", "package newfile\n")
 
-	diff, err := g.FileDiffUncommitted("newfile.go")
+	diff, err := g.FileDiffUncommitted(base, "newfile.go")
 	if err != nil {
 		// --no-index exits 1 on diff, which is expected
 		if diff == "" {
@@ -1022,7 +1078,7 @@ func TestRepoInfo_NonGitDir(t *testing.T) {
 func TestFileDiffUncommitted_NonExistentFile(t *testing.T) {
 	dir := setupTestRepo(t)
 	g := noGH(dir)
-	_, err := g.FileDiffUncommitted("nonexistent_file.xyz")
+	_, err := g.FileDiffUncommitted("", "nonexistent_file.xyz")
 	if err == nil {
 		t.Error("expected error for nonexistent file")
 	}

@@ -60,7 +60,7 @@ type GitDataSource interface {
 	Commits(base string, skip, limit int) ([]gitpkg.Commit, error)
 	CommitCountRange(base string) (int, error)
 	FileDiffCommitted(base, file string) (string, error)
-	FileDiffUncommitted(file string) (string, error)
+	FileDiffUncommitted(base, file string) (string, error)
 	// StagedDiff and NewChangesDiff back the two commits-mode pseudo-entries.
 	// They are deliberately separate calls: sharing one diff between them is
 	// the bug they exist to prevent.

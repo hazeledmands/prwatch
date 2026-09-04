@@ -70,6 +70,10 @@ type mockGit struct {
 	commitsErr    error
 	fileDiff      string
 	fileDiffErr   error
+	// fileDiffUncommittedBase records the base FileDiffUncommitted was last
+	// called with, so tests can assert the dispatcher passes the scope's
+	// outer base rather than defaulting to HEAD.
+	fileDiffUncommittedBase string
 	// Commits-mode pseudo-entry diffs — deliberately independent of fileDiff
 	// and of each other.
 	stagedDiff        string
@@ -173,7 +177,8 @@ func (m *mockGit) CommitCountRange(base string) (int, error) {
 func (m *mockGit) FileDiffCommitted(base, file string) (string, error) {
 	return m.fileDiff, m.fileDiffErr
 }
-func (m *mockGit) FileDiffUncommitted(file string) (string, error) {
+func (m *mockGit) FileDiffUncommitted(base, file string) (string, error) {
+	m.fileDiffUncommittedBase = base
 	return m.fileDiff, m.fileDiffErr
 }
 
@@ -4497,6 +4502,54 @@ func TestFilesMode_ThreeCategories(t *testing.T) {
 	}
 	if items[9].filePath != "readme.md" {
 		t.Errorf("item 9: expected readme.md, got filePath=%q", items[9].filePath)
+	}
+}
+
+func TestFilesMode_UncommittedFileDiffUsesScopeBase(t *testing.T) {
+	// A file with both committed (base..HEAD) and uncommitted changes lands in
+	// the uncommitted section, so only the uncommitted branch of the diff
+	// dispatch ever runs for it. That branch must diff from the scope's outer
+	// base — diffing from HEAD dropped the file's committed layer from view
+	// entirely, with no way to surface it anywhere in files mode.
+	mg := &mockGit{
+		repoInfo: git.RepoInfoResult{Branch: "feature", RepoName: "repo"},
+		base:     "basesha",
+		changedFiles: git.ChangedFilesResult{
+			// mixed.go changed in base..HEAD *and* has uncommitted edits, so
+			// the producer reports it in both buckets.
+			Committed:   []string{"mixed.go"},
+			Uncommitted: []string{"mixed.go"},
+		},
+		commits:     []git.Commit{{SHA: "headsha", Subject: "test"}},
+		fileDiff:    "+new",
+		fileContent: "content",
+	}
+	m := NewModel("/tmp", mg)
+	m.width = 80
+	m.height = 24
+	m.updateLayout()
+	msg := m.loadGitData()
+	m.Update(msg)
+
+	result, _ := m.Update(tea.KeyPressMsg{Text: "v", Code: 'v'})
+	m = result.(*Model)
+
+	found := false
+	for i, item := range m.sidebar.items {
+		if item.filePath == "mixed.go" {
+			m.sidebar.SelectIndex(i)
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("mixed.go not in sidebar: %v", m.sidebar.items)
+	}
+	m.updateMainContent()
+
+	if mg.fileDiffUncommittedBase != "basesha" {
+		t.Errorf("FileDiffUncommitted called with base %q, want scope base %q",
+			mg.fileDiffUncommittedBase, "basesha")
 	}
 }
 
