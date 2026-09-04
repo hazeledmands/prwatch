@@ -1441,6 +1441,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateMainContent()
 		return m, nil
 
+	case clipboardCopyMsg:
+		// The toast is gated on the result: the copy ran off this goroutine, so
+		// this is the first moment anyone knows whether it worked. Show returns
+		// the expiry Cmd, and a failure toast expires the same way a success
+		// one does.
+		return m, m.notifications.Show(clipboardToastFor(msg))
+
 	case prTickMsg:
 		// Recompute interval on each tick based on current activity state. A
 		// latched rate-limit backoff survives this (activityTracker.ResetPRInterval).

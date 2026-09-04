@@ -30,8 +30,16 @@ var copySelectionNotificationRE = regexp.MustCompile(`^copied selection \(\d+ li
 // noGHFactory is a Factory that stubs out blocked external commands so UI tests
 // never hit the real GitHub API or system clipboard.
 func noGHFactory(name string, args ...string) command.Command {
-	if name == "gh" || name == "rwx" || name == "pbcopy" || name == "xclip" {
+	if name == "gh" || name == "rwx" {
 		return command.StubCommand("", fmt.Errorf("stubbed out in tests"))
+	}
+	// The clipboard stub succeeds. Copy toasts are gated on the copy's result,
+	// so a stub that failed would make every test that asserts "copied ..."
+	// assert the failure path instead — and the point of stubbing here is to
+	// keep off the real system clipboard, not to simulate a broken one. Tests
+	// that want a failure inject it (see clipFactory).
+	if name == "pbcopy" || name == "xclip" {
+		return command.StubCommand("", nil)
 	}
 	return command.DefaultFactory(name, args...)
 }
@@ -7649,8 +7657,10 @@ func TestYankPath_SidebarFocused(t *testing.T) {
 	m = result.(*Model)
 
 	if cmd == nil {
-		t.Fatal("[y] should return a command (notification timer)")
+		t.Fatal("[y] should return a command (the clipboard copy)")
 	}
+	// The toast is gated on the copy's result, so settle it first.
+	m = settleClipboard(t, m, cmd)
 
 	// Should show a notification with the copied path
 	if !strings.Contains(m.notifications.Text(), "config.go") {
@@ -7682,6 +7692,7 @@ func TestYankPath_MainPaneFocused(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("[y] should return a command")
 	}
+	m = settleClipboard(t, m, cmd)
 
 	// Notification should contain file:line format
 	if !strings.Contains(m.notifications.Text(), "auth.go:") {
@@ -7759,8 +7770,9 @@ func TestCopySelection_WithContent(t *testing.T) {
 	setDragRect(m, 30, 5, 50, 7)
 	cmd := m.copySelection() // exercises coordinate conversion, line extraction
 	if cmd == nil {
-		t.Fatal("copySelection with content should return a notification timer cmd")
+		t.Fatal("copySelection with content should return a clipboard copy cmd")
 	}
+	m = settleClipboard(t, m, cmd)
 	if !copySelectionNotificationRE.MatchString(m.notifications.Text()) {
 		t.Errorf("notification should match 'copied selection (N line[s], M byte[s])', got %q", m.notifications.Text())
 	}
@@ -8110,8 +8122,9 @@ func TestMouseDragRelease_ShowsCopiedNotification(t *testing.T) {
 	m = result.(*Model)
 
 	if cmd == nil {
-		t.Fatal("mouse-release after drag should return a notification timer cmd")
+		t.Fatal("mouse-release after drag should return a clipboard copy cmd")
 	}
+	m = settleClipboard(t, m, cmd)
 	if !copySelectionNotificationRE.MatchString(m.notifications.Text()) {
 		t.Errorf("mouse-release notification should match 'copied selection (N line[s], M byte[s])', got %q", m.notifications.Text())
 	}

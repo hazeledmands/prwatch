@@ -209,12 +209,14 @@ func TestSelection_YankCopiesAndDismisses(t *testing.T) {
 		t.Fatal("after v+j the selection should have range")
 	}
 
-	res, _ = m.Update(tea.KeyPressMsg{Text: "y", Code: 'y'})
+	res, cmd := m.Update(tea.KeyPressMsg{Text: "y", Code: 'y'})
 	m = res.(*Model)
 
 	if m.selection.IsActive() {
 		t.Errorf("y should dismiss the selection")
 	}
+	// The toast is gated on the copy's result.
+	m = settleClipboard(t, m, cmd)
 	if !copySelectionNotificationRE.MatchString(m.notifications.Text()) {
 		t.Errorf("expected copied-selection notification, got %q", m.notifications.Text())
 	}

@@ -134,9 +134,12 @@ func TestEnter_MainFocusEditorLineIsViewportTop(t *testing.T) {
 func TestYankPath_MainFocusFollowsPaneNotSidebar(t *testing.T) {
 	m, wantFile := paneOwnerModel(t)
 
-	if cmd := m.yankPath(); cmd == nil {
+	cmd := m.yankPath()
+	if cmd == nil {
 		t.Fatal("yankPath returned nil with a file on screen")
 	}
+	// The toast is gated on the copy's result.
+	m = settleClipboard(t, m, cmd)
 	if !strings.HasPrefix(m.notifications.Text(), "copied "+wantFile+":") {
 		t.Errorf("notification = %q, want a %q line range", m.notifications.Text(), wantFile+":N-M")
 	}

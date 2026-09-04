@@ -2,12 +2,10 @@ package ui
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hazeledmands/prwatch/internal/command"
 )
 
 // dragScrollTickMsg drives auto-scroll while a drag selection is held past
@@ -684,8 +682,9 @@ func (m *Model) yankPath() tea.Cmd {
 			text = fmt.Sprintf("%s:%d-%d", file, vr.Start.SourceLine, vr.End.SourceLine)
 		}
 	}
-	m.copyToClipboard(text)
-	return m.notifications.Show("copied " + text)
+	// Dispatch, don't announce: the toast is decided when the copy reports
+	// back, so a failed copy cannot claim success.
+	return copyToClipboardCmd(m.cmdFactory, text, "copied "+text)
 }
 
 func (m *Model) copySelection() tea.Cmd {
@@ -699,14 +698,13 @@ func (m *Model) copyVisualSelection() tea.Cmd {
 	return m.copyAndNotify(m.selection.SelectedText(m.dragGeom()))
 }
 
-// copyAndNotify pastes text to the clipboard and shows the
+// copyAndNotify dispatches a clipboard write and, on success, the
 // "copied selection (N lines, M bytes)" notification. Shared by drag
 // and visual-mode yank paths.
 func (m *Model) copyAndNotify(text string) tea.Cmd {
 	if text == "" {
 		return nil
 	}
-	m.copyToClipboard(text)
 	lines := strings.Count(text, "\n") + 1
 	lineWord := "lines"
 	if lines == 1 {
@@ -717,21 +715,6 @@ func (m *Model) copyAndNotify(text string) tea.Cmd {
 	if bytes == 1 {
 		byteWord = "byte"
 	}
-	return m.notifications.Show(fmt.Sprintf("copied selection (%d %s, %d %s)", lines, lineWord, bytes, byteWord))
-}
-
-// copyToClipboard copies the given text to the system clipboard using
-// platform-specific tools (pbcopy on macOS, xclip on Linux).
-func (m *Model) copyToClipboard(text string) {
-	var cmd command.Command
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = m.cmdFactory("pbcopy")
-	case "linux":
-		cmd = m.cmdFactory("xclip", "-selection", "clipboard")
-	default:
-		return
-	}
-	cmd.SetStdin(strings.NewReader(text))
-	cmd.Run()
+	okText := fmt.Sprintf("copied selection (%d %s, %d %s)", lines, lineWord, bytes, byteWord)
+	return copyToClipboardCmd(m.cmdFactory, text, okText)
 }

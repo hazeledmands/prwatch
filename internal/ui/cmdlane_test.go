@@ -53,7 +53,12 @@ func TestCommandLaneClassification(t *testing.T) {
 		{
 			name: "clipboard copy is background",
 			invoke: func(m *Model) {
-				m.copyToClipboard("hello")
+				if clipboardToolName() == "" {
+					t.Skipf("no clipboard tool on %s", runtime.GOOS)
+				}
+				// The copy is a Cmd now, so the factory is called when
+				// bubbletea runs it — not during Update.
+				copyToClipboardCmd(m.cmdFactory, "hello", "copied")()
 			},
 			wantLane:    "background",
 			wantAtLeast: 1,
