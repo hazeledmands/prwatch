@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -228,10 +229,10 @@ func TestStartIPCListener_RoundTrip(t *testing.T) {
 // any user could squat the name first. The default must be per-user and live
 // in a directory only its owner can traverse.
 func TestDefaultIPCSocketPath_IsPerUserAndPrivate(t *testing.T) {
-	runtimeDir := t.TempDir()
+	runtimeDir := shortTempDir(t)
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 
-	got, err := DefaultIPCSocketPath()
+	got, err := DefaultIPCSocketPath(t.TempDir())
 	if err != nil {
 		t.Fatalf("DefaultIPCSocketPath: %v", err)
 	}
@@ -256,7 +257,7 @@ func TestDefaultIPCSocketPath_IsPerUserAndPrivate(t *testing.T) {
 func TestDefaultIPCSocketPath_FallsBackToUserCacheDir(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "")
 
-	got, err := DefaultIPCSocketPath()
+	got, err := DefaultIPCSocketPath(t.TempDir())
 	if err != nil {
 		t.Fatalf("DefaultIPCSocketPath: %v", err)
 	}
@@ -270,6 +271,130 @@ func TestDefaultIPCSocketPath_FallsBackToUserCacheDir(t *testing.T) {
 	if strings.HasPrefix(got, "/tmp/") {
 		t.Errorf("path %q must not fall back to /tmp", got)
 	}
+}
+
+// One fixed socket name per user means a second prwatch — a different repo,
+// a different worktree — unlinks the first instance's LIVE socket on startup,
+// and the first's cleanup later removes the second's. Multi-repo and
+// worktree workflows are the primary use case here, so the name is keyed to
+// the repo.
+func TestDefaultIPCSocketPath_DiffersPerRepo(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", shortTempDir(t))
+
+	repoA, repoB := t.TempDir(), t.TempDir()
+	pathA, err := DefaultIPCSocketPath(repoA)
+	if err != nil {
+		t.Fatalf("repo A: %v", err)
+	}
+	pathB, err := DefaultIPCSocketPath(repoB)
+	if err != nil {
+		t.Fatalf("repo B: %v", err)
+	}
+	if pathA == pathB {
+		t.Errorf("two different repos share socket %q; each needs its own", pathA)
+	}
+}
+
+// prwatch-ctl resolves the path from its own cwd, which is often a
+// subdirectory of the repo. Both ends must land on the same socket, so the
+// key is the repo root rather than the literal directory.
+func TestDefaultIPCSocketPath_StableAcrossSubdirsOfARepo(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", shortTempDir(t))
+
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "internal", "ui")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	fromRoot, err := DefaultIPCSocketPath(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromSub, err := DefaultIPCSocketPath(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromRoot != fromSub {
+		t.Errorf("path from repo root %q != path from subdir %q; prwatch-ctl would miss the socket", fromRoot, fromSub)
+	}
+}
+
+// A very long XDG_RUNTIME_DIR overruns sockaddr_un's sun_path and bind fails
+// with an opaque "invalid argument". Say what actually went wrong.
+func TestDefaultIPCSocketPath_RejectsAnOverlongPath(t *testing.T) {
+	long := filepath.Join(shortTempDir(t), strings.Repeat("d", 120))
+	t.Setenv("XDG_RUNTIME_DIR", long)
+
+	_, err := DefaultIPCSocketPath(t.TempDir())
+	if err == nil {
+		t.Fatal("an overlong socket path must be reported up front, not left to bind")
+	}
+	if !strings.Contains(err.Error(), "PRWATCH_IPC_SOCKET") {
+		t.Errorf("error should name the override, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(maxUnixSocketPath)) {
+		t.Errorf("error should name the limit %d, got %q", maxUnixSocketPath, err.Error())
+	}
+}
+
+// A live server on the path must never be unlinked out from under itself.
+func TestStartIPCListener_RefusesToClobberALiveSocket(t *testing.T) {
+	socketPath := filepath.Join(shortTempDir(t), "s.sock")
+
+	cleanup, err := StartIPCListener(socketPath, func(tea.Msg) {})
+	if err != nil {
+		t.Fatalf("first listener: %v", err)
+	}
+	defer cleanup()
+
+	_, err = StartIPCListener(socketPath, func(tea.Msg) {})
+	if err == nil {
+		t.Fatal("a second listener must not steal a live socket")
+	}
+	if !strings.Contains(err.Error(), "another prwatch") {
+		t.Errorf("error should explain that another instance holds it, got %q", err.Error())
+	}
+
+	// The first listener still works.
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("the live socket was broken by the second attempt: %v", err)
+	}
+	conn.Close()
+}
+
+// …but a socket left behind by a crashed instance must not block startup
+// forever.
+func TestStartIPCListener_RecoversAStaleSocket(t *testing.T) {
+	socketPath := filepath.Join(shortTempDir(t), "s.sock")
+
+	// A listener that goes away without unlinking is exactly what a crash
+	// leaves behind.
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("seed listener: %v", err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	ln.Close()
+	if _, err := os.Stat(socketPath); err != nil {
+		t.Fatalf("stale socket should still exist: %v", err)
+	}
+
+	cleanup, err := StartIPCListener(socketPath, func(tea.Msg) {})
+	if err != nil {
+		t.Fatalf("a stale socket must be reclaimed, got: %v", err)
+	}
+	defer cleanup()
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("reclaimed socket does not accept connections: %v", err)
+	}
+	conn.Close()
 }
 
 // The listener must not leave a world-accessible socket behind even when the
@@ -304,20 +429,28 @@ func shortTempDir(t *testing.T) string {
 	return dir
 }
 
-// shortIPCTimeouts shrinks both IPC deadlines for the duration of a test and
-// restores them only once the goroutines that read them have finished — the
-// caller signals that by closing/receiving on the returned wait function.
-func shortIPCTimeouts(t *testing.T, d time.Duration) (restore func()) {
+// shortIPCTimeouts shrinks both IPC deadlines for the duration of one test.
+//
+// Restoration is registered with t.Cleanup rather than left to the caller: a
+// t.Fatal on any path would otherwise skip a manual restore and leave the
+// shortened deadlines in place for every later test in the package. The
+// deadlines are atomic, so a connection goroutine left over from an earlier
+// test reading one while this writes it is safe rather than a race.
+func shortIPCTimeouts(t *testing.T, d time.Duration) {
 	t.Helper()
-	oldRead, oldWrite := ipcReadTimeout, ipcWriteTimeout
-	ipcReadTimeout, ipcWriteTimeout = d, d
-	return func() { ipcReadTimeout, ipcWriteTimeout = oldRead, oldWrite }
+	oldRead, oldWrite := ipcReadTimeout.get(), ipcWriteTimeout.get()
+	ipcReadTimeout.set(d)
+	ipcWriteTimeout.set(d)
+	t.Cleanup(func() {
+		ipcReadTimeout.set(oldRead)
+		ipcWriteTimeout.set(oldWrite)
+	})
 }
 
 // A client that connects and then says nothing must not tie up a goroutine
 // and a connection forever.
 func TestHandleIPCConn_ReadDeadlineReleasesASilentClient(t *testing.T) {
-	restore := shortIPCTimeouts(t, 50*time.Millisecond)
+	shortIPCTimeouts(t, 50*time.Millisecond)
 
 	server, client := net.Pipe()
 	defer client.Close()
@@ -335,8 +468,6 @@ func TestHandleIPCConn_ReadDeadlineReleasesASilentClient(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("handleIPCConn hung on a client that sent nothing; read deadline missing")
 	}
-	// Restore only after the goroutine reading these vars is done.
-	restore()
 }
 
 // The response encode used to run on the Update goroutine. A client that
@@ -344,7 +475,7 @@ func TestHandleIPCConn_ReadDeadlineReleasesASilentClient(t *testing.T) {
 // write that never completes. handleIPC must return promptly regardless of
 // what the client does.
 func TestHandleIPC_StuckClientDoesNotBlockUpdate(t *testing.T) {
-	restore := shortIPCTimeouts(t, 50*time.Millisecond)
+	shortIPCTimeouts(t, 50*time.Millisecond)
 
 	m := NewModel("/tmp/test", nil)
 	m.width = 80
@@ -376,7 +507,6 @@ func TestHandleIPC_StuckClientDoesNotBlockUpdate(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the response writer never finished; connection leaked")
 	}
-	restore()
 }
 
 // A model left corrupt by a follow-up can panic on render. The client must

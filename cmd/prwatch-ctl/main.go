@@ -6,8 +6,9 @@
 //	prwatch-ctl <socket> --render   Print current screen without sending keys
 //	prwatch-ctl <socket> --quit     Tell prwatch to quit
 //
-// With no <socket>, the per-user default is used — the same path prwatch
-// itself picks (under XDG_RUNTIME_DIR, else the user cache dir).
+// With no <socket>, the per-user, per-repo default is used — the same path
+// prwatch itself picks (under XDG_RUNTIME_DIR, else the user cache dir),
+// keyed off the repo containing the current directory.
 //
 // Examples:
 //
@@ -46,9 +47,14 @@ func main() {
 		socketPath = os.Args[1]
 		arg = os.Args[2]
 	} else {
-		// Same function the server uses, so both ends cannot drift apart.
-		var err error
-		socketPath, err = ui.DefaultIPCSocketPath()
+		// Same function the server uses, keyed off this process's cwd, so
+		// running from anywhere inside the repo finds that repo's socket.
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		socketPath, err = ui.DefaultIPCSocketPath(cwd)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

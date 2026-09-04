@@ -73,7 +73,7 @@ func main() {
 	var opts []tea.ProgramOption
 	socketPath := ui.IPCSocketPathFromEnv()
 	if socketPath == "" && ipcMode {
-		socketPath, err = ui.DefaultIPCSocketPath()
+		socketPath, err = ui.DefaultIPCSocketPath(dir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
