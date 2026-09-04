@@ -590,6 +590,58 @@ func expandTabs(s string) string {
 	return b.String()
 }
 
+// paneContent describes everything the main pane shows for one selected item:
+// the body, how to render it, and the per-item trimmings (syntax highlighting,
+// diff annotations, hunks, title). The zero value is an empty pane.
+type paneContent struct {
+	body         string
+	isDiff       bool                   // render body as a colorized diff
+	filename     string                 // chroma syntax highlighting; "" = none
+	annotations  map[int]diffAnnotation // files-mode diff gutter + removed lines
+	hunks        []diffHunk             // sticky-title hunk positions
+	noHunkRight  string                 // dynamic-title right side when hunks is empty; "" = default
+	diffPrefix   string                 // prepended to the dynamic right side when hunks exist
+	titleLeft    string
+	titleRight   string // ignored when titleDynamic
+	titleDynamic bool   // right side computed from scroll position vs hunks
+}
+
+// ShowItem atomically installs the content for one selected item, resetting
+// every per-item field the spec leaves at its zero value.
+//
+// This is the only way production code may put an item on the pane. The
+// piecemeal setters (SetContent, SetFilename, SetDiffAnnotations, ...) made
+// every mode-updater responsible for clearing the fields it didn't use, and
+// forgetting one leaked the previous item's state: a stale lexer re-highlighted
+// (and visibly corrupted) rendered markdown, and stale diff annotations
+// injected the previous file's removed lines into PR comments.
+// TestShowItemIsTheOnlyContentWriter enforces the boundary.
+func (m *mainPane) ShowItem(c paneContent) {
+	m.content = expandTabs(c.body)
+	m.isDiff = c.isDiff
+	m.diffAnnotations = expandTabsInAnnotations(c.annotations)
+	m.diffHunks = c.hunks
+	m.noHunkRight = c.noHunkRight
+	m.diffPrefix = c.diffPrefix
+	m.titleLeft = c.titleLeft
+	m.titleRight = c.titleRight
+	m.titleDynamic = c.titleDynamic
+	if c.titleDynamic {
+		m.titleRight = ""
+	}
+	if m.filename != c.filename {
+		m.filename = c.filename
+		m.lexer = nil
+		if c.filename != "" {
+			if lx := chromalexers.Match(c.filename); lx != nil {
+				m.lexer = chroma.Coalesce(lx)
+			}
+		}
+	}
+	m.recomputeHighlightedLines()
+	m.refreshViewport()
+}
+
 func (m *mainPane) SetContent(content string) {
 	m.content = expandTabs(content)
 	m.isDiff = true
@@ -1740,7 +1792,13 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 	var sgr sgrState
 
 	// closeRow appends the reset that ends the row's styling, if any is open.
-	// Callers must have fed the row to the tracker first.
+	// Callers must have fed the row's source text to the tracker first.
+	//
+	// The tracker is always fed the text as the producer wrote it, never the
+	// composed row: composition inserts the carried open mid-row (behind the
+	// gutter), and feeding that reordering back would let the open survive a
+	// reset the source placed before it. State evolution follows the source
+	// stream; composition is rendering only.
 	closeRow := func(row string) string {
 		if sgr.active() {
 			return row + sgrReset
@@ -1756,7 +1814,7 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 			// Both are no-ops for content whose styled spans close on the line
 			// that opened them, which is everything the pane renders.
 			row := openStyleAfterGutter(line, sgr.openSeq(), indent)
-			sgr.feed(row)
+			sgr.feed(line)
 			result = append(result, closeRow(row))
 			contMap = append(contMap, false)
 			breaks = append(breaks, 0)
@@ -1813,7 +1871,8 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 		// trailing padding (trimmed off by the copy path, so it counts as
 		// consumed by the following break).
 		emit := func() {
-			row := curLine.String()
+			seg := curLine.String()
+			row := seg
 			body := stripANSIForWidth(row)
 			if !first && effectiveIndent > 0 {
 				body = strings.TrimPrefix(body, indentStr)
@@ -1832,7 +1891,7 @@ func wrapLinesWithBreaks(content string, width, indent int) (string, []bool, []i
 				gutterCols = indent
 			}
 			row = openStyleAfterGutter(row, sgr.openSeq(), gutterCols)
-			sgr.feed(row)
+			sgr.feed(seg)
 			// The trailing-space accounting below reads `body`, which was taken
 			// before any of this: escapes are stripped for width, so neither the
 			// re-opened styling nor the closing reset can move a space count.

@@ -327,6 +327,82 @@ func TestWrapLines_ReopenedStylingDoesNotPaintTheNextLinesGutter(t *testing.T) {
 	}
 }
 
+// TestWrapLines_LineOwnResetBeatsCarriedStyling is the "code block bleeds into
+// the next comment's separator" regression (BUG_REPORTS.md, 2026-09-04). When a
+// line leaves styling open, the wrapper re-opens it on following rows — but a
+// following line's own reset must win over the carry, exactly as it would have
+// in the original stream. The broken shape: openStyleAfterGutter stepped over
+// escape clusters when looking for the insertion point, so on a line whose
+// post-gutter content began with (or consisted only of) a reset, the carried
+// styling was inserted *after* that reset and survived it — and the tracker,
+// fed the composed row, kept the styling alive for every later line until the
+// next reset. renderMarkdown produces exactly this shape: a fenced code block
+// ends with a reset on its own line.
+func TestWrapLines_LineOwnResetBeatsCarriedStyling(t *testing.T) {
+	t.Parallel()
+
+	open := "\x1b[48;2;40;40;40m\x1b[38;2;166;227;161m" // codeBg+codeFg, as renderMarkdown emits
+
+	tests := []struct {
+		name   string
+		in     string
+		indent int
+		// unstyledRows are the row indices whose every visible cell must render
+		// with no attributes at all, given all preceding rows were written.
+		unstyledRows []int
+	}{
+		{
+			name:         "reset-only line stops the carry",
+			in:           open + "code\n\x1b[0m\n--- b.go:2 ---",
+			unstyledRows: []int{1, 2},
+		},
+		{
+			name:         "reset-only line behind a gutter",
+			in:           " 1  " + open + "code\n 2  \x1b[0m\n 3  --- b.go:2 ---",
+			indent:       4,
+			unstyledRows: []int{1, 2},
+		},
+		{
+			name:         "leading reset on a content line",
+			in:           open + "code\n\x1b[0mplain text",
+			unstyledRows: []int{1},
+		},
+		{
+			name:         "leading reset behind a gutter",
+			in:           " 1  " + open + "code\n 2  \x1b[0mplain text",
+			indent:       4,
+			unstyledRows: []int{1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, _, _, _ := wrapLinesWithBreaks(tt.in, 40, tt.indent)
+			rows := strings.Split(out, "\n")
+
+			var carried sgrModel
+			var cells [][]sgrModel
+			for _, row := range rows {
+				rowCells, after := modelRow(carried, row)
+				cells = append(cells, rowCells)
+				carried = after
+			}
+			for _, i := range tt.unstyledRows {
+				if i >= len(rows) {
+					t.Fatalf("want row %d, only %d rows: %q", i, len(rows), rows)
+				}
+				for j, cell := range cells[i] {
+					if cell != (sgrModel{}) {
+						t.Errorf("row %d %q cell %d renders styled as %+v; the line's own reset must beat the carried styling",
+							i, rows[i], j, cell)
+						break
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestProperty_WrapRowsAreStyleSelfContained is the invariant behind both
 // symptoms: every row the wrapper emits renders identically whether it is
 // written to the terminal on its own or after all of its predecessors.

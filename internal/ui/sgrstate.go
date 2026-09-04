@@ -142,9 +142,18 @@ func (s *sgrState) openSeq() string { return strings.Join(s.seqs, "") }
 // the row above belongs to the content, so it resumes after those columns; put
 // it first and a search highlight's background paints the gutter.
 //
-// Escapes already in row are stepped over rather than counted, since they
-// occupy no columns. A row with fewer than gutterCols columns of its own is
-// all gutter, and open lands at its end.
+// The gutter region can carry the row's own escapes — a styled diff gutter,
+// or a line whose content begins with a reset (a fenced code block's closing
+// reset lands on its own line). What is inserted is therefore not the raw
+// carried sequence but the carry *folded with those escapes*: the state the
+// source stream would be in at the insertion point. Inserting the raw carry
+// after a reset the row had already written re-opened styling the source had
+// closed — a code block's background painted every following line, or was left
+// dangling past the row's end (see TestWrapLines_LineOwnResetBeatsCarriedStyling
+// and the TestProperty_WrapRowsAreStyleSelfContained seeds).
+//
+// A row with fewer than gutterCols columns of its own is all gutter: there is
+// nothing past the gutter to style, so nothing is inserted.
 func openStyleAfterGutter(row, open string, gutterCols int) string {
 	if open == "" {
 		return row
@@ -152,7 +161,7 @@ func openStyleAfterGutter(row, open string, gutterCols int) string {
 	if gutterCols <= 0 {
 		return open + row
 	}
-	off := len(row)
+	off := -1
 	eachDisplayCluster(row, func(c displayCluster) bool {
 		if c.IsEscape {
 			return true
@@ -163,7 +172,17 @@ func openStyleAfterGutter(row, open string, gutterCols int) string {
 		}
 		return true
 	})
-	return row[:off] + open + row[off:]
+	if off < 0 {
+		return row
+	}
+	var st sgrState
+	st.feed(open)
+	st.feed(row[:off])
+	seq := st.openSeq()
+	if seq == "" {
+		return row
+	}
+	return row[:off] + seq + row[off:]
 }
 
 // sgrParams splits an escape sequence into its SGR parameters, reporting false

@@ -1,0 +1,117 @@
+# 2026/09/04 12:56:45.373628 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw nLines: 2
+# 2026/09/04 12:56:45.373647 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw nSeg_0: 2
+# 2026/09/04 12:56:45.373658 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_0_0: true
+# 2026/09/04 12:56:45.373670 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw open_0_0: "\x1b[38;2;166;227;161m"
+# 2026/09/04 12:56:45.373681 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_0_0: "a"
+# 2026/09/04 12:56:45.373689 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_0_0: false
+# 2026/09/04 12:56:45.373697 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw gap_0_1: 1
+# 2026/09/04 12:56:45.373704 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_0_1: false
+# 2026/09/04 12:56:45.373713 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_0_1: "a"
+# 2026/09/04 12:56:45.373721 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_0_1: false
+# 2026/09/04 12:56:45.373729 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw nSeg_1: 7
+# 2026/09/04 12:56:45.373735 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_1_0: false
+# 2026/09/04 12:56:45.373742 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_1_0: "a"
+# 2026/09/04 12:56:45.373748 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_1_0: true
+# 2026/09/04 12:56:45.373756 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw gap_1_1: 1
+# 2026/09/04 12:56:45.373762 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_1_1: false
+# 2026/09/04 12:56:45.373771 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_1_1: "a"
+# 2026/09/04 12:56:45.373778 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_1_1: false
+# 2026/09/04 12:56:45.373785 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw gap_1_2: 1
+# 2026/09/04 12:56:45.373791 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_1_2: false
+# 2026/09/04 12:56:45.373798 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_1_2: "a"
+# 2026/09/04 12:56:45.373804 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_1_2: false
+# 2026/09/04 12:56:45.373812 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw gap_1_3: 1
+# 2026/09/04 12:56:45.373817 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_1_3: false
+# 2026/09/04 12:56:45.373824 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_1_3: "a"
+# 2026/09/04 12:56:45.373830 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_1_3: false
+# 2026/09/04 12:56:45.373836 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw gap_1_4: 1
+# 2026/09/04 12:56:45.373842 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_1_4: false
+# 2026/09/04 12:56:45.373848 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_1_4: "a"
+# 2026/09/04 12:56:45.373854 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_1_4: false
+# 2026/09/04 12:56:45.373862 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw gap_1_5: 1
+# 2026/09/04 12:56:45.373873 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_1_5: false
+# 2026/09/04 12:56:45.373879 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_1_5: "a"
+# 2026/09/04 12:56:45.373885 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_1_5: false
+# 2026/09/04 12:56:45.373892 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw gap_1_6: 1
+# 2026/09/04 12:56:45.373898 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw styled_1_6: false
+# 2026/09/04 12:56:45.373904 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw word_1_6: "a"
+# 2026/09/04 12:56:45.373911 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw close_1_6: false
+# 2026/09/04 12:56:45.373918 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw width: 3
+# 2026/09/04 12:56:45.373926 [TestProperty_WrapRowsAreStyleSelfContained] [rapid] draw indent: 2
+# 2026/09/04 12:56:45.374249 [TestProperty_WrapRowsAreStyleSelfContained] row 3 "  a" cell 0: renders {fg: bg: ul: bold:false faint:false italic:false underline:false blink:false reverse:false conceal:false strike:false unknownSeen:false} alone but {fg:2:166:227:161 bg: ul: bold:false faint:false italic:false underline:false blink:false reverse:false conceal:false strike:false unknownSeen:false} after its predecessors
+# 
+v0.4.8#2673534896664976324
+0x0
+0x0
+0x1
+0x0
+0x0
+0x1
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x6b74f03291620
+0x6
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x38e38e38e38e4
+0x2

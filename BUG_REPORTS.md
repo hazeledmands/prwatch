@@ -314,6 +314,101 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
 
 ## Fixed Bugs
 
+### Carried styling survived a line's own reset
+
+- **A fenced code block's background painted the next inline comment's
+  `--- path:line ---` separator** (observed 2026-09-04, review view). FIXED.
+  *Root cause:* two related flaws in the wrapper's style carry.
+  (1) `openStyleAfterGutter` (`sgrstate.go`) skipped escape clusters while
+  looking for the post-gutter insertion point, so on a line whose post-gutter
+  content began with — or consisted only of — a reset, the carried open was
+  inserted *after* that reset and survived it. `renderMarkdown` produces
+  exactly this shape: a fenced code block ends with a reset on its own line
+  (`...code\n\x1b[0m`), so the still-open code background was re-established on
+  every following line until the next reset. Blank gutter-only lines showed no
+  paint (no printable content), which is why the bleed skipped them and landed
+  on the separator.
+  (2) The tracker was fed the *composed* row (`sgr.feed(row)`), so the
+  reordering corrupted its state too, keeping the carry alive indefinitely.
+  *Fix:* the insertion is now the carry **folded with the row's own escapes up
+  to the insertion point** (the state the source stream would be in there), a
+  row with no post-gutter content gets no insertion at all, and the tracker is
+  fed the pre-composition text — state evolution follows the source stream;
+  composition is rendering only. The fold also covers the case the first fix
+  attempt missed and the 500-check sweep caught: a reset inside the gutter
+  region of a wrapped row's first row left the inserted carry dangling past
+  the row's close (seed
+  `TestProperty_WrapRowsAreStyleSelfContained-20260904125645-42976.fail`,
+  committed, green after the fix).
+  *Regression tests:* `TestWrapLines_LineOwnResetBeatsCarriedStyling`
+  (table: reset-only line, reset-only behind a gutter, leading reset, leading
+  reset behind a gutter — cells checked against the independent `sgrModel`)
+  and `TestReviewView_CodeBlockDoesNotBleedIntoNextSeparator` (symptom-level:
+  two inline comments through `buildReviewContent` + `ShowItem`, separator row
+  must render with no background).
+  *Observed pre-fix:* `separator row "10   \x1b[48;2;40;40;40m\x1b[38;2;166;
+  227;161m--- b.go:2 ---\x1b[0m" cell 5 renders with background "2:40:40:40"
+  carried over from the code block`.
+
+### Inline review comments rendered as raw markdown
+
+- **`buildReviewContent` (`internal/ui/maincontent.go`) appended each inline
+  code comment's body verbatim** (`--- path:line ---\n<body>`) without
+  `renderMarkdown`, so `**bold**`, backticks, and links showed as literal
+  markdown in the review view — visible in the 2026-09-04 screenshots even
+  after the stale-pane-state fix below. The review's own top-level body was
+  rendered; only the per-file inline comments weren't. FIXED.
+  *Fix:* each inline body now goes through `renderMarkdown(c.Body, width)`,
+  same as the review body two lines up. The `--- path:line ---` separator is
+  assembled outside the markdown and stays plain text.
+  *Regression test:* `TestBuildReviewContent_InlineCommentsRenderMarkdown`
+  (table over bold / inline code / link: rendered text present, expected ANSI
+  styling present, markdown syntax absent, separator intact).
+  *Observed pre-fix:* `markdown syntax "**" survived verbatim; visible
+  content: --- a.go:12 ---\n**Low** — invariant bookkeeping.` (and the
+  backtick/link cases likewise).
+
+### Stale files-mode pane state leaked into PR and commits views
+
+- **Switching from a file to a PR comment/review corrupted the rendered
+  markdown and injected the old file's diff lines.** FIXED.
+  *Symptoms (both from the same root cause, observed 2026-09-04):*
+  (1) SGR sequences printed verbatim in comment/review bodies
+  (`[48;2;40;40;40m[38;2;166;227;161mapi.ExpHistogram[0m`), with prose
+  keywords like `type`/`switch`/`error` syntax-highlighted; (2) removed diff
+  lines from the previously viewed file appended to the bottom of PR
+  comment/description views (red `- featureFlags := …` rows).
+  *Root cause:* `updatePRModeContent` (and parts of `updateCommitsModeContent`)
+  installed content via `SetPlainContent`/`SetTitle` only, never resetting the
+  pane's other per-item state. A stale chroma lexer (from `SetFilename` in
+  files mode) re-tokenized the rendered comment: chroma emits each ESC byte as
+  its own Error token wrapped in chroma's own SGR codes, separating the ESC
+  from its `[48;…m` body, so the terminal printed the bodies as text. Stale
+  `diffAnnotations` rendered the old file's `removedLines` — mostly via the
+  tail-annotation pass (`applyFileViewFormatting`), since their line numbers
+  exceed the comment's line count.
+  *Fix (systemic, not per-call-site):* new `paneContent` spec +
+  `mainPane.ShowItem` (`mainpane.go`) — the single atomic way to install an
+  item's content, resetting every per-item field the spec leaves zero
+  (body/isDiff, filename/lexer, annotations, hunks, noHunkRight, diffPrefix,
+  title). All mode updaters in `maincontent.go` converted; the piecemeal
+  setters (`SetContent`, `SetFilename`, `SetDiffAnnotations`, …) survive only
+  as test fixtures. `TestShowItemIsTheOnlyContentWriter` (AST scan, same
+  pattern as `TestModeHasSingleWriter`) forbids production calls to the
+  per-item setters outside `mainpane.go`, so the category — "forgot to clear a
+  field the previous item set" — can't silently return.
+  *Regression tests:* `TestPRMode_NoStaleFilesModeStateLeaks` (end-to-end:
+  files mode on a .go file with a diff, then PR-mode comment; asserts no stale
+  removed line, intact inline-code SGR, no visible escape fragments) and
+  `TestProperty_ShowItemIsHistoryIndependent` (rapid: pane after
+  `ShowItem(a); ShowItem(b)` renders byte-identically to a fresh pane after
+  `ShowItem(b)`; 500-check sweep green).
+  *Observed pre-fix:* `stale removed diff line from files mode rendered in PR
+  comment view` and `escape-sequence fragment "[48;2;" visible as literal
+  text` — the formatted content showed
+  `Look at [48;2;40;40;40m[38;2;166;227;161mapi.ExpHistogram[0m …` plus
+  `  -     staleRemovedLine := old()`.
+
 ### Whole-line yank dropped the line's own trailing spaces
 
 - **A line-wise (`V`) yank lost the source line's own trailing whitespace.**

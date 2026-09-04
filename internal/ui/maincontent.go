@@ -22,8 +22,7 @@ func (m *Model) updateNonGitFilesMode(setItem itemSetter) {
 	}
 	file := m.sidebar.SelectedItem()
 	if file == "" {
-		m.mainPane.SetFilename("")
-		m.mainPane.SetPlainContent("")
+		m.mainPane.ShowItem(paneContent{})
 		setItem(mainItemKey{m.mode, ""})
 		return
 	}
@@ -32,19 +31,16 @@ func (m *Model) updateNonGitFilesMode(setItem itemSetter) {
 	}
 	content, err := os.ReadFile(filepath.Join(m.dir, file))
 	if err != nil {
-		m.mainPane.SetFilename("")
-		m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
+		m.mainPane.ShowItem(paneContent{body: fmt.Sprintf("Error: %v", err)})
 		setItem(mainItemKey{m.mode, file})
 		return
 	}
 	if isBinaryContent(string(content)) {
-		m.mainPane.SetFilename("")
-		m.mainPane.SetPlainContent("[binary content]")
+		m.mainPane.ShowItem(paneContent{body: "[binary content]"})
 		setItem(mainItemKey{m.mode, file})
 		return
 	}
-	m.mainPane.SetFilename(file)
-	m.mainPane.SetPlainContent(string(content))
+	m.mainPane.ShowItem(paneContent{body: string(content), filename: file})
 	setItem(mainItemKey{m.mode, file})
 }
 
@@ -52,11 +48,7 @@ func (m *Model) updateNonGitFilesMode(setItem itemSetter) {
 func (m *Model) updateFilesModeContent(setItem itemSetter) {
 	file := m.sidebar.SelectedItem()
 	if file == "" {
-		m.mainPane.SetFilename("")
-		m.mainPane.SetPlainContent("")
-		m.mainPane.ClearDiffAnnotations()
-		m.mainPane.ClearDiffHunks()
-		m.mainPane.SetTitle("", "")
+		m.mainPane.ShowItem(paneContent{})
 		setItem(mainItemKey{m.mode, ""})
 		return
 	}
@@ -65,22 +57,21 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 	}
 	content, err := m.git.FileContent(file)
 	if err != nil {
-		m.mainPane.SetFilename("")
-		m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
-		m.mainPane.ClearDiffAnnotations()
-		m.mainPane.ClearDiffHunks()
-		m.mainPane.SetTitle(sanitizeDisplayText(file), "error")
+		m.mainPane.ShowItem(paneContent{
+			body:       fmt.Sprintf("Error: %v", err),
+			titleLeft:  sanitizeDisplayText(file),
+			titleRight: "error",
+		})
 		setItem(mainItemKey{m.mode, file})
 		return
 	}
 	if isBinaryContent(content) {
-		m.mainPane.SetFilename("")
-		m.mainPane.SetPlainContent("[binary content]")
-		m.mainPane.ClearDiffAnnotations()
-		m.mainPane.ClearDiffHunks()
-		m.mainPane.SetNoHunkRight(m.fileContextRight(file, true))
-		m.mainPane.SetDiffPrefix("")
-		m.mainPane.SetTitleWithHunks(m.fileTitleLeft(file))
+		m.mainPane.ShowItem(paneContent{
+			body:         "[binary content]",
+			noHunkRight:  m.fileContextRight(file, true),
+			titleLeft:    m.fileTitleLeft(file),
+			titleDynamic: true,
+		})
 		setItem(mainItemKey{m.mode, file})
 		return
 	}
@@ -97,6 +88,12 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 	} else if m.isCommittedFile(file) {
 		diff, _ = m.git.FileDiffCommitted(m.scope.OldBase(), file)
 	}
+	spec := paneContent{
+		body:         content,
+		filename:     file,
+		titleLeft:    m.fileTitleLeft(file),
+		titleDynamic: true,
+	}
 	if diff != "" {
 		annotations := parseDiffAnnotations(diff)
 		// For completely deleted files, mark all lines as removed.
@@ -107,19 +104,13 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 				annotations[i+1] = diffAnnotation{kind: diffLineRemoved}
 			}
 		}
-		m.mainPane.SetDiffAnnotations(annotations)
-		m.mainPane.SetDiffHunks(parseDiffHunks(diff))
-		m.mainPane.SetNoHunkRight("")
-		m.mainPane.SetDiffPrefix(m.fileDiffPrefix(file))
+		spec.annotations = annotations
+		spec.hunks = parseDiffHunks(diff)
+		spec.diffPrefix = m.fileDiffPrefix(file)
 	} else {
-		m.mainPane.ClearDiffAnnotations()
-		m.mainPane.ClearDiffHunks()
-		m.mainPane.SetNoHunkRight(m.fileContextRight(file, false))
-		m.mainPane.SetDiffPrefix("")
+		spec.noHunkRight = m.fileContextRight(file, false)
 	}
-	m.mainPane.SetFilename(file)
-	m.mainPane.SetPlainContent(content)
-	m.mainPane.SetTitleWithHunks(m.fileTitleLeft(file))
+	m.mainPane.ShowItem(spec)
 	setItem(mainItemKey{m.mode, file})
 }
 
@@ -127,15 +118,13 @@ func (m *Model) updateFilesModeContent(setItem itemSetter) {
 func (m *Model) updateCommitsModeContent(setItem itemSetter) {
 	selected := m.sidebar.SelectedItem()
 	if selected == "" {
-		m.mainPane.SetContent("")
-		m.mainPane.SetTitle("", "")
+		m.mainPane.ShowItem(paneContent{isDiff: true})
 		setItem(mainItemKey{m.mode, ""})
 		return
 	}
 	role := m.sidebar.SelectedRole()
 	if role == roleLoadMore {
-		m.mainPane.SetPlainContent("Loading more commits...")
-		m.mainPane.SetTitle(selected, "")
+		m.mainPane.ShowItem(paneContent{body: "Loading more commits...", titleLeft: selected})
 		setItem(mainItemKey{m.mode, selected})
 		return
 	}
@@ -151,19 +140,16 @@ func (m *Model) updateCommitsModeContent(setItem itemSetter) {
 		// and the untracked half spawns one subprocess per untracked file.
 		content, err := m.pseudoDiffs.Get(selected, fetch)
 		if err != nil {
-			m.mainPane.SetFilename("")
-			m.mainPane.SetPlainContent(fmt.Sprintf("Error: %v", err))
-			m.mainPane.SetTitle(selected, "")
+			m.mainPane.ShowItem(paneContent{body: fmt.Sprintf("Error: %v", err), titleLeft: selected})
 			setItem(mainItemKey{m.mode, selected})
 			return
 		}
-		if content.asDiff {
-			m.mainPane.SetContent(content.body)
-		} else {
-			m.mainPane.SetFilename("")
-			m.mainPane.SetPlainContent(content.body)
-		}
-		m.mainPane.SetTitle(selected, content.titleRight)
+		m.mainPane.ShowItem(paneContent{
+			body:       content.body,
+			isDiff:     content.asDiff,
+			titleLeft:  selected,
+			titleRight: content.titleRight,
+		})
 		setItem(mainItemKey{m.mode, selected})
 		return
 	}
@@ -172,8 +158,7 @@ func (m *Model) updateCommitsModeContent(setItem itemSetter) {
 	// the Base section — built from m.baseCommits — render at all.
 	selectedCommit := m.sidebar.SelectedCommit()
 	if selectedCommit == nil {
-		m.mainPane.SetContent("")
-		m.mainPane.SetTitle("", "")
+		m.mainPane.ShowItem(paneContent{isDiff: true})
 		setItem(mainItemKey{m.mode, ""})
 		return
 	}
@@ -182,19 +167,21 @@ func (m *Model) updateCommitsModeContent(setItem itemSetter) {
 	titleLeft := commitTitleLeft(commit)
 	titleRight := formatAuthorAndTime(commit.Author, commit.AuthorDate)
 	if err != nil {
-		m.mainPane.SetContent(fmt.Sprintf("Error: %v", err))
-		m.mainPane.SetTitle(titleLeft, titleRight)
+		m.mainPane.ShowItem(paneContent{
+			body:       fmt.Sprintf("Error: %v", err),
+			isDiff:     true,
+			titleLeft:  titleLeft,
+			titleRight: titleRight,
+		})
 		setItem(mainItemKey{m.mode, selected})
 		return
 	}
 	if isBinaryContent(patch) {
-		m.mainPane.SetPlainContent("[binary content]")
-		m.mainPane.SetTitle(titleLeft, titleRight)
+		m.mainPane.ShowItem(paneContent{body: "[binary content]", titleLeft: titleLeft, titleRight: titleRight})
 		setItem(mainItemKey{m.mode, selected})
 		return
 	}
-	m.mainPane.SetContent(patch)
-	m.mainPane.SetTitle(titleLeft, titleRight)
+	m.mainPane.ShowItem(paneContent{body: patch, isDiff: true, titleLeft: titleLeft, titleRight: titleRight})
 	setItem(mainItemKey{m.mode, selected})
 }
 
@@ -207,22 +194,21 @@ func (m *Model) updatePRModeContent(setItem itemSetter) {
 	// arm and clears the pane instead of panicking mid-render.
 	switch {
 	case it.role == rolePRDescription:
-		m.mainPane.SetPlainContent(m.renderPRDescription())
-		m.mainPane.SetTitle("Description", "")
+		m.mainPane.ShowItem(paneContent{body: m.renderPRDescription(), titleLeft: "Description"})
 	case it.prComment() != nil:
 		c := *it.prComment()
-		m.mainPane.SetPlainContent(buildCommentContent(c, m.mainPane.width))
-		m.mainPane.SetTitle(
-			fmt.Sprintf("comment #%d", it.pr.number),
-			formatAuthorAndTime(c.Author, c.CreatedAt),
-		)
+		m.mainPane.ShowItem(paneContent{
+			body:       buildCommentContent(c, m.mainPane.width),
+			titleLeft:  fmt.Sprintf("comment #%d", it.pr.number),
+			titleRight: formatAuthorAndTime(c.Author, c.CreatedAt),
+		})
 	case it.prReview() != nil:
 		r := *it.prReview()
-		m.mainPane.SetPlainContent(buildReviewContent(r, m.mainPane.width))
-		m.mainPane.SetTitle(
-			fmt.Sprintf("review #%d · %s", it.pr.number, reviewStateLabel(r.State)),
-			formatAuthorAndTime(r.Author, r.SubmittedAt),
-		)
+		m.mainPane.ShowItem(paneContent{
+			body:       buildReviewContent(r, m.mainPane.width),
+			titleLeft:  fmt.Sprintf("review #%d · %s", it.pr.number, reviewStateLabel(r.State)),
+			titleRight: formatAuthorAndTime(r.Author, r.SubmittedAt),
+		})
 	case it.ciCheck() != nil:
 		m.applyCICheckContent(*it.ciCheck())
 	default:
@@ -232,8 +218,7 @@ func (m *Model) updatePRModeContent(setItem itemSetter) {
 		// poisons scroll memory: saving visible.Start.SourceLine while
 		// showing a different item's content gives a value that can't
 		// round-trip on return.
-		m.mainPane.SetPlainContent("")
-		m.mainPane.SetTitle(selected, "")
+		m.mainPane.ShowItem(paneContent{titleLeft: selected})
 	}
 	setItem(mainItemKey{m.mode, selected})
 }
@@ -245,8 +230,11 @@ func (m *Model) applyCICheckContent(check gitpkg.CICheck) {
 		status = check.State
 	}
 	extra, _ := m.rwxFetcher.Lookup(check)
-	m.mainPane.SetPlainContent(buildCIContent(check, status, extra))
-	m.mainPane.SetTitle("CI · "+check.Name, status)
+	m.mainPane.ShowItem(paneContent{
+		body:       buildCIContent(check, status, extra),
+		titleLeft:  "CI · " + check.Name,
+		titleRight: status,
+	})
 }
 
 // reviewStateEmoji returns the prefix emoji for a PR review state used in
@@ -285,7 +273,7 @@ func buildReviewContent(r gitpkg.PRReview, width int) string {
 		content += "\n\n" + renderMarkdown(r.Body, width)
 	}
 	for _, c := range r.Comments {
-		content += fmt.Sprintf("\n\n--- %s:%d ---\n%s", c.Path, c.Line, c.Body)
+		content += fmt.Sprintf("\n\n--- %s:%d ---\n%s", c.Path, c.Line, renderMarkdown(c.Body, width))
 	}
 	// Inline comments are fetched one page deep (they hang off the paginated
 	// reviews collection, so paging them would be a query per review). Say so
