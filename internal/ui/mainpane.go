@@ -106,11 +106,15 @@ type mainPane struct {
 	filename           string                 // filename for chroma syntax highlighting; empty = no highlighting
 	lexer              chroma.Lexer           // cached lexer for filename
 	highlightedLines   []string               // per-source-line ANSI; nil when not highlighted (or content empty)
+	vpLines            []string               // rendered viewport content split on "\n"; see viewportLines
+	reverseSource      map[int]int            // inverse of sourceToFormatLine; see reverseSourceMap
 }
 
 func newMainPane() *mainPane {
 	vp := viewport.New()
-	return &mainPane{viewport: vp, wordWrap: true, lineNumbers: true, showRemoved: true}
+	// vpLines mirrors the viewport's (empty) content, which splits to one
+	// empty row — so the cache is in step before the first refreshViewport.
+	return &mainPane{viewport: vp, wordWrap: true, lineNumbers: true, showRemoved: true, vpLines: []string{""}}
 }
 
 // SetDiffAnnotations sets diff annotations for files mode gutter rendering.
@@ -659,6 +663,7 @@ func (m *mainPane) refreshViewport() {
 	// Store the pre-wrap formatted content for line mapping
 	m.formattedContent = content
 	m.gutterWidth = gutterWidth
+	m.reverseSource = buildReverseSourceMap(m.sourceToFormatLine)
 
 	if m.searchQuery != "" {
 		content = highlightSearch(content, m.searchQuery)
@@ -689,6 +694,23 @@ func (m *mainPane) refreshViewport() {
 		}
 	}
 	m.viewport.SetContent(content)
+	m.vpLines = strings.Split(content, "\n")
+}
+
+// viewportLines returns the rendered viewport content as rows.
+//
+// The split is done once per content generation, in refreshViewport — the sole
+// place viewport content is set — rather than per call. Callers are the cursor
+// and selection column math (absoluteColumnFromDisplay, wrapRowSourceColRange,
+// snapDisplayColToCluster and everything built on them), which run several
+// times per cursor keystroke and again during render; re-splitting there made
+// every h/l/j/k O(size of the whole file) and allocate a slice as long as the
+// file, on a path whose actual work is bounded by one row.
+//
+// The returned slice is owned by the pane: read it, never mutate it, and never
+// hold it across a call that can refresh the viewport.
+func (m *mainPane) viewportLines() []string {
+	return m.vpLines
 }
 
 // intraLineDiffs computes a character-level diff between old and new, then runs
@@ -1158,7 +1180,7 @@ func (m *mainPane) sourceLineAtViewportOffset(target int) int {
 		// Diff content: formatted lines are the source lines, 1:1.
 		return formattedIdx + 1
 	}
-	return mostRecentSourceLineAtOrBefore(m.buildReverseSourceMap(), formattedIdx)
+	return mostRecentSourceLineAtOrBefore(m.reverseSourceMap(), formattedIdx)
 }
 
 // viewportRowToFormatLine converts a 0-indexed viewport row to the
@@ -1224,12 +1246,27 @@ func (m *mainPane) sourceLineToViewportOffset(sourceLine int) int {
 	return m.formatLineToViewportRow(formattedIdx)
 }
 
+// reverseSourceMap returns formattedIndex → sourceLine, the inverse of
+// m.sourceToFormatLine.
+//
+// Built once per content generation, in refreshViewport, alongside the
+// sourceToFormatLine it inverts. Its one caller is
+// sourceLineAtViewportOffset, which runs per cursor keystroke and per
+// render — rebuilding a map with an entry per line of the file there made
+// answering "which source line is this row" cost, and allocate, in
+// proportion to the whole file.
+//
+// The returned map is owned by the pane: read it, never mutate it.
+func (m *mainPane) reverseSourceMap() map[int]int {
+	return m.reverseSource
+}
+
 // buildReverseSourceMap returns formattedIndex → sourceLine, the inverse
 // of m.sourceToFormatLine.
-func (m *mainPane) buildReverseSourceMap() map[int]int {
-	out := make(map[int]int, len(m.sourceToFormatLine))
-	for src, fmt := range m.sourceToFormatLine {
-		out[fmt] = src
+func buildReverseSourceMap(sourceToFormatLine map[int]int) map[int]int {
+	out := make(map[int]int, len(sourceToFormatLine))
+	for src, formatted := range sourceToFormatLine {
+		out[formatted] = src
 	}
 	return out
 }
@@ -1270,7 +1307,7 @@ func (m *mainPane) absoluteColumnFromDisplay(vpRow, displayCol int) int {
 	if !m.wordWrap || vpRow < 0 || vpRow >= len(m.wrapContinuation) || !m.wrapContinuation[vpRow] {
 		return displayCol
 	}
-	vpLines := strings.Split(m.viewport.GetContent(), "\n")
+	vpLines := m.viewportLines()
 	base := 0
 	for i := vpRow - 1; i >= 0; i-- {
 		if i >= len(vpLines) {
@@ -1295,7 +1332,7 @@ func (m *mainPane) snapDisplayColToCluster(vpRow, displayCol int) int {
 	if displayCol <= 0 || vpRow < 0 {
 		return max(displayCol, 0)
 	}
-	vpLines := strings.Split(m.viewport.GetContent(), "\n")
+	vpLines := m.viewportLines()
 	if vpRow >= len(vpLines) {
 		return displayCol
 	}
@@ -1378,7 +1415,7 @@ func (m *mainPane) trailingSpacesAfter(vpRow int) int {
 // source-column range.
 func (m *mainPane) wrapRowSourceColRange(vpRow int) (int, int) {
 	start := m.absoluteColumnFromDisplay(vpRow, 0)
-	vpLines := strings.Split(m.viewport.GetContent(), "\n")
+	vpLines := m.viewportLines()
 	if vpRow < 0 || vpRow >= len(vpLines) {
 		return start, start
 	}

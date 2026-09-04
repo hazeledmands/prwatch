@@ -169,11 +169,12 @@ func (g dragGeometry) clickAt(x, y int) endpoint {
 // "past content" clicks that land inside the pane but below the source
 // — the viewport widget pads with blanks past this count.
 func viewportContentRowCount(pane *mainPane) int {
-	content := pane.viewport.GetContent()
-	if content == "" {
+	rows := pane.viewportLines()
+	// Empty content splits to a single empty row, which is no content at all.
+	if len(rows) == 1 && rows[0] == "" {
 		return 0
 	}
-	return strings.Count(content, "\n") + 1
+	return len(rows)
 }
 
 func newDragSelection() *dragSelection {
@@ -546,7 +547,7 @@ const maxColumn = (1 << 31) - 1
 // are disjoint by construction: breakSpacesBefore covers a wrapped line's
 // interior breaks, trailingSpacesAfter only its final row.
 func extractSourceRange(pane *mainPane, upper, lower orderedEnd, lineWise bool) string {
-	vpLines := strings.Split(pane.viewport.GetContent(), "\n")
+	vpLines := pane.viewportLines()
 	var out strings.Builder
 	wroteFirst := false
 	for sl := upper.SourceLine; sl <= lower.SourceLine; sl++ {

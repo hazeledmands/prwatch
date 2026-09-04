@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	git "github.com/hazeledmands/prwatch/internal/git"
 	"pgregory.net/rapid"
 )
 
@@ -2146,4 +2147,161 @@ func BenchmarkRefreshViewportPlain(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		mp.refreshViewport()
 	}
+}
+
+// TestViewportLinesTracksViewportContent pins the cached row slice to the
+// viewport's live content across every mutation that can change it. The cache
+// is invalidated in refreshViewport, which is the only place viewport content
+// is set — this test is what fails if a future change sets content elsewhere.
+func TestViewportLinesTracksViewportContent(t *testing.T) {
+	mp := newMainPane()
+	mp.SetSize(40, 20)
+
+	check := func(what string) {
+		t.Helper()
+		want := strings.Split(mp.viewport.GetContent(), "\n")
+		got := mp.viewportLines()
+		if len(got) != len(want) {
+			t.Fatalf("after %s: viewportLines() has %d rows, viewport content has %d", what, len(got), len(want))
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("after %s: row %d cached as %q, viewport has %q", what, i, got[i], want[i])
+			}
+		}
+		// The reverse source map is invalidated in the same place and has to
+		// stay the exact inverse of the forward map it was built from.
+		rev := mp.reverseSourceMap()
+		if len(rev) != len(mp.sourceToFormatLine) {
+			t.Fatalf("after %s: reverse map has %d entries, forward map has %d", what, len(rev), len(mp.sourceToFormatLine))
+		}
+		for src, formatted := range mp.sourceToFormatLine {
+			if rev[formatted] != src {
+				t.Fatalf("after %s: reverse map sends formatted %d to %d, forward map sends source %d there", what, formatted, rev[formatted], src)
+			}
+		}
+	}
+
+	long := strings.Repeat("alpha beta gamma delta ", 12)
+	steps := []struct {
+		name string
+		do   func()
+	}{
+		{"initial", func() {}},
+		{"SetPlainContent", func() { mp.SetPlainContent("one\ntwo\n" + long) }},
+		{"SetFilename", func() { mp.SetFilename("x.go") }},
+		{"SetSearchQuery", func() { mp.SetSearchQuery("beta") }},
+		{"SetWordWrap(false)", func() { mp.SetWordWrap(false) }},
+		{"ScrollRight", func() { mp.ScrollRight(5) }},
+		{"ScrollLeft", func() { mp.ScrollLeft(3) }},
+		{"SetWordWrap(true)", func() { mp.SetWordWrap(true) }},
+		{"SetLineNumbers(false)", func() { mp.SetLineNumbers(false) }},
+		{"SetSize narrower", func() { mp.SetSize(24, 20) }},
+		{"SetContent (diff)", func() { mp.SetContent("+added\n-removed\n " + long) }},
+		{"ToggleShowRemoved", func() { mp.ToggleShowRemoved() }},
+		{"SetDiffAnnotations", func() {
+			mp.SetDiffAnnotations(map[int]diffAnnotation{1: {}})
+		}},
+		{"ClearDiffAnnotations", func() { mp.ClearDiffAnnotations() }},
+		{"SetPlainContent empty", func() { mp.SetPlainContent("") }},
+	}
+	for _, s := range steps {
+		s.do()
+		check(s.name)
+	}
+}
+
+// benchWrappedPane returns a pane holding a large syntax-highlighted file at a
+// width narrow enough that word wrap produces continuation rows — the shape in
+// which absoluteColumnFromDisplay does its walk rather than returning early.
+func benchWrappedPane() *mainPane {
+	mp := newMainPane()
+	mp.SetWordWrap(true)
+	mp.SetLineNumbers(true)
+	mp.SetSize(60, 40)
+	mp.SetFilename("bench.go")
+	mp.SetPlainContent(benchStyledGoSource(1900))
+	return mp
+}
+
+// BenchmarkCursorPosWrapped is the per-keystroke cost of resolving the cursor's
+// source-space Position on a large wrapped file. Pos goes through
+// absoluteColumnFromDisplay and (via displayCol → rowContentWidth)
+// wrapRowSourceColRange, both of which re-derive the viewport's row slice.
+func BenchmarkCursorPosWrapped(b *testing.B) {
+	mp := benchWrappedPane()
+	c := newCursor()
+	rows := viewportContentRowCount(mp)
+	if rows < 500 {
+		b.Fatalf("benchmark needs a tall wrapped pane, got %d rows", rows)
+	}
+	c.vpRow = rows / 2
+	c.desiredCol = 8
+	b.ReportMetric(float64(rows), "vprows")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = c.Pos(mp)
+	}
+}
+
+// BenchmarkCursorSourceLineWrapped is the same row resolved without the column
+// half — the accessor J/K uses. Read against BenchmarkCursorPosWrapped it
+// isolates what the column computation costs.
+func BenchmarkCursorSourceLineWrapped(b *testing.B) {
+	mp := benchWrappedPane()
+	c := newCursor()
+	c.vpRow = viewportContentRowCount(mp) / 2
+	c.desiredCol = 8
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = c.SourceLine(mp)
+	}
+}
+
+// BenchmarkCursorMotionStyled drives one h/l/j/k cycle per iteration through
+// Model.Update on a large wrapped syntax-highlighted file — the whole
+// per-keystroke path a user holding a motion key runs.
+func BenchmarkCursorMotionStyled(b *testing.B) {
+	m := benchCursorMotionModel(b)
+	keys := []string{"j", "l", "k", "h"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.Update(keyMsg(keys[i%len(keys)]))
+	}
+}
+
+// BenchmarkCursorMotionStyledWithView adds the View() that follows each
+// keystroke in the real event loop, since the cursor highlight resolves its
+// column again during render.
+func BenchmarkCursorMotionStyledWithView(b *testing.B) {
+	m := benchCursorMotionModel(b)
+	keys := []string{"j", "l", "k", "h"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.Update(keyMsg(keys[i%len(keys)]))
+		m.View()
+	}
+}
+
+// benchCursorMotionModel builds a files-mode Model focused on the main pane,
+// showing a large wrapped syntax-highlighted file.
+func benchCursorMotionModel(b *testing.B) *Model {
+	b.Helper()
+	mock := &mockGit{
+		repoInfo:     git.RepoInfoResult{Branch: "feature", Upstream: "origin/main"},
+		base:         "origin/main",
+		changedFiles: git.ChangedFilesResult{Committed: []string{"bench.go"}},
+		fileContent:  benchStyledGoSource(1900),
+		allFiles:     []string{"bench.go"},
+	}
+	m := NewModel("/tmp/bench-repo", mock)
+	m.width = 80
+	m.height = 40
+	m.updateLayout()
+	m.Update(m.loadLocalGitData())
+	m.focus = MainFocus
+	if rows := viewportContentRowCount(m.mainPane); rows < 500 {
+		b.Fatalf("benchmark needs the big file loaded into the pane, got %d rows", rows)
+	}
+	return m
 }
