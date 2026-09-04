@@ -286,6 +286,17 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
   per-keystroke finding in CODE_REVIEW.md remains the leading mechanism
   candidate; when that lands, re-run the stress sweep before considering
   this closed.
+  *Retest after the keystroke fix (2026-09-03):* the per-keystroke
+  O(content) work is gone (`bfbe041`, ~110x on cursor motion) and the
+  flake is **not** eliminated — one more non-reproducing
+  `InteractionInvariants` failure in the first of two 300-check sweeps
+  (seed committed in `e6dbcc2`; second sweep fully green; the failing
+  assertion text was lost to output truncation). Cursor math is ruled out
+  as the mechanism; per-render cost is dominated by rendering itself
+  (`BenchmarkRefreshViewportStyled` ~23ms styled), so the remaining
+  candidates are renderer-side cost under parallel `-race` load, or the
+  invariant harness's timing bound simply being tight for a 300-check
+  parallel sweep on a loaded machine.
 
 - **Confirming a no-match search orphans the highlight with no dismiss
   path.** `HandleInputKey`'s Enter arm (`search.go:118-126`) sets
