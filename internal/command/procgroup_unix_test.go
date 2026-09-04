@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ import (
 // After Run returns, the grandchild must be gone and the marker absent.
 func TestTimeoutKillsGrandchildren(t *testing.T) {
 	t.Parallel()
+	requireShell(t)
 
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "grandchild-survived")
@@ -38,17 +40,30 @@ func TestTimeoutKillsGrandchildren(t *testing.T) {
 	// slept 3s and passed spuriously when the grandchild simply finished. The
 	// short-lived one is the side-effect probe: it would touch the marker file
 	// after the deadline, which catches a pid that was recycled rather than
-	// reaped.
-	script := "sh -c 'sleep 120' & echo $! > " + pidFile +
+	// reaped. Both sleeps are bounded well under a minute so that a test that
+	// bails out early cannot leave anything around for long.
+	script := "sh -c 'sleep 30' & echo $! > " + pidFile +
 		"; sh -c 'sleep 2; touch " + marker + "' &" +
-		" sleep 120"
-	cmd := command.TimeoutFactory(150*time.Millisecond)("sh", "-c", script)
+		" sleep 30"
+	// 1s, not the 150ms this started at: the script has to fork twice and write
+	// the pid file before the deadline fires. On a loaded box a tighter deadline
+	// signals the shell first, and the test then fails on a missing pid file —
+	// a confusing "no such file" for what is really a timing problem. The
+	// side-effect probe (2s) and the post-check (3s) still straddle 1s.
+	cmd := command.TimeoutFactory(time.Second)("sh", "-c", script)
 	if err := cmd.Run(); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Run() = %v, want context.DeadlineExceeded", err)
 	}
 
-	pid := readPID(t, pidFile)
-	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	// Registered before the pid is read, so that a failure to read it does not
+	// walk out on a live grandchild. Reads the variable at cleanup time.
+	var pid int
+	t.Cleanup(func() {
+		if pid != 0 {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+	pid = readPID(t, pidFile)
 
 	// Generous margin: the grandchild may need a moment to be signalled and
 	// reaped by init after its parent dies. A loaded CI box gets the whole
@@ -75,6 +90,7 @@ func TestTimeoutKillsGrandchildren(t *testing.T) {
 // the timed lane gets Setpgid.
 func TestInteractiveLaneKeepsCallerProcessGroup(t *testing.T) {
 	t.Parallel()
+	requireShell(t)
 
 	own := syscall.Getpgrp()
 
@@ -122,6 +138,19 @@ func TestInteractiveLaneKeepsCallerProcessGroup(t *testing.T) {
 				t.Errorf("child pgid = %d, caller pgid = %d: %s", got, own, tt.whyNotOK)
 			}
 		})
+	}
+}
+
+// requireShell skips rather than fails where these tests' fixtures cannot run.
+// Both drive `sh` and `ps` to observe process groups from the outside; a
+// stripped container has neither, and the bare failure is an unhelpful `exit
+// status 126`.
+func requireShell(t *testing.T) {
+	t.Helper()
+	for _, prog := range []string{"sh", "ps"} {
+		if _, err := exec.LookPath(prog); err != nil {
+			t.Skipf("%s not available: %v", prog, err)
+		}
 	}
 }
 

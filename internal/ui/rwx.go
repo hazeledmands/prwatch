@@ -217,12 +217,18 @@ func (f *rwxFetcher) InvalidateReadyErrors(now time.Time) {
 // whatever the backoff windows say. This is the refresh key: the user asking
 // for a retry now outranks a throttle whose whole purpose is to stand in for
 // them not having asked.
+//
+// The schedule is cleared wholesale rather than per cached error, because the
+// two sets do not coincide. InvalidateReadyErrors clears an error while keeping
+// its failure count, so between that poll and the retry's result a URL has a
+// schedule and no `failed` entry — and iterating `failed` walked straight past
+// exactly those, leaving the escalation this promises to reset.
 func (f *rwxFetcher) ForceRetryErrors() {
 	for url := range f.failed {
 		delete(f.cache, url)
 		delete(f.failed, url)
-		delete(f.backoff, url)
 	}
+	clear(f.backoff)
 }
 
 // Prune drops every entry for a URL absent from checks, and is called wherever
@@ -255,15 +261,17 @@ func (f *rwxFetcher) Prune(checks []gitpkg.CICheck) {
 			delete(f.backoff, url)
 		}
 	}
-	// An outstanding fetch for a pruned URL is not cancellable — the Cmd is
-	// already running — so the mark goes and Apply discards the result when it
-	// lands. Keeping the mark instead would be a slow leak: one entry per
-	// superseded run, held until a result that nothing displays arrives.
-	for url := range f.inFlight {
-		if !known[url] {
-			delete(f.inFlight, url)
-		}
-	}
+	// inFlight is deliberately not pruned. It does not describe stored data; it
+	// describes a subprocess chain that is already running and cannot be
+	// cancelled from here, and every dispatch posts exactly one result whose
+	// Apply releases the mark — so the set is bounded by live fetches, not by
+	// the session, and there is nothing to reclaim.
+	//
+	// Dropping the mark did cost something: a check can leave ciChecks and come
+	// back (a flapping check, or a checks fetch that failed and then
+	// succeeded), and the returning URL then re-staged a second full fetch over
+	// the same run while the first was still outstanding. Apply still discards
+	// the result for a URL that is gone, so nothing stale is cached either way.
 	if f.pending != nil && !known[f.pending.URL] {
 		f.pending = nil
 	}

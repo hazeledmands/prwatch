@@ -138,6 +138,42 @@ func TestRWXFetcher_ManualRefreshOverridesBackoff(t *testing.T) {
 	}
 }
 
+// The window between a poll clearing an error and the retry landing is the one
+// ForceRetryErrors used to miss. The poll clears the cached error but keeps the
+// failure count, so the URL has a schedule and no `failed` entry — and a
+// refresh that iterates only `failed` walks straight past it, leaving the
+// escalation it promised to reset.
+func TestRWXFetcher_ForceRetryResetsScheduleClearedByPoll(t *testing.T) {
+	f := newRWXFetcher()
+	now := time.Unix(1_700_000_000, 0)
+
+	// Three failures deep, then a poll opens the retry: error gone, count kept.
+	for range 3 {
+		f.Apply(rwxLogMsg{checkURL: rwxURL, err: errFake("boom")}, now)
+		now = now.Add(rwxRetryCap)
+		f.InvalidateReadyErrors(now)
+	}
+	if _, cached := f.Lookup(rwxCheck(rwxURL)); cached {
+		t.Fatal("setup: the poll should have cleared the cached error")
+	}
+	if _, ok := f.backoff[rwxURL]; !ok {
+		t.Fatal("setup: the failure count should survive the poll")
+	}
+
+	f.ForceRetryErrors()
+
+	if _, ok := f.backoff[rwxURL]; ok {
+		t.Error("an explicit refresh must reset the schedule even when no error is currently cached")
+	}
+	// Observable consequence: the next failure waits the base delay, not the
+	// escalated one it would have inherited.
+	f.Apply(rwxLogMsg{checkURL: rwxURL, err: errFake("boom")}, now)
+	f.InvalidateReadyErrors(now.Add(rwxRetryBase))
+	if _, cached := f.Lookup(rwxCheck(rwxURL)); cached {
+		t.Errorf("after a refresh the next wait must be %s, not the escalated delay", rwxRetryBase)
+	}
+}
+
 // A successful log is expensive and stays valid for the run it describes, so
 // backoff must not touch it.
 func TestRWXFetcher_BackoffLeavesGoodLogsAlone(t *testing.T) {
@@ -203,10 +239,11 @@ func TestRWXFetcher_PruneClearsStalePending(t *testing.T) {
 	}
 }
 
-// In-flight marks are pruned too, so the set cannot grow without bound across
-// a long session of pushes. The result that lands afterwards is discarded
-// rather than resurrecting a cache entry for a run that has left the PR.
-func TestRWXFetcher_PruneDiscardsLateResult(t *testing.T) {
+// Pruning evicts stored entries, but it cannot cancel a fetch that is already
+// running, so the in-flight mark stays: it tracks a live subprocess chain, and
+// the result that ends it is what releases it. The result itself is still
+// discarded — a run that has left the PR must not be re-cached.
+func TestRWXFetcher_PruneKeepsInFlightAndDiscardsLateResult(t *testing.T) {
 	f := newRWXFetcher()
 	now := time.Unix(1_700_000_000, 0)
 
@@ -217,13 +254,41 @@ func TestRWXFetcher_PruneDiscardsLateResult(t *testing.T) {
 	}
 
 	f.Prune([]gitpkg.CICheck{rwxCheck(rwxURLB)})
-	if f.InFlight(rwxURL) {
-		t.Error("a pruned URL must not stay marked in flight")
+	if !f.InFlight(rwxURL) {
+		t.Error("the mark must outlive the prune: the fetch it describes is still running")
 	}
 
 	f.Apply(rwxLogMsg{checkURL: rwxURL, log: "log body"}, now)
 	if _, ok := f.cache[rwxURL]; ok {
 		t.Error("a result for a pruned URL must be discarded, not cached")
+	}
+	if f.InFlight(rwxURL) {
+		t.Error("the landing result must release the mark, pruned or not")
+	}
+}
+
+// A check can leave ciChecks and come back — a flapping check, or a checks
+// fetch that failed and then succeeded. Dropping the mark on prune meant the
+// returning URL re-staged a full `rwx runs` + per-task `rwx logs` chain while
+// the first one was still running: two subprocess chains for one run, both
+// landing, the second pure waste.
+func TestRWXFetcher_ReappearingURLDoesNotDuplicateFetch(t *testing.T) {
+	f := newRWXFetcher()
+	git := &rwxStubGit{}
+
+	f.Prune([]gitpkg.CICheck{rwxCheck(rwxURL)})
+	f.Lookup(rwxCheck(rwxURL))
+	if cmd := f.Cmd(git); cmd == nil {
+		t.Fatal("setup: the first render should dispatch")
+	}
+
+	// Gone, then back, with the original fetch still outstanding.
+	f.Prune([]gitpkg.CICheck{rwxCheck(rwxURLB)})
+	f.Prune([]gitpkg.CICheck{rwxCheck(rwxURL)})
+
+	f.Lookup(rwxCheck(rwxURL))
+	if cmd := f.Cmd(git); cmd != nil {
+		t.Error("a URL that left and rejoined ciChecks dispatched a second fetch over the same run")
 	}
 }
 

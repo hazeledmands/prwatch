@@ -213,12 +213,17 @@ func TestProperty_RWXFetcher(t *testing.T) {
 				}
 			case "force":
 				f.ForceRetryErrors()
-				for u := range failedURL {
+				// The contract, not the implementation: an explicit refresh
+				// resets *all* escalation, including a URL whose cached error a
+				// poll has already cleared while keeping its failure count.
+				// Modelling this as "clear escalation only where an error is
+				// currently cached" would just restate whatever the code does.
+				for _, u := range urls {
 					if failedURL[u] {
 						cached[u] = false
 						failedURL[u] = false
-						escalating[u] = false
 					}
+					escalating[u] = false
 				}
 			case "prune":
 				var checks []gitpkg.CICheck
@@ -236,9 +241,9 @@ func TestProperty_RWXFetcher(t *testing.T) {
 						cached[u] = false
 						failedURL[u] = false
 						escalating[u] = false
-						// A pruned URL's outstanding fetch is orphaned: the mark
-						// is gone and Apply will discard the result.
-						outstanding[u] = 0
+						// outstanding is untouched: a prune evicts stored
+						// entries but cannot cancel a running fetch, so the
+						// in-flight mark stays until its result lands.
 					}
 				}
 			}
@@ -264,11 +269,11 @@ func TestProperty_RWXFetcher(t *testing.T) {
 				}
 			}
 			if everPruned {
-				for _, m := range []map[string]bool{f.inFlight, f.failed} {
-					for u := range m {
-						if !keep[u] {
-							t.Fatalf("after %s: %s survived a prune that dropped it", op, u)
-						}
+				// Stored state only. inFlight is exempt by contract: it tracks
+				// live fetches, which a prune cannot cancel.
+				for u := range f.failed {
+					if !keep[u] {
+						t.Fatalf("after %s: %s survived a prune that dropped it", op, u)
 					}
 				}
 				for u := range f.cache {

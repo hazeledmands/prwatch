@@ -56,9 +56,18 @@ func TestCommandLaneClassification(t *testing.T) {
 				if clipboardToolName() == "" {
 					t.Skipf("no clipboard tool on %s", runtime.GOOS)
 				}
-				// The copy is a Cmd now, so the factory is called when
-				// bubbletea runs it — not during Update.
-				copyToClipboardCmd(m.cmdFactory, "hello", "copied")()
+				// Driven through the production entry point, not by handing
+				// copyToClipboardCmd the factory this test then asserts on —
+				// that form supplied its own answer and would have passed just
+				// as happily against m.interactiveFactory. yankPath picks the
+				// lane; running the Cmd it returns is what reveals the choice.
+				m.sidebar.SetItems([]sidebarItem{{label: "a.go", filePath: "a.go"}})
+				m.focus = SidebarFocus
+				cmd := m.yankPath()
+				if cmd == nil {
+					t.Fatal("yankPath returned nil with a file selected")
+				}
+				cmd()
 			},
 			wantLane:    "background",
 			wantAtLeast: 1,
