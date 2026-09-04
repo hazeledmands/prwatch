@@ -86,6 +86,7 @@ func (a *execAdapter) Run() error {
 	cmd.Stderr = a.stderr
 	if a.timeout > 0 {
 		cmd.WaitDelay = killGraceDelay
+		superviseProcessGroup(cmd)
 	}
 
 	err := cmd.Run()
