@@ -81,9 +81,12 @@ func TestPRSidebarRows_CarryTheirReferent(t *testing.T) {
 		})
 	}
 
-	// Rows that stand for nothing carry no referent.
+	// Rows that stand for nothing carry no referent. Skip the Description row
+	// by role, not by label: a label is precisely what must not be load
+	// bearing here. The full one-of rule over both builders lives in
+	// sidebarreferents_test.go.
 	for _, it := range buildPRSidebar(nil, nil, nil, 0) {
-		if it.label == "Description" {
+		if it.role == rolePRDescription {
 			continue
 		}
 		if it.pr != nil {

@@ -113,10 +113,13 @@ func (f *rwxFetcher) Lookup(check gitpkg.CICheck) (content string, cached bool) 
 		return "", false
 	}
 	// A check that has left ciChecks is not fetchable. In practice callers only
-	// ever pass checks drawn from ciChecks (applyCICheckContent matches against
-	// it), so this changes no display; it is what makes "nothing outside
-	// ciChecks is cached or in flight" hold unconditionally rather than by the
-	// grace of the caller. known is nil until the first Prune.
+	// ever pass a check a sidebar row was built from, and those rows are rebuilt
+	// from ciChecks on every refresh, so this changes no display; it is what
+	// makes "nothing outside ciChecks is cached or in flight" hold
+	// unconditionally rather than by the grace of the caller. Which matters more
+	// now that a row carries its own by-value copy of the check: the copy
+	// outlives the slice it came from, so the row is exactly how a stale check
+	// could reach here. known is nil until the first Prune.
 	if f.known != nil && !f.known[check.URL] {
 		return "", false
 	}

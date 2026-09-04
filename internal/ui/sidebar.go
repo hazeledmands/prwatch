@@ -93,6 +93,34 @@ type prRow struct {
 	check   *gitpkg.CICheck
 }
 
+// prComment / prReview / ciCheck return what the row stands for, or nil when
+// it stands for something else. They are the only way the referent is read.
+//
+// Each checks the role AND the pointer the role names. A row whose role and
+// payload disagree is a builder bug — buildSidebarReferentsConsistent pins that
+// they never do — but resolving it to a wrong-looking pane beats panicking in
+// the middle of a render, which is what a bare it.pr.check.Bucket would do.
+func (it sidebarItem) prComment() *gitpkg.PRComment {
+	if it.role != rolePRComment || it.pr == nil {
+		return nil
+	}
+	return it.pr.comment
+}
+
+func (it sidebarItem) prReview() *gitpkg.PRReview {
+	if it.role != rolePRReview || it.pr == nil {
+		return nil
+	}
+	return it.pr.review
+}
+
+func (it sidebarItem) ciCheck() *gitpkg.CICheck {
+	if it.role != roleCICheck || it.pr == nil {
+		return nil
+	}
+	return it.pr.check
+}
+
 // dirCollapseKey returns the section-qualified collapse-state key for a
 // directory path within a sidebar section.
 func dirCollapseKey(section, path string) string {
@@ -448,15 +476,18 @@ func (s *sidebar) SelectedRole() sidebarItemRole {
 	return s.items[s.selected].role
 }
 
-// SelectedPRRow returns the PR-mode referent the selected row stands for, or
-// nil when the row isn't a PR comment/review/check row. PR-mode content and
-// open-in-browser resolve the selection through this rather than regenerating
-// labels and comparing — see sidebarItem.role.
-func (s *sidebar) SelectedPRRow() *prRow {
+// SelectedRow returns the selected sidebar item, or the zero item when nothing
+// is selected. The zero item carries roleNone and no referent, so every
+// referent accessor on it answers nil and callers need no separate empty case.
+//
+// PR-mode content and open-in-browser resolve the selection through this and
+// the referent accessors rather than regenerating labels and comparing — see
+// sidebarItem.role.
+func (s *sidebar) SelectedRow() sidebarItem {
 	if s.selected < 0 || s.selected >= len(s.items) {
-		return nil
+		return sidebarItem{}
 	}
-	return s.items[s.selected].pr
+	return s.items[s.selected]
 }
 
 // SelectedIsDir returns true if the selected item is a directory.

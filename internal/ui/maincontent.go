@@ -201,27 +201,30 @@ func (m *Model) updateCommitsModeContent(setItem itemSetter) {
 // updatePRModeContent populates the main pane for PR mode.
 func (m *Model) updatePRModeContent(setItem itemSetter) {
 	selected := m.sidebar.SelectedItem()
-	row := m.sidebar.SelectedPRRow()
-	switch m.sidebar.SelectedRole() {
-	case rolePRDescription:
+	it := m.sidebar.SelectedRow()
+	// Each arm asks the row for a referent rather than trusting the role to
+	// imply one, so a row whose role and payload disagree lands in the default
+	// arm and clears the pane instead of panicking mid-render.
+	switch {
+	case it.role == rolePRDescription:
 		m.mainPane.SetPlainContent(m.renderPRDescription())
 		m.mainPane.SetTitle("Description", "")
-	case rolePRComment:
-		c := *row.comment
+	case it.prComment() != nil:
+		c := *it.prComment()
 		m.mainPane.SetPlainContent(buildCommentContent(c, m.mainPane.width))
 		m.mainPane.SetTitle(
-			fmt.Sprintf("comment #%d", row.number),
+			fmt.Sprintf("comment #%d", it.pr.number),
 			formatAuthorAndTime(c.Author, c.CreatedAt),
 		)
-	case rolePRReview:
-		r := *row.review
+	case it.prReview() != nil:
+		r := *it.prReview()
 		m.mainPane.SetPlainContent(buildReviewContent(r, m.mainPane.width))
 		m.mainPane.SetTitle(
-			fmt.Sprintf("review #%d · %s", row.number, reviewStateLabel(r.State)),
+			fmt.Sprintf("review #%d · %s", it.pr.number, reviewStateLabel(r.State)),
 			formatAuthorAndTime(r.Author, r.SubmittedAt),
 		)
-	case roleCICheck:
-		m.applyCICheckContent(*row.check)
+	case it.ciCheck() != nil:
+		m.applyCICheckContent(*it.ciCheck())
 	default:
 		// Rows that stand for nothing — the "(no comments)" style
 		// pseudo-entries — clear the body so we don't leave stale content

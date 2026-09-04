@@ -1,9 +1,15 @@
 package ui
 
 // The commits-mode sidebar carries two pseudo-entries alongside the real
-// commits. Their labels are their identity — sidebar selection, main-item
-// scroll-memory keys, and the main-pane dispatch all match on these strings —
-// so they live here rather than being spelled out at each site.
+// commits. Main-pane dispatch no longer matches these strings: the row carries
+// rolePseudoNewChanges or rolePseudoStaged and the dispatcher switches on that.
+//
+// Three label-derived uses remain, all of them keys or content rather than
+// dispatch: the main-item scroll-memory key (mainItemKey is keyed on the
+// rendered label for every row, not just these), the per-load pseudoDiffs
+// cache key, and the empty-state text buildPseudoEntryContent picks. So the
+// labels still need one definition, here, rather than being spelled out at
+// each site.
 const (
 	pseudoNewChangesLabel = "new changes"
 	pseudoStagedLabel     = "staged changes"

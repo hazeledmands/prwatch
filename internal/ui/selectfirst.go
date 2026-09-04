@@ -39,11 +39,11 @@ func firstReviewIndex(items []sidebarItem) int {
 // two same-named checks the same row.
 func firstCIFailureIndex(items []sidebarItem) int {
 	if i := firstSidebarMatch(items, func(it sidebarItem) bool {
-		if it.role != roleCICheck {
+		check := it.ciCheck()
+		if check == nil {
 			return false
 		}
-		b := it.pr.check.Bucket
-		return b == "fail" || b == "cancel"
+		return check.Bucket == "fail" || check.Bucket == "cancel"
 	}); i >= 0 {
 		return i
 	}

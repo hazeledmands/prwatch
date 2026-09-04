@@ -222,10 +222,31 @@ func TestProperty_SearchInputInvariants(t *testing.T) {
 				checkSearchInputInvariants(t, &s, p, "reopen")
 			}
 			name, msg := genSearchInputKey(t)
+			wasSearching, wasConfirmed := s.IsSearching(), s.IsConfirmed()
+			before := s.query
+
 			routeSearchInputKey(&s, msg, h)
 			where := fmt.Sprintf("key %d (%s)", i, name)
 			checkSearchInputInvariants(t, &s, p, where)
 			checkConfirmedHasMatches(t, &s, where)
+
+			// An inert key — carrying no text and matching no binding — must
+			// leave a query being typed exactly as it was, and must not
+			// dismiss the input. This is the one key class the edit handler
+			// deliberately does nothing for, and nothing else pins it.
+			if name == "inert" && wasSearching {
+				if s.query != before {
+					t.Fatalf("%s: inert key changed the query %q -> %q", where, before, s.query)
+				}
+				if !s.IsSearching() {
+					t.Fatalf("%s: inert key ended query editing", where)
+				}
+			}
+			// The mirror contract while navigating: an unhandled key dismisses
+			// the search so the caller can re-dispatch it as a normal key.
+			if name == "inert" && wasConfirmed && s.IsActive() {
+				t.Fatalf("%s: unhandled key left a confirmed search active", where)
+			}
 		}
 	})
 }

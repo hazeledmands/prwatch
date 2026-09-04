@@ -2387,16 +2387,16 @@ func (m *Model) openPRItemURL() tea.Cmd {
 // row that points at nothing. The row carries its own referent, so activating
 // one of two identically-labeled CI checks opens that check.
 func (m *Model) prItemURL() string {
-	row := m.sidebar.SelectedPRRow()
-	switch m.sidebar.SelectedRole() {
-	case rolePRDescription:
+	it := m.sidebar.SelectedRow()
+	switch {
+	case it.role == rolePRDescription:
 		return m.prInfo.URL
-	case rolePRComment:
-		return row.comment.URL
-	case rolePRReview:
-		return row.review.URL
-	case roleCICheck:
-		return row.check.URL
+	case it.prComment() != nil:
+		return it.prComment().URL
+	case it.prReview() != nil:
+		return it.prReview().URL
+	case it.ciCheck() != nil:
+		return it.ciCheck().URL
 	}
 	return ""
 }
