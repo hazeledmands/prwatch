@@ -1500,7 +1500,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		if m.help.IsOpen() {
-			visibleHeight := max(1, m.height-m.statusBarLines()-2)
+			visibleHeight := m.contentHeight()
 			dir := 0
 			if msg.Button == tea.MouseWheelUp {
 				dir = -1
@@ -1578,7 +1578,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Handle shift+space as page up (may not be caught by key.Matches)
 	if msg.Code == tea.KeySpace && msg.Mod&tea.ModShift != 0 {
 		if m.help.IsOpen() {
-			visibleHeight := max(1, m.height-m.statusBarLines()-2)
+			visibleHeight := m.contentHeight()
 			m.help.PageUp(visibleHeight)
 			return m, nil
 		}
@@ -1978,7 +1978,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	visibleHeight := max(1, m.height-m.statusBarLines()-2)
+	visibleHeight := m.contentHeight()
 	return m, m.help.HandleKey(msg, visibleHeight)
 }
 
@@ -3052,5 +3052,5 @@ func keyList(bs ...key.Binding) string {
 }
 
 func (m *Model) renderHelp() string {
-	return m.help.Render(max(1, m.height-m.statusBarLines()-2))
+	return m.help.Render(m.contentHeight())
 }

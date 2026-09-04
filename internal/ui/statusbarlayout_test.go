@@ -128,6 +128,68 @@ func TestProperty_StatusBarRenderRowsMatchLayoutRows(t *testing.T) {
 	})
 }
 
+// TestContentHeightIsTheOnlySource pins Model.contentHeight to
+// layoutDimensions' contentH — and, through it, to the height the panes are
+// actually given. The help overlay used to re-derive this as
+// max(1, height-statusBarLines()-2) at four separate call sites, whose floor
+// of 1 disagreed with the layout function's floor of 0 on any terminal too
+// short for its own chrome.
+func TestContentHeightIsTheOnlySource(t *testing.T) {
+	for _, hidden := range []bool{false, true} {
+		for height := 0; height <= 40; height++ {
+			m := initModel(standardMock(), FilesMode, 100, 30)
+			m.sidebarHidden = hidden
+			m.height = height
+			m.updateLayout()
+
+			_, _, contentH := layoutDimensions(m.width, m.height, m.statusBarLines(), m.sidebarPct, m.sidebarHidden)
+			if got := m.contentHeight(); got != contentH {
+				t.Fatalf("height=%d hidden=%v: contentHeight() = %d, layoutDimensions says %d", height, hidden, got, contentH)
+			}
+			if m.mainPane.height != contentH {
+				t.Fatalf("height=%d hidden=%v: main pane sized %d, contentHeight() says %d", height, hidden, m.mainPane.height, contentH)
+			}
+		}
+	}
+}
+
+// TestContentHeightFloorsAtZeroBelowChrome is the tiny-terminal edge: when the
+// status bar plus borders already use up the whole terminal there are no
+// content rows, and contentHeight says 0 rather than manufacturing one row
+// that has nowhere to go. Every help-overlay entry point has to survive that.
+func TestContentHeightFloorsAtZeroBelowChrome(t *testing.T) {
+	m := initModel(standardMock(), FilesMode, 100, 30)
+	statusRows := m.statusBarLines()
+	if statusRows < 1 {
+		t.Fatalf("expected at least one status-bar row, got %d", statusRows)
+	}
+
+	for height := 0; height <= statusRows+2; height++ {
+		m := initModel(standardMock(), FilesMode, 100, 30)
+		m.height = height
+		m.updateLayout()
+		if got := m.contentHeight(); got != 0 {
+			t.Fatalf("height=%d (chrome needs %d): contentHeight() = %d, want 0", height, statusRows+2, got)
+		}
+
+		// Drive the overlay at that height: the four converted call sites are
+		// help scrolling (wheel, shift+space, help keys) and help rendering.
+		m.help.Open()
+		m = applyAction(m, tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+		m = applyAction(m, tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+		m = applyAction(m, tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModShift})
+		m = applyAction(m, keyMsg("G"))
+		m = applyAction(m, keyMsg("g"))
+		if !m.help.IsOpen() {
+			t.Fatalf("height=%d: help overlay closed unexpectedly", height)
+		}
+		if got := m.renderHelp(); got != "" {
+			t.Fatalf("height=%d: renderHelp() drew %q into a zero-row content area", height, got)
+		}
+		m.View()
+	}
+}
+
 // assertLayoutMatchesRender checks the panes are sized for exactly the
 // rows the status bar renders — the invariant that makes clicks land.
 func assertLayoutMatchesRender(t *testing.T, m *Model, context string) {

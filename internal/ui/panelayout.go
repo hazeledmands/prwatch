@@ -15,6 +15,28 @@ func layoutDimensions(width, height, statusRows, sidebarPct int, sidebarHidden b
 	return sidebarW, mainW, contentH
 }
 
+// contentHeight returns the number of terminal rows available to content
+// below the status bar and inside the pane borders — the same contentH the
+// panes are sized with in updateLayout.
+//
+// This is the only way to ask the question. It exists because the help
+// overlay, which occupies the region the panes would have, needs the panes'
+// content height to scroll in step with them, and four call sites used to
+// spell that out as max(1, m.height-m.statusBarLines()-2). That floor of 1
+// disagreed with layoutDimensions' floor of 0 on a terminal too short for its
+// own chrome, which is the class of divergence that keeps producing off-by-one
+// click targeting.
+//
+// Zero is the honest answer there: a terminal whose status bar and borders
+// already fill it has no content rows, the panes are sized 0, and the help
+// overlay renders nothing rather than one row with nowhere to go. Its scroll
+// entry points are all total at 0 — Render slices an empty range, paging and
+// wheel clamp to no-ops.
+func (m *Model) contentHeight() int {
+	_, _, contentH := layoutDimensions(m.width, m.height, m.statusBarLines(), m.sidebarPct, m.sidebarHidden)
+	return contentH
+}
+
 // mainPaneContentRows returns the inclusive screen-row range of the main pane
 // content area (between the title row and the bottom border). top is the
 // first content row; bottom is the last content row before the border.
