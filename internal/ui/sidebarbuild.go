@@ -167,7 +167,7 @@ func buildCommitsSidebar(
 
 	if len(uncommitted) > 0 {
 		items = append(items, sidebarItem{label: fmt.Sprintf("New Changes (%d files)", len(uncommitted)), kind: itemHeader})
-		items = append(items, sidebarItem{label: pseudoNewChangesLabel, kind: itemDim})
+		items = append(items, sidebarItem{label: pseudoNewChangesLabel, kind: itemDim, role: rolePseudoNewChanges})
 	}
 
 	if len(staged) > 0 {
@@ -175,7 +175,7 @@ func buildCommitsSidebar(
 			items = append(items, sidebarItem{kind: itemSeparator})
 		}
 		items = append(items, sidebarItem{label: fmt.Sprintf("Staged (%d files)", len(staged)), kind: itemHeader})
-		items = append(items, sidebarItem{label: pseudoStagedLabel, kind: itemDim})
+		items = append(items, sidebarItem{label: pseudoStagedLabel, kind: itemDim, role: rolePseudoStaged})
 	}
 
 	unpushedVisible := unpushed
@@ -210,6 +210,7 @@ func buildCommitsSidebar(
 		items = append(items, sidebarItem{
 			label: fmt.Sprintf("load more (%d remaining)", remaining),
 			kind:  itemDim,
+			role:  roleLoadMore,
 		})
 	}
 
@@ -258,17 +259,12 @@ func sectionCount(name string, shown, total int) string {
 // paginated fetch hit its page cap.
 func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, checks []gitpkg.CICheck, reviewsTotal int) []sidebarItem {
 	var items []sidebarItem
-	items = append(items, sidebarItem{label: "Description", kind: itemNormal})
+	items = append(items, sidebarItem{label: "Description", kind: itemNormal, role: rolePRDescription})
 	items = append(items, sidebarItem{kind: itemSeparator})
 
 	items = append(items, sidebarItem{label: sectionCount("Comments", len(comments), len(comments)), kind: itemHeader})
 	for i, c := range comments {
-		items = append(items, sidebarItem{
-			prefix: prCommentPrefix(i, len(comments)),
-			label:  prCommentLabel(c),
-			suffix: " " + relativeTime(c.CreatedAt),
-			kind:   itemNormal,
-		})
+		items = append(items, prCommentSidebarItem(i, len(comments), c))
 	}
 	if len(comments) == 0 {
 		items = append(items, sidebarItem{label: "(no comments)", kind: itemDim})
@@ -277,12 +273,7 @@ func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, chec
 	items = append(items, sidebarItem{kind: itemSeparator})
 	items = append(items, sidebarItem{label: sectionCount("Reviews", len(reviews), reviewsTotal), kind: itemHeader})
 	for i, r := range reviews {
-		items = append(items, sidebarItem{
-			prefix: prReviewPrefix(i, len(reviews), r),
-			label:  prReviewLabel(r),
-			suffix: " " + relativeTime(r.SubmittedAt),
-			kind:   itemNormal,
-		})
+		items = append(items, prReviewSidebarItem(i, len(reviews), r))
 	}
 	if len(reviews) == 0 {
 		items = append(items, sidebarItem{label: "(no reviews)", kind: itemDim})
@@ -291,17 +282,7 @@ func buildPRSidebar(comments []gitpkg.PRComment, reviews []gitpkg.PRReview, chec
 	items = append(items, sidebarItem{kind: itemSeparator})
 	items = append(items, sidebarItem{label: sectionCount("CI", len(checks), len(checks)), kind: itemHeader})
 	for _, check := range checks {
-		indicator := ciCheckPrefix(check)
-		ts := check.CompletedAt
-		if ts.IsZero() {
-			ts = check.StartedAt
-		}
-		items = append(items, sidebarItem{
-			prefix: indicator,
-			label:  ciCheckLabel(check),
-			suffix: " " + relativeTime(ts),
-			kind:   itemNormal,
-		})
+		items = append(items, ciCheckSidebarItem(check))
 	}
 	if len(checks) == 0 {
 		items = append(items, sidebarItem{label: "(no CI checks)", kind: itemDim})

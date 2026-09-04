@@ -9,12 +9,6 @@ const (
 	pseudoStagedLabel     = "staged changes"
 )
 
-// isPseudoEntryLabel reports whether a commits-mode sidebar label is one of the
-// pseudo-entries rather than a real commit.
-func isPseudoEntryLabel(label string) bool {
-	return label == pseudoNewChangesLabel || label == pseudoStagedLabel
-}
-
 // pseudoEntryContent is what a pseudo-entry renders: the main-pane body, how to
 // install it, and the title bar's right half.
 type pseudoEntryContent struct {

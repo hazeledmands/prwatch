@@ -2183,7 +2183,7 @@ func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		m.sidebar.SelectIndex(itemIdx)
 		// "Load more" in commit mode triggers pagination
-		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
+		if m.mode == CommitsMode && m.sidebar.SelectedRole() == roleLoadMore {
 			return m, m.loadMoreCommitsCmd()
 		}
 		// If a directory was clicked, toggle collapse — except for an
@@ -2258,7 +2258,7 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 	if m.focus == SidebarFocus {
 		// "Load more" in commit mode triggers pagination
-		if m.mode == CommitsMode && strings.HasPrefix(m.sidebar.SelectedItem(), "load more") {
+		if m.mode == CommitsMode && m.sidebar.SelectedRole() == roleLoadMore {
 			return m, m.loadMoreCommitsCmd()
 		}
 		// Enter behaves like Right
@@ -2376,30 +2376,27 @@ func (m *Model) openEditor() tea.Cmd {
 // openPRItemURL opens the URL for the currently selected PR sidebar item in the browser.
 // Handles: PR description, comments, reviews, and CI checks.
 func (m *Model) openPRItemURL() tea.Cmd {
-	url := prItemURL(m.sidebar.SelectedItem(), m.prInfo, m.prComments, m.prReviews, m.ciChecks)
+	url := m.prItemURL()
 	if url == "" {
 		return nil
 	}
 	return m.openInBrowser(url)
 }
 
-// prItemURL resolves the sidebar item label a user activated to the URL it
-// points at.
-func prItemURL(selected string, pr gitpkg.PRInfoResult, comments []gitpkg.PRComment, reviews []gitpkg.PRReview, checks []gitpkg.CICheck) string {
-	if selected == "" {
-		return ""
-	}
-	if selected == "Description" {
-		return pr.URL
-	}
-	if ok, i := matchPRComment(selected, comments); ok {
-		return comments[i].URL
-	}
-	if ok, i := matchPRReview(selected, reviews); ok {
-		return reviews[i].URL
-	}
-	if ok, i := matchCICheck(selected, checks); ok {
-		return checks[i].URL
+// prItemURL returns the URL the selected PR-mode row points at, or "" for a
+// row that points at nothing. The row carries its own referent, so activating
+// one of two identically-labeled CI checks opens that check.
+func (m *Model) prItemURL() string {
+	row := m.sidebar.SelectedPRRow()
+	switch m.sidebar.SelectedRole() {
+	case rolePRDescription:
+		return m.prInfo.URL
+	case rolePRComment:
+		return row.comment.URL
+	case rolePRReview:
+		return row.review.URL
+	case roleCICheck:
+		return row.check.URL
 	}
 	return ""
 }
@@ -2467,7 +2464,7 @@ func (m *Model) selectFirstReview() {
 }
 
 func (m *Model) selectFirstCIFailure() {
-	if i := firstCIFailureIndex(m.sidebar.items, m.ciChecks); i >= 0 {
+	if i := firstCIFailureIndex(m.sidebar.items); i >= 0 {
 		m.sidebar.SelectIndex(i)
 	}
 }

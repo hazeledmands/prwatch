@@ -6,12 +6,12 @@ import (
 	gitpkg "github.com/hazeledmands/prwatch/internal/git"
 )
 
-// TestPRItemURL_ExactIdentity covers CODE_REVIEW A1 sub-item 6:
-// openPRItemURL matched sidebar items by substring, so two comments from
-// one author both resolved to the newest one, a review row could match a
-// comment, and CI check "build" matched the "build-arm" row.
-func TestPRItemURL_ExactIdentity(t *testing.T) {
-	pr := gitpkg.PRInfoResult{Number: 9, URL: "https://gh/pr/9"}
+// TestPRSidebarRows_CarryTheirReferent covers CODE_REVIEW A1 sub-item 6:
+// openPRItemURL matched sidebar items by label, so two comments from one
+// author both resolved to the newest one, a review row could match a comment,
+// and CI check "build" matched the "build-arm" row. Each row now records what
+// it stands for, and the URL/body paths read it back off the row.
+func TestPRSidebarRows_CarryTheirReferent(t *testing.T) {
 	comments := []gitpkg.PRComment{
 		{Author: "alice", URL: "https://gh/pr/9#c-newest"},
 		{Author: "alice", URL: "https://gh/pr/9#c-oldest"},
@@ -27,45 +27,73 @@ func TestPRItemURL_ExactIdentity(t *testing.T) {
 		{Name: "build-arm", Bucket: "pass", URL: "https://ci/build-arm"},
 	}
 
-	// The sidebar is the source of the labels the user activates: resolve
-	// against exactly what buildPRSidebar renders.
 	items := buildPRSidebar(comments, reviews, checks, len(reviews))
-	labelOf := func(want string) string {
-		for _, it := range items {
-			if it.kind != itemNormal {
-				continue
-			}
-			if it.prefix+it.label == want {
-				return want
-			}
+
+	// referentURL reads back what a row stands for, the same way prItemURL
+	// and updatePRModeContent do.
+	referentURL := func(it sidebarItem) string {
+		switch it.role {
+		case rolePRComment:
+			return it.pr.comment.URL
+		case rolePRReview:
+			return it.pr.review.URL
+		case roleCICheck:
+			return it.pr.check.URL
 		}
-		t.Fatalf("sidebar has no item %q; items: %+v", want, items)
 		return ""
 	}
 
-	cases := []struct {
-		selected string
-		want     string
+	tests := []struct {
+		row        string // prefix+label, as rendered
+		wantRole   sidebarItemRole
+		wantNumber int
+		wantURL    string
 	}{
-		{"Description", "https://gh/pr/9"},
-		{labelOf("#2 @alice"), "https://gh/pr/9#c-newest"},
-		{labelOf("#1 @alice"), "https://gh/pr/9#c-oldest"},
-		{labelOf("#2 ✓ @alice"), "https://gh/pr/9#r-1"},
-		{labelOf("#1 c @bob"), "https://gh/pr/9#r-2"},
-		{labelOf("[✓] build-arm"), "https://ci/build-arm"},
-		{labelOf("[✗] build"), "https://ci/build"},
-		{"(no comments)", ""},
+		{"Description", rolePRDescription, 0, ""},
+		{"#2 @alice", rolePRComment, 2, "https://gh/pr/9#c-newest"},
+		{"#1 @alice", rolePRComment, 1, "https://gh/pr/9#c-oldest"},
+		{"#2 ✓ @alice", rolePRReview, 2, "https://gh/pr/9#r-1"},
+		{"#1 c @bob", rolePRReview, 1, "https://gh/pr/9#r-2"},
+		{"[✗] build", roleCICheck, 0, "https://ci/build"},
+		{"[✓] build-arm", roleCICheck, 0, "https://ci/build-arm"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.row, func(t *testing.T) {
+			var found *sidebarItem
+			for i := range items {
+				if items[i].prefix+items[i].label == tc.row {
+					found = &items[i]
+					break
+				}
+			}
+			if found == nil {
+				t.Fatalf("sidebar has no row %q; items: %+v", tc.row, items)
+			}
+			if found.role != tc.wantRole {
+				t.Errorf("role = %v, want %v", found.role, tc.wantRole)
+			}
+			if got := referentURL(*found); got != tc.wantURL {
+				t.Errorf("referent URL = %q, want %q", got, tc.wantURL)
+			}
+			if tc.wantNumber != 0 && found.pr.number != tc.wantNumber {
+				t.Errorf("number = %d, want %d", found.pr.number, tc.wantNumber)
+			}
+		})
 	}
 
-	for _, c := range cases {
-		if got := prItemURL(c.selected, pr, comments, reviews, checks); got != c.want {
-			t.Errorf("prItemURL(%q) = %q, want %q", c.selected, got, c.want)
+	// Rows that stand for nothing carry no referent.
+	for _, it := range buildPRSidebar(nil, nil, nil, 0) {
+		if it.label == "Description" {
+			continue
+		}
+		if it.pr != nil {
+			t.Errorf("row %q carries a referent, want none", it.prefix+it.label)
 		}
 	}
 
 	// Same identity rule for "jump to the first failing CI check": "build"
 	// (failing) must select its own row, not the "build-arm" row.
-	idx := firstCIFailureIndex(items, checks)
+	idx := firstCIFailureIndex(items)
 	if idx < 0 {
 		t.Fatalf("firstCIFailureIndex found nothing in %+v", items)
 	}
@@ -78,7 +106,7 @@ func TestPRItemURL_ExactIdentity(t *testing.T) {
 		{Name: "build", Bucket: "fail", URL: "https://ci/build"},
 	}
 	ritems := buildPRSidebar(nil, nil, reordered, 0)
-	ridx := firstCIFailureIndex(ritems, reordered)
+	ridx := firstCIFailureIndex(ritems)
 	if ridx < 0 {
 		t.Fatalf("firstCIFailureIndex found nothing in %+v", ritems)
 	}

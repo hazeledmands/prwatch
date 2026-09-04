@@ -132,18 +132,19 @@ func (m *Model) updateCommitsModeContent(setItem itemSetter) {
 		setItem(mainItemKey{m.mode, ""})
 		return
 	}
-	if strings.HasPrefix(selected, "load more") {
+	role := m.sidebar.SelectedRole()
+	if role == roleLoadMore {
 		m.mainPane.SetPlainContent("Loading more commits...")
 		m.mainPane.SetTitle(selected, "")
 		setItem(mainItemKey{m.mode, selected})
 		return
 	}
-	if isPseudoEntryLabel(selected) {
+	if role == rolePseudoNewChanges || role == rolePseudoStaged {
 		// Each pseudo-entry has its own diff source (PROMPT.md, commits mode).
 		// Sharing one `git diff HEAD` between them conflated staged with
 		// unstaged and dropped untracked content entirely.
 		fetch := m.git.NewChangesDiff
-		if selected == pseudoStagedLabel {
+		if role == rolePseudoStaged {
 			fetch = m.git.StagedDiff
 		}
 		// Memoized per git-load cycle: this runs on every updateMainContent,
@@ -200,52 +201,49 @@ func (m *Model) updateCommitsModeContent(setItem itemSetter) {
 // updatePRModeContent populates the main pane for PR mode.
 func (m *Model) updatePRModeContent(setItem itemSetter) {
 	selected := m.sidebar.SelectedItem()
-	switch {
-	case selected == "Description":
+	row := m.sidebar.SelectedPRRow()
+	switch m.sidebar.SelectedRole() {
+	case rolePRDescription:
 		m.mainPane.SetPlainContent(m.renderPRDescription())
 		m.mainPane.SetTitle("Description", "")
+	case rolePRComment:
+		c := *row.comment
+		m.mainPane.SetPlainContent(buildCommentContent(c, m.mainPane.width))
+		m.mainPane.SetTitle(
+			fmt.Sprintf("comment #%d", row.number),
+			formatAuthorAndTime(c.Author, c.CreatedAt),
+		)
+	case rolePRReview:
+		r := *row.review
+		m.mainPane.SetPlainContent(buildReviewContent(r, m.mainPane.width))
+		m.mainPane.SetTitle(
+			fmt.Sprintf("review #%d · %s", row.number, reviewStateLabel(r.State)),
+			formatAuthorAndTime(r.Author, r.SubmittedAt),
+		)
+	case roleCICheck:
+		m.applyCICheckContent(*row.check)
 	default:
-		if matched, i := matchPRComment(selected, m.prComments); matched {
-			c := m.prComments[i]
-			m.mainPane.SetPlainContent(buildCommentContent(c, m.mainPane.width))
-			m.mainPane.SetTitle(
-				fmt.Sprintf("comment #%d", len(m.prComments)-i),
-				formatAuthorAndTime(c.Author, c.CreatedAt),
-			)
-		} else if matched, i := matchPRReview(selected, m.prReviews); matched {
-			r := m.prReviews[i]
-			m.mainPane.SetPlainContent(buildReviewContent(r, m.mainPane.width))
-			m.mainPane.SetTitle(
-				fmt.Sprintf("review #%d · %s", len(m.prReviews)-i, reviewStateLabel(r.State)),
-				formatAuthorAndTime(r.Author, r.SubmittedAt),
-			)
-		} else {
-			m.applyCICheckContent(selected)
-		}
+		// Rows that stand for nothing — the "(no comments)" style
+		// pseudo-entries — clear the body so we don't leave stale content
+		// from the previously-selected item on screen. Stale content also
+		// poisons scroll memory: saving visible.Start.SourceLine while
+		// showing a different item's content gives a value that can't
+		// round-trip on return.
+		m.mainPane.SetPlainContent("")
+		m.mainPane.SetTitle(selected, "")
 	}
 	setItem(mainItemKey{m.mode, selected})
 }
 
-// applyCICheckContent matches selected against m.ciChecks and updates the
-// main pane. When no check matches — pseudo-entries like "(no comments)"
-// land here — clear the body so we don't leave stale content from the
-// previously-selected item on screen. Stale content also poisons scroll
-// memory: saving visible.Start.SourceLine while showing a different
-// item's content gives a value that can't round-trip on return.
-func (m *Model) applyCICheckContent(selected string) {
-	if matched, i := matchCICheck(selected, m.ciChecks); matched {
-		check := m.ciChecks[i]
-		status := check.Bucket
-		if status == "" {
-			status = check.State
-		}
-		extra, _ := m.rwxFetcher.Lookup(check)
-		m.mainPane.SetPlainContent(buildCIContent(check, status, extra))
-		m.mainPane.SetTitle("CI · "+check.Name, status)
-		return
+// applyCICheckContent renders the CI check the selected row stands for.
+func (m *Model) applyCICheckContent(check gitpkg.CICheck) {
+	status := check.Bucket
+	if status == "" {
+		status = check.State
 	}
-	m.mainPane.SetPlainContent("")
-	m.mainPane.SetTitle(selected, "")
+	extra, _ := m.rwxFetcher.Lookup(check)
+	m.mainPane.SetPlainContent(buildCIContent(check, status, extra))
+	m.mainPane.SetTitle("CI · "+check.Name, status)
 }
 
 // reviewStateEmoji returns the prefix emoji for a PR review state used in

@@ -82,17 +82,6 @@ func reviewStateLabel(state string) string {
 	}
 }
 
-// matchNumberedItem checks if selected matches any item's expected label (built
-// by labelFn). Returns (true, index) on the first match, (false, 0) otherwise.
-func matchNumberedItem[T any](selected string, items []T, labelFn func(int, T) string) (bool, int) {
-	for i, item := range items {
-		if selected == labelFn(i, item) {
-			return true, i
-		}
-	}
-	return false, 0
-}
-
 // sanitizeDisplayText makes a filename safe to put on screen by replacing
 // every C0 control character and DEL with a visible escape.
 //

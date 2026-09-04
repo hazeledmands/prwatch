@@ -1,11 +1,5 @@
 package ui
 
-import (
-	"strings"
-
-	gitpkg "github.com/hazeledmands/prwatch/internal/git"
-)
-
 // firstSidebarMatch returns the index of the first sidebar item satisfying pred,
 // or -1 if none match.
 func firstSidebarMatch(items []sidebarItem, pred func(sidebarItem) bool) int {
@@ -17,49 +11,41 @@ func firstSidebarMatch(items []sidebarItem, pred func(sidebarItem) bool) int {
 	return -1
 }
 
-// firstCommentIndex finds the first @-prefixed sidebar item.
-func firstCommentIndex(items []sidebarItem) int {
+// firstRoleIndex returns the index of the first row standing for the given
+// kind of thing.
+func firstRoleIndex(items []sidebarItem, role sidebarItemRole) int {
 	return firstSidebarMatch(items, func(it sidebarItem) bool {
-		return strings.HasPrefix(it.label, "@")
+		return it.role == role
 	})
 }
 
-// firstReviewIndex finds the first @-prefixed sidebar item whose prefix carries
-// a review-state indicator.
+// firstCommentIndex finds the first PR-comment row.
+func firstCommentIndex(items []sidebarItem) int {
+	return firstRoleIndex(items, rolePRComment)
+}
+
+// firstReviewIndex finds the first PR-review row.
 func firstReviewIndex(items []sidebarItem) int {
-	return firstSidebarMatch(items, func(it sidebarItem) bool {
-		if !strings.HasPrefix(it.label, "@") {
-			return false
-		}
-		p := it.prefix
-		return strings.Contains(p, "✓") ||
-			strings.Contains(p, "✗") ||
-			strings.Contains(p, "c ") ||
-			strings.Contains(p, "…")
-	})
+	return firstRoleIndex(items, rolePRReview)
 }
 
 // firstCIFailureIndex finds the sidebar index of the first failing CI check,
-// or the first CI check overall when there are no failures. Returns -1 if
-// neither ciChecks nor sidebar items contain a usable target.
-func firstCIFailureIndex(items []sidebarItem, ciChecks []gitpkg.CICheck) int {
-	targetName := ""
-	for _, c := range ciChecks {
-		if c.Bucket == "fail" || c.Bucket == "cancel" {
-			targetName = c.Name
-			break
+// or the first CI check overall when there are no failures. Returns -1 when
+// there are no CI check rows.
+//
+// The row carries the check it was built from, so this reads the bucket off
+// the referent rather than pairing a name found in the check list back to a
+// row by label — which let check "build" select the "build-arm" row, and gave
+// two same-named checks the same row.
+func firstCIFailureIndex(items []sidebarItem) int {
+	if i := firstSidebarMatch(items, func(it sidebarItem) bool {
+		if it.role != roleCICheck {
+			return false
 		}
+		b := it.pr.check.Bucket
+		return b == "fail" || b == "cancel"
+	}); i >= 0 {
+		return i
 	}
-	if targetName == "" && len(ciChecks) > 0 {
-		targetName = ciChecks[0].Name
-	}
-	if targetName == "" {
-		return -1
-	}
-	return firstSidebarMatch(items, func(it sidebarItem) bool {
-		// Exact identity: buildPRSidebar puts the check name in `label`
-		// verbatim (see ciCheckLabel), so a substring test here would let
-		// check "build" select the "build-arm" row.
-		return it.label == targetName
-	})
+	return firstRoleIndex(items, roleCICheck)
 }

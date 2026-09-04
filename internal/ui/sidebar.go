@@ -52,6 +52,45 @@ type sidebarItem struct {
 	// Base row could ever satisfy — so selecting one rendered an empty main
 	// pane. The builder already knows the answer; it records it here instead.
 	commit *gitpkg.Commit
+	// role says what this row stands for, recorded by the builder that placed
+	// it. Same principle as `commit`: the row carries its meaning rather than
+	// letting consumers re-derive it from the rendered text.
+	role sidebarItemRole
+	// pr is the PR-mode referent (comment/review/check) for rows whose role
+	// names one. Nil everywhere else. See prRow.
+	pr *prRow
+}
+
+// sidebarItemRole names what a sidebar row stands for. Consumers switch on
+// this instead of re-deriving meaning from the rendered label — a label can
+// repeat (two CI checks may share a name), can be a prefix of another, and is
+// built for humans rather than for matching.
+type sidebarItemRole int
+
+const (
+	roleNone             sidebarItemRole = iota // headers, separators, files, commits
+	roleLoadMore                                // commits mode: "load more (N remaining)"
+	rolePseudoNewChanges                        // commits mode: the working-tree pseudo-entry
+	rolePseudoStaged                            // commits mode: the index pseudo-entry
+	rolePRDescription                           // PR mode: "Description"
+	rolePRComment                               // PR mode: an issue comment
+	rolePRReview                                // PR mode: a review
+	roleCICheck                                 // PR mode: a CI check
+)
+
+// prRow is what a PR-mode sidebar row stands for. Exactly one of the three
+// pointers is set, selected by the row's role; each points at a by-value copy
+// made when the row was built, so it stays valid after the source slice is
+// replaced by a refresh.
+//
+// number is the "#N" the row displays (reviews and comments are listed
+// newest-first, so it counts down); the main-pane title needs it and the
+// referent itself doesn't carry it.
+type prRow struct {
+	number  int
+	comment *gitpkg.PRComment
+	review  *gitpkg.PRReview
+	check   *gitpkg.CICheck
 }
 
 // dirCollapseKey returns the section-qualified collapse-state key for a
@@ -398,6 +437,26 @@ func (s *sidebar) SelectedCommit() *gitpkg.Commit {
 		return nil
 	}
 	return s.items[s.selected].commit
+}
+
+// SelectedRole returns the role of the selected row — what it stands for —
+// or roleNone when nothing is selected.
+func (s *sidebar) SelectedRole() sidebarItemRole {
+	if s.selected < 0 || s.selected >= len(s.items) {
+		return roleNone
+	}
+	return s.items[s.selected].role
+}
+
+// SelectedPRRow returns the PR-mode referent the selected row stands for, or
+// nil when the row isn't a PR comment/review/check row. PR-mode content and
+// open-in-browser resolve the selection through this rather than regenerating
+// labels and comparing — see sidebarItem.role.
+func (s *sidebar) SelectedPRRow() *prRow {
+	if s.selected < 0 || s.selected >= len(s.items) {
+		return nil
+	}
+	return s.items[s.selected].pr
 }
 
 // SelectedIsDir returns true if the selected item is a directory.
