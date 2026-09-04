@@ -19,13 +19,19 @@ func layoutDimensions(width, height, statusRows, sidebarPct int, sidebarHidden b
 // below the status bar and inside the pane borders — the same contentH the
 // panes are sized with in updateLayout.
 //
-// This is the only way to ask the question. It exists because the help
-// overlay, which occupies the region the panes would have, needs the panes'
-// content height to scroll in step with them, and four call sites used to
-// spell that out as max(1, m.height-m.statusBarLines()-2). That floor of 1
-// disagreed with layoutDimensions' floor of 0 on a terminal too short for its
-// own chrome, which is the class of divergence that keeps producing off-by-one
-// click targeting.
+// layoutDimensions remains the single source for the value; this is the
+// accessor for callers that want only the height and none of the widths. It
+// exists because the help overlay, which occupies the region the panes would
+// have, needs the panes' content height to scroll in step with them, and four
+// call sites used to spell that out as max(1, m.height-m.statusBarLines()-2).
+// That floor of 1 disagreed with layoutDimensions' floor of 0 on a terminal
+// too short for its own chrome, which is the class of divergence that keeps
+// producing off-by-one click targeting.
+//
+// Callers that need the widths too (updateLayout) still call layoutDimensions
+// directly, and mainPaneContentRows derives the adjacent screen-row range from
+// the same statusRows input — so "one source" here means the arithmetic lives
+// in layoutDimensions, not that every caller routes through this method.
 //
 // Zero is the honest answer there: a terminal whose status bar and borders
 // already fill it has no content rows, the panes are sized 0, and the help

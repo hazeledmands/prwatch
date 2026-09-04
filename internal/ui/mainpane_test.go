@@ -2,6 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"strings"
 	"testing"
 
@@ -2197,7 +2201,31 @@ func TestViewportLinesTracksViewportContent(t *testing.T) {
 		{"SetWordWrap(true)", func() { mp.SetWordWrap(true) }},
 		{"SetLineNumbers(false)", func() { mp.SetLineNumbers(false) }},
 		{"SetSize narrower", func() { mp.SetSize(24, 20) }},
-		{"SetContent (diff)", func() { mp.SetContent("+added\n-removed\n " + long) }},
+		// Tall enough that the viewport has somewhere to scroll to; the
+		// Update steps below are worthless against content that fits.
+		{"SetContent (diff)", func() {
+			var b strings.Builder
+			for i := range 60 {
+				fmt.Fprintf(&b, "+added %d\n-removed %d\n %s\n", i, i, long)
+			}
+			mp.SetContent(b.String())
+		}},
+		// mainPane.Update reassigns m.viewport wholesale
+		// (`m.viewport, cmd = m.viewport.Update(msg)`), which is a second
+		// write path to the widget holding the content vpLines mirrors. Today
+		// scrolling carries content through unchanged, so the cache stays
+		// valid; a bubbletea upgrade that reflowed or re-set content inside
+		// Update would desync it invisibly. Pin that here rather than assume.
+		{"Update (page down)", func() {
+			before := mp.viewport.YOffset()
+			mp.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+			if mp.viewport.YOffset() == before {
+				t.Fatalf("page down through Update did not scroll (offset stayed %d); "+
+					"this step has to actually exercise the Update write path to be worth anything", before)
+			}
+		}},
+		{"Update (wheel down)", func() { mp.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown}) }},
+		{"Update (page up)", func() { mp.Update(tea.KeyPressMsg{Code: tea.KeyPgUp}) }},
 		{"ToggleShowRemoved", func() { mp.ToggleShowRemoved() }},
 		{"SetDiffAnnotations", func() {
 			mp.SetDiffAnnotations(map[int]diffAnnotation{1: {}})
@@ -2208,6 +2236,109 @@ func TestViewportLinesTracksViewportContent(t *testing.T) {
 	for _, s := range steps {
 		s.do()
 		check(s.name)
+	}
+}
+
+// TestSeam_PaneCachesHaveSingleWriter is the structural half of the cache
+// invariant. TestViewportLinesTracksViewportContent drives a list of known
+// mutations; a new viewport.SetContent call site it does not know about would
+// pass it untouched, and viewportLines would then serve a stale row slice —
+// silently, with no crash: wrong cursor columns, wrong yank boundaries.
+//
+// So assert the shape instead of the behavior. Both caches are built in
+// refreshViewport and are correct exactly as long as their inputs are written
+// nowhere else:
+//
+//   - viewport content (vpLines mirrors it) — refreshViewport only.
+//   - sourceToFormatLine (reverseSource inverts it) — refreshViewport, plus
+//     applyFileViewFormatting, which refreshViewport calls to populate it.
+//
+// Non-test files only, like the package's other seam guards: tests legitimately
+// call applyFileViewFormatting directly to exercise it in isolation.
+func TestSeam_PaneCachesHaveSingleWriter(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+	// Functions allowed to write each cache input.
+	contentWriters := map[string]bool{"refreshViewport": true}
+	mappingWriters := map[string]bool{"refreshViewport": true, "applyFileViewFormatting": true}
+
+	fset := token.NewFileSet()
+	setContentCalls, mappingWrites := 0, 0
+
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				switch s := n.(type) {
+				case *ast.CallExpr:
+					// `<anything>.viewport.SetContent(...)` — matching on the
+					// selector chain rather than the receiver name so a rename
+					// of the `m` receiver cannot slip past.
+					sel, ok := s.Fun.(*ast.SelectorExpr)
+					if !ok || sel.Sel.Name != "SetContent" {
+						return true
+					}
+					inner, ok := sel.X.(*ast.SelectorExpr)
+					if !ok || inner.Sel.Name != "viewport" {
+						return true
+					}
+					if contentWriters[fn.Name.Name] {
+						setContentCalls++
+						return true
+					}
+					t.Errorf("%s: viewport.SetContent called in %s, outside refreshViewport\n"+
+						"mainPane.vpLines is rebuilt in refreshViewport and would be stale after this call. "+
+						"Route the content change through refreshViewport, or extend the cache invalidation "+
+						"and this guard together.", fset.Position(sel.Pos()), fn.Name.Name)
+				case *ast.AssignStmt:
+					for _, tgt := range s.Lhs {
+						// Both `m.sourceToFormatLine = x` and the element
+						// write `m.sourceToFormatLine[k] = v`.
+						if idx, ok := tgt.(*ast.IndexExpr); ok {
+							tgt = idx.X
+						}
+						sel, ok := tgt.(*ast.SelectorExpr)
+						if !ok || sel.Sel.Name != "sourceToFormatLine" {
+							continue
+						}
+						if mappingWriters[fn.Name.Name] {
+							mappingWrites++
+							continue
+						}
+						t.Errorf("%s: sourceToFormatLine written in %s\n"+
+							"mainPane.reverseSource inverts it and is rebuilt only in refreshViewport, "+
+							"so a write here desyncs the two. Extend the invalidation and this guard together.",
+							fset.Position(sel.Pos()), fn.Name.Name)
+					}
+				}
+				return true
+			})
+		}
+	}
+
+	// Anchor the scan: a walk that silently matched nothing would otherwise
+	// "pass" forever.
+	if setContentCalls != 1 {
+		t.Errorf("found %d viewport.SetContent calls inside refreshViewport, want exactly 1; "+
+			"if refreshViewport was restructured, update this guard rather than deleting it", setContentCalls)
+	}
+	if mappingWrites < 2 {
+		t.Errorf("found %d sourceToFormatLine writes in refreshViewport/applyFileViewFormatting, want at least 2 "+
+			"(the reset and the per-line fill); if the mapping moved, update this guard rather than deleting it",
+			mappingWrites)
 	}
 }
 
