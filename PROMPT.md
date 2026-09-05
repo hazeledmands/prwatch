@@ -175,13 +175,14 @@ this mode should have a "gutter" — a narrow column to the left of each line sh
 
 #### opening an editor
 
-`confirm` in the main pane launches `$EDITOR` on the displayed file. `$EDITOR` is split on whitespace, so `EDITOR="code -w"` works, and the editor is identified by the basename of its first word, with a `.sh` or `.exe` suffix stripped — `/opt/homebrew/bin/nvim` resolves to `nvim`, and jetbrains' `goland.sh` to `goland`. an unset `$EDITOR` falls back to `vi`.
+`confirm` in the main pane launches `$EDITOR` on the displayed file. `$EDITOR` is split on whitespace, so `EDITOR="emacs -nw"` works and its extra words are passed through ahead of anything the preset adds. the editor is identified by the basename of its first word, with a `.sh` or `.exe` suffix stripped — `/opt/homebrew/bin/nvim` resolves to `nvim`, and jetbrains' `goland.sh` to `goland`. an unset `$EDITOR` falls back to `vi`.
 
-each known editor carries a preset: how it takes a line number, and whether it runs in the terminal. an unrecognized editor is assumed to be a terminal editor invoked as `<editor> +<line> -- <file>`.
+each known editor carries a preset: how it takes a line number, and whether it runs in the terminal. an unrecognized editor is assumed to be a terminal editor taking `+N`.
 
 - **line number.** the line currently at the top of the viewport. `vi`, `vim`, `nvim`, `nano`, `emacs`, `micro`, and `kak` take `+N` ahead of the path; `zed`, `subl`, `hx`, and `helix` append it to the path as `<file>:N`; `code` takes `--goto <file>:N` and `bbedit` takes `+N`; `xed` and the jetbrains launchers (`idea`, `goland`, `pycharm`, `webstorm`, `clion`, `rubymine`, `phpstorm`, `rider`, `datagrip`, `rustrover`, `studio`) take `--line N` ahead of the path.
 - **terminal vs. GUI.** terminal editors run in the foreground with the TUI suspended, and prwatch refreshes when they exit. GUI editors are spawned in the background and the TUI is never suspended — their CLI returns as soon as the running application has been signalled, so suspending would blank and redraw the screen for nothing.
-- **waiting.** no `--wait`/`-w` is ever added. prwatch has no call site that must block until the edit finishes, and a wait flag on a GUI editor would hold the TUI hostage to a window the user may leave open for hours. a wait flag the user put in `$EDITOR` themselves is passed through untouched.
+- **end-of-options guard.** `--` precedes the path for every editor except the jetbrains launchers, whose argument parser is not known to accept it. without it a path beginning with `-` is read as a flag.
+- **waiting.** prwatch never adds a wait flag, and strips `-w`/`--wait` out of `$EDITOR` when the editor is a GUI one. a GUI launcher told to wait blocks until the window is closed, pinning a prwatch goroutine to a window the user may leave open for hours; dropped, the launcher returns at once and the window still survives, because it belongs to the already-running application rather than to prwatch. terminal editors keep every word the user wrote — `vim -w <file>` records keystrokes and `emacs -nw` suppresses the GUI, and neither is a wait flag.
 - **project context.** only the file is passed, never the repo root. jetbrains IDEs consequently open a file outside an already-open project in LightEdit mode rather than as part of a project; that is accepted, because the alternative — passing the repo root — makes them write an `.idea` directory into the user's repo.
 - **failures.** an editor that cannot be launched surfaces its error in the status bar.
 

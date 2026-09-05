@@ -79,8 +79,12 @@ func TestProperty_ResolveArgv(t *testing.T) {
 		}
 
 		// Pass-through words keep their order and lead the argv, so a flag the
-		// user put in $EDITOR is seen by the editor before the preset's args.
+		// user put in $EDITOR is seen by the editor before the preset's args —
+		// minus the wait flags, which a GUI editor does not get to keep.
 		extra := words[1:]
+		if !got.Terminal {
+			extra = stripWaitFlags(extra)
+		}
 		if len(got.Args) < len(extra) || !slices.Equal(got.Args[:len(extra)], extra) {
 			t.Fatalf("Args = %v, want it to start with the pass-through words %v", got.Args, extra)
 		}
@@ -106,11 +110,18 @@ func TestProperty_ResolveArgv(t *testing.T) {
 			t.Fatalf("file %q is not the last arg: %v", file, got.Args)
 		}
 
-		// No wait flag is ever synthesized: anything -w/--wait in the argv came
-		// from the pass-through prefix.
-		for _, a := range preset {
+		// No wait flag is ever synthesized, and a GUI editor carries none at
+		// all: waiting there would pin a goroutine to a window the user may
+		// leave open for hours. A terminal editor keeps whatever the user
+		// wrote, since `-w` means something else to it.
+		scope := preset
+		if !got.Terminal {
+			scope = got.Args
+		}
+		for _, a := range scope {
 			if a == "-w" || a == "--wait" {
-				t.Fatalf("Resolve synthesized a wait flag: %v", got.Args)
+				t.Fatalf("wait flag survived in a %s invocation: %v",
+					map[bool]string{true: "terminal", false: "GUI"}[got.Terminal], got.Args)
 			}
 		}
 

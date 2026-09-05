@@ -39,11 +39,14 @@ type Preset struct {
 	// as the running application has been signalled, so suspending for one
 	// would blank and redraw the screen for nothing.
 	Terminal bool
-	// DoubleDash puts `--` before the path. Only the unrecognized-editor
-	// fallback sets it: with no preset to go on, the end-of-options guard is
-	// the one thing that can be assumed safe, whereas adding it to a known
-	// editor risks an argument its CLI does not accept.
-	DoubleDash bool
+	// NoGuard omits the `--` end-of-options guard before the path.
+	//
+	// The guard is the default because without it a path beginning with `-`
+	// is read as a flag, and because lazygit ships `--` on every preset it
+	// has — including `code --goto --` — across a large user base. Only the
+	// JetBrains launchers set NoGuard: they forward argv to a JVM argument
+	// parser lazygit has no preset for and whose `--` handling is unverified.
+	NoGuard bool
 }
 
 // presets is the editor table.
@@ -72,22 +75,22 @@ var presets = map[string]Preset{
 	"xed":    {Line: LineFlag},
 
 	// JetBrains launchers, all `--line N`.
-	"idea":      {Line: LineFlag},
-	"goland":    {Line: LineFlag},
-	"pycharm":   {Line: LineFlag},
-	"webstorm":  {Line: LineFlag},
-	"clion":     {Line: LineFlag},
-	"rubymine":  {Line: LineFlag},
-	"phpstorm":  {Line: LineFlag},
-	"rider":     {Line: LineFlag},
-	"datagrip":  {Line: LineFlag},
-	"rustrover": {Line: LineFlag},
-	"studio":    {Line: LineFlag},
+	"idea":      {Line: LineFlag, NoGuard: true},
+	"goland":    {Line: LineFlag, NoGuard: true},
+	"pycharm":   {Line: LineFlag, NoGuard: true},
+	"webstorm":  {Line: LineFlag, NoGuard: true},
+	"clion":     {Line: LineFlag, NoGuard: true},
+	"rubymine":  {Line: LineFlag, NoGuard: true},
+	"phpstorm":  {Line: LineFlag, NoGuard: true},
+	"rider":     {Line: LineFlag, NoGuard: true},
+	"datagrip":  {Line: LineFlag, NoGuard: true},
+	"rustrover": {Line: LineFlag, NoGuard: true},
+	"studio":    {Line: LineFlag, NoGuard: true},
 }
 
 // fallback is what an unrecognized editor gets: assumed to be a terminal
-// editor invoked as `<editor> +<line> -- <file>`.
-var fallback = Preset{Line: LinePlus, Terminal: true, DoubleDash: true}
+// editor taking `+N`, with the default `--` guard.
+var fallback = Preset{Line: LinePlus, Terminal: true}
 
 // DefaultEditor is used when `$EDITOR` is unset or holds only whitespace.
 const DefaultEditor = "vi"
@@ -134,9 +137,9 @@ type Invocation struct {
 //
 // `$EDITOR` is split on whitespace: the first word is the program (kept
 // verbatim, so an absolute path still works), and the rest are passed through
-// as leading arguments ahead of anything the preset adds, which is what makes
-// `EDITOR="code -w"` work. No wait flag is ever synthesized here; one the user
-// put in `$EDITOR` themselves rides through in those leading arguments.
+// as leading arguments ahead of anything the preset adds. No wait flag is ever
+// synthesized, and for a GUI editor one the user wrote is dropped — see
+// stripWaitFlags.
 func Resolve(editorEnv, file string, line int) Invocation {
 	words := strings.Fields(editorEnv)
 	if len(words) == 0 {
@@ -150,6 +153,9 @@ func Resolve(editorEnv, file string, line int) Invocation {
 	}
 
 	args := append([]string{}, words[1:]...)
+	if !preset.Terminal {
+		args = stripWaitFlags(args)
+	}
 	args = append(args, preset.fileArgs(file, line)...)
 	return Invocation{Name: name, Args: args, Terminal: preset.Terminal}
 }
@@ -160,10 +166,10 @@ func (p Preset) fileArgs(file string, line int) []string {
 	// path renders the positional part of the argv, guarded by `--` when the
 	// preset asks for it.
 	path := func(f string) []string {
-		if p.DoubleDash {
-			return []string{"--", f}
+		if p.NoGuard {
+			return []string{f}
 		}
-		return []string{f}
+		return []string{"--", f}
 	}
 	if line <= 0 {
 		return path(file)
@@ -179,4 +185,29 @@ func (p Preset) fileArgs(file string, line int) []string {
 	default: // LinePlus
 		return append([]string{"+" + strconv.Itoa(line)}, path(file)...)
 	}
+}
+
+// stripWaitFlags removes `-w` and `--wait` from a GUI editor's arguments.
+//
+// A GUI launcher told to wait blocks until the window is closed, which would
+// pin one prwatch goroutine to a window the user may leave open for hours.
+// Dropping the flag costs nothing: the launcher returns as soon as the running
+// application has been signalled, and the window outlives it regardless,
+// because it belongs to that application and not to prwatch.
+//
+// Callers must apply this only to GUI editors. In a terminal editor the same
+// spelling means something else entirely — `vim -w <file>` records keystrokes
+// to a file — so stripping there would silently change the invocation.
+//
+// Matching is exact (case-insensitive): `--waitfor` and `-wait` are somebody
+// else's flags and survive.
+func stripWaitFlags(args []string) []string {
+	out := args[:0:0]
+	for _, a := range args {
+		if strings.EqualFold(a, "-w") || strings.EqualFold(a, "--wait") {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }

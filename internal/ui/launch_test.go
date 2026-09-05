@@ -75,7 +75,7 @@ func TestOpenEditor_TerminalEditorSuspends(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("openEditor returned nil with a file on screen")
 	}
-	want := []string{"nvim", "+1", "pkg/a.go"}
+	want := []string{"nvim", "+1", "--", "pkg/a.go"}
 	if !slices.Equal(probe.argv, want) {
 		t.Errorf("argv built during openEditor = %v, want %v — a terminal editor must reach tea.Exec", probe.argv, want)
 	}
@@ -111,7 +111,7 @@ func TestOpenEditor_GUIEditorDoesNotSuspend(t *testing.T) {
 	}
 
 	msg := cmd()
-	want := []string{"code", "--goto", "pkg/a.go:1"}
+	want := []string{"code", "--goto", "--", "pkg/a.go:1"}
 	if !slices.Equal(probe.argv, want) {
 		t.Errorf("argv = %v, want %v", probe.argv, want)
 	}
@@ -137,7 +137,9 @@ func TestOpenEditor_GUIEditorDoesNotSuspend(t *testing.T) {
 
 // TestOpenEditor_LineNumberReachesGUIPreset checks the viewport line survives
 // the trip through the preset for a non-`+N` editor, and that a wait flag the
-// user put in $EDITOR rides through untouched.
+// user put in $EDITOR is dropped on the way — PROMPT.md's "waiting".
+//
+// goland also stands in for the one family that takes no `--` guard.
 func TestOpenEditor_LineNumberReachesGUIPreset(t *testing.T) {
 	t.Setenv("EDITOR", "goland.sh -w")
 	m := editorModel(t)
@@ -150,7 +152,7 @@ func TestOpenEditor_LineNumberReachesGUIPreset(t *testing.T) {
 		t.Fatal("openEditor returned nil")
 	}
 	cmd()
-	want := "goland.sh -w --line 3 pkg/a.go"
+	want := "goland.sh --line 3 pkg/a.go"
 	if got := strings.Join(probe.argv, " "); got != want {
 		t.Errorf("argv = %q, want %q", got, want)
 	}

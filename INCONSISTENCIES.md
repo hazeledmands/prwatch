@@ -259,4 +259,15 @@ only be added per-preset, and the spec chose not to enumerate that. The
 argument against is that the terminal `+N` presets are precisely the family
 that does accept it, and the guard is free there.
 
-Implemented as written; no code change pending an answer.
+**Resolved — spec and code updated; the argument above was wrong on its
+facts.** lazygit, the source the preset table was adapted from, ships `--` on
+every preset it has except `acme` — including `code --reuse-window --goto --
+{{filename}}:{{line}}` and `xed --line {{line}} -- {{filename}}` — across a
+large user base, so "several GUI launchers reject it" does not hold and was
+never tested. `zed` and `hx` both parse with clap, where `--` is guaranteed.
+
+The guard is now the default for every preset, and `Preset.DoubleDash` was
+inverted to `Preset.NoGuard`, set only on the JetBrains launchers: those have
+no lazygit preset to draw on, and they forward argv to a JVM argument parser
+whose `--` handling is unverified. Testing that would mean launching the IDE.
+If it turns out to accept `--`, drop the field and the exception with it.

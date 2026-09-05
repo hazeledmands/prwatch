@@ -1,0 +1,27 @@
+# 2026/09/04 17:52:01.532246 [TestProperty_ResolveArgv] [rapid] draw env: "bbedit -w"
+# 2026/09/04 17:52:01.532297 [TestProperty_ResolveArgv] [rapid] draw file: " "
+# 2026/09/04 17:52:01.532309 [TestProperty_ResolveArgv] [rapid] draw line: 0
+# 2026/09/04 17:52:01.532320 [TestProperty_ResolveArgv] Args = [--  ], want it to start with the pass-through words [-w]
+# 
+v0.4.8#5601521604415349739
+0x1
+0x0
+0x0
+0x0
+0x0
+0xccccccccccccd
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

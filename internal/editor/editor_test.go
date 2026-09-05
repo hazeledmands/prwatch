@@ -44,30 +44,31 @@ func TestPresetMatrix(t *testing.T) {
 		terminal bool
 	}{
 		// +N ahead of the path, terminal.
-		{"vi", []string{"+42", file}, true},
-		{"vim", []string{"+42", file}, true},
-		{"nvim", []string{"+42", file}, true},
-		{"nano", []string{"+42", file}, true},
-		{"emacs", []string{"+42", file}, true},
-		{"micro", []string{"+42", file}, true},
-		{"kak", []string{"+42", file}, true},
+		{"vi", []string{"+42", "--", file}, true},
+		{"vim", []string{"+42", "--", file}, true},
+		{"nvim", []string{"+42", "--", file}, true},
+		{"nano", []string{"+42", "--", file}, true},
+		{"emacs", []string{"+42", "--", file}, true},
+		{"micro", []string{"+42", "--", file}, true},
+		{"kak", []string{"+42", "--", file}, true},
 
 		// appended to the path, terminal.
-		{"hx", []string{file + ":42"}, true},
-		{"helix", []string{file + ":42"}, true},
+		{"hx", []string{"--", file + ":42"}, true},
+		{"helix", []string{"--", file + ":42"}, true},
 
 		// appended to the path, GUI.
-		{"zed", []string{file + ":42"}, false},
-		{"subl", []string{file + ":42"}, false},
+		{"zed", []string{"--", file + ":42"}, false},
+		{"subl", []string{"--", file + ":42"}, false},
 
 		// --goto, GUI.
-		{"code", []string{"--goto", file + ":42"}, false},
+		{"code", []string{"--goto", "--", file + ":42"}, false},
 
 		// +N, GUI.
-		{"bbedit", []string{"+42", file}, false},
+		{"bbedit", []string{"+42", "--", file}, false},
 
-		// --line N ahead of the path, GUI.
-		{"xed", []string{"--line", "42", file}, false},
+		// --line N ahead of the path, GUI. No `--`: the jetbrains launchers
+		// forward argv to a JVM parser not known to accept it.
+		{"xed", []string{"--line", "42", "--", file}, false},
 		{"idea", []string{"--line", "42", file}, false},
 		{"goland", []string{"--line", "42", file}, false},
 		{"pycharm", []string{"--line", "42", file}, false},
@@ -118,7 +119,7 @@ func TestResolve(t *testing.T) {
 			env:      "",
 			line:     7,
 			wantName: "vi",
-			wantArgs: []string{"+7", file},
+			wantArgs: []string{"+7", "--", file},
 			terminal: true,
 		},
 		{
@@ -126,23 +127,23 @@ func TestResolve(t *testing.T) {
 			env:      "   \t ",
 			line:     7,
 			wantName: "vi",
-			wantArgs: []string{"+7", file},
+			wantArgs: []string{"+7", "--", file},
 			terminal: true,
 		},
 		{
-			name:     "extra words pass through as leading args",
+			name:     "GUI wait flag is stripped",
 			env:      "code -w",
 			line:     3,
 			wantName: "code",
-			wantArgs: []string{"-w", "--goto", file + ":3"},
+			wantArgs: []string{"--goto", "--", file + ":3"},
 			terminal: false,
 		},
 		{
-			name:     "several extra words keep their order",
+			name:     "non-wait extra words keep their order",
 			env:      "code -w --new-window",
 			line:     3,
 			wantName: "code",
-			wantArgs: []string{"-w", "--new-window", "--goto", file + ":3"},
+			wantArgs: []string{"--new-window", "--goto", "--", file + ":3"},
 			terminal: false,
 		},
 		{
@@ -150,7 +151,7 @@ func TestResolve(t *testing.T) {
 			env:      "/opt/homebrew/bin/nvim",
 			line:     11,
 			wantName: "/opt/homebrew/bin/nvim",
-			wantArgs: []string{"+11", file},
+			wantArgs: []string{"+11", "--", file},
 			terminal: true,
 		},
 		{
@@ -166,7 +167,7 @@ func TestResolve(t *testing.T) {
 			env:      "code.exe",
 			line:     11,
 			wantName: "code.exe",
-			wantArgs: []string{"--goto", file + ":11"},
+			wantArgs: []string{"--goto", "--", file + ":11"},
 			terminal: false,
 		},
 		{
@@ -198,7 +199,7 @@ func TestResolve(t *testing.T) {
 			env:      "vim",
 			line:     0,
 			wantName: "vim",
-			wantArgs: []string{file},
+			wantArgs: []string{"--", file},
 			terminal: true,
 		},
 		{
@@ -206,7 +207,7 @@ func TestResolve(t *testing.T) {
 			env:      "code",
 			line:     -1,
 			wantName: "code",
-			wantArgs: []string{file},
+			wantArgs: []string{"--", file},
 			terminal: false,
 		},
 		{
@@ -214,7 +215,7 @@ func TestResolve(t *testing.T) {
 			env:      "zed",
 			line:     0,
 			wantName: "zed",
-			wantArgs: []string{file},
+			wantArgs: []string{"--", file},
 			terminal: false,
 		},
 		{
@@ -282,5 +283,51 @@ func TestResolveMentionsFileExactlyOnce(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestWaitFlagStripping pins PROMPT.md's "waiting" rule: `-w`/`--wait` are
+// removed from a GUI editor's argv and left alone for a terminal one.
+//
+// The terminal half is the point of the rule, not an oversight. `vim -w
+// <file>` records keystrokes to a file and `emacs -nw` suppresses the GUI —
+// neither is a wait flag, so a blanket strip would silently change what the
+// user asked for.
+func TestWaitFlagStripping(t *testing.T) {
+	const file = "a/b.go"
+
+	tests := []struct {
+		name string
+		env  string
+		want []string
+	}{
+		// GUI: stripped.
+		{"code -w", "code -w", []string{"--goto", "--", file + ":9"}},
+		{"code --wait", "code --wait", []string{"--goto", "--", file + ":9"}},
+		{"zed -w", "zed -w", []string{"--", file + ":9"}},
+		{"zed --wait", "zed --wait", []string{"--", file + ":9"}},
+		{"subl --wait", "subl --wait", []string{"--", file + ":9"}},
+		{"goland --wait", "goland --wait", []string{"--line", "9", file}},
+		{"both forms at once", "code -w --wait", []string{"--goto", "--", file + ":9"}},
+		{"strip keeps neighbours", "code -w -n --wait -r", []string{"-n", "-r", "--goto", "--", file + ":9"}},
+		{"case-insensitive", "code -W", []string{"--goto", "--", file + ":9"}},
+
+		// GUI: only exact matches go. A flag that merely starts with -w stays.
+		{"-wait is not --wait", "code -wait", []string{"-wait", "--goto", "--", file + ":9"}},
+		{"--waitfor stays", "code --waitfor", []string{"--waitfor", "--goto", "--", file + ":9"}},
+
+		// Terminal: untouched, because -w means something else there.
+		{"vim -w keeps its scriptout flag", "vim -w", []string{"-w", "+9", "--", file}},
+		{"emacs -nw untouched", "emacs -nw", []string{"-nw", "+9", "--", file}},
+		{"unknown editor is terminal, untouched", "myed -w", []string{"-w", "+9", "--", file}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Resolve(tt.env, file, 9)
+			if !slices.Equal(got.Args, tt.want) {
+				t.Errorf("Resolve(%q).Args = %v, want %v", tt.env, got.Args, tt.want)
+			}
+		})
 	}
 }
