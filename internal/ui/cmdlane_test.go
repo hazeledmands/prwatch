@@ -28,8 +28,9 @@ func TestCommandLaneClassification(t *testing.T) {
 		wantAtLeast int
 	}{
 		{
-			name: "editor is interactive",
+			name: "terminal editor is interactive",
 			invoke: func(m *Model) {
+				t.Setenv("EDITOR", "vim")
 				m.sidebar.SetItems([]sidebarItem{{label: "a.go", filePath: "a.go"}})
 				// openEditor targets the displayed file, so this fixture has
 				// to say what the pane is showing.
@@ -40,12 +41,40 @@ func TestCommandLaneClassification(t *testing.T) {
 			wantAtLeast: 1,
 		},
 		{
-			name: "browser opener is interactive",
+			// `open`/`xdg-open` return as soon as the browser is signalled, so
+			// the opener is spawned in the background rather than suspending
+			// the TUI — which puts it on the timed lane, like every other
+			// subprocess the app runs off the Update goroutine.
+			name: "browser opener is background",
 			invoke: func(m *Model) {
 				if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 					t.Skipf("no browser opener on %s", runtime.GOOS)
 				}
-				m.openInBrowser("https://example.com/pr/1")
+				cmd := m.openInBrowser("https://example.com/pr/1")
+				if cmd == nil {
+					t.Fatal("openInBrowser returned nil")
+				}
+				cmd()
+			},
+			wantLane:    "background",
+			wantAtLeast: 1,
+		},
+		{
+			// A GUI editor does not suspend the TUI, but it is still the
+			// user's $EDITOR: a `-w` they put in it blocks for as long as the
+			// window is open, so it stays on the untimed lane. Whether it
+			// suspends is a separate axis from which lane it draws from, and
+			// launch_test.go covers that one.
+			name: "GUI editor is interactive",
+			invoke: func(m *Model) {
+				t.Setenv("EDITOR", "code")
+				m.sidebar.SetItems([]sidebarItem{{label: "a.go", filePath: "a.go"}})
+				m.lastMainItem = mainItemKey{FilesMode, "a.go"}
+				cmd := m.openEditor()
+				if cmd == nil {
+					t.Fatal("openEditor returned nil")
+				}
+				cmd()
 			},
 			wantLane:    "interactive",
 			wantAtLeast: 1,

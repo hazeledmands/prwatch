@@ -16,6 +16,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/hazeledmands/prwatch/internal/editor"
 	gitpkg "github.com/hazeledmands/prwatch/internal/git"
 )
 
@@ -1036,6 +1037,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.debugLog.Printf("[timer] gitTick")
 		case prTickMsg:
 			m.debugLog.Printf("[timer] prTick")
+		case launchMsg:
+			m.debugLog.Printf("[launch] %s refresh=%v err=%v", msg.name, msg.refresh, msg.err)
 		case notificationExpiredMsg:
 			m.debugLog.Printf("[timer] notificationExpired gen=%d", msg.gen)
 		// Filesystem changes
@@ -1472,6 +1475,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// can't push the next one an interval into the future.
 		m.activity.MarkPRFetch(now)
 		return m, tea.Batch(fetch, schedulePRTick(m.activity.PRTickDelay(now)))
+
+	case launchMsg:
+		// First moment anyone knows whether the program started: the launch ran
+		// off this goroutine (GUI editor, browser opener) or behind a suspended
+		// TUI (terminal editor).
+		if toast := launchToastFor(msg); toast != "" {
+			return m, m.notifications.Show(toast)
+		}
+		if msg.refresh {
+			return m, func() tea.Msg { return RefreshMsg{} }
+		}
+		return m, nil
 
 	case notificationExpiredMsg:
 		m.notifications.Expire(msg)
@@ -2365,11 +2380,21 @@ func (m *Model) openEditor() tea.Cmd {
 		return nil
 	}
 
-	editor, args := m.buildEditorCmd(file)
-	cmd := m.interactiveFactory(editor, args...)
+	inv := m.buildEditorCmd(file)
+	if !inv.Terminal {
+		// GUI editor: spawned without suspending the TUI. Untimed, because
+		// $EDITOR is the user's: a `-w` they put there themselves makes the
+		// launcher block for as long as the window stays open, and a deadline
+		// would kill that edit and toast a timeout the user cannot act on.
+		return spawnCmd(m.interactiveFactory, m.dir, inv.Name, inv.Args, false)
+	}
+	// Terminal editor: foreground, TUI suspended, refresh on exit. Snapshotted
+	// here so the tea.Exec callback closes over locals rather than Model.
+	name := inv.Name
+	cmd := m.interactiveFactory(name, inv.Args...)
 	cmd.SetDir(m.dir)
 	return tea.Exec(cmd, func(err error) tea.Msg {
-		return RefreshMsg{}
+		return launchMsg{name: name, refresh: true, err: err}
 	})
 }
 
@@ -2402,36 +2427,29 @@ func (m *Model) prItemURL() string {
 }
 
 // openInBrowser opens a URL in the default system browser.
+//
+// The opener is spawned in the background for the same reason a GUI editor is:
+// `open`/`xdg-open` return as soon as the browser has been signalled, so
+// suspending the TUI for one blanks and redraws the screen for nothing.
 func (m *Model) openInBrowser(url string) tea.Cmd {
-	var cmd command.Command
+	var opener string
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = m.interactiveFactory("open", url)
+		opener = "open"
 	case "linux":
-		cmd = m.interactiveFactory("xdg-open", url)
+		opener = "xdg-open"
 	default:
 		return nil
 	}
-	return tea.Exec(cmd, func(err error) tea.Msg {
-		return RefreshMsg{}
-	})
+	return spawnCmd(m.cmdFactory, m.dir, opener, []string{url}, false)
 }
 
-// buildEditorCmd returns the editor command and arguments for opening a file.
-// Exported for testing.
-func (m *Model) buildEditorCmd(file string) (string, []string) {
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vi"
-	}
-
-	var args []string
-	line := m.currentLineNumber()
-	if line > 0 {
-		args = append(args, fmt.Sprintf("+%d", line))
-	}
-	args = append(args, file)
-	return editor, args
+// buildEditorCmd resolves $EDITOR into the argv for opening file at the line
+// currently at the top of the viewport, plus whether that editor runs in the
+// terminal. A thin adapter over editor.Resolve, which is where the preset
+// table and all the argv shapes live.
+func (m *Model) buildEditorCmd(file string) editor.Invocation {
+	return editor.Resolve(os.Getenv("EDITOR"), file, m.currentLineNumber())
 }
 
 // currentLineNumber finds the source line at the viewport top, mapping

@@ -79,6 +79,9 @@ func paneOwnerModel(t *testing.T) (m *Model, wantFile string) {
 // the top-of-viewport line. A directory sitting under the sidebar cursor is
 // not a reason to do nothing — a real file is on screen.
 func TestEnter_MainFocusFollowsPaneNotSidebar(t *testing.T) {
+	// A terminal editor, pinned: only that path builds the command inside
+	// openEditor, which is what gotArgs observes.
+	t.Setenv("EDITOR", "vim")
 	m, wantFile := paneOwnerModel(t)
 	var gotArgs []string
 	m.interactiveFactory = func(name string, args ...string) command.Command {
@@ -104,6 +107,7 @@ func TestEnter_MainFocusFollowsPaneNotSidebar(t *testing.T) {
 // the viewport, so the file identity fix didn't come at the cost of the
 // "+N" the spec asks for.
 func TestEnter_MainFocusEditorLineIsViewportTop(t *testing.T) {
+	t.Setenv("EDITOR", "vim")
 	m, wantFile := paneOwnerModel(t)
 	var gotArgs []string
 	m.interactiveFactory = func(name string, args ...string) command.Command {

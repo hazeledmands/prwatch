@@ -1,0 +1,286 @@
+package editor
+
+import (
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+// TestIdentify pins the name-normalization rule from PROMPT.md's "opening an
+// editor": basename of the first word, with a `.sh` or `.exe` suffix stripped.
+func TestIdentify(t *testing.T) {
+	tests := []struct {
+		word string
+		want string
+	}{
+		{"nvim", "nvim"},
+		{"/opt/homebrew/bin/nvim", "nvim"},
+		{"goland.sh", "goland"},
+		{"/Applications/GoLand.app/Contents/MacOS/goland.sh", "goland"},
+		{"code.exe", "code"},
+		{`C:\Program Files\Microsoft VS Code\code.exe`, "code"},
+		{"./vim", "vim"},
+		{"emacs", "emacs"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.word, func(t *testing.T) {
+			if got := Identify(tt.word); got != tt.want {
+				t.Errorf("Identify(%q) = %q, want %q", tt.word, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPresetMatrix walks every preset named in PROMPT.md and asserts the argv
+// its line-number form produces, plus whether it suspends the TUI.
+func TestPresetMatrix(t *testing.T) {
+	const file = "pkg/thing.go"
+	const line = 42
+
+	tests := []struct {
+		editor   string
+		want     []string // argv after the program name
+		terminal bool
+	}{
+		// +N ahead of the path, terminal.
+		{"vi", []string{"+42", file}, true},
+		{"vim", []string{"+42", file}, true},
+		{"nvim", []string{"+42", file}, true},
+		{"nano", []string{"+42", file}, true},
+		{"emacs", []string{"+42", file}, true},
+		{"micro", []string{"+42", file}, true},
+		{"kak", []string{"+42", file}, true},
+
+		// appended to the path, terminal.
+		{"hx", []string{file + ":42"}, true},
+		{"helix", []string{file + ":42"}, true},
+
+		// appended to the path, GUI.
+		{"zed", []string{file + ":42"}, false},
+		{"subl", []string{file + ":42"}, false},
+
+		// --goto, GUI.
+		{"code", []string{"--goto", file + ":42"}, false},
+
+		// +N, GUI.
+		{"bbedit", []string{"+42", file}, false},
+
+		// --line N ahead of the path, GUI.
+		{"xed", []string{"--line", "42", file}, false},
+		{"idea", []string{"--line", "42", file}, false},
+		{"goland", []string{"--line", "42", file}, false},
+		{"pycharm", []string{"--line", "42", file}, false},
+		{"webstorm", []string{"--line", "42", file}, false},
+		{"clion", []string{"--line", "42", file}, false},
+		{"rubymine", []string{"--line", "42", file}, false},
+		{"phpstorm", []string{"--line", "42", file}, false},
+		{"rider", []string{"--line", "42", file}, false},
+		{"datagrip", []string{"--line", "42", file}, false},
+		{"rustrover", []string{"--line", "42", file}, false},
+		{"studio", []string{"--line", "42", file}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.editor, func(t *testing.T) {
+			if _, ok := Lookup(tt.editor); !ok {
+				t.Fatalf("%s has no preset", tt.editor)
+			}
+			got := Resolve(tt.editor, file, line)
+			if got.Name != tt.editor {
+				t.Errorf("Name = %q, want %q", got.Name, tt.editor)
+			}
+			if !slices.Equal(got.Args, tt.want) {
+				t.Errorf("Args = %v, want %v", got.Args, tt.want)
+			}
+			if got.Terminal != tt.terminal {
+				t.Errorf("Terminal = %v, want %v", got.Terminal, tt.terminal)
+			}
+		})
+	}
+}
+
+// TestResolve covers the $EDITOR parsing rules and the unrecognized-editor
+// fallback.
+func TestResolve(t *testing.T) {
+	const file = "a/b.go"
+
+	tests := []struct {
+		name     string
+		env      string
+		line     int
+		wantName string
+		wantArgs []string
+		terminal bool
+	}{
+		{
+			name:     "unset EDITOR falls back to vi",
+			env:      "",
+			line:     7,
+			wantName: "vi",
+			wantArgs: []string{"+7", file},
+			terminal: true,
+		},
+		{
+			name:     "whitespace-only EDITOR falls back to vi",
+			env:      "   \t ",
+			line:     7,
+			wantName: "vi",
+			wantArgs: []string{"+7", file},
+			terminal: true,
+		},
+		{
+			name:     "extra words pass through as leading args",
+			env:      "code -w",
+			line:     3,
+			wantName: "code",
+			wantArgs: []string{"-w", "--goto", file + ":3"},
+			terminal: false,
+		},
+		{
+			name:     "several extra words keep their order",
+			env:      "code -w --new-window",
+			line:     3,
+			wantName: "code",
+			wantArgs: []string{"-w", "--new-window", "--goto", file + ":3"},
+			terminal: false,
+		},
+		{
+			name:     "absolute path keeps the path but resolves the preset",
+			env:      "/opt/homebrew/bin/nvim",
+			line:     11,
+			wantName: "/opt/homebrew/bin/nvim",
+			wantArgs: []string{"+11", file},
+			terminal: true,
+		},
+		{
+			name:     ".sh suffix resolves the jetbrains preset",
+			env:      "/usr/local/bin/goland.sh",
+			line:     11,
+			wantName: "/usr/local/bin/goland.sh",
+			wantArgs: []string{"--line", "11", file},
+			terminal: false,
+		},
+		{
+			name:     ".exe suffix resolves the preset",
+			env:      "code.exe",
+			line:     11,
+			wantName: "code.exe",
+			wantArgs: []string{"--goto", file + ":11"},
+			terminal: false,
+		},
+		{
+			name:     "unknown editor gets the terminal fallback",
+			env:      "acme",
+			line:     5,
+			wantName: "acme",
+			wantArgs: []string{"+5", "--", file},
+			terminal: true,
+		},
+		{
+			name:     "unknown editor with extra args",
+			env:      "myed --frob",
+			line:     5,
+			wantName: "myed",
+			wantArgs: []string{"--frob", "+5", "--", file},
+			terminal: true,
+		},
+		{
+			name:     "unknown editor with no line still guards the path",
+			env:      "acme",
+			line:     0,
+			wantName: "acme",
+			wantArgs: []string{"--", file},
+			terminal: true,
+		},
+		{
+			name:     "line 0 drops the line argument entirely",
+			env:      "vim",
+			line:     0,
+			wantName: "vim",
+			wantArgs: []string{file},
+			terminal: true,
+		},
+		{
+			name:     "negative line drops the line argument entirely",
+			env:      "code",
+			line:     -1,
+			wantName: "code",
+			wantArgs: []string{file},
+			terminal: false,
+		},
+		{
+			name:     "line 0 on a colon-suffix preset leaves the path bare",
+			env:      "zed",
+			line:     0,
+			wantName: "zed",
+			wantArgs: []string{file},
+			terminal: false,
+		},
+		{
+			name:     "line 0 on a --line preset leaves the path bare",
+			env:      "goland",
+			line:     0,
+			wantName: "goland",
+			wantArgs: []string{file},
+			terminal: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Resolve(tt.env, file, tt.line)
+			if got.Name != tt.wantName {
+				t.Errorf("Name = %q, want %q", got.Name, tt.wantName)
+			}
+			if !slices.Equal(got.Args, tt.wantArgs) {
+				t.Errorf("Args = %v, want %v", got.Args, tt.wantArgs)
+			}
+			if got.Terminal != tt.terminal {
+				t.Errorf("Terminal = %v, want %v", got.Terminal, tt.terminal)
+			}
+		})
+	}
+}
+
+// TestResolveNeverAddsWaitFlag pins PROMPT.md's "waiting" rule: prwatch never
+// synthesizes a wait flag, whatever the preset.
+func TestResolveNeverAddsWaitFlag(t *testing.T) {
+	for name := range presets {
+		got := Resolve(name, "f.go", 9)
+		for _, a := range got.Args {
+			if a == "-w" || a == "--wait" {
+				t.Errorf("%s: Resolve added a wait flag: %v", name, got.Args)
+			}
+		}
+	}
+}
+
+// TestResolveMentionsFileExactlyOnce is the argv invariant that matters for
+// every preset shape: the path appears in exactly one argument (bare or with a
+// `:N` suffix), and never as a second positional that would open a stray file.
+func TestResolveMentionsFileExactlyOnce(t *testing.T) {
+	const file = "some/dir/file.go"
+	names := []string{"nope-not-an-editor"}
+	for name := range presets {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	for _, name := range names {
+		for _, line := range []int{0, 1, 12345} {
+			t.Run(name+"/"+strconv.Itoa(line), func(t *testing.T) {
+				got := Resolve(name, file, line)
+				n := 0
+				for _, a := range got.Args {
+					if strings.Contains(a, file) {
+						n++
+					}
+				}
+				if n != 1 {
+					t.Errorf("file appears in %d args, want 1: %v", n, got.Args)
+				}
+			})
+		}
+	}
+}

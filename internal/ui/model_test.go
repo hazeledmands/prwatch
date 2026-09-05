@@ -3287,9 +3287,13 @@ func TestBuildEditorCmd_WithEDITOR(t *testing.T) {
 	m.mainPane.SetSize(80, 24)
 	m.mainPane.content = "line1\nline2\nline3"
 
-	editor, args := m.buildEditorCmd("test.go")
+	inv := m.buildEditorCmd("test.go")
+	editor, args := inv.Name, inv.Args
 	if editor != "nvim" {
 		t.Errorf("editor = %q, want nvim", editor)
+	}
+	if !inv.Terminal {
+		t.Error("nvim should be a terminal editor")
 	}
 	// Last arg should be the file
 	if args[len(args)-1] != "test.go" {
@@ -3306,19 +3310,22 @@ func TestBuildEditorCmd_DefaultEditor(t *testing.T) {
 	m := NewModel("/tmp", testGit())
 	m.mode = FilesMode
 
-	editor, _ := m.buildEditorCmd("test.go")
+	editor := m.buildEditorCmd("test.go").Name
 	if editor != "vi" {
 		t.Errorf("default editor = %q, want vi", editor)
 	}
 }
 
 func TestBuildEditorCmd_DiffModeLineNumber(t *testing.T) {
+	// Pinned: the `+N` form is a preset property, so a developer whose real
+	// $EDITOR is a `--line N` or `<file>:N` editor would otherwise fail here.
+	t.Setenv("EDITOR", "vim")
 	m := NewModel("/tmp", testGit())
 	m.mode = FilesMode
 	m.mainPane.SetSize(80, 24)
 	m.mainPane.content = "@@ -1,3 +10,3 @@\n context\n+added"
 
-	_, args := m.buildEditorCmd("test.go")
+	args := m.buildEditorCmd("test.go").Args
 	// Should include +N for the line number
 	found := false
 	for _, a := range args {
@@ -6155,6 +6162,7 @@ func TestReloadAllFiles(t *testing.T) {
 }
 
 func TestBuildEditorCmd(t *testing.T) {
+	t.Setenv("EDITOR", "vim")
 	m := NewModel("/tmp", testGit())
 	m.loading = false
 	m.width = 80
@@ -6162,7 +6170,8 @@ func TestBuildEditorCmd(t *testing.T) {
 	m.updateLayout()
 	m.mainPane.SetPlainContent("line1\nline2\nline3")
 
-	editor, args := m.buildEditorCmd("test.go")
+	inv := m.buildEditorCmd("test.go")
+	editor, args := inv.Name, inv.Args
 	if editor == "" {
 		t.Error("editor should not be empty")
 	}

@@ -173,6 +173,18 @@ this mode should have a "gutter" — a narrow column to the left of each line sh
 - **diff navigation.** entering files mode jumps immediately to the first diff. `next-diff` and `prev-diff` jump to adjacent hunks and wrap around, just like search results. The target hunk's first changed line lands ~30% down the viewport — Vim-style centering — so there's a few rows of leading context above it for orientation. Pure-deletion hunks (no new-file lines) navigate to the line their removed text is attached to in the rendered view.
 - **wrapping & horizontal scroll.** wrapped text does not wrap into the gutter — continuation lines have an empty gutter. the gutter stays pinned when the user scrolls horizontally.
 
+#### opening an editor
+
+`confirm` in the main pane launches `$EDITOR` on the displayed file. `$EDITOR` is split on whitespace, so `EDITOR="code -w"` works, and the editor is identified by the basename of its first word, with a `.sh` or `.exe` suffix stripped — `/opt/homebrew/bin/nvim` resolves to `nvim`, and jetbrains' `goland.sh` to `goland`. an unset `$EDITOR` falls back to `vi`.
+
+each known editor carries a preset: how it takes a line number, and whether it runs in the terminal. an unrecognized editor is assumed to be a terminal editor invoked as `<editor> +<line> -- <file>`.
+
+- **line number.** the line currently at the top of the viewport. `vi`, `vim`, `nvim`, `nano`, `emacs`, `micro`, and `kak` take `+N` ahead of the path; `zed`, `subl`, `hx`, and `helix` append it to the path as `<file>:N`; `code` takes `--goto <file>:N` and `bbedit` takes `+N`; `xed` and the jetbrains launchers (`idea`, `goland`, `pycharm`, `webstorm`, `clion`, `rubymine`, `phpstorm`, `rider`, `datagrip`, `rustrover`, `studio`) take `--line N` ahead of the path.
+- **terminal vs. GUI.** terminal editors run in the foreground with the TUI suspended, and prwatch refreshes when they exit. GUI editors are spawned in the background and the TUI is never suspended — their CLI returns as soon as the running application has been signalled, so suspending would blank and redraw the screen for nothing.
+- **waiting.** no `--wait`/`-w` is ever added. prwatch has no call site that must block until the edit finishes, and a wait flag on a GUI editor would hold the TUI hostage to a window the user may leave open for hours. a wait flag the user put in `$EDITOR` themselves is passed through untouched.
+- **project context.** only the file is passed, never the repo root. jetbrains IDEs consequently open a file outside an already-open project in LightEdit mode rather than as part of a project; that is accepted, because the alternative — passing the repo root — makes them write an `.idea` directory into the user's repo.
+- **failures.** an editor that cannot be launched surfaces its error in the status bar.
+
 ### commits mode
 
 the left pane should be a list of commits (also selectable via keyboard) and the right pane should be the patch associated with the commit.

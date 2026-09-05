@@ -240,3 +240,23 @@ only by dispatch precedence (search handling runs first):
 Open question: update the spec table to the implemented bindings (and add
 cursor-left/right rows), and decide whether the `n`/`N` shadowing is
 acceptable-and-documented or wants rebinding.
+
+## `--` end-of-options guard only on the unrecognized-editor fallback
+
+Spec: PROMPT.md's `#### opening an editor` gives the fallback argv explicitly
+as `<editor> +<line> -- <file>`, and describes every known preset without a
+`--` ("`vi` … take `+N` ahead of the path").
+
+Code: `internal/editor` follows that literally — `Preset.DoubleDash` is set
+only on the fallback, so `vim +42 file.go` has no guard while
+`acme +42 -- file.go` does.
+
+Open question: is the asymmetry intended? A file whose path starts with `-`
+is mis-parsed by `vim` today and would not be by the fallback. The argument
+for the literal reading is that `--` is not universally accepted — `code
+--goto -- file:42` is wrong, and several GUI launchers reject it — so it can
+only be added per-preset, and the spec chose not to enumerate that. The
+argument against is that the terminal `+N` presets are precisely the family
+that does accept it, and the guard is free there.
+
+Implemented as written; no code change pending an answer.

@@ -174,13 +174,15 @@ func TimeoutFactory(d time.Duration) Factory {
 }
 
 // InteractiveFactory creates untimed commands, for the one lane where a
-// deadline would be a bug: a process the user is sitting in front of. An
-// $EDITOR session handed to tea.Exec can legitimately stay open for hours, and
-// a browser opener may not return until the browser does.
+// deadline would be a bug: a program the user is sitting in front of. A
+// terminal $EDITOR handed to tea.Exec can legitimately stay open for hours,
+// and so can a GUI editor the user gave a `--wait` flag to in $EDITOR — even
+// though that one is spawned in the background rather than suspending the TUI.
 //
-// Use it only for programs run in the foreground with the TUI suspended.
-// Everything else — anything dispatched from a tea.Cmd or a refresh tick —
-// belongs on DefaultFactory.
+// Use it only for the editor the user asked for. Everything else — anything
+// the app runs on its own initiative, from a tea.Cmd or a refresh tick —
+// belongs on DefaultFactory, whose deadline is what keeps a wedged subprocess
+// from accumulating one goroutine per tick.
 func InteractiveFactory(name string, args ...string) Command {
 	return TimeoutFactory(0)(name, args...)
 }
