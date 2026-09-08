@@ -241,33 +241,3 @@ Open question: update the spec table to the implemented bindings (and add
 cursor-left/right rows), and decide whether the `n`/`N` shadowing is
 acceptable-and-documented or wants rebinding.
 
-## `--` end-of-options guard only on the unrecognized-editor fallback
-
-Spec: PROMPT.md's `#### opening an editor` gives the fallback argv explicitly
-as `<editor> +<line> -- <file>`, and describes every known preset without a
-`--` ("`vi` … take `+N` ahead of the path").
-
-Code: `internal/editor` follows that literally — `Preset.DoubleDash` is set
-only on the fallback, so `vim +42 file.go` has no guard while
-`acme +42 -- file.go` does.
-
-Open question: is the asymmetry intended? A file whose path starts with `-`
-is mis-parsed by `vim` today and would not be by the fallback. The argument
-for the literal reading is that `--` is not universally accepted — `code
---goto -- file:42` is wrong, and several GUI launchers reject it — so it can
-only be added per-preset, and the spec chose not to enumerate that. The
-argument against is that the terminal `+N` presets are precisely the family
-that does accept it, and the guard is free there.
-
-**Resolved — spec and code updated; the argument above was wrong on its
-facts.** lazygit, the source the preset table was adapted from, ships `--` on
-every preset it has except `acme` — including `code --reuse-window --goto --
-{{filename}}:{{line}}` and `xed --line {{line}} -- {{filename}}` — across a
-large user base, so "several GUI launchers reject it" does not hold and was
-never tested. `zed` and `hx` both parse with clap, where `--` is guaranteed.
-
-The guard is now the default for every preset, and `Preset.DoubleDash` was
-inverted to `Preset.NoGuard`, set only on the JetBrains launchers: those have
-no lazygit preset to draw on, and they forward argv to a JVM argument parser
-whose `--` handling is unverified. Testing that would mean launching the IDE.
-If it turns out to accept `--`, drop the field and the exception with it.
