@@ -297,6 +297,21 @@ under a sandbox that forbids `bind`; it is environmental and unrelated.
   candidates are renderer-side cost under parallel `-race` load, or the
   invariant harness's timing bound simply being tight for a 300-check
   parallel sweep on a loaded machine.
+  *Fourth occurrence (2026-09-09):* the same three-at-once pattern —
+  `DragSelectsCorrectText`, `InteractionInvariants`, `TreeModeNavigation`,
+  all within seven seconds of one PID — during the editor-picker work
+  (seeds committed in `b1317ef`). Three replays all green afterwards: each
+  seed individually, the three together at 300 checks, and the whole
+  package at 300 checks immediately after.
+  The picker is not implicated: `e` is not in the invariant harness's
+  action alphabet (`invariant_test.go:1742-1743`), so none of the three
+  tests can reach the new overlay at all.
+  The assertion text was lost to output truncation **again** — piping the
+  sweep through `tail` this time, the same evidence gap as the retest
+  above. Capture the whole run to a file; the tail is where rapid prints
+  the draws, not where it prints what failed. Until one occurrence is
+  caught in full, the mechanism stays unfalsifiable and the entry cannot
+  be closed either way.
 
 - **Confirming a no-match search orphans the highlight with no dismiss
   path.** `HandleInputKey`'s Enter arm (`search.go:118-126`) sets
