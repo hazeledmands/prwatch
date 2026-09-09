@@ -33,6 +33,15 @@ type Factory func(name string, args ...string) Command
 // errors.Is(err, command.ErrNotFound) without importing os/exec.
 var ErrNotFound = exec.ErrNotFound
 
+// LookPath reports where a program would be found on PATH, or an error if it
+// would not be. Re-exported for the same reason as ErrNotFound: this package
+// is the module's only door to os/exec.
+//
+// It is the resolution execAdapter's exec.CommandContext performs at Run time,
+// so a caller deciding whether to offer a program can ask this and get the
+// launch's own answer rather than a guess at it.
+func LookPath(name string) (string, error) { return exec.LookPath(name) }
+
 // DefaultTimeout bounds every background subprocess.
 //
 // 45s is chosen against the two things that constrain it. Below, the slowest

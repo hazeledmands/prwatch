@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"os/exec"
 	"slices"
 	"strings"
 )
@@ -38,16 +37,22 @@ func List() []Entry {
 // per PROMPT.md's "choosing an editor": the presets whose command resolves,
 // plus `$EDITOR`'s own editor whether or not it does.
 //
-// lookPath reports whether a command resolves; a nil one means exec.LookPath.
-// That is the same lookup exec.CommandContext performs when internal/command
-// spawns the editor, so an entry this filter drops is one whose launch would
-// have failed — the filter is the launch's own answer, not a guess about it.
+// lookPath reports whether a command resolves. Callers pass command.LookPath,
+// which is the same resolution exec.CommandContext performs when the editor is
+// actually spawned — so an entry this filter drops is one whose launch would
+// have failed, not one it guessed about. It is a parameter rather than a
+// direct call because this package deliberately depends on nothing: the preset
+// rules stay exercisable without a subprocess, and internal/command remains
+// the module's only door to os/exec.
+//
+// A nil lookPath filters nothing, which is what a caller that wants the whole
+// table should pass.
 //
 // If nothing resolves, the full table comes back instead of an empty screen.
 // A launch may then fail, which PROMPT.md's "failures" already covers.
 func Available(editorEnv string, lookPath func(string) (string, error)) []Entry {
 	if lookPath == nil {
-		lookPath = exec.LookPath
+		lookPath = func(name string) (string, error) { return name, nil }
 	}
 
 	def := DefaultEditor

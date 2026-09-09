@@ -1,13 +1,19 @@
 package editor
 
 import (
-	"os/exec"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
 
 	"pgregory.net/rapid"
 )
+
+// errNotOnPath stands in for what a real lookPath returns for a program that
+// is not installed. The tests do not import os/exec — internal/command is the
+// module's only door to it (TestNoExternalExecImports) — and the filter only
+// cares that an error came back, not which one.
+var errNotOnPath = errors.New("not found")
 
 // resolveOnly builds a lookPath that succeeds for exactly the given names.
 func resolveOnly(names ...string) func(string) (string, error) {
@@ -19,11 +25,11 @@ func resolveOnly(names ...string) func(string) (string, error) {
 		if set[name] {
 			return "/usr/bin/" + name, nil
 		}
-		return "", exec.ErrNotFound
+		return "", errNotOnPath
 	}
 }
 
-func resolveNothing(string) (string, error) { return "", exec.ErrNotFound }
+func resolveNothing(string) (string, error) { return "", errNotOnPath }
 
 func entryNames(entries []Entry) []string {
 	names := make([]string, len(entries))
@@ -241,14 +247,10 @@ func firstWord(s string) string {
 	return ""
 }
 
-// A nil lookPath means exec.LookPath, so the UI does not have to wire it up.
-func TestAvailable_NilLookPathUsesExecLookPath(t *testing.T) {
+// A nil lookPath filters nothing — the caller asked for the whole table.
+func TestAvailable_NilLookPathFiltersNothing(t *testing.T) {
 	got := entryNames(Available("vim", nil))
-	want := entryNames(Available("vim", exec.LookPath))
-	if !slices.Equal(got, want) {
-		t.Errorf("Available with a nil lookPath = %v, want the exec.LookPath result %v", got, want)
-	}
-	if len(got) == 0 {
-		t.Error("Available returned nothing; the list is never empty")
+	if want := entryNames(List()); !slices.Equal(got, want) {
+		t.Errorf("Available with a nil lookPath = %v, want the full table %v", got, want)
 	}
 }
