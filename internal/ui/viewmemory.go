@@ -49,7 +49,7 @@ func (v *viewMemory) RestoreSidebar(mode Mode, sb *sidebar, currentFocus Focus) 
 		}
 	}
 	sb.offset = state.sidebarOffset
-	sb.clampOffset()
+	sb.scrollToSelection()
 	return state.focus
 }
 

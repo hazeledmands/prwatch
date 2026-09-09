@@ -178,20 +178,20 @@ func (c *cursor) MoveRight(pane *mainPane) bool {
 
 // EnsureVisible scrolls the viewport minimally so the cursor's row
 // lies inside the visible window.
+//
+// This is deliberately not viewport.EnsureVisible: that one snaps the row to
+// the top of the window when scrolling down, where j at the bottom edge should
+// advance by a single line. See ensureVisible in scroll.go.
 func (c *cursor) EnsureVisible(pane *mainPane) {
 	if c.vpRow < 0 {
 		return
 	}
-	vpOffset := pane.viewport.YOffset()
 	vpHeight := pane.viewport.Height()
 	if vpHeight <= 0 {
 		return
 	}
-	if c.vpRow < vpOffset {
-		pane.viewport.SetYOffset(c.vpRow)
-	} else if c.vpRow >= vpOffset+vpHeight {
-		pane.viewport.SetYOffset(c.vpRow - vpHeight + 1)
-	}
+	pane.viewport.SetYOffset(ensureVisible(
+		pane.viewport.YOffset(), c.vpRow, pane.viewport.TotalLineCount(), vpHeight))
 }
 
 // DragAlongScroll keeps the cursor visible after a viewport-driven

@@ -566,7 +566,7 @@ func TestSidebar_ClampOffset_KeepsCursorVisible(t *testing.T) {
 	// update path that doesn't go through clampOffset's adjustment.
 	s.SelectIndex(4)
 	s.offset = 4 // selected == offset, sticky would activate
-	s.clampOffset()
+	s.scrollToSelection()
 	if s.selected == s.offset && s.stickyHeaderIndex() >= 0 {
 		t.Fatalf("clampOffset failed to bump offset: selected=%d, offset=%d, sticky=%d",
 			s.selected, s.offset, s.stickyHeaderIndex())
@@ -614,7 +614,7 @@ func TestSidebar_ClampOffset_KeepsOffsetInBounds(t *testing.T) {
 			s.selected = tt.selected
 			s.offset = tt.offset
 
-			s.clampOffset()
+			s.scrollToSelection()
 
 			if s.offset != tt.wantOffset {
 				t.Errorf("offset = %d, want %d", s.offset, tt.wantOffset)

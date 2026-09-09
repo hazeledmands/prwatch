@@ -140,27 +140,22 @@ func (h *helpOverlay) HandleKey(msg tea.KeyPressMsg, visibleHeight int) tea.Cmd 
 		h.search.begin()
 		return nil
 	case key.Matches(msg, keys.Down):
-		if h.scrollOffset < len(helpLines)-visibleHeight {
-			h.scrollOffset++
-		}
+		h.scroll(1, len(helpLines), visibleHeight)
 		return nil
 	case key.Matches(msg, keys.Up):
-		if h.scrollOffset > 0 {
-			h.scrollOffset--
-		}
+		h.scroll(-1, len(helpLines), visibleHeight)
 		return nil
 	case key.Matches(msg, keys.PageDown):
-		maxOffset := max(0, len(helpLines)-visibleHeight)
-		h.scrollOffset = min(h.scrollOffset+visibleHeight, maxOffset)
+		h.scroll(visibleHeight, len(helpLines), visibleHeight)
 		return nil
 	case key.Matches(msg, keys.PageUp):
-		h.scrollOffset = max(0, h.scrollOffset-visibleHeight)
+		h.scroll(-visibleHeight, len(helpLines), visibleHeight)
 		return nil
 	case key.Matches(msg, keys.GoTop):
 		h.scrollOffset = 0
 		return nil
 	case key.Matches(msg, keys.GoBottom):
-		h.scrollOffset = max(0, len(helpLines)-visibleHeight)
+		h.scrollOffset = maxScrollOffset(len(helpLines), visibleHeight)
 		return nil
 	case key.Matches(msg, keys.QuitImmediate):
 		return tea.Quit
@@ -170,19 +165,31 @@ func (h *helpOverlay) HandleKey(msg tea.KeyPressMsg, visibleHeight int) tea.Cmd 
 	}
 }
 
+// scroll moves the offset by delta rows, keeping it in range. Every scrolling
+// path in the overlay goes through here so they cannot disagree about the
+// bound — j/k and the wheel used to compare against an unguarded
+// `len(lines)-visibleHeight`, which goes negative once the help text is
+// shorter than the window, while PageDown and GoBottom guarded the same
+// expression with max(0, ...).
+func (h *helpOverlay) scroll(delta, total, visibleHeight int) {
+	h.scrollOffset = clampOffset(h.scrollOffset+delta, total, visibleHeight)
+}
+
 // HandleWheel scrolls the help overlay one row up or down per wheel event.
 func (h *helpOverlay) HandleWheel(direction int, visibleHeight int) {
-	helpLines := helpContentLines()
-	if direction < 0 && h.scrollOffset > 0 {
-		h.scrollOffset--
-	} else if direction > 0 && h.scrollOffset < len(helpLines)-visibleHeight {
-		h.scrollOffset++
+	if direction == 0 {
+		return
 	}
+	delta := 1
+	if direction < 0 {
+		delta = -1
+	}
+	h.scroll(delta, len(helpContentLines()), visibleHeight)
 }
 
 // PageUp scrolls the help overlay up by one visible page (clamped at zero).
 func (h *helpOverlay) PageUp(visibleHeight int) {
-	h.scrollOffset = max(0, h.scrollOffset-visibleHeight)
+	h.scroll(-visibleHeight, len(helpContentLines()), visibleHeight)
 }
 
 // Render builds the visible help screen (without the surrounding status bar).

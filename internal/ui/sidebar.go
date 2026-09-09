@@ -502,7 +502,7 @@ func (s *sidebar) SelectNext() {
 	for i := s.selected + 1; i < len(s.items); i++ {
 		if s.items[i].kind.selectable() {
 			s.selected = i
-			s.clampOffset()
+			s.scrollToSelection()
 			return
 		}
 	}
@@ -512,7 +512,7 @@ func (s *sidebar) SelectPrev() {
 	for i := s.selected - 1; i >= 0; i-- {
 		if s.items[i].kind.selectable() {
 			s.selected = i
-			s.clampOffset()
+			s.scrollToSelection()
 			return
 		}
 	}
@@ -522,7 +522,7 @@ func (s *sidebar) SelectFirst() {
 	for i := 0; i < len(s.items); i++ {
 		if s.items[i].kind.selectable() {
 			s.selected = i
-			s.clampOffset()
+			s.scrollToSelection()
 			return
 		}
 	}
@@ -532,7 +532,7 @@ func (s *sidebar) SelectLast() {
 	for i := len(s.items) - 1; i >= 0; i-- {
 		if s.items[i].kind.selectable() {
 			s.selected = i
-			s.clampOffset()
+			s.scrollToSelection()
 			return
 		}
 	}
@@ -546,7 +546,7 @@ func (s *sidebar) SelectIndex(idx int) {
 		return
 	}
 	s.selected = idx
-	s.clampOffset()
+	s.scrollToSelection()
 }
 
 // ScrollUp scrolls the sidebar view up by one line without changing selection.
@@ -558,11 +558,7 @@ func (s *sidebar) ScrollUp() {
 
 // ScrollDown scrolls the sidebar view down by one line without changing selection.
 func (s *sidebar) ScrollDown() {
-	maxOffset := len(s.items) - s.visibleLines()
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if s.offset < maxOffset {
+	if s.offset < maxScrollOffset(len(s.items), s.visibleLines()) {
 		s.offset++
 	}
 }
@@ -593,39 +589,21 @@ func (s *sidebar) skipToSelectable() {
 	}
 }
 
-// clampOffset adjusts the scroll offset so the selected item is visible, and
-// then enforces the offset's own bounds (see clampOffsetBounds) — scrolling to
-// the selection constrains the offset only relative to the cursor, so an offset
-// that arrived out of range with the cursor already inside the window would
-// otherwise survive. Use after user navigation (arrow keys, mouse click on
-// item, etc.).
+// scrollToSelection scrolls the minimum distance that brings the selected item
+// into view, then applies the sidebar's own sticky-header adjustment. Use after
+// user navigation (arrow keys, mouse click on item, etc.).
 //
 // Callers that must preserve the user's scroll position — item-list updates
-// that should not yank the viewport back to the cursor — want
-// clampOffsetBounds on its own instead.
-func (s *sidebar) clampOffset() {
-	visible := s.visibleLines()
-	if visible <= 0 {
-		return
-	}
-	if s.selected < s.offset {
-		s.offset = s.selected
-	}
-	if s.selected >= s.offset+visible {
-		s.offset = s.selected - visible + 1
-	}
+// that should not yank the view back to the cursor — want clampOffsetBounds
+// instead.
+func (s *sidebar) scrollToSelection() {
+	s.offset = ensureVisible(s.offset, s.selected, len(s.items), s.visibleLines())
 	// If a sticky section header would otherwise hide the selected item under
 	// the topmost visible row, scroll one extra line up so selection lands at
 	// row 1 instead of row 0.
 	if s.selected == s.offset && s.stickyHeaderIndex() >= 0 && s.offset > 0 {
 		s.offset--
 	}
-	// Scrolling to the selection only ever constrains the offset relative to
-	// the cursor; it can leave an offset that came in out of range untouched
-	// (cursor already inside the window). Enforce the bounds too, from the one
-	// function that owns them. Lowering the offset to the ceiling can't hide
-	// the cursor: selected <= len-1 == maxOffset+visible-1.
-	s.clampOffsetBounds()
 }
 
 // stickyHeaderIndex returns the index of the section header that should be
@@ -647,24 +625,11 @@ func (s *sidebar) stickyHeaderIndex() int {
 	return -1
 }
 
-// clampOffsetBounds keeps the offset within valid range [0, len-visible]
-// without forcing the selected item to be visible. Use after item list
-// updates where we want to preserve the user's scroll position.
+// clampOffsetBounds keeps the offset in range without forcing the selected
+// item to be visible. Use after item-list updates where we want to preserve
+// the user's scroll position.
 func (s *sidebar) clampOffsetBounds() {
-	if s.offset < 0 {
-		s.offset = 0
-	}
-	visible := s.visibleLines()
-	if visible <= 0 {
-		return
-	}
-	maxOffset := len(s.items) - visible
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if s.offset > maxOffset {
-		s.offset = maxOffset
-	}
+	s.offset = clampOffset(s.offset, len(s.items), s.visibleLines())
 }
 
 func (s *sidebar) visibleLines() int {
