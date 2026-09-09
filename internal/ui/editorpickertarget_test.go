@@ -53,13 +53,43 @@ func TestEditorTarget_SidebarFocusIsInertOnADirectory(t *testing.T) {
 	}
 }
 
-// Sidebar focus on a file targets that file, with no line: a sidebar-focused
-// launch is not tied to the viewport, so the viewport's line means nothing.
-func TestEditorTarget_SidebarFocusUsesTheSelectionWithoutALine(t *testing.T) {
+// Selecting a file updates the pane, so a sidebar-focused launch normally
+// names the file that is on screen — and should open where the user is
+// looking, not at line 1.
+func TestEditorTarget_SidebarFocusOnTheDisplayedFileCarriesTheViewportLine(t *testing.T) {
 	m, _ := paneOwnerModel(t)
 	selectSidebarFileRow(t, m, "pkg/b.go")
 	m.focus = SidebarFocus
 	m.mainPane.viewport.SetYOffset(4)
+
+	if got := displayedFilesModeFile(m.lastMainItem); got != "pkg/b.go" {
+		t.Fatalf("pane shows %q; this test needs the selection to be on screen", got)
+	}
+
+	target, ok := m.editorTargetForFocus()
+	if !ok {
+		t.Fatal("no target with a file selected")
+	}
+	if target.file != "pkg/b.go" {
+		t.Errorf("target file = %q, want the selected pkg/b.go", target.file)
+	}
+	if target.line <= 1 {
+		t.Errorf("target line = %d, want the scrolled viewport's line", target.line)
+	}
+}
+
+// When the selection is not what the pane is showing, the viewport is
+// scrolled through some other file and its line says nothing about this one.
+func TestEditorTarget_SidebarFocusOmitsTheLineWhenThePaneShowsAnotherFile(t *testing.T) {
+	m, _ := paneOwnerModel(t)
+	selectSidebarFileRow(t, m, "pkg/b.go")
+	m.focus = SidebarFocus
+	m.mainPane.viewport.SetYOffset(4)
+
+	// Force the disagreement directly: the paths that produce it naturally —
+	// a mode switch, or a refresh before the scope resolves — leave the pane
+	// pointing at another item while the sidebar selection stands.
+	m.lastMainItem = mainItemKey{FilesMode, "pkg/a.go"}
 
 	target, ok := m.editorTargetForFocus()
 	if !ok {
@@ -69,7 +99,7 @@ func TestEditorTarget_SidebarFocusUsesTheSelectionWithoutALine(t *testing.T) {
 		t.Errorf("target file = %q, want the selected pkg/b.go", target.file)
 	}
 	if target.line != 0 {
-		t.Errorf("target line = %d, want 0 — a sidebar-focused launch carries no line", target.line)
+		t.Errorf("target line = %d, want 0 — the viewport is showing a different file", target.line)
 	}
 }
 

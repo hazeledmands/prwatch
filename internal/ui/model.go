@@ -2424,24 +2424,32 @@ func (m *Model) launchEditor(editorEnv, file string, line int) tea.Cmd {
 // otherwise. The two disagree whenever the sidebar highlight sits on a
 // directory, which leaves the previous file on screen.
 //
-// A sidebar-focused target carries no line: the selected file is not the one
-// in the viewport, so the viewport's line means nothing for it.
+// A sidebar-focused target carries the viewport's line only when the
+// selection is the file the pane is showing, which is the usual case:
+// selecting a file updates the pane, so the two normally name the same thing.
+// When they do not, the viewport is scrolled through some other file and its
+// line says nothing about this one — opening at line 1 is the honest answer.
 func (m *Model) editorTargetForFocus() (editorTarget, bool) {
 	if m.mode != FilesMode {
 		return editorTarget{}, false
 	}
+	displayed := displayedFilesModeFile(m.lastMainItem)
+
 	if m.focus == SidebarFocus {
 		file := m.sidebar.SelectedItem()
 		if file == "" || m.sidebar.SelectedIsDir() {
 			return editorTarget{}, false
 		}
-		return editorTarget{file: file}, true
+		if file != displayed {
+			return editorTarget{file: file}, true
+		}
+		return editorTarget{file: file, line: m.currentLineNumber()}, true
 	}
-	file := displayedFilesModeFile(m.lastMainItem)
-	if file == "" {
+
+	if displayed == "" {
 		return editorTarget{}, false
 	}
-	return editorTarget{file: file, line: m.currentLineNumber()}, true
+	return editorTarget{file: displayed, line: m.currentLineNumber()}, true
 }
 
 // openEditorPicker shows the editor list for the focused target. Inert when
