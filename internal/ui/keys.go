@@ -40,6 +40,7 @@ type keyMap struct {
 	NextLeaf       key.Binding
 	PrevLeaf       key.Binding
 	YankPath       key.Binding
+	OpenEditorWith key.Binding
 	PRBrowse       key.Binding
 	VisualStream   key.Binding
 	VisualLine     key.Binding
@@ -218,6 +219,10 @@ var keys = keyMap{
 		key.WithKeys("y"),
 		withDesc("Yank selection (visual mode) / copy path (otherwise)"),
 	),
+	OpenEditorWith: key.NewBinding(
+		key.WithKeys("e"),
+		withDesc("Choose an editor to open the current file with"),
+	),
 	PRBrowse: key.NewBinding(
 		key.WithKeys("o"),
 		withDesc("Open the active PR in the browser"),
@@ -311,6 +316,7 @@ var helpSections = [][]key.Binding{
 		keys.VisualLine,
 		keys.VisualDismiss,
 		keys.YankPath,
+		keys.OpenEditorWith,
 	},
 	{
 		keys.Enter,

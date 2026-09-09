@@ -20,13 +20,13 @@ import (
 var unlistedBindings = map[string]string{}
 
 // helpListingLines is the number of rows helpContentLines produces: the
-// "Keybindings:" header, a blank, 44 command rows in 11 sections separated by
+// "Keybindings:" header, a blank, 45 command rows in 11 sections separated by
 // 10 blank lines, then a blank and the footer.
 //
 // Pinned as a literal so assertions about the listing's extent are anchored to
 // a committed fact rather than re-derived from helpContentLines itself.
 // TestHelpListing_Golden fails if the real count drifts from this.
-const helpListingLines = 58
+const helpListingLines = 59
 
 // TestHelpListing_Golden pins the full listing — every row, every word.
 //

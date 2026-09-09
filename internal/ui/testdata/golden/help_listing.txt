@@ -38,6 +38,7 @@ Keybindings:
   [V]                   Visual mode (line selection, main pane)
   [esc]                 Dismiss visual selection
   [y]                   Yank selection (visual mode) / copy path (otherwise)
+  [e]                   Choose an editor to open the current file with
 
   [enter]               Open file in $EDITOR / switch to main pane
   [/]                   Search (type to match, enter to confirm)

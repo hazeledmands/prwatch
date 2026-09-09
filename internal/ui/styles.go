@@ -144,4 +144,11 @@ var (
 	sidebarHoverDimStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("#2A2A2A")).
 				Foreground(lipgloss.Color("#AAA"))
+
+	// Editor picker: the highlighted row, matching the sidebar's selection
+	// treatment so a selected row reads the same wherever it appears.
+	editorPickerSelectedStyle = lipgloss.NewStyle().
+					Background(lipgloss.Color("#333")).
+					Foreground(lipgloss.Color("#FAFAFA")).
+					Bold(true)
 )

@@ -162,6 +162,7 @@ type Model struct {
 	dir                string
 	confirming         bool
 	help               *helpOverlay      // help overlay subsystem
+	editorPicker       *editorPicker     // modal editor-selection list ([e])
 	showIgnored        bool              // whether to show gitignored files in all-files section
 	collapsedDirs      map[string]bool   // tracks collapsed directory paths
 	sidebarHidden      bool              // [f] toggles sidebar visibility
@@ -380,6 +381,7 @@ func NewModel(dir string, g GitDataSource) *Model {
 		lineNumbers:        true,
 		activity:           newActivityTracker(time.Now()),
 		help:               newHelpOverlay(),
+		editorPicker:       newEditorPicker(),
 		search:             newSearchOverlay(),
 		drag:               newDragSelection(),
 		cursor:             newCursor(),
@@ -1518,23 +1520,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseClickMsg:
-		// The help overlay is modal: it covers both panes, so a click on it
-		// must not reach the sidebar or start a drag underneath.
-		if m.help.IsOpen() {
+		// Overlays are modal: they cover both panes, so a click on one must
+		// not reach the sidebar or start a drag underneath.
+		if m.overlayIsOpen() {
 			return m, nil
 		}
 		return m.handleMouseClick(msg)
 
 	case tea.MouseWheelMsg:
-		if m.help.IsOpen() {
-			visibleHeight := m.contentHeight()
+		if o := m.activeOverlay(); o != nil {
 			dir := 0
 			if msg.Button == tea.MouseWheelUp {
 				dir = -1
 			} else if msg.Button == tea.MouseWheelDown {
 				dir = +1
 			}
-			m.help.HandleWheel(dir, visibleHeight)
+			o.HandleWheel(dir, m.contentHeight())
 			return m, nil
 		}
 		return m.handleMouseWheel(msg)
@@ -1542,7 +1543,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMotionMsg:
 		m.hoverX = msg.X
 		m.hoverY = msg.Y
-		if m.help.IsOpen() {
+		if m.overlayIsOpen() {
 			// Modal: no drag extension, no sidebar hover under the overlay.
 			m.sidebar.SetHoverIndex(-1)
 			return m, nil
@@ -1564,9 +1565,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, autoScrollCmd
 
 	case tea.MouseReleaseMsg:
-		if m.help.IsOpen() {
-			// Swallowing the release must not strand an in-flight drag: help
-			// can be opened with `?` mid-drag, and a dropped release would
+		if m.overlayIsOpen() {
+			// Swallowing the release must not strand an in-flight drag: an
+			// overlay can be opened mid-drag, and a dropped release would
 			// leave m.drag active so motion kept extending the selection after
 			// the overlay closed. Cancel it (no cursor placement, no copy —
 			// the gesture was interrupted, not completed).
@@ -1604,9 +1605,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Handle shift+space as page up (may not be caught by key.Matches)
 	if msg.Code == tea.KeySpace && msg.Mod&tea.ModShift != 0 {
-		if m.help.IsOpen() {
-			visibleHeight := m.contentHeight()
-			m.help.PageUp(visibleHeight)
+		if o := m.activeOverlay(); o != nil {
+			o.PageUp(m.contentHeight())
 			return m, nil
 		}
 		if m.focus == SidebarFocus {
@@ -1639,6 +1639,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleHelpKey(msg)
 	}
 
+	// Editor picker — a modal list; unrecognized keys are ignored rather
+	// than dismissing it. Dispatched separately from help because its keys
+	// need a launch hook that help has no use for.
+	if m.editorPicker.IsOpen() {
+		return m, m.editorPicker.HandleKey(msg, m.contentHeight(), m.editorPickerHooks())
+	}
+
 	// Quit confirmation handling. The confirm prompt replaces the whole
 	// status bar with one line, so entering and leaving it changes the
 	// bar's row count — relayout at each toggle or the panes stay sized
@@ -1665,7 +1672,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Visual mode entry / mode toggle (v/V). Ignored while a mouse
 	// drag is in progress.
-	if m.focus == MainFocus && !m.search.IsActive() && !m.help.IsOpen() && !m.drag.IsActive() {
+	if m.focus == MainFocus && !m.search.IsActive() && !m.overlayIsOpen() && !m.drag.IsActive() {
 		switch {
 		case key.Matches(msg, keys.VisualStream):
 			// v in stream mode: dismiss. v in line mode: switch to
@@ -1863,6 +1870,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, m.yankPath()
+
+	case key.Matches(msg, keys.OpenEditorWith):
+		return m, m.openEditorPicker()
 
 	case key.Matches(msg, keys.Refresh):
 		// An explicit refresh is the user asking to retry everything that
@@ -2115,7 +2125,11 @@ func (m *Model) handleStatusBarClick(x, y int) (tea.Model, tea.Cmd) {
 						m.help.Open()
 					}
 				} else {
-					m.help.Close()
+					// Switching modes from the status bar dismisses whatever
+					// overlay is up, not just help.
+					if o := m.activeOverlay(); o != nil {
+						o.Close()
+					}
 					m.setMode(label.mode)
 				}
 				return m, nil
@@ -2379,8 +2393,14 @@ func (m *Model) openEditor() tea.Cmd {
 	if file == "" {
 		return nil
 	}
+	return m.launchEditor(os.Getenv("EDITOR"), file, m.currentLineNumber())
+}
 
-	inv := m.buildEditorCmd(file)
+// launchEditor resolves editorEnv against the preset table and runs it on
+// file at line. Shared by `confirm`, which passes `$EDITOR`, and the editor
+// picker, which passes the chosen editor's name.
+func (m *Model) launchEditor(editorEnv, file string, line int) tea.Cmd {
+	inv := editor.Resolve(editorEnv, file, line)
 	if !inv.Terminal {
 		// GUI editor: spawned without suspending the TUI. Untimed, because
 		// $EDITOR is the user's: a `-w` they put there themselves makes the
@@ -2396,6 +2416,53 @@ func (m *Model) openEditor() tea.Cmd {
 	return tea.Exec(cmd, func(err error) tea.Msg {
 		return launchMsg{name: name, refresh: true, err: err}
 	})
+}
+
+// editorTargetForFocus is the file `open-editor-with` acts on, following the
+// same focus rule as yank-path (PROMPT.md, "choosing an editor"): the
+// sidebar's selection when the sidebar is focused, the pane's displayed file
+// otherwise. The two disagree whenever the sidebar highlight sits on a
+// directory, which leaves the previous file on screen.
+//
+// A sidebar-focused target carries no line: the selected file is not the one
+// in the viewport, so the viewport's line means nothing for it.
+func (m *Model) editorTargetForFocus() (editorTarget, bool) {
+	if m.mode != FilesMode {
+		return editorTarget{}, false
+	}
+	if m.focus == SidebarFocus {
+		file := m.sidebar.SelectedItem()
+		if file == "" || m.sidebar.SelectedIsDir() {
+			return editorTarget{}, false
+		}
+		return editorTarget{file: file}, true
+	}
+	file := displayedFilesModeFile(m.lastMainItem)
+	if file == "" {
+		return editorTarget{}, false
+	}
+	return editorTarget{file: file, line: m.currentLineNumber()}, true
+}
+
+// openEditorPicker shows the editor list for the focused target. Inert when
+// there is nothing to open — no file displayed, or a directory selected.
+func (m *Model) openEditorPicker() tea.Cmd {
+	target, ok := m.editorTargetForFocus()
+	if !ok {
+		return nil
+	}
+	m.editorPicker.Open(editor.Available(os.Getenv("EDITOR"), command.LookPath), target, m.contentHeight())
+	return nil
+}
+
+// editorPickerHooks binds the picker's launch to Model. Built per call rather
+// than stored on the picker, so the picker never holds a Model reference.
+func (m *Model) editorPickerHooks() editorPickerHooks {
+	return editorPickerHooks{
+		Launch: func(e editor.Entry, target editorTarget) tea.Cmd {
+			return m.launchEditor(e.Name, target.file, target.line)
+		},
+	}
 }
 
 // openPRItemURL opens the URL for the currently selected PR sidebar item in the browser.
@@ -3005,8 +3072,8 @@ func (m *Model) View() tea.View {
 	m.line3Labels = l3Labels
 
 	var result string
-	if m.help.IsOpen() {
-		result = bar + "\n" + m.renderHelp()
+	if o := m.activeOverlay(); o != nil {
+		result = bar + "\n" + o.Render(m.contentHeight())
 	} else if m.sidebarHidden {
 		mainView := m.mainPane.View(m.focus == MainFocus)
 		result = bar + "\n" + mainView
@@ -3080,6 +3147,12 @@ func keyList(bs ...key.Binding) string {
 	return strings.Join(parts, " ")
 }
 
+// renderHelp renders the help overlay at the current content height.
+//
+// View no longer calls it — it goes through activeOverlay, which renders
+// whichever overlay is up. This stays as the help-specific entry point the
+// overlay's own tests render through, so they exercise the same height
+// derivation View does without going through the seam.
 func (m *Model) renderHelp() string {
 	return m.help.Render(m.contentHeight())
 }
