@@ -188,7 +188,9 @@ each known editor carries a preset: how it takes a line number, and whether it r
 
 #### choosing an editor
 
-`open-editor-with` opens a full-screen list of the editors prwatch has a preset for. choosing one launches it on the displayed file at the line `confirm` would use, under the same preset rules above. it does not change `$EDITOR`, and does not change what `confirm` does.
+`open-editor-with` opens a full-screen list of the editors prwatch has a preset for. choosing one launches it under the same preset rules above. it does not change `$EDITOR`, and does not change what `confirm` does.
+
+which file it opens follows focus, the same way `yank-path` does. main pane focused: the file the pane is displaying, at the line currently at the top of the viewport. sidebar focused: the sidebar's selected file, with no line number, and a no-op on a directory. the two files differ whenever the sidebar highlight sits on a directory, which leaves the previously-opened file on screen.
 
 - **which editors are listed.** only those whose command resolves on `PATH` — the same lookup the launch itself performs, so an editor that cannot be found is one that would fail. `$EDITOR`'s editor is always listed even when it does not resolve, so the list never omits the one the app would otherwise use. if nothing resolves, every known editor is listed and launching may fail, which is the `failures` case above.
 - **order.** alphabetical, one editor per row, each row showing whether it runs in the terminal or as a GUI. the `$EDITOR` editor is marked as the default.
@@ -359,7 +361,7 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 | command | default key(s) | action |
 |---------|----------------|--------|
 | `confirm` | `enter` | sidebar (on a dir): expand/collapse. sidebar (on a file): switch focus to main pane. main pane (files mode): open `$EDITOR` at the line currently at the top of the viewport. main pane (pr mode): open a browser to the URL of the selected item. main pane (commits mode): no-op for now. active search input: confirm (empty text cancels). |
-| `open-editor-with` | `e` | files mode: open a list of known editors and launch the chosen one on the displayed file, at the line at the top of the viewport. no-op when no file is displayed. |
+| `open-editor-with` | `e` | files mode: open a list of known editors and launch the chosen one. sidebar focused: on the selected file (no-op on a directory). main pane focused: on the displayed file, at the line currently at the top of the viewport. |
 | `next-leaf` | `shift+n` | jump to next leaf node in the sidebar, regardless of focus |
 | `prev-leaf` | `shift+p` | jump to previous leaf node in the sidebar, regardless of focus |
 | `yank-path` | `y` | sidebar focused: copy the selected file's relative path to the system clipboard. main pane focused (files mode): copy `path/to/file.go:N-M` where N-M is the line range currently in view. shows a transient toast in the bottom-left confirming what was copied. |
