@@ -290,3 +290,35 @@ func TestHelpOverlay_ScrollCommands(t *testing.T) {
 		})
 	}
 }
+
+// TestHelpContentLines_SharedSliceSurvivesRender guards the one hazard the
+// memoized listing introduces: helpContentLines now hands every caller the
+// same backing array, so a Render that highlighted rows in place would leave
+// ANSI escapes behind for everyone afterwards — including helpSearchMatches,
+// which would then be matching queries against escape sequences rather than
+// against the help text.
+func TestHelpContentLines_SharedSliceSurvivesRender(t *testing.T) {
+	before := append([]string(nil), helpContentLines()...)
+
+	h := newHelpOverlay()
+	h.Open()
+	h.search.begin()
+	h.search.applyEditKey(tea.KeyPressMsg{Text: "search", Code: 's'}, h.searchHooks())
+	if h.search.Query() == "" {
+		t.Fatal("query should be non-empty so Render takes the highlighting path")
+	}
+	if !strings.Contains(h.Render(40), "\x1b[") {
+		t.Fatal("Render produced no escape sequences; the highlight path did not run")
+	}
+
+	after := helpContentLines()
+	if len(after) != len(before) {
+		t.Fatalf("listing length changed across Render: %d then %d", len(before), len(after))
+	}
+	for i := range after {
+		if after[i] != before[i] {
+			t.Fatalf("Render mutated the shared listing at line %d:\n before: %q\n  after: %q",
+				i, before[i], after[i])
+		}
+	}
+}

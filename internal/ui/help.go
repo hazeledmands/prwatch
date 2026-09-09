@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -69,7 +70,15 @@ func (h *helpOverlay) Close() {
 // what each one is called all come from helpSections in keys.go, beside the
 // keymap itself. The key column is generated from each binding's Keys(), so it
 // cannot describe a key the app doesn't bind.
-func helpContentLines() []string {
+//
+// The listing is a pure function of helpSections, a package-level value, so it
+// is built once for the process. It used to be rebuilt on every key press,
+// every wheel event, every render, and once more inside helpSearchMatches —
+// so typing a query rebuilt it twice per keystroke.
+//
+// The returned slice is shared. Callers that modify it in place must copy
+// first; see Render.
+var helpContentLines = sync.OnceValue(func() []string {
 	width := 0
 	for _, section := range helpSections {
 		for _, b := range section {
@@ -90,7 +99,7 @@ func helpContentLines() []string {
 	}
 	lines = append(lines, "", "Press q/esc to dismiss. Use j/k or mouse to scroll. / to search.")
 	return lines
-}
+})
 
 // helpSearchMatches returns the helpContentLines() indices matching query
 // case-insensitively. An empty query matches nothing, the same as
@@ -198,9 +207,15 @@ func (h *helpOverlay) Render(visibleHeight int) string {
 	lines := helpContentLines()
 
 	if q := h.search.Query(); q != "" {
+		// helpContentLines hands back the one shared listing, so highlighting
+		// has to build its own slice — writing the highlighted rows back would
+		// leave the ANSI escapes in place for every later caller, including
+		// helpSearchMatches, which would then be matching against them.
+		highlighted := make([]string, len(lines))
 		for i, line := range lines {
-			lines[i] = highlightMatchInLine(line, q)
+			highlighted[i] = highlightMatchInLine(line, q)
 		}
+		lines = highlighted
 	}
 
 	end := h.scrollOffset + visibleHeight
