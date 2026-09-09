@@ -1,0 +1,538 @@
+# 2026/09/09 13:25:59.949113 [TestProperty_DragSelectsCorrectText] [rapid] draw width: 80
+# 2026/09/09 13:25:59.949137 [TestProperty_DragSelectsCorrectText] [rapid] draw height: 43
+# 2026/09/09 13:25:59.949149 [TestProperty_DragSelectsCorrectText] [rapid] draw lineNumbers: false
+# 2026/09/09 13:25:59.949159 [TestProperty_DragSelectsCorrectText] [rapid] draw wordWrap: true
+# 2026/09/09 13:25:59.949168 [TestProperty_DragSelectsCorrectText] [rapid] draw nLines: 3
+# 2026/09/09 13:25:59.949180 [TestProperty_DragSelectsCorrectText] [rapid] draw lineKind0: 4
+# 2026/09/09 13:25:59.949200 [TestProperty_DragSelectsCorrectText] [rapid] draw lineKind1: 12
+# 2026/09/09 13:25:59.949213 [TestProperty_DragSelectsCorrectText] [rapid] draw lineKind2: 1
+# 2026/09/09 13:25:59.949367 [TestProperty_DragSelectsCorrectText] [rapid] draw nCommitted: 7
+# 2026/09/09 13:25:59.949391 [TestProperty_DragSelectsCorrectText] [rapid] draw nUncommitted: 9
+# 2026/09/09 13:25:59.949398 [TestProperty_DragSelectsCorrectText] [rapid] draw nStaged: 5
+# 2026/09/09 13:25:59.949409 [TestProperty_DragSelectsCorrectText] [rapid] draw nCommits: 7
+# 2026/09/09 13:25:59.949450 [TestProperty_DragSelectsCorrectText] [rapid] draw changeType_file0.go: 5.924728643875957e-253
+# 2026/09/09 13:25:59.949463 [TestProperty_DragSelectsCorrectText] [rapid] draw changeType_file1_café.go: 7.782224208366706e-73
+# 2026/09/09 13:25:59.949472 [TestProperty_DragSelectsCorrectText] [rapid] draw changeType_file 2.go: 2.86102294921875e-05
+# 2026/09/09 13:25:59.949482 [TestProperty_DragSelectsCorrectText] [rapid] draw changeType_file3_日本.go: 1.0152924319508452e-215
+# 2026/09/09 13:25:59.949496 [TestProperty_DragSelectsCorrectText] [rapid] draw changeType_file4	control.go: 7.073602205822214e-267
+# 2026/09/09 13:25:59.949504 [TestProperty_DragSelectsCorrectText] [rapid] draw changeType_file5.go: 1.8420562143771919e-96
+# 2026/09/09 13:25:59.949512 [TestProperty_DragSelectsCorrectText] [rapid] draw changeType_file6_café.go: 1.3132297554318814e-94
+# 2026/09/09 13:25:59.949554 [TestProperty_DragSelectsCorrectText] [rapid] draw addStaged_staged0.go: 0.8125
+# 2026/09/09 13:25:59.949562 [TestProperty_DragSelectsCorrectText] [rapid] draw addStaged_staged1_café.go: 1
+# 2026/09/09 13:25:59.949574 [TestProperty_DragSelectsCorrectText] [rapid] draw addStaged_staged 2.go: 1
+# 2026/09/09 13:25:59.949581 [TestProperty_DragSelectsCorrectText] [rapid] draw addStaged_staged3_日本.go: 7.826424977950459e-66
+# 2026/09/09 13:25:59.949591 [TestProperty_DragSelectsCorrectText] [rapid] draw addStaged_staged4	control.go: 0.145166678368696
+# 2026/09/09 13:25:59.949600 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_u_new0.go: 7.95536813874137e-231
+# 2026/09/09 13:25:59.949608 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_u_new1_café.go: 0.07742491879746873
+# 2026/09/09 13:25:59.949619 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_u_new 2.go: 0.06837381422519684
+# 2026/09/09 13:25:59.949628 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_u_new3_日本.go: 5.11146346127715e-309
+# 2026/09/09 13:25:59.949636 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_u_new4	control.go: 8.4514334252228e-233
+# 2026/09/09 13:25:59.949652 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_u_new5.go: 1
+# 2026/09/09 13:25:59.949660 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_u_new6_café.go: 5.374030634447139e-228
+# 2026/09/09 13:25:59.949670 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_u_new 7.go: 0.061673985910601914
+# 2026/09/09 13:25:59.949679 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_u_new8_日本.go: 3.588209461562765e-271
+# 2026/09/09 13:25:59.949688 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_s_staged0.go: 5.053218351506075e-150
+# 2026/09/09 13:25:59.949700 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_s_staged1_café.go: 5.8337933199953396e-05
+# 2026/09/09 13:25:59.949710 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_s_staged 2.go: 1
+# 2026/09/09 13:25:59.949718 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_s_staged3_日本.go: 9.273015376718553e-69
+# 2026/09/09 13:25:59.949725 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_s_staged4	control.go: 0.9274107666424551
+# 2026/09/09 13:25:59.949734 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_c_file0.go: 6.269858758349951e-09
+# 2026/09/09 13:25:59.949744 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_c_file1_café.go: 0.00128173828125
+# 2026/09/09 13:25:59.949753 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_c_file 2.go: 1.2016375575003669e-188
+# 2026/09/09 13:25:59.949761 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_c_file3_日本.go: 1.3017278227071382e-85
+# 2026/09/09 13:25:59.949770 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_c_file4	control.go: 0.0001982829999178648
+# 2026/09/09 13:25:59.949778 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_c_file5.go: 1
+# 2026/09/09 13:25:59.949786 [TestProperty_DragSelectsCorrectText] [rapid] draw rename_c_file6_café.go: 6.426862487292004e-18
+# 2026/09/09 13:25:59.949797 [TestProperty_DragSelectsCorrectText] [rapid] draw nOtherFiles: 15
+# 2026/09/09 13:25:59.949840 [TestProperty_DragSelectsCorrectText] [rapid] draw nIgnored: 4
+# 2026/09/09 13:25:59.949851 [TestProperty_DragSelectsCorrectText] [rapid] draw ignoredKind0: 1
+# 2026/09/09 13:25:59.949861 [TestProperty_DragSelectsCorrectText] [rapid] draw ignoredKind1: 1
+# 2026/09/09 13:25:59.949871 [TestProperty_DragSelectsCorrectText] [rapid] draw ignoredKind2: 2
+# 2026/09/09 13:25:59.949883 [TestProperty_DragSelectsCorrectText] [rapid] draw ignoredKind3: 0
+# 2026/09/09 13:25:59.949901 [TestProperty_DragSelectsCorrectText] [rapid] draw commit0_emoji: 0
+# 2026/09/09 13:25:59.949910 [TestProperty_DragSelectsCorrectText] [rapid] draw commit0_emojiVal: "🔥"
+# 2026/09/09 13:25:59.949928 [TestProperty_DragSelectsCorrectText] [rapid] draw commit1_emoji: 0.25
+# 2026/09/09 13:25:59.949937 [TestProperty_DragSelectsCorrectText] [rapid] draw commit1_emojiVal: "🐛"
+# 2026/09/09 13:25:59.949951 [TestProperty_DragSelectsCorrectText] [rapid] draw commit2_emoji: 0.23830716162046883
+# 2026/09/09 13:25:59.949959 [TestProperty_DragSelectsCorrectText] [rapid] draw commit2_emojiVal: "🐛"
+# 2026/09/09 13:25:59.949995 [TestProperty_DragSelectsCorrectText] [rapid] draw commit3_emoji: 0.00030884730210183113
+# 2026/09/09 13:25:59.950004 [TestProperty_DragSelectsCorrectText] [rapid] draw commit3_emojiVal: "🎉"
+# 2026/09/09 13:25:59.950017 [TestProperty_DragSelectsCorrectText] [rapid] draw commit4_emoji: 0
+# 2026/09/09 13:25:59.950025 [TestProperty_DragSelectsCorrectText] [rapid] draw commit4_emojiVal: "🎉"
+# 2026/09/09 13:25:59.950039 [TestProperty_DragSelectsCorrectText] [rapid] draw commit5_emoji: 4.521808537053373e-93
+# 2026/09/09 13:25:59.950048 [TestProperty_DragSelectsCorrectText] [rapid] draw commit5_emojiVal: "🔥"
+# 2026/09/09 13:25:59.950061 [TestProperty_DragSelectsCorrectText] [rapid] draw commit6_emoji: 2.612502588176732e-09
+# 2026/09/09 13:25:59.950068 [TestProperty_DragSelectsCorrectText] [rapid] draw commit6_emojiVal: "🐛"
+# 2026/09/09 13:25:59.950077 [TestProperty_DragSelectsCorrectText] [rapid] draw branch: "main"
+# 2026/09/09 13:25:59.950083 [TestProperty_DragSelectsCorrectText] [rapid] draw detached: false
+# 2026/09/09 13:25:59.950092 [TestProperty_DragSelectsCorrectText] [rapid] draw prNum: 100
+# 2026/09/09 13:25:59.950100 [TestProperty_DragSelectsCorrectText] [rapid] draw prTitle_emoji: 4.8551593260420694e-135
+# 2026/09/09 13:25:59.950108 [TestProperty_DragSelectsCorrectText] [rapid] draw prTitle_emojiVal: "🚀"
+# 2026/09/09 13:25:59.950115 [TestProperty_DragSelectsCorrectText] [rapid] draw isDraft: true
+# 2026/09/09 13:25:59.950121 [TestProperty_DragSelectsCorrectText] [rapid] draw aheadCount: 10
+# 2026/09/09 13:25:59.950128 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_nHunks: 3
+# 2026/09/09 13:25:59.950140 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_skip0: 0
+# 2026/09/09 13:25:59.950148 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_nOps0: 3
+# 2026/09/09 13:25:59.950156 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h0_o0_kind: "removed"
+# 2026/09/09 13:25:59.950169 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h0_o1_kind: "context"
+# 2026/09/09 13:25:59.950182 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h0_o2_kind: "added"
+# 2026/09/09 13:25:59.950199 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_skip1: 2
+# 2026/09/09 13:25:59.950210 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_nOps1: 4
+# 2026/09/09 13:25:59.950222 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h1_o0_kind: "context"
+# 2026/09/09 13:25:59.950235 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h1_o1_kind: "removed"
+# 2026/09/09 13:25:59.950247 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h1_o2_kind: "removed"
+# 2026/09/09 13:25:59.950260 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h1_o3_kind: "added"
+# 2026/09/09 13:25:59.950277 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_skip2: 2
+# 2026/09/09 13:25:59.950291 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_nOps2: 5
+# 2026/09/09 13:25:59.950299 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h2_o0_kind: "added"
+# 2026/09/09 13:25:59.950315 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h2_o1_kind: "removed"
+# 2026/09/09 13:25:59.950328 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h2_o2_kind: "added"
+# 2026/09/09 13:25:59.950340 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h2_o3_kind: "removed"
+# 2026/09/09 13:25:59.950354 [TestProperty_DragSelectsCorrectText] [rapid] draw diff_op_h2_o4_kind: "added"
+# 2026/09/09 13:25:59.950373 [TestProperty_DragSelectsCorrectText] [rapid] draw commitPatch_emoji: 1.963861176711529e-190
+# 2026/09/09 13:25:59.950382 [TestProperty_DragSelectsCorrectText] [rapid] draw commitPatch_emojiVal: "🚀"
+# 2026/09/09 13:26:01.101147 [TestProperty_DragSelectsCorrectText] [rapid] draw y1: 1
+# 2026/09/09 13:26:01.101166 [TestProperty_DragSelectsCorrectText] [rapid] draw y2: 16
+# 2026/09/09 13:26:01.101179 [TestProperty_DragSelectsCorrectText] [rapid] draw x1: 66
+# 2026/09/09 13:26:01.101186 [TestProperty_DragSelectsCorrectText] [rapid] draw x2: 31
+# 
+v0.4.8#14410291601781820715
+0x1178263126eaf8
+0xc5ee09a54e37e
+0x14
+0xb85b233001172
+0xddb4839657944
+0x1c
+0x0
+0x1
+0x1b0bf78c85e4ee
+0x13e60d348c208
+0x0
+0x1a41119c58f6eb
+0x1d761c9b7111da
+0x4
+0xce848c1a6b257
+0x9b8f5f52b5da2
+0xc
+0x10b6384cb5a400
+0x1e61be19344f0
+0x1
+0x181fc544fe451c
+0x1aca2f9ff2101e
+0x7
+0x7cfa28dd1fc2c
+0xc885d820b6b44
+0x9
+0x5aae16641a5a0
+0xcca94d8bedcea
+0x5
+0x191ca7aff23085
+0x12d9c2d320f90c
+0x1e
+0x7
+0x6a1f3359d0fad
+0xe3e17f05e2928
+0x192aef92903b0e
+0x346
+0x0
+0x8
+0x16ec0cf930781
+0x66050a5fcca57
+0x14dfdaf41b9c26
+0x120df46aa793c1
+0xf0
+0x0
+0x3
+0x78123d9cd125b
+0x13b93cd7ee18bd
+0x1236639a6095fb
+0xd0df7db6f792c
+0x10
+0x0
+0x3
+0xe773175f452e1
+0x12d0956d2142ed
+0x14bfdbd80dbed4
+0x1b1f9c95cef976
+0x2cb
+0x0
+0x3
+0xd1ef36863040a
+0x149c02fe7f6648
+0x5c06e2f5cd4e3
+0x16b74ec71bfdd4
+0x375
+0x0
+0x31
+0xd31e4065381ae
+0x149eaff1844fad
+0x162f10b26f7d13
+0x1d419519988c7c
+0x13f
+0x0
+0x21
+0xf7a13dc496328
+0xbe286dfaa2bfb
+0x166644161261f0
+0x1345f1768b5d4d
+0x138
+0x0
+0x1b
+0x188111925d31e
+0x1cc39405d254ef
+0x155a8354b82321
+0x279af0afd7479
+0x1
+0x0
+0x4
+0xa46424732b101
+0x187d29097b68f1
+0x1c37f97534ea3f
+0x5f3938179b353
+0x0
+0x0
+0x0
+0x0
+0x1cfe345d41bbc3
+0x157a8e90a5a6c0
+0x1b76ab529ae0e
+0x0
+0x0
+0x0
+0x0
+0x102f7ff11ff227
+0x1695c5466e5a94
+0x1e2cfacad47a10
+0xd9
+0x0
+0xa
+0xa6024f3d8f5b3
+0xf73dd8177846
+0xefb522d8fddc2
+0x4f9bd07b83682
+0x3
+0x0
+0x21
+0x294d25c0e2674
+0x157c1e03eaf989
+0x4408e855ff169
+0x1ec1d29df85ec4
+0x2fd
+0x0
+0x15
+0x8b3a3032a53f0
+0x1bf40ab6277067
+0x15611b67dd9113
+0x8fbd747589879
+0x4
+0x0
+0x3e
+0x3d21e96216df1
+0x1ecb894d8a3b6
+0x91222f6d44673
+0x8868304f31c61
+0x4
+0x0
+0x1b
+0x180f24085eb38
+0x43ff9f3877ac9
+0x1308fbc0b60be7
+0x1ffc9389e0dedc
+0xffffffffffffffff
+0x0
+0x10
+0x3acf493ce49dd
+0x382da7670cd59
+0x13a93c0a6d9a05
+0x168a664696e64f
+0x303
+0x0
+0x3f
+0xcb7d884a1f93
+0x1a8a7f51bccc6a
+0xbbc62837cd5f1
+0x2fa85e54c1939
+0x0
+0x0
+0x0
+0x0
+0x16cc56b9e73a36
+0x5cb57a462838d
+0x1efa3ed12ca4bd
+0x2f3
+0x0
+0x29
+0x4ba3d01c8f02
+0x1d3a7ff7740d0c
+0x10764bea852bad
+0x98554d0d47dc2
+0x5
+0x0
+0x1d
+0xf93bb91304c16
+0x1c1de314556d0c
+0x332f9bbe14d50
+0x1e43d99c58b643
+0x383
+0x0
+0x35
+0x8439ae6f436f8
+0x6b30aa793eb63
+0xece249db9dcb2
+0x1889675c72f6b1
+0x1f0
+0x0
+0x3a
+0x8a894c1fd79c
+0x15dd573fb82af8
+0x1b7de4c57fe2a3
+0xb2b59fd0c1561
+0xf
+0x0
+0x2d
+0xe95fc1f26705a
+0x1ad45ff08f5a61
+0xf2a54449aa3c2
+0x39e2d6b7f12c3
+0x0
+0x0
+0x0
+0x0
+0x75fe791f84209
+0x104fecfa84fc7d
+0x1949a42c49229d
+0xe2
+0x0
+0x0
+0x402f435b7a06d
+0xb0082e7c1f4d
+0x2eae33f0f1290
+0x3f86f68968bcc
+0x1
+0x0
+0x3b
+0xdad5958160116
+0x13fd79ea31f089
+0xbbe13dd876e88
+0x108369d45e70ad
+0x1c
+0x0
+0x2e
+0xaedc85915969c
+0xfa9a4082fbfa5
+0xb57ed02d19701
+0xac999282b6870
+0xa
+0x0
+0x5
+0x52e3dbffcd14a
+0x9c0a9a8343e80
+0x955f46b5e9bb1
+0x1738977076da6a
+0x271
+0x0
+0xc
+0xac58b1b3d1902
+0x6ceefe754435d
+0xeefc2533239d9
+0x1782ba04f82198
+0x11a
+0x0
+0x19
+0x2f3a96c0250f
+0xd984cbdf356e7
+0x24c1716686031
+0xb932f6b46d087
+0xd
+0x0
+0x13
+0x9fd4681685718
+0x8bf0e70346398
+0x19b037135c302b
+0x28ecc39388ed3
+0x0
+0x0
+0x0
+0x0
+0x102d94bfb2508c
+0x130099ae11d91f
+0x1ad64463c751ad
+0x3a
+0x0
+0xd
+0xda384fb154aca
+0x11a1151a07f21d
+0x1f371e87abe8cf
+0xffffffffffffffff
+0xefad4fa5a6a0a
+0x1d18fa0b0b8a9a
+0xc
+0x4
+0x10821aa622ac44
+0x31f10bd1b04bc
+0x1
+0x14683f07dea556
+0xc1c51eb412a9d
+0x3
+0x1
+0x915582badfd7c
+0x1939f09bb7d97e
+0x2
+0x140a7d4f583849
+0x2d4ca079841df
+0x0
+0x114262b6d5ae62
+0x8faf8d81dbdec
+0x1fda296e716191
+0xffffffffffffffff
+0x0
+0x0
+0x0
+0x6ec8fb5a88827
+0x0
+0x1ad24dc154dd1a
+0x169c091913e5d3
+0x81ea70be47304
+0x2
+0x0
+0x0
+0x848c0b841ecf3
+0x88e378bb5de69
+0x5
+0x184da4534b1bd8
+0x248e8f9844deb
+0x4aa2132d44a95
+0x3
+0x0
+0x21
+0xe80d95ccc3645
+0x11b739b0a3b295
+0x5
+0x863d0290dc72d
+0x1d3cc19b076d95
+0x1721ebca015bc6
+0xc
+0x0
+0x38
+0x43d990fde4309
+0x9f40a3c8b06ba
+0x7
+0x1c14cedb3365e1
+0xac3920328f3d1
+0x1fc83c378aa01f
+0xffffffffffffffff
+0x0
+0x0
+0x0
+0xfa7187ccff5d0
+0x7
+0x18c5961c39adec
+0x1bad5e0cc75289
+0x1d6ce0a6159bfd
+0x133
+0x0
+0x17
+0x2dd43309f088f
+0x33d8cf436be38
+0x0
+0x1e036eefd7c3c1
+0x1c274de4a7a7a3
+0xee99099cc3f03
+0x1d
+0x0
+0x25
+0x670f435d86438
+0x1a402a61789162
+0x5
+0x73986c1d2961d
+0x3
+0x0
+0x0
+0x5f966663a5147
+0x2
+0x1c96d06f280736
+0xb661606521fe6
+0x1e4f8f1c270791
+0x1bf
+0x0
+0x27
+0xc3b3942dd05ac
+0xfcf7fad9b1ecb
+0x2
+0x1
+0x4d5fa44a04076
+0x1f88e18629aa84
+0xffffffffffffffff
+0x10485f2d2467d4
+0x19b6aa57d71487
+0x3
+0x159ef64c37c345
+0x498c79322d44d
+0x0
+0xbb0a70ffe2a3f
+0xdc42472bc5bd4
+0x2
+0xe86b965dbc03a
+0x2
+0x1ae91b91f73472
+0x3
+0x0
+0x852fff45acb63
+0x1
+0x9492e45b3c87a
+0x1591241b1d941c
+0x2
+0x43237ac3096e
+0x43442774294d2
+0x3
+0x289e78465772d
+0x0
+0x1756be142a8c80
+0x2
+0x7738039768813
+0x3
+0x2
+0x1af164fe50cc3b
+0x1
+0x2952aff749fc1
+0x1994839c2359fd
+0x2
+0x1abee1fbce7dcf
+0x1987a84e040e2d
+0x7
+0x4
+0x218f9c9c318c3
+0x1
+0xedfd485e706e0
+0x2
+0x1404e977978526
+0x1
+0xaf7f3bd9bf039
+0x2
+0x45310529d0061
+0x1
+0x1c26c71b9f87f7
+0x101846b4bc35d8
+0x1ea8957be8f04c
+0x277
+0x0
+0x2
+0xe0fa26242d104
+0x1000828784cf50
+0x2
+0x1a8b5b128e4e52
+0x272346c3d53a8
+0x1
+0x144448aae59621
+0x18abe77f9ef686
+0x2b
+0x2e
+0x35
+0x36
+0xf
+0x150a5ea555d5f7
+0xf836f584478d9
+0x24
+0x1876a53da10e7c
+0x101e88ae0cca
+0x1

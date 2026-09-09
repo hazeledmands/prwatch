@@ -1,0 +1,528 @@
+# 2026/09/09 13:26:06.050156 [TestProperty_InteractionInvariants] [rapid] draw isGit: 1
+# 2026/09/09 13:26:06.050184 [TestProperty_InteractionInvariants] [rapid] draw nCommitted: 0
+# 2026/09/09 13:26:06.050202 [TestProperty_InteractionInvariants] [rapid] draw nUncommitted: 7
+# 2026/09/09 13:26:06.050214 [TestProperty_InteractionInvariants] [rapid] draw nStaged: 1
+# 2026/09/09 13:26:06.050222 [TestProperty_InteractionInvariants] [rapid] draw nCommits: 7
+# 2026/09/09 13:26:06.050313 [TestProperty_InteractionInvariants] [rapid] draw addStaged_staged0.go: 0.25
+# 2026/09/09 13:26:06.050324 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new0.go: 1.939529940528867e-120
+# 2026/09/09 13:26:06.050336 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new1_café.go: 4.4339053569185645e-284
+# 2026/09/09 13:26:06.050352 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new 2.go: 4.806359161826445e-65
+# 2026/09/09 13:26:06.050362 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new3_日本.go: 0.8660255027934909
+# 2026/09/09 13:26:06.050372 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new4	control.go: 0.0599820613861084
+# 2026/09/09 13:26:06.050382 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new5.go: 2.3632644853181835e-110
+# 2026/09/09 13:26:06.050391 [TestProperty_InteractionInvariants] [rapid] draw rename_u_new6_café.go: 0.7367482917873076
+# 2026/09/09 13:26:06.050399 [TestProperty_InteractionInvariants] [rapid] draw rename_s_staged0.go: 0.05847930908203125
+# 2026/09/09 13:26:06.050409 [TestProperty_InteractionInvariants] [rapid] draw nOtherFiles: 0
+# 2026/09/09 13:26:06.050423 [TestProperty_InteractionInvariants] [rapid] draw nIgnored: 0
+# 2026/09/09 13:26:06.050442 [TestProperty_InteractionInvariants] [rapid] draw commit0_emoji: 4.1359030627651384e-25
+# 2026/09/09 13:26:06.050451 [TestProperty_InteractionInvariants] [rapid] draw commit0_emojiVal: "📦"
+# 2026/09/09 13:26:06.050469 [TestProperty_InteractionInvariants] [rapid] draw commit1_emoji: 1.6085897657935033e-59
+# 2026/09/09 13:26:06.050478 [TestProperty_InteractionInvariants] [rapid] draw commit1_emojiVal: "🔥"
+# 2026/09/09 13:26:06.050494 [TestProperty_InteractionInvariants] [rapid] draw commit2_emoji: 6.759640383454967e-69
+# 2026/09/09 13:26:06.050502 [TestProperty_InteractionInvariants] [rapid] draw commit2_emojiVal: "💬"
+# 2026/09/09 13:26:06.050766 [TestProperty_InteractionInvariants] [rapid] draw commit3_emoji: 0
+# 2026/09/09 13:26:06.050778 [TestProperty_InteractionInvariants] [rapid] draw commit3_emojiVal: "🔥"
+# 2026/09/09 13:26:06.050797 [TestProperty_InteractionInvariants] [rapid] draw commit4_emoji: 1.2161699056677244e-16
+# 2026/09/09 13:26:06.050807 [TestProperty_InteractionInvariants] [rapid] draw commit4_emojiVal: "🤖"
+# 2026/09/09 13:26:06.050825 [TestProperty_InteractionInvariants] [rapid] draw commit5_emoji: 1.034006541142645e-09
+# 2026/09/09 13:26:06.050834 [TestProperty_InteractionInvariants] [rapid] draw commit5_emojiVal: "📦"
+# 2026/09/09 13:26:06.050855 [TestProperty_InteractionInvariants] [rapid] draw commit6_emoji: 4.885320479701027e-30
+# 2026/09/09 13:26:06.050871 [TestProperty_InteractionInvariants] [rapid] draw commit6_emojiVal: "⚡"
+# 2026/09/09 13:26:06.050881 [TestProperty_InteractionInvariants] [rapid] draw branch: "main"
+# 2026/09/09 13:26:06.050888 [TestProperty_InteractionInvariants] [rapid] draw detached: false
+# 2026/09/09 13:26:06.050896 [TestProperty_InteractionInvariants] [rapid] draw prNum: 100
+# 2026/09/09 13:26:06.050909 [TestProperty_InteractionInvariants] [rapid] draw prTitle_emoji: 2.1025467900584813e-07
+# 2026/09/09 13:26:06.050916 [TestProperty_InteractionInvariants] [rapid] draw prTitle_emojiVal: "⚡"
+# 2026/09/09 13:26:06.050924 [TestProperty_InteractionInvariants] [rapid] draw isDraft: false
+# 2026/09/09 13:26:06.050933 [TestProperty_InteractionInvariants] [rapid] draw aheadCount: 1
+# 2026/09/09 13:26:06.050942 [TestProperty_InteractionInvariants] [rapid] draw diff_nHunks: 2
+# 2026/09/09 13:26:06.050954 [TestProperty_InteractionInvariants] [rapid] draw diff_skip0: 1
+# 2026/09/09 13:26:06.050965 [TestProperty_InteractionInvariants] [rapid] draw diff_nOps0: 1
+# 2026/09/09 13:26:06.050975 [TestProperty_InteractionInvariants] [rapid] draw diff_op_h0_o0_kind: "removed"
+# 2026/09/09 13:26:06.050992 [TestProperty_InteractionInvariants] [rapid] draw diff_skip1: 0
+# 2026/09/09 13:26:06.051004 [TestProperty_InteractionInvariants] [rapid] draw diff_nOps1: 6
+# 2026/09/09 13:26:06.051012 [TestProperty_InteractionInvariants] [rapid] draw diff_op_h1_o0_kind: "added"
+# 2026/09/09 13:26:06.051026 [TestProperty_InteractionInvariants] [rapid] draw diff_op_h1_o1_kind: "context"
+# 2026/09/09 13:26:06.051041 [TestProperty_InteractionInvariants] [rapid] draw diff_op_h1_o2_kind: "removed"
+# 2026/09/09 13:26:06.051056 [TestProperty_InteractionInvariants] [rapid] draw diff_op_h1_o3_kind: "removed"
+# 2026/09/09 13:26:06.051066 [TestProperty_InteractionInvariants] [rapid] draw diff_op_h1_o4_kind: "removed"
+# 2026/09/09 13:26:06.051079 [TestProperty_InteractionInvariants] [rapid] draw diff_op_h1_o5_kind: "removed"
+# 2026/09/09 13:26:06.051099 [TestProperty_InteractionInvariants] [rapid] draw commitPatch_emoji: 7.592563331091808e-253
+# 2026/09/09 13:26:06.051108 [TestProperty_InteractionInvariants] [rapid] draw commitPatch_emojiVal: "🐛"
+# 2026/09/09 13:26:06.051117 [TestProperty_InteractionInvariants] [rapid] draw hasReviews: false
+# 2026/09/09 13:26:06.051124 [TestProperty_InteractionInvariants] [rapid] draw hasComments: false
+# 2026/09/09 13:26:06.051131 [TestProperty_InteractionInvariants] [rapid] draw hasAPIError: true
+# 2026/09/09 13:26:06.051137 [TestProperty_InteractionInvariants] [rapid] draw hasBaseCommits: true
+# 2026/09/09 13:26:06.051144 [TestProperty_InteractionInvariants] [rapid] draw nBaseCommits: 4
+# 2026/09/09 13:26:06.051157 [TestProperty_InteractionInvariants] [rapid] draw base0_emoji: 1.214306433183765e-17
+# 2026/09/09 13:26:06.051164 [TestProperty_InteractionInvariants] [rapid] draw base0_emojiVal: "💬"
+# 2026/09/09 13:26:06.051181 [TestProperty_InteractionInvariants] [rapid] draw base1_emoji: 0.4430418938882159
+# 2026/09/09 13:26:06.051195 [TestProperty_InteractionInvariants] [rapid] draw base2_emoji: 1.5778896288941022e-102
+# 2026/09/09 13:26:06.051364 [TestProperty_InteractionInvariants] [rapid] draw base2_emojiVal: "🐛"
+# 2026/09/09 13:26:06.051390 [TestProperty_InteractionInvariants] [rapid] draw base3_emoji: 0.04931640625
+# 2026/09/09 13:26:06.051401 [TestProperty_InteractionInvariants] [rapid] draw base3_emojiVal: "⚡"
+# 2026/09/09 13:26:06.051412 [TestProperty_InteractionInvariants] [rapid] draw mode: 2
+# 2026/09/09 13:26:06.051419 [TestProperty_InteractionInvariants] [rapid] draw width: 44
+# 2026/09/09 13:26:06.051426 [TestProperty_InteractionInvariants] [rapid] draw height: 16
+# 2026/09/09 13:26:06.092635 [TestProperty_InteractionInvariants] [rapid] draw nSteps: 14
+# 2026/09/09 13:26:06.092671 [TestProperty_InteractionInvariants] [rapid] draw special0: 1.020761451113333e-127
+# 2026/09/09 13:26:06.092685 [TestProperty_InteractionInvariants] [rapid] draw step0_special: 7
+# 2026/09/09 13:26:06.208102 [TestProperty_InteractionInvariants] [rapid] draw special1: 3.604511870148016e-44
+# 2026/09/09 13:26:06.208129 [TestProperty_InteractionInvariants] [rapid] draw step1_special: 2
+# 2026/09/09 13:26:06.522164 [TestProperty_InteractionInvariants] [rapid] draw special2: 8.524900142423729e-10
+# 2026/09/09 13:26:06.522190 [TestProperty_InteractionInvariants] [rapid] draw step2_special: 0
+# 2026/09/09 13:26:06.633276 [TestProperty_InteractionInvariants] [rapid] draw special3: 1.4435499906539917e-08
+# 2026/09/09 13:26:06.633335 [TestProperty_InteractionInvariants] [rapid] draw step3_special: 6
+# 2026/09/09 13:26:06.730422 [TestProperty_InteractionInvariants] [rapid] draw special4: 0.20082195790018886
+# 2026/09/09 13:26:06.730449 [TestProperty_InteractionInvariants] [rapid] draw action4_cat: "mouse_click"
+# 2026/09/09 13:26:06.730864 [TestProperty_InteractionInvariants] [rapid] draw action4_x: 6
+# 2026/09/09 13:26:06.730887 [TestProperty_InteractionInvariants] [rapid] draw action4_y: 2
+# 2026/09/09 13:26:06.855770 [TestProperty_InteractionInvariants] [rapid] draw special5: 1.410593220986745e-36
+# 2026/09/09 13:26:06.855832 [TestProperty_InteractionInvariants] [rapid] draw step5_special: 0
+# 2026/09/09 13:26:06.942568 [TestProperty_InteractionInvariants] [rapid] draw special6: 1
+# 2026/09/09 13:26:06.942596 [TestProperty_InteractionInvariants] [rapid] draw action6_cat: "resize"
+# 2026/09/09 13:26:06.942610 [TestProperty_InteractionInvariants] [rapid] draw action6_w: 172
+# 2026/09/09 13:26:06.942618 [TestProperty_InteractionInvariants] [rapid] draw action6_h: 54
+# 2026/09/09 13:26:07.311526 [TestProperty_InteractionInvariants] [rapid] draw special7: 0.002404650940214138
+# 2026/09/09 13:26:07.311553 [TestProperty_InteractionInvariants] [rapid] draw step7_special: 7
+# 2026/09/09 13:26:07.964334 [TestProperty_InteractionInvariants] [rapid] draw special8: 1
+# 2026/09/09 13:26:07.964364 [TestProperty_InteractionInvariants] [rapid] draw action8_cat: "key"
+# 2026/09/09 13:26:07.964376 [TestProperty_InteractionInvariants] [rapid] draw action8_key: 13
+# 2026/09/09 13:26:08.230675 [TestProperty_InteractionInvariants] [rapid] draw special9: 0.05078125
+# 2026/09/09 13:26:08.230735 [TestProperty_InteractionInvariants] [rapid] draw step9_special: 4
+# 2026/09/09 13:26:08.391750 [TestProperty_InteractionInvariants] [rapid] draw special10: 3.4316898692201853e-75
+# 2026/09/09 13:26:08.391777 [TestProperty_InteractionInvariants] [rapid] draw step10_special: 4
+# 2026/09/09 13:26:08.694232 [TestProperty_InteractionInvariants] [rapid] draw special11: 0.01202350465746271
+# 2026/09/09 13:26:08.694265 [TestProperty_InteractionInvariants] [rapid] draw step11_special: 1
+# 2026/09/09 13:26:09.058777 [TestProperty_InteractionInvariants] [rapid] draw special12: 0.15478515625
+# 2026/09/09 13:26:09.058805 [TestProperty_InteractionInvariants] [rapid] draw step12_special: 2
+# 2026/09/09 13:26:09.523000 [TestProperty_InteractionInvariants] [rapid] draw special13: 1
+# 2026/09/09 13:26:09.523031 [TestProperty_InteractionInvariants] [rapid] draw action13_cat: "key"
+# 2026/09/09 13:26:09.523046 [TestProperty_InteractionInvariants] [rapid] draw action13_key: 13
+# 
+v0.4.8#17871823657677919684
+0x1d4789d93fe259
+0x2fd18055a99b4
+0x6ace7b9ea102a
+0x0
+0x0
+0x0
+0x0
+0x174d3975a2392f
+0x67114d7c5441d
+0x0
+0x192f01ca540ff5
+0x1a6a9d8f9ae88b
+0x7
+0x5645053598fbc
+0x1213ddeffaa46e
+0x1
+0x196555af93626c
+0x138952eb4d5ade
+0x7
+0x8ea13ac04ad70
+0x8dbfd77067c42
+0x378b0771b3bb8
+0x2
+0x0
+0x0
+0x2a1e2f6bd5631
+0xc916a410d20be
+0x9b619dcad2c30
+0x1dc1cb3617eb1f
+0x18e
+0x0
+0x2c
+0x4088d26ef1c83
+0x14f0ba40583849
+0xa749b0603f155
+0x17ad3561a16545
+0x3ae
+0x0
+0x11
+0xa5f8c3c76621a
+0x168359d4931872
+0x1da01e0dd3e9b0
+0x1e45110251c6a1
+0xd6
+0x0
+0x23
+0x43f2adf187e53
+0xf9fb5da7b5ff6
+0x4eda8f1a3c1af
+0x17b2bb39085bb
+0x1
+0x0
+0x1e
+0xbb67b1d9a94a0
+0x1b0bd6abc66c35
+0x987230ba26976
+0x855b94d1cdfbe
+0x5
+0x0
+0x11
+0xeb5f9327fc8d2
+0x3a452c3d9b197
+0xf00c2ef696076
+0x1530df992e81ec
+0x16d
+0x0
+0x23
+0xc6acb3ce7b01f
+0x13c234e0ab83d
+0x12215d3cca3967
+0x2dec77cdcc09
+0x1
+0x0
+0x2c
+0x7937127538810
+0x8b24659b4e3a
+0xaf05c2a3917ef
+0xafa489ca32b5c
+0x5
+0x0
+0x13
+0xdf100430d93f0
+0x6e63b3e50b300
+0x3700728261b31
+0x0
+0x1ec8947587d626
+0x189a552c3ea930
+0xe
+0x0
+0x17f628e933bf66
+0x931d2a052573f
+0x126c7e791c4903
+0x51
+0x0
+0x5
+0x53a619c044e
+0xbbd9a8cb345b4
+0x6
+0xa044a6cd4bc84
+0xca384193b322f
+0x16fa51b910ba37
+0xc4
+0x0
+0x29
+0x9d95abef386c2
+0x5bf84e75752f9
+0x0
+0xfa7bad7232ad3
+0x1b8ee574f3a917
+0x1242b065c8e646
+0xe3
+0x0
+0x3f
+0x753a0193f20a6
+0x19cee8889d997d
+0x3
+0x775c59070dfbd
+0x17082d1e45646a
+0x1f59b530758c47
+0xffffffffffffffff
+0x0
+0x0
+0x0
+0x187f753d786b7
+0x0
+0x15037d70732e67
+0x67ac9c13c92a9
+0xf13f3f0244006
+0x35
+0x0
+0x10
+0x186e52b1c1632
+0xe518a81d80885
+0x9
+0x1834c1589d1057
+0x1889e6ee5a0df7
+0xebccc85467ead
+0x1e
+0x0
+0x23
+0x1c39bde4c72fb
+0x1ae3d31ef0c803
+0xd
+0x6
+0x30c47c080bb45
+0xe81980971bb5c
+0x103034c03cbdcc
+0x62
+0x0
+0x1a
+0x8c5823027fd79
+0x11ca011e20d25d
+0x4
+0xd0799f9e53137
+0x0
+0x0
+0x136f7da4fc68fb
+0x2
+0x1874629c83096c
+0x1345da5428192a
+0xc6b4dd3787dd2
+0x17
+0x0
+0x39
+0xc384bb70306aa
+0xf575c7323c737
+0x4
+0x0
+0x1237b51cd7f149
+0x329ba60f8ef8c
+0x1
+0x1aa66a050c8c47
+0x9e3e1d34d4303
+0x2
+0x123117886e7894
+0x1269edff0f3ded
+0x1
+0x10e358aa96f55c
+0x754511e117b9
+0x0
+0x13530724dc3bd2
+0x3
+0x2
+0xe6ad846216404
+0x1a8c8e9c2ddaa7
+0x0
+0x103934bff63967
+0xbf468a5294d80
+0x5
+0x140c3745f8bddb
+0x1
+0x7b791911be7a4
+0x0
+0x53cc5072996e6
+0x3
+0x3
+0x2
+0x8eef0aac56335
+0x2
+0x17363bfb303295
+0x2
+0x14c9c72fadbee6
+0x3
+0x2
+0x12ae0c2ca934d5
+0x1d98861f427bcf
+0x174e9d41e46904
+0x346
+0x0
+0x39
+0x6442133e69c63
+0x1411c4c08fb45c
+0x5
+0x0
+0x0
+0x1
+0x1
+0x11840cd826cae2
+0xf689038dcc5b5
+0x3
+0x1f96eef635b886
+0x55ab60d7685a1
+0x1086774be704fa
+0x39
+0x0
+0x4
+0xcb47c0d3d6dac
+0x3efce9f9651f9
+0x3
+0x59333103dfd9e
+0x15ab73ff206a02
+0x455b8bb506035
+0x2
+0x0
+0x2f
+0xc5acc63407faf
+0x1c6b0e7b13fcdc
+0x2fb80f884270a
+0x13690b9dc2c4eb
+0x153
+0x0
+0x1c
+0xc45c67e4f305d
+0xdf41fef49d45d
+0xf
+0x5
+0x165a447890a085
+0xbf6845a482246
+0x9d7c7006d2ea0
+0x5
+0x0
+0xa
+0x9405cfcda0f40
+0xc23b7fdef4e2d
+0x4
+0x7f7df7966f2bd
+0x1fa13c7e18e944
+0xffffffffffffffff
+0xf844e019989f9
+0x8eafcc2796d63
+0x4
+0xd48857c28e341
+0x196f2b67e3929b
+0x6
+0x1f0f27aaac06fa
+0x10ff23fffb57ec
+0xd
+0x1415861e973117
+0x100e58d7113a16
+0x1a5c34a03ae2c1
+0x1a6
+0x0
+0x2c
+0x1b05ffc5ffc3e
+0x98d64b0b14fa
+0x1ab0b1fa01b24c
+0x7
+0x18503b4ad9a495
+0xe9a8d7c118fd3
+0x170984a96722f5
+0x91
+0x0
+0x10
+0x9b90232b8bbac
+0x16559d2b7fb899
+0x9504f3eafd954
+0x2
+0x32d03466bfbe9
+0x1e92712c2d2c02
+0x11b9f9c882e3b2
+0x1f
+0x0
+0x3c
+0xd4a94daf0f9fc
+0x1dbc672c1831bd
+0x2e97e603efa01
+0x0
+0x1eee68e5d7e85b
+0x9e7467078fd0c
+0xeb7e32719d915
+0x1b
+0x0
+0x4
+0xf938abba6e50b
+0x19853d51f85c63
+0x1e1e1a78dea2f9
+0x6
+0x1cb03b804c5cc9
+0x5623d4fab1a6d
+0x7840c9ad471fd
+0x3
+0x0
+0x1e
+0x9b488aef3f1d5
+0x11a044b77039db
+0xd
+0x5
+0x1d276040a5a609
+0x15ed54349c5f8c
+0x6
+0xfe524c4bec119
+0x17f9fe0d996215
+0x2
+0x14f558ce74ff58
+0xdcbe506680320
+0x19ad8ebfa43630
+0x78
+0x0
+0x4
+0xe9f8bddd23da2
+0x102178b81f71f7
+0x13e0f0623bbd7
+0x0
+0x42a638595108e
+0x1f542dd49f4faa
+0x26432ed40cfd8
+0x0
+0x0
+0x0
+0x0
+0x1f6ce45661ed40
+0xffffffffffffffff
+0x1dd857be4613ab
+0x1a8e3133097a6c
+0x84
+0xa55f7a7c038ed
+0x1610025295e829
+0x2c
+0x76eedf9c1d5a5
+0x4dc75652200ba
+0x1c3c77280a2223
+0x9
+0x0
+0x33
+0x3b2eb24b04102
+0x90e72305e0bab
+0x1b14dc18cc57ae
+0x7
+0x1bea2ca8293893
+0x13e8e0794dbbab
+0x6aa504cef7e
+0x0
+0x0
+0x0
+0x0
+0x114f604cd817c1
+0x0
+0x4384b1ae7dbdd
+0xce3f584e6bb7e
+0xd
+0x184263e2f9ee80
+0x8d90be06194ae
+0x7e3e3da7ee656
+0x5
+0x0
+0x3
+0xbdef6eae5664b
+0x10c76d2962ac3
+0x996a5da8295c6
+0x4
+0x7b3c06088fcc3
+0xdaee038149480
+0x1236d63483eabe
+0xf8
+0x0
+0x39
+0x8d5ccf64b3429
+0x1b0ec8b3d4233f
+0xb0a6ef0e9228d
+0x4
+0xd5208d03bfe
+0xf416f1746e64b
+0xb2048d9ec4e5a
+0x7
+0x0
+0x35
+0x89fc77a4bfe3e
+0x16ecfdeb976960
+0x9894d6b50ef2
+0x1
+0x66151a8fa2ec0
+0x1e4dd01ca4032f
+0x3d73f2fb4b705
+0x3
+0x0
+0xb
+0x3d04f074121c7
+0xc385175a160ed
+0x1725beb9b8d2d6
+0x2
+0xb3ebb1efeb48e
+0x16c9442971489a
+0x122d2c1909a5
+0x0
+0x0
+0x0
+0x0
+0x1a01c6edaaa015
+0xa
+0xa
+0x9
+0x3
+0x2e317b88aaf8d
+0xae42bee9240a5
+0xd
