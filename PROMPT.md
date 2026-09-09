@@ -186,6 +186,16 @@ each known editor carries a preset: how it takes a line number, and whether it r
 - **project context.** only the file is passed, never the repo root. jetbrains IDEs consequently open a file outside an already-open project in LightEdit mode rather than as part of a project; that is accepted, because the alternative — passing the repo root — makes them write an `.idea` directory into the user's repo.
 - **failures.** an editor that cannot be launched surfaces its error in the status bar.
 
+#### choosing an editor
+
+`open-editor-with` opens a full-screen list of the editors prwatch has a preset for. choosing one launches it on the displayed file at the line `confirm` would use, under the same preset rules above. it does not change `$EDITOR`, and does not change what `confirm` does.
+
+- **which editors are listed.** only those whose command resolves on `PATH` — the same lookup the launch itself performs, so an editor that cannot be found is one that would fail. `$EDITOR`'s editor is always listed even when it does not resolve, so the list never omits the one the app would otherwise use. if nothing resolves, every known editor is listed and launching may fail, which is the `failures` case above.
+- **order.** alphabetical, one editor per row, each row showing whether it runs in the terminal or as a GUI. the `$EDITOR` editor is marked as the default.
+- **selecting.** `up`/`down` move the highlight, `confirm` launches the highlighted editor, and the digits `1`-`9` launch the first nine rows directly. `quit` closes the list without launching.
+- **the highlight** starts on `$EDITOR`'s editor, and afterwards on the last editor chosen, for the rest of the session. the choice is not remembered across runs.
+- the list is modal: it covers both panes, it handles every key it is given, and the mouse does not reach what is underneath it. unlike help, a key it does not recognize is ignored.
+
 ### commits mode
 
 the left pane should be a list of commits (also selectable via keyboard) and the right pane should be the patch associated with the commit.
@@ -291,7 +301,7 @@ searching should match against the content in the main pane only (not the sideba
 
 ### quit
 
-`quit` is context-aware. when a search input is active, it cancels search. when help is open, it closes help. otherwise it shows a confirmation prompt — invoking `quit` again confirms; any other key cancels. `quit-immediate` always exits without confirmation.
+`quit` is context-aware. when a search input is active, it cancels search. when an overlay is open, it closes the overlay. otherwise it shows a confirmation prompt — invoking `quit` again confirms; any other key cancels. `quit-immediate` always exits without confirmation.
 
 ### help
 
@@ -316,7 +326,7 @@ each command maps to one or more keys. keys listed on the same row are interchan
 
 ### visual mode
 
-vim-style keyboard selection in the main pane (only when the main pane is focused, no search input, help overlay, or mouse drag active):
+vim-style keyboard selection in the main pane (only when the main pane is focused, no search input, overlay, or mouse drag active):
 
 | command | default key(s) | action |
 |---------|----------------|--------|
@@ -349,6 +359,7 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 | command | default key(s) | action |
 |---------|----------------|--------|
 | `confirm` | `enter` | sidebar (on a dir): expand/collapse. sidebar (on a file): switch focus to main pane. main pane (files mode): open `$EDITOR` at the line currently at the top of the viewport. main pane (pr mode): open a browser to the URL of the selected item. main pane (commits mode): no-op for now. active search input: confirm (empty text cancels). |
+| `open-editor-with` | `e` | files mode: open a list of known editors and launch the chosen one on the displayed file, at the line at the top of the viewport. no-op when no file is displayed. |
 | `next-leaf` | `shift+n` | jump to next leaf node in the sidebar, regardless of focus |
 | `prev-leaf` | `shift+p` | jump to previous leaf node in the sidebar, regardless of focus |
 | `yank-path` | `y` | sidebar focused: copy the selected file's relative path to the system clipboard. main pane focused (files mode): copy `path/to/file.go:N-M` where N-M is the line range currently in view. shows a transient toast in the bottom-left confirming what was copied. |
@@ -389,7 +400,7 @@ horizontal scrolling via `focus-left` / `focus-right` only applies when the main
 | command | default key(s) | action |
 |---------|----------------|--------|
 | `pr-browse` | `o` | open the browser to the active PR |
-| `quit` | `q`, `esc` | context-aware: cancel active search, close help overlay, or show quit confirmation |
+| `quit` | `q`, `esc` | context-aware: cancel active search, close the open overlay, or show quit confirmation |
 | `quit-immediate` | `Q`, `ctrl+c` | quit without confirmation |
 | `help` | `?` | open help overlay |
 
