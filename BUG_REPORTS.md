@@ -1036,6 +1036,28 @@ a timing failure at 0 draws, and rapid cannot replay it, so `BenchmarkViewEmpty`
 is that bug's durable guard instead. A full verbose package run now reports zero
 invalid fail files.
 
+*Again, 2026-09-09:* adding the `root` draw to `TestProperty_ResolveArgv` (for
+the `Project` preset) shifted that property's draw sequence, and rapid reported
+both of its committed seeds unreplayable. Deleted under the same condition:
+
+```
+[rapid] fail file ".../TestProperty_ResolveArgv-20260904171309-20070.fail" is no longer valid
+[rapid] fail file ".../TestProperty_ResolveArgv-20260904175201-71840.fail" is no longer valid
+```
+
+- **`TestProperty_ResolveArgv` miscounted a file literally named `--`.**
+  *Symptom:* `file "--" appears as 2 args, want 1: [-- --]`, from
+  `Resolve("acme", "", "--", 0)`. Surfaced by the same new draw, which moved
+  the file generator into a region that produces `--`; the defect predates it.
+  *Cause:* the argv is right — the `--` end-of-options guard, then a file whose
+  name happens to be `--`. The property counted whole-arg matches across the
+  entire argv, so the guard token was counted as an occurrence of the path. The
+  comment beside it had already anticipated the near-miss (`"a path like "-" is
+  a substring of the "--" guard"`) and fixed it for substrings, but a path
+  *equal to* the guard still collided.
+  *Fix:* drop the single guard token the preset emits before counting. No
+  production change — `[-- --]` is the correct invocation. Seed committed.
+
 #### Known, deliberate divergence from `ansi.StringWidth`
 
 The oracle models the terminal cell grid, which PROMPT.md makes ground truth.

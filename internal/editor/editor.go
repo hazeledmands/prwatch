@@ -39,6 +39,24 @@ type Preset struct {
 	// as the running application has been signalled, so suspending for one
 	// would blank and redraw the screen for nothing.
 	Terminal bool
+	// Project passes the repository root ahead of the file, so the file opens
+	// inside the project rather than attaching to whichever window the editor
+	// happened to have focused last.
+	//
+	// Only set it for an editor whose CLI takes a list of paths where one may
+	// be a directory and another a file with a position — zed's argument is
+	// literally `[PATHS_WITH_POSITION]...`. It is meaningless for terminal
+	// editors, which would simply open the root as a second file, and it is
+	// deliberately off for the JetBrains launchers: they take a single path,
+	// and handing them the repo root makes them write an `.idea` directory
+	// into the user's repo.
+	//
+	// It composes only with the styles that put the path in positional
+	// arguments (LineColon, and the no-line case). LineGoto and LineFlag put
+	// a flag between the program and the path, so a leading root would land
+	// on the wrong side of it; TestPresetTableProjectIsPositionalOnly holds
+	// that line.
+	Project bool
 	// NoGuard omits the `--` end-of-options guard before the path.
 	//
 	// The guard is the default because without it a path beginning with `-`
@@ -68,7 +86,7 @@ var presets = map[string]Preset{
 	"helix": {Line: LineColon, Terminal: true},
 
 	// GUI editors.
-	"zed":    {Line: LineColon},
+	"zed":    {Line: LineColon, Project: true},
 	"subl":   {Line: LineColon},
 	"code":   {Line: LineGoto},
 	"bbedit": {Line: LinePlus},
@@ -135,12 +153,16 @@ type Invocation struct {
 // line. A line of zero or less means "no line number known", and the line
 // argument is dropped entirely rather than passed as `+0`.
 //
+// root is the repository root, and reaches the argv only for a preset that
+// sets Project; an empty root is the same as not having one. Every other
+// preset gets the file and nothing else.
+//
 // `$EDITOR` is split on whitespace: the first word is the program (kept
 // verbatim, so an absolute path still works), and the rest are passed through
 // as leading arguments ahead of anything the preset adds. No wait flag is ever
 // synthesized, and for a GUI editor one the user wrote is dropped — see
 // stripWaitFlags.
-func Resolve(editorEnv, file string, line int) Invocation {
+func Resolve(editorEnv, root, file string, line int) Invocation {
 	words := strings.Fields(editorEnv)
 	if len(words) == 0 {
 		words = []string{DefaultEditor}
@@ -156,34 +178,45 @@ func Resolve(editorEnv, file string, line int) Invocation {
 	if !preset.Terminal {
 		args = stripWaitFlags(args)
 	}
-	args = append(args, preset.fileArgs(file, line)...)
+	args = append(args, preset.fileArgs(root, file, line)...)
 	return Invocation{Name: name, Args: args, Terminal: preset.Terminal}
 }
 
-// fileArgs is the preset-specific tail of the argv: the file, and the line
-// number in whatever form this editor takes it.
-func (p Preset) fileArgs(file string, line int) []string {
-	// path renders the positional part of the argv, guarded by `--` when the
-	// preset asks for it.
-	path := func(f string) []string {
+// fileArgs is the preset-specific tail of the argv: the repo root when the
+// preset asks for one, the file, and the line number in whatever form this
+// editor takes it.
+func (p Preset) fileArgs(root, file string, line int) []string {
+	// paths renders the positional part of the argv, guarded by `--` when the
+	// preset asks for it. The guard covers every positional, so the root is
+	// protected from a leading `-` the same way the file is.
+	paths := func(ps ...string) []string {
 		if p.NoGuard {
-			return []string{f}
+			return ps
 		}
-		return []string{"--", f}
+		return append([]string{"--"}, ps...)
+	}
+	// positional prefixes the root for a Project preset. It goes first so the
+	// editor reads the directory as the project and the file as something to
+	// open inside it.
+	positional := func(last string) []string {
+		if p.Project && root != "" {
+			return paths(root, last)
+		}
+		return paths(last)
 	}
 	if line <= 0 {
-		return path(file)
+		return positional(file)
 	}
 	withLine := fmt.Sprintf("%s:%d", file, line)
 	switch p.Line {
 	case LineColon:
-		return path(withLine)
+		return positional(withLine)
 	case LineGoto:
-		return append([]string{"--goto"}, path(withLine)...)
+		return append([]string{"--goto"}, paths(withLine)...)
 	case LineFlag:
-		return append([]string{"--line", strconv.Itoa(line)}, path(file)...)
+		return append([]string{"--line", strconv.Itoa(line)}, paths(file)...)
 	default: // LinePlus
-		return append([]string{"+" + strconv.Itoa(line)}, path(file)...)
+		return append([]string{"+" + strconv.Itoa(line)}, paths(file)...)
 	}
 }
 

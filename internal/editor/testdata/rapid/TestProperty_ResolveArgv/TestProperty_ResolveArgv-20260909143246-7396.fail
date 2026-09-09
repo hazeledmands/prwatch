@@ -1,0 +1,31 @@
+# 2026/09/09 14:32:46.506564 [TestProperty_ResolveArgv] [rapid] draw env: "acme"
+# 2026/09/09 14:32:46.506607 [TestProperty_ResolveArgv] [rapid] draw file: "--"
+# 2026/09/09 14:32:46.506617 [TestProperty_ResolveArgv] [rapid] draw line: 0
+# 2026/09/09 14:32:46.506627 [TestProperty_ResolveArgv] [rapid] draw root: ""
+# 2026/09/09 14:32:46.506638 [TestProperty_ResolveArgv] file "--" appears as 2 args, want 1: [-- --]
+# 
+v0.4.8#8247054226810194510
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x71c71c71c71c7
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

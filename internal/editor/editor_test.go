@@ -87,7 +87,7 @@ func TestPresetMatrix(t *testing.T) {
 			if _, ok := Lookup(tt.editor); !ok {
 				t.Fatalf("%s has no preset", tt.editor)
 			}
-			got := Resolve(tt.editor, file, line)
+			got := Resolve(tt.editor, "", file, line)
 			if got.Name != tt.editor {
 				t.Errorf("Name = %q, want %q", got.Name, tt.editor)
 			}
@@ -230,7 +230,7 @@ func TestResolve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Resolve(tt.env, file, tt.line)
+			got := Resolve(tt.env, "", file, tt.line)
 			if got.Name != tt.wantName {
 				t.Errorf("Name = %q, want %q", got.Name, tt.wantName)
 			}
@@ -248,7 +248,7 @@ func TestResolve(t *testing.T) {
 // synthesizes a wait flag, whatever the preset.
 func TestResolveNeverAddsWaitFlag(t *testing.T) {
 	for name := range presets {
-		got := Resolve(name, "f.go", 9)
+		got := Resolve(name, "", "f.go", 9)
 		for _, a := range got.Args {
 			if a == "-w" || a == "--wait" {
 				t.Errorf("%s: Resolve added a wait flag: %v", name, got.Args)
@@ -271,7 +271,7 @@ func TestResolveMentionsFileExactlyOnce(t *testing.T) {
 	for _, name := range names {
 		for _, line := range []int{0, 1, 12345} {
 			t.Run(name+"/"+strconv.Itoa(line), func(t *testing.T) {
-				got := Resolve(name, file, line)
+				got := Resolve(name, "", file, line)
 				n := 0
 				for _, a := range got.Args {
 					if strings.Contains(a, file) {
@@ -324,10 +324,74 @@ func TestWaitFlagStripping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Resolve(tt.env, file, 9)
+			got := Resolve(tt.env, "", file, 9)
 			if !slices.Equal(got.Args, tt.want) {
 				t.Errorf("Resolve(%q).Args = %v, want %v", tt.env, got.Args, tt.want)
 			}
 		})
+	}
+}
+
+// TestPresetTableProjectIsPositionalOnly holds the composition line the
+// Project doc comment draws.
+//
+// Project prepends the repo root to the positional arguments. LineGoto and
+// LineFlag put a flag between the program and the path (`--goto`, `--line N`),
+// so a leading root would land on the wrong side of it and be read as the
+// flag's operand. fileArgs therefore ignores Project for those two styles —
+// which would make a preset that set both silently drop the root rather than
+// fail. This test is what turns that into a build-time decision instead.
+func TestPresetTableProjectIsPositionalOnly(t *testing.T) {
+	for name, p := range presets {
+		if !p.Project {
+			continue
+		}
+		if p.Line == LineGoto || p.Line == LineFlag {
+			t.Errorf("%s sets Project with line style %q; fileArgs cannot place "+
+				"the root there — teach fileArgs the ordering for that style first",
+				name, p.Line)
+		}
+		if p.Terminal {
+			t.Errorf("%s is a terminal editor with Project set; the root would "+
+				"just be a second file to open", name)
+		}
+	}
+}
+
+// TestResolveZedOpensTheProjectAndTheFile pins the invocation this whole
+// preset field exists for. Without the root, `zed <file>` attaches the file to
+// whichever window Zed had focused last rather than opening it in the project.
+func TestResolveZedOpensTheProjectAndTheFile(t *testing.T) {
+	got := Resolve("zed", "/repo", "pkg/thing.go", 42)
+	want := []string{"--", "/repo", "pkg/thing.go:42"}
+	if !slices.Equal(got.Args, want) {
+		t.Errorf("Resolve zed = %v, want %v", got.Args, want)
+	}
+
+	// No line: still the project plus the file.
+	got = Resolve("zed", "/repo", "pkg/thing.go", 0)
+	want = []string{"--", "/repo", "pkg/thing.go"}
+	if !slices.Equal(got.Args, want) {
+		t.Errorf("Resolve zed (no line) = %v, want %v", got.Args, want)
+	}
+
+	// No root: unchanged from before this field existed.
+	got = Resolve("zed", "", "pkg/thing.go", 42)
+	want = []string{"--", "pkg/thing.go:42"}
+	if !slices.Equal(got.Args, want) {
+		t.Errorf("Resolve zed (no root) = %v, want %v", got.Args, want)
+	}
+}
+
+// The root must not leak into an editor that did not ask for it — the
+// JetBrains `.idea` case, and every terminal editor.
+func TestResolveWithoutProjectIgnoresTheRoot(t *testing.T) {
+	for _, name := range []string{"vim", "nvim", "hx", "code", "goland", "subl", "myeditor"} {
+		withRoot := Resolve(name, "/repo", "pkg/thing.go", 42)
+		without := Resolve(name, "", "pkg/thing.go", 42)
+		if !slices.Equal(withRoot.Args, without.Args) {
+			t.Errorf("%s: passing a root changed the argv from %v to %v",
+				name, without.Args, withRoot.Args)
+		}
 	}
 }

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -223,5 +225,67 @@ func TestEditorPicker_LaunchesTheChosenEditorOnTheTarget(t *testing.T) {
 	if gotArgs[len(gotArgs)-1] != wantFile {
 		t.Errorf("opened %q, want the displayed %q (args %v)",
 			gotArgs[len(gotArgs)-1], wantFile, gotArgs)
+	}
+}
+
+// The repo root reaches the argv, which is the half editor.Resolve's own
+// tests cannot check: they are handed a root, while this is about Model
+// passing m.dir at all. zed is the preset that asks for one.
+func TestEditorPicker_ZedGetsTheRepoRoot(t *testing.T) {
+	t.Setenv("EDITOR", "zed")
+	m, wantFile := paneOwnerModel(t)
+
+	var gotArgs []string
+	m.interactiveFactory = func(name string, args ...string) command.Command {
+		gotArgs = append([]string{name}, args...)
+		return command.StubCommand("", nil)
+	}
+
+	_, cmd := m.handleEnter()
+	if cmd == nil {
+		t.Fatal("Enter with a file on screen should launch the editor")
+	}
+	// zed is a GUI preset, so the launch is a background spawn rather than a
+	// tea.Exec; running the command is what builds the argv.
+	execSafeCmd(m, cmd)
+
+	if len(gotArgs) == 0 {
+		t.Fatal("zed was not launched")
+	}
+	if !slices.Contains(gotArgs, m.dir) {
+		t.Errorf("argv %v does not carry the repo root %q", gotArgs, m.dir)
+	}
+	last := gotArgs[len(gotArgs)-1]
+	if !strings.HasPrefix(last, wantFile+":") {
+		t.Errorf("last arg %q should be %q with a line suffix", last, wantFile)
+	}
+	if len(gotArgs) < 2 || gotArgs[len(gotArgs)-2] != m.dir {
+		t.Errorf("argv %v: the root should sit immediately before the file", gotArgs)
+	}
+}
+
+// And it must not reach an editor that did not ask for one — the JetBrains
+// `.idea` case the spec calls out.
+func TestEditorPicker_GolandDoesNotGetTheRepoRoot(t *testing.T) {
+	t.Setenv("EDITOR", "goland")
+	m, _ := paneOwnerModel(t)
+
+	var gotArgs []string
+	m.interactiveFactory = func(name string, args ...string) command.Command {
+		gotArgs = append([]string{name}, args...)
+		return command.StubCommand("", nil)
+	}
+
+	_, cmd := m.handleEnter()
+	if cmd == nil {
+		t.Fatal("Enter with a file on screen should launch the editor")
+	}
+	execSafeCmd(m, cmd)
+
+	if len(gotArgs) == 0 {
+		t.Fatal("goland was not launched")
+	}
+	if slices.Contains(gotArgs, m.dir) {
+		t.Errorf("argv %v carries the repo root; goland would write an .idea directory into it", gotArgs)
 	}
 }

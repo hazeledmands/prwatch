@@ -2400,7 +2400,7 @@ func (m *Model) openEditor() tea.Cmd {
 // file at line. Shared by `confirm`, which passes `$EDITOR`, and the editor
 // picker, which passes the chosen editor's name.
 func (m *Model) launchEditor(editorEnv, file string, line int) tea.Cmd {
-	inv := editor.Resolve(editorEnv, file, line)
+	inv := editor.Resolve(editorEnv, m.dir, file, line)
 	if !inv.Terminal {
 		// GUI editor: spawned without suspending the TUI. Untimed, because
 		// $EDITOR is the user's: a `-w` they put there themselves makes the
@@ -2524,7 +2524,7 @@ func (m *Model) openInBrowser(url string) tea.Cmd {
 // terminal. A thin adapter over editor.Resolve, which is where the preset
 // table and all the argv shapes live.
 func (m *Model) buildEditorCmd(file string) editor.Invocation {
-	return editor.Resolve(os.Getenv("EDITOR"), file, m.currentLineNumber())
+	return editor.Resolve(os.Getenv("EDITOR"), m.dir, file, m.currentLineNumber())
 }
 
 // currentLineNumber finds the source line at the viewport top, mapping
